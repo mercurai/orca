@@ -1,0 +1,74 @@
+# The mercurai patch series: what gets applied on top of an upstream release tag to make a
+# mercurai build. `base:` is maintained by .github/workflows/rebase-patches.yml; lanes maintain
+# the rest. Status vocabulary: planned | upstream-open | ours-only | merged-upstream.
+# Jobs act only on upstream-open and ours-only patches; planned entries document the series,
+# merged-upstream entries are dropped at the next tag that contains them.
+version: 1
+upstream: stablyai/orca
+base: v1.4.222
+release_branch: release/mercurai
+patches:
+  - slug: fork-canary
+    branch: patch/fork-canary
+    status: ours-only
+    base: v1.4.222
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: pipeline canary, one file under .mercurai/; proves rebase and assembly on every tag, never upstreamed
+  - slug: orca-loop-probes
+    branch: patch/orca-loop-probes
+    status: planned
+    issue: mercurai/claude-code-config#1081
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: always-on main-loop span, main_loop_stall breadcrumb, git.caller attribution
+  - slug: orca-username-signature
+    branch: patch/orca-username-signature
+    status: planned
+    issue: mercurai/claude-code-config#1082
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: skip git username enrichment while the repo's config signature is unchanged
+  - slug: orca-worktree-list-fingerprint
+    branch: patch/orca-worktree-list-fingerprint
+    status: planned
+    issue: mercurai/claude-code-config#1083
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: fingerprint-gate the IPC worktree listing
+  - slug: orca-remote-listing-cache
+    branch: patch/orca-remote-listing-cache
+    status: planned
+    issue: mercurai/claude-code-config#1084
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: raw git remote callers use listCachedRemoteNames
+  - slug: orca-spawn-worker
+    branch: patch/orca-spawn-worker
+    status: planned
+    issue: mercurai/claude-code-config#1085
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: git spawns on a worker thread behind ORCA_GIT_SPAWN_WORKER
+  - slug: orca-spawn-worker-barrier
+    branch: patch/orca-spawn-worker-barrier
+    status: planned
+    issue: mercurai/claude-code-config#1086
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: gh, glab and remote-rebase through the spawn worker
+  - slug: orca-sync-spawn-sites
+    branch: patch/orca-sync-spawn-sites
+    status: planned
+    issue: mercurai/claude-code-config#1087
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: async repo-detection and the Windows sync probe sites (borrowed from upstream PR 20498)

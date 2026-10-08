@@ -1,0 +1,106 @@
+# mercurai fork: assemble a release branch = one upstream release tag + the active patch series,
+# run the patches' tests, and tag it `v<upstream>-mercurai.N`. The branch and tag are what the
+# build/publish job (the mercurai release channel, a separate increment) consumes. Lives in the
+# fork only. The series must already be rebased onto the tag (fork-rebase-patches does that).
+name: fork-assemble-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream release tag to assemble on (for example v1.4.222)
+        type: string
+        required: true
+      dry_run:
+        description: Assemble and test, but push nothing
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-assemble-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: stablyai/orca
+  FORK_BRANCH: mercurai
+  MANIFEST: .mercurai/patches.yaml
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.FORK_BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.FORK_BOT_TOKEN || github.token }}
+
+      - name: Fetch the tag and the patch branches
+        run: |
+          set -euo pipefail
+          git config user.name 'mercurai-fork-bot'
+          git config user.email 'fork-bot@users.noreply.github.com'
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
+          git fetch upstream --tags
+          git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' --tags
+          git rev-parse --verify "refs/tags/$TAG" >/dev/null
+          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }
+
+      - name: Check the series base
+        run: |
+          set -euo pipefail
+          base=$(yq -r '.base' "$MANIFEST")
+          if [ "$base" != "$TAG" ]; then
+            echo "::error::manifest base is $base, not $TAG; run fork-rebase-patches with tag=$TAG first"
+            exit 1
+          fi
+          yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST" > /tmp/active
+          echo "series: $(tr '\n' ' ' < /tmp/active)"
+
+      - name: Assemble the release branch
+        id: assemble
+        run: |
+          set -euo pipefail
+          branch=$(yq -r '.release_branch' "$MANIFEST")
+          git checkout -q -B "$branch" "refs/tags/$TAG"
+          while read -r patch; do
+            [ -z "$patch" ] && continue
+            # Patches are rebased onto the tag, so tag..branch is exactly the patch's commits.
+            git cherry-pick -x "refs/tags/$TAG..origin/$patch" || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
+          done < /tmp/active
+          version=${TAG#v}
+          n=$(( $(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1 | sed 's/^$/0/') + 1 ))
+          echo "release_branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "release_tag=v${version}-mercurai.${n}" >> "$GITHUB_OUTPUT"
+          git log --oneline "refs/tags/$TAG..HEAD"
+
+      - name: Tests named by the series
+        id: tests
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST" | sort -u)
+          echo "count=${#tests[@]}" >> "$GITHUB_OUTPUT"
+          [ "${#tests[@]}" -eq 0 ] && echo "no patch names tests; nothing to run" || printf '%s\n' "${tests[@]}"
+      - uses: ./.github/actions/install-node-dependencies
+        if: ${{ steps.tests.outputs.count != '0' }}
+      - name: Run the series tests
+        if: ${{ steps.tests.outputs.count != '0' }}
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST" | sort -u)
+          pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"
+
+      - name: Push the release branch and tag
+        if: ${{ inputs.dry_run == false }}
+        run: |
+          set -euo pipefail
+          # The release branch is assembled, never hand-edited, so replacing it is the contract.
+          git push --force-with-lease origin "HEAD:refs/heads/${{ steps.assemble.outputs.release_branch }}"
+          git tag -a "${{ steps.assemble.outputs.release_tag }}" -m "mercurai release on $TAG: $(tr '\n' ' ' < /tmp/active)"
+          git push origin "refs/tags/${{ steps.assemble.outputs.release_tag }}"
+          echo "tagged ${{ steps.assemble.outputs.release_tag }} on ${{ steps.assemble.outputs.release_branch }}"
