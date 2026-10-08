@@ -1,0 +1,169 @@
+# mercurai fork: build the Windows installer for a `v<upstream>-mercurai.N` tag and publish it to the
+# mercurai release channel (mercurai/orca-mercurai) as a prerelease. The tag is the one
+# fork-assemble-release pushes; that job dispatches this one after it tags. The channel code itself
+# (src/shared/release-channel.ts, config/electron-builder.config.cjs) rides in the `orca-release-channel`
+# patch, so the checked-out tag already knows the `mercurai` channel. Lives in the fork only.
+#
+# Unsigned on purpose, like upstream's Windows dev channels: the build carries no publisherName and
+# verifyUpdateCodeSignature is false, so the installed app updates itself from this channel without
+# a SignPath step. The first install is by hand (see config/mercurai/README.md, Release channel).
+#
+#   gh workflow run fork-release-win-build.yml --ref mercurai -f tag=v1.4.222-mercurai.1
+name: fork-release-win-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Mercurai release tag to build and publish (for example v1.4.222-mercurai.1)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Re-dispatching one tag must not race two uploads into one release; different tags are independent.
+  group: fork-release-win-build-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  CHANNEL_REPO: mercurai/orca-mercurai
+  TAG: ${{ inputs.tag }}
+
+jobs:
+  build-win:
+    if: github.repository == 'mercurai/orca'
+    # windows-2022, not windows-latest: the 2025 image's VS 2026 breaks node-gyp, as in the dev channels.
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - name: Require the bot token
+        shell: bash
+        env:
+          HAS_TOKEN: ${{ secrets.FORK_BOT_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::FORK_BOT_TOKEN is not set; see config/mercurai/README.md (one-time setup)"
+            exit 1
+          fi
+
+      - name: Vet the tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mercurai\.[0-9]+$ ]]; then
+            echo "::error::tag '$TAG' is not v<major>.<minor>.<patch>-mercurai.<n>"
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # The token only reads the tag here. It is not handed to the build, which runs repository scripts.
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          token: ${{ secrets.FORK_BOT_TOKEN }}
+          persist-credentials: false
+
+      # The packaging config comes from the tag's tree, not from this workflow's branch. A tag cut before the
+      # channel patch landed ignores ORCA_WIN_MERCURAI and would publish to upstream's repo name; say so now.
+      - name: Resolve the packaging identity
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "ORCA_WIN_MERCURAI=1" >> "$GITHUB_ENV"
+          echo "ORCA_MERCURAI_BUILD_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          if ! grep -q "ORCA_WIN_MERCURAI" config/electron-builder.config.cjs; then
+            echo "::error::$TAG has no mercurai channel in config/electron-builder.config.cjs; it was assembled without the orca-release-channel patch."
+            exit 1
+          fi
+
+      - uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: electron
+      - uses: ./.github/actions/install-mobile-dependencies
+
+      - name: Verify the packaging identity
+        shell: bash
+        run: node config/scripts/verify-dev-channel-packaging.mjs --channel=mercurai --platform=win32
+
+      # Same relay addons the upstream dev Windows leg builds before packaging.
+      - name: Build Windows process-table addon for the relay
+        shell: bash
+        run: |
+          node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=x64
+          node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=arm64
+
+      # build:win does not build the native CLI launcher that the Windows package ships as bin/orca.exe.
+      - name: Build native components
+        shell: bash
+        run: pnpm run build:native
+
+      # No token in this step's environment and the ref is a branch, so electron-builder only packages.
+      - name: Build the Windows installer
+        shell: bash
+        run: pnpm run build:win
+
+      - name: Check the build outputs
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for f in orca-windows-setup.exe orca-windows-setup.exe.blockmap latest.yml; do
+            [ -f "dist/$f" ] || { echo "::error::dist/$f was not produced; the Windows build cannot ship"; ls -la dist; exit 1; }
+          done
+          grep -q "^version: ${VERSION}\$" dist/latest.yml || { echo "::error::dist/latest.yml does not carry version ${VERSION}"; cat dist/latest.yml; exit 1; }
+
+      # A repo with no commit cannot hold a release tag, so give an empty channel repo its first commit once.
+      - name: Make sure the channel repo has a commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          deny() { echo "::error::The token cannot write to $CHANNEL_REPO. Add orca-mercurai to the FORK_BOT_TOKEN fine-grained token (Contents: read and write); see config/mercurai/README.md (Release channel)."; echo "$1"; exit 1; }
+          if out=$(gh api "repos/$CHANNEL_REPO/commits?per_page=1" 2>&1); then
+            echo "channel repo has history"
+          elif grep -qi "empty" <<<"$out"; then
+            content=$(printf '# orca-mercurai\n\nRelease assets for the mercurai Orca build channel, published by mercurai/orca CI only.\n' | base64 -w0)
+            out=$(gh api -X PUT "repos/$CHANNEL_REPO/contents/README.md" -f message='chore: initial commit' -f content="$content" 2>&1) || deny "$out"
+            echo "created the first commit"
+          else
+            deny "$out"
+          fi
+
+      # Draft first, public last: the updater reads latest.yml from a published release, so it must never see one
+      # whose installer is still uploading.
+      - name: Publish the prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          deny() { echo "::error::Upload to $CHANNEL_REPO was denied. Add orca-mercurai to the FORK_BOT_TOKEN fine-grained token (Contents: read and write); see config/mercurai/README.md (Release channel)."; echo "$1"; exit 1; }
+          files=(dist/orca-windows-setup.exe dist/orca-windows-setup.exe.blockmap dist/latest.yml)
+          if gh release view "$TAG" --repo "$CHANNEL_REPO" >/dev/null 2>&1; then
+            out=$(gh release upload "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
+          else
+            out=$(gh release create "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --title "$TAG" --prerelease --draft \
+              --notes "Mercurai build of $TAG. Unsigned Windows installer, built by mercurai/orca CI run ${GITHUB_RUN_ID}." 2>&1) || deny "$out"
+          fi
+          out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --prerelease 2>&1) || deny "$out"
+
+      - name: Verify the update manifest is public
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$TAG" --repo "$CHANNEL_REPO" --json assets --jq '.assets[].name')"
+          echo "$assets"
+          for required in latest.yml orca-windows-setup.exe orca-windows-setup.exe.blockmap; do
+            grep -qx "$required" <<<"$assets" || { echo "::error::$TAG is missing $required in $CHANNEL_REPO"; exit 1; }
+          done
