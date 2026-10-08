@@ -24,7 +24,8 @@ concurrency:
 
 env:
   UPSTREAM_REPO: stablyai/orca
-  FORK_BRANCH: mercurai
+  # The branch this run was started from: `mercurai` on the schedule, a feature branch when dispatched for a test.
+  FORK_BRANCH: ${{ github.ref_name }}
   SYNC_ISSUE_LABEL: fork-sync
 
 jobs:
@@ -33,7 +34,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.FORK_BRANCH }}
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
           token: ${{ secrets.FORK_BOT_TOKEN || github.token }}
 
