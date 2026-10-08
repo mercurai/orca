@@ -1,5 +1,5 @@
 # mercurai fork: build the Windows installer for a `v<upstream>-mercurai.N` tag and publish it to the
-# mercurai release channel (mercurai/orca-mercurai) as a prerelease. The tag is the one
+# mercurai release channel (mercurai/orca-mercurai) as a normal release (so /releases/latest resolves). The tag is the one
 # fork-assemble-release pushes; that job dispatches this one after it tags. The channel code itself
 # (src/shared/release-channel.ts, config/electron-builder.config.cjs) rides in the `orca-release-channel`
 # patch, so the checked-out tag already knows the `mercurai` channel. Lives in the fork only.
@@ -28,6 +28,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # The runner checkout has an upstream remote; gh prefers it when inferring the repo.
+  GH_REPO: ${{ github.repository }}
   CHANNEL_REPO: mercurai/orca-mercurai
   TAG: ${{ inputs.tag }}
 
@@ -145,7 +147,7 @@ jobs:
 
       # Draft first, public last: the updater reads latest.yml from a published release, so it must never see one
       # whose installer is still uploading.
-      - name: Publish the prerelease
+      - name: Publish the release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
@@ -159,10 +161,10 @@ jobs:
             out=$(gh release upload "$TAG" "${files[@]:0:2}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
             out=$(gh release upload "$TAG" "${files[2]}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
           else
-            out=$(gh release create "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --title "$TAG" --prerelease --draft \
+            out=$(gh release create "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --title "$TAG" --draft \
               --notes "Mercurai build of $TAG. Unsigned Windows installer, built by mercurai/orca CI run ${GITHUB_RUN_ID}." 2>&1) || deny "$out"
           fi
-          out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --prerelease 2>&1) || deny "$out"
+          out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --latest 2>&1) || deny "$out"
 
       - name: Verify the update manifest is public
         shell: bash

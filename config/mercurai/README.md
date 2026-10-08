@@ -73,7 +73,7 @@ repo `mercurai/orca-mercurai`, Windows only. The channel code is the `orca-relea
 (`ours-only`, upstream will not take a fork channel): version scheme `1.4.222-mercurai.1`, repo
 `mercurai/orca-mercurai`, unsigned Windows build like upstream's `adhoc` channel. `fork-release-win-build`
 checks out the tag, builds, and publishes the installer, blockmap and `latest.yml` as a prerelease
-named by the tag.
+named by the tag (a normal release, not a prerelease, so the channel's `/releases/latest` resolves).
 
 Trust boundary:
 
@@ -84,6 +84,8 @@ Trust boundary:
   Nobody uploads by hand, and no write-scoped personal token is placed in a shell.
 - Branch protection on (see One-time setup 4) is what keeps an unreviewed workflow change from
   reaching that token.
+- Accepted risk: the build steps run code from the tag while `FORK_BOT_TOKEN` is in the job, so only
+  reviewed fork code may be on `release/mercurai`.
 - First install is by hand: a signed upstream install verifies update signatures against upstream's
   publisher and refuses an unsigned update, so run the first `orca-windows-setup.exe` yourself. From
   then on routine update checks of a mercurai build read the channel repo (not upstream stable, which

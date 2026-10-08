@@ -32,6 +32,8 @@ env:
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   MANIFEST: config/mercurai/patches.yaml
   MANIFEST_WORK: /tmp/manifest.yaml
+  # The runner checkout has an upstream remote; gh prefers it when inferring the repo.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   assemble:
@@ -145,7 +147,7 @@ jobs:
           RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
         run: |
           gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" || {
-            echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
+            echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
             exit 1
           }
 
