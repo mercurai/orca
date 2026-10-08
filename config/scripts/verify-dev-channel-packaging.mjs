@@ -18,13 +18,23 @@ import { pathToFileURL } from 'node:url'
 const CHANNEL_REPOS = {
   hourly: 'orca-hourly',
   daily: 'orca-daily',
-  adhoc: 'orca-adhoc'
+  adhoc: 'orca-adhoc',
+  mercurai: 'orca-mercurai'
 }
 
 const CHANNEL_VERSION_ENV = {
   hourly: 'ORCA_HOURLY_BUILD_VERSION',
   daily: 'ORCA_DAILY_BUILD_VERSION',
-  adhoc: 'ORCA_ADHOC_BUILD_VERSION'
+  adhoc: 'ORCA_ADHOC_BUILD_VERSION',
+  mercurai: 'ORCA_MERCURAI_BUILD_VERSION'
+}
+
+// Why: every channel but mercurai publishes under upstream's org.
+const CHANNEL_OWNERS = {
+  hourly: 'stablyai',
+  daily: 'stablyai',
+  adhoc: 'stablyai',
+  mercurai: 'mercurai'
 }
 
 export function collectDevChannelPackagingProblems({ channel, platform, config, env }) {
@@ -40,6 +50,12 @@ export function collectDevChannelPackagingProblems({ channel, platform, config, 
     problems.push(
       `publish.repo is "${config.publish?.repo}" but this ${channel} build must publish to "${expectedRepo}". ` +
         `The checked-out ref's electron-builder config does not understand this channel on ${platform} — rebase it onto a main that does.`
+    )
+  }
+
+  if (config.publish?.owner !== CHANNEL_OWNERS[channel]) {
+    problems.push(
+      `publish.owner is "${config.publish?.owner}" but this ${channel} build must publish under "${CHANNEL_OWNERS[channel]}".`
     )
   }
 
@@ -94,7 +110,7 @@ function main() {
   const { channel, platform = process.platform } = parseArgs(process.argv.slice(2))
   if (!channel) {
     console.error(
-      'Usage: verify-dev-channel-packaging.mjs --channel=<hourly|daily|adhoc> [--platform=win32]'
+      'Usage: verify-dev-channel-packaging.mjs --channel=<hourly|daily|adhoc|mercurai> [--platform=win32]'
     )
     process.exit(1)
   }
@@ -113,7 +129,7 @@ function main() {
     process.exit(1)
   }
   console.log(
-    `Dev-channel packaging verified: ${channel} on ${platform} → stablyai/${CHANNEL_REPOS[channel]} @ ${config.extraMetadata?.version}`
+    `Dev-channel packaging verified: ${channel} on ${platform} → ${CHANNEL_OWNERS[channel]}/${CHANNEL_REPOS[channel]} @ ${config.extraMetadata?.version}`
   )
 }
 
