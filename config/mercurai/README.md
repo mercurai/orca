@@ -86,8 +86,9 @@ Trust boundary:
   reaching that token.
 - First install is by hand: a signed upstream install verifies update signatures against upstream's
   publisher and refuses an unsigned update, so run the first `orca-windows-setup.exe` yourself. From
-  then on updates come in-app, and the channel picker's pinned-build check
-  (`checkForPinnedBuild`) jumps back to upstream stable when wanted.
+  then on routine update checks of a mercurai build read the channel repo (not upstream stable, which
+  sorts above `X.Y.Z-mercurai.N`), so the next `-mercurai.N+1` arrives in-app. The channel picker's
+  pinned-build check (`checkForPinnedBuild`) jumps back to upstream stable when wanted.
 
 ## One-time setup
 
@@ -102,7 +103,8 @@ Trust boundary:
 3. Upstream's own workflows also run in the fork on pushes to `main` and `mercurai`; disable the
    ones that need upstream secrets or runners (`gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/disable`).
 4. Release channel: add `mercurai/orca-mercurai` to the repositories of the `FORK_BOT_TOKEN`
-   fine-grained token with Contents read and write. The publish job fails with an `::error::` naming
+   fine-grained token with Contents read and write; the token also needs Actions read and write on
+   `mercurai/orca` so `fork-assemble-release` can dispatch the build. The publish job fails with an `::error::` naming
    this step when the upload is denied. The job also gives an empty channel repo its first commit.
 5. Branch protection: `main` and `mercurai` accept pushes only from the bot and reviewed PRs;
    `patch/*` branches may be force-pushed by the bot and the lane that owns them.

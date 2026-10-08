@@ -99,15 +99,20 @@ jobs:
           node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=x64
           node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=arm64
 
-      # build:win does not build the native CLI launcher that the Windows package ships as bin/orca.exe.
-      - name: Build native components
+      # build:release is what the upstream dev Windows leg runs: relay, native CLI launcher, CLI, app and mobile web bundle.
+      - name: Build app
         shell: bash
-        run: pnpm run build:native
+        run: pnpm run build:release
+        env:
+          ORCA_REQUIRE_RELAY_NATIVE_ADDONS: 'x64,arm64'
 
-      # No token in this step's environment and the ref is a branch, so electron-builder only packages.
+      # --publish never: this step only packages; the token-holding steps below publish.
       - name: Build the Windows installer
         shell: bash
-        run: pnpm run build:win
+        run: |
+          set -euo pipefail
+          node config/scripts/ensure-native-runtime.mjs --runtime=electron
+          pnpm exec electron-builder --config config/electron-builder.config.cjs --win --publish never
 
       - name: Check the build outputs
         shell: bash
@@ -149,7 +154,10 @@ jobs:
           deny() { echo "::error::Upload to $CHANNEL_REPO was denied. Add orca-mercurai to the FORK_BOT_TOKEN fine-grained token (Contents: read and write); see config/mercurai/README.md (Release channel)."; echo "$1"; exit 1; }
           files=(dist/orca-windows-setup.exe dist/orca-windows-setup.exe.blockmap dist/latest.yml)
           if gh release view "$TAG" --repo "$CHANNEL_REPO" >/dev/null 2>&1; then
-            out=$(gh release upload "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
+            # Re-run on a published release: hide it while the assets are replaced, manifest last.
+            out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=true 2>&1) || deny "$out"
+            out=$(gh release upload "$TAG" "${files[@]:0:2}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
+            out=$(gh release upload "$TAG" "${files[2]}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
           else
             out=$(gh release create "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --title "$TAG" --prerelease --draft \
               --notes "Mercurai build of $TAG. Unsigned Windows installer, built by mercurai/orca CI run ${GITHUB_RUN_ID}." 2>&1) || deny "$out"

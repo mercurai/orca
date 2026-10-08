@@ -142,7 +142,12 @@ jobs:
         if: ${{ steps.mode.outputs.push == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
-        run: gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=${{ steps.assemble.outputs.release_tag }}"
+          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
+        run: |
+          gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" || {
+            echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
+            exit 1
+          }
 
       - name: Report the dry run
         if: ${{ steps.mode.outputs.push != 'true' }}
