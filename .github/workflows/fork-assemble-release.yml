@@ -28,6 +28,7 @@ env:
   # The branch this run was started from: `mercurai` normally, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
   MANIFEST: .mercurai/patches.yaml
+  MANIFEST_WORK: /tmp/manifest.yaml
 
 jobs:
   assemble:
@@ -55,19 +56,21 @@ jobs:
       - name: Check the series base
         run: |
           set -euo pipefail
-          base=$(yq -r '.base' "$MANIFEST")
+          # The release branch starts from the upstream tag, which has no .mercurai/, so every later read uses this copy.
+          cp "$MANIFEST" "$MANIFEST_WORK"
+          base=$(yq -r '.base' "$MANIFEST_WORK")
           if [ "$base" != "$TAG" ]; then
             echo "::error::manifest base is $base, not $TAG; run fork-rebase-patches with tag=$TAG first"
             exit 1
           fi
-          yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST" > /tmp/active
+          yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > /tmp/active
           echo "series: $(tr '\n' ' ' < /tmp/active)"
 
       - name: Assemble the release branch
         id: assemble
         run: |
           set -euo pipefail
-          branch=$(yq -r '.release_branch' "$MANIFEST")
+          branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
           git checkout -q -B "$branch" "refs/tags/$TAG"
           while read -r patch; do
             [ -z "$patch" ] && continue
@@ -84,7 +87,7 @@ jobs:
         id: tests
         run: |
           set -euo pipefail
-          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST" | sort -u)
+          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST_WORK" | sort -u)
           echo "count=${#tests[@]}" >> "$GITHUB_OUTPUT"
           [ "${#tests[@]}" -eq 0 ] && echo "no patch names tests; nothing to run" || printf '%s\n' "${tests[@]}"
       - uses: ./.github/actions/install-node-dependencies
@@ -93,7 +96,7 @@ jobs:
         if: ${{ steps.tests.outputs.count != '0' }}
         run: |
           set -euo pipefail
-          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST" | sort -u)
+          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST_WORK" | sort -u)
           pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"
 
       - name: Push the release branch and tag
