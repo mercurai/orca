@@ -29,6 +29,9 @@ concurrency:
 
 env:
   UPSTREAM_REPO: stablyai/orca
+  # gh infers the repo from the remote named upstream when one exists, so a bare `gh workflow run`
+  # or `gh issue create` on the runner went to stablyai/orca (HTTP 404 on 2026-10-08). Pin it to this fork.
+  GH_REPO: ${{ github.repository }}
   # The branch this run was started from: `mercurai` on the schedule, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
   # The schedule payload may carry no repository object, so the default branch is spelled out as the fallback.
