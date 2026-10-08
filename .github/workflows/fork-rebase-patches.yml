@@ -29,7 +29,8 @@ env:
   UPSTREAM_REPO: stablyai/orca
   # The branch this run was started from: `mercurai` on the schedule, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
-  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  # The schedule payload may carry no repository object, so the default branch is spelled out as the fallback.
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   MANIFEST: config/mercurai/patches.yaml
   MANIFEST_WORK: /tmp/manifest.yaml
   CONFLICT_LABEL: patch-conflict
@@ -42,8 +43,10 @@ jobs:
       TARGET: ${{ inputs.tag }}
     steps:
       - name: Require the bot token
+        env:
+          HAS_TOKEN: ${{ secrets.FORK_BOT_TOKEN != '' }}
         run: |
-          if [ -z "${{ secrets.FORK_BOT_TOKEN }}" ]; then
+          if [ "$HAS_TOKEN" != "true" ]; then
             echo "::error::FORK_BOT_TOKEN is not set; see config/mercurai/README.md (one-time setup)"
             exit 1
           fi
@@ -109,7 +112,11 @@ jobs:
             old=${old:-$(yq -r '.base' "$MANIFEST_WORK")}
             git checkout -q -B "$branch" "origin/$branch"
             before=$(git rev-parse HEAD)
-            if ! git rebase --onto "$BASE" "$old"; then
+            # A rerun after a partial failure, or a lane that already moved the branch: the branch sits on
+            # the base already, and replaying it from the old base would re-apply upstream's own history.
+            if git merge-base --is-ancestor "$BASE" HEAD; then
+              echo "$branch already contains $BASE; no rebase needed"
+            elif ! git rebase --onto "$BASE" "$old"; then
               git diff --name-only --diff-filter=U | head -50 > /tmp/conflicts
               git rebase --abort
               failed=1
@@ -140,7 +147,9 @@ jobs:
               continue
             fi
             if [ "$MODE" = real ]; then
-              git push --force-with-lease="refs/heads/$branch:$before" origin "$branch"
+              if [ "$(git rev-parse HEAD)" != "$before" ]; then
+                git push --force-with-lease="refs/heads/$branch:$before" origin "$branch"
+              fi
               yq -i "(.patches[] | select(.branch == \"$branch\") | .base) = \"$TARGET\"" "$MANIFEST_WORK"
             else
               echo "$branch rebases cleanly onto $BASE ($(git rev-list --count "$BASE..HEAD") commits; dry run, not pushed)"
@@ -165,7 +174,10 @@ jobs:
           git commit -m "chore(fork): patch series rebased onto $TARGET"
           # fork-sync-upstream may push a merge-forward at the same time; retry on top of it.
           for attempt in 1 2 3; do
-            git fetch origin "$FORK_BRANCH" && git rebase "origin/$FORK_BRANCH" && git push origin "$FORK_BRANCH" && break
+            git fetch origin "$FORK_BRANCH"
+            # One linear manifest commit replays cleanly; a failed replay must not leave a rebase in progress.
+            if git rebase "origin/$FORK_BRANCH" && git push origin "$FORK_BRANCH"; then break; fi
+            git rebase --abort 2>/dev/null || true
             [ "$attempt" = 3 ] && exit 1
             sleep 15
           done

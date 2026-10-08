@@ -28,7 +28,8 @@ env:
   UPSTREAM_REPO: stablyai/orca
   # The branch this run was started from: `mercurai` normally, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
-  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  # The event payload may carry no repository object, so the default branch is spelled out as the fallback.
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   MANIFEST: config/mercurai/patches.yaml
   MANIFEST_WORK: /tmp/manifest.yaml
 
@@ -39,8 +40,10 @@ jobs:
       TAG: ${{ inputs.tag }}
     steps:
       - name: Require the bot token
+        env:
+          HAS_TOKEN: ${{ secrets.FORK_BOT_TOKEN != '' }}
         run: |
-          if [ -z "${{ secrets.FORK_BOT_TOKEN }}" ]; then
+          if [ "$HAS_TOKEN" != "true" ]; then
             echo "::error::FORK_BOT_TOKEN is not set; see config/mercurai/README.md (one-time setup)"
             exit 1
           fi

@@ -31,7 +31,8 @@ env:
   UPSTREAM_REPO: stablyai/orca
   # The branch this run was started from: `mercurai` on the schedule, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
-  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  # The schedule payload may carry no repository object, so the default branch is spelled out as the fallback.
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   SYNC_ISSUE_LABEL: fork-sync
   GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
 
@@ -42,8 +43,10 @@ jobs:
       - name: Require the bot token
         # GITHUB_TOKEN cannot push commits that touch .github/workflows, and upstream changes those
         # in most releases, so the merge-forward needs a token with contents, workflows, issues and actions write.
+        env:
+          HAS_TOKEN: ${{ secrets.FORK_BOT_TOKEN != '' }}
         run: |
-          if [ -z "${{ secrets.FORK_BOT_TOKEN }}" ]; then
+          if [ "$HAS_TOKEN" != "true" ]; then
             echo "::error::FORK_BOT_TOKEN is not set; see config/mercurai/README.md (one-time setup)"
             exit 1
           fi
@@ -111,23 +114,28 @@ jobs:
         run: |
           set -euo pipefail
           git checkout -q "$FORK_BRANCH"
-          if git merge --no-edit upstream/main; then
-            echo "conflict=false" >> "$GITHUB_OUTPUT"
-            if [ "${{ steps.mode.outputs.push }}" = "true" ]; then
-              # fork-rebase-patches may push the manifest to this branch at the same time; retry on top of it.
-              for attempt in 1 2 3; do
-                git fetch origin "$FORK_BRANCH" && git rebase "origin/$FORK_BRANCH" && git push origin "$FORK_BRANCH" && break
-                [ "$attempt" = 3 ] && exit 1
-                sleep 15
-              done
-            else
-              echo "merge is clean; not pushed (report-only run)"
-            fi
-          else
+          echo "conflict=false" >> "$GITHUB_OUTPUT"
+          try_merge() {
+            if git merge --no-edit upstream/main; then return 0; fi
             git diff --name-only --diff-filter=U | head -50 > /tmp/conflicts
             git merge --abort
             echo "conflict=true" >> "$GITHUB_OUTPUT"
+            return 1
+          }
+          if [ "${{ steps.mode.outputs.push }}" != "true" ]; then
+            try_merge && echo "merge is clean; not pushed (report-only run)"
+            exit 0
           fi
+          # fork-rebase-patches may push the manifest to this branch at the same time: start each
+          # attempt from the branch as it is on origin and merge again (a rebase would rewrite the merge).
+          for attempt in 1 2 3; do
+            git fetch origin "$FORK_BRANCH"
+            git reset -q --hard "origin/$FORK_BRANCH"
+            try_merge || exit 0
+            if git push origin "$FORK_BRANCH"; then break; fi
+            [ "$attempt" = 3 ] && exit 1
+            sleep 15
+          done
 
       - name: Report a merge conflict as an issue
         if: ${{ steps.merge.outputs.conflict == 'true' }}
