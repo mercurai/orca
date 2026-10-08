@@ -22,6 +22,8 @@
 // need to branch on whether tracing is on.
 
 import type { PreparedCheckoutOutcome } from '../../shared/worktree/create-types'
+import { currentGitCaller } from '../git/command-runner/git-operation-executor'
+import { recordGitExecForWindow } from './git-exec-window-aggregate'
 import { startSpan, withSpan, type ActiveSpan } from './tracer'
 
 const GIT_FAST_SUCCESS_THRESHOLD_MS = 250
@@ -128,6 +130,7 @@ function shouldRecordGitSpan(
   meta: GitSpanArgs,
   record: { durationMs: number; startTimeUnixNano: string; exit: { _tag: string } }
 ): boolean {
+  recordGitExecForWindow(gitSubcommandFromArgs(meta.args), record.durationMs)
   if (record.exit._tag !== 'Success' || record.durationMs >= GIT_FAST_SUCCESS_THRESHOLD_MS) {
     return true
   }
@@ -153,6 +156,10 @@ function addGitAttributes(span: ActiveSpan, meta: GitSpanArgs): void {
   // Why: git args can contain commit messages, branch names, remotes, or
   // paths. Keep cardinality without copying user-authored content.
   span.setAttribute('git.arg_count', meta.args.length)
+  const caller = currentGitCaller()
+  if (caller) {
+    span.setAttribute('git.caller', caller)
+  }
   if (meta.cwd) {
     span.setAttribute('cwd', meta.cwd)
   }
