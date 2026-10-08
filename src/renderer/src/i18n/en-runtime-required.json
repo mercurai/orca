@@ -1406,7 +1406,8 @@
         "ReleaseChannelSection": {
           "adhocWarning": "Adhoc builds come from a branch that has not landed, and the Windows ones are unsigned. Whoever cut one may abandon it — keep a stable build handy.",
           "dailyWarning": "Daily builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.",
-          "hourlyWarning": "Hourly builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy."
+          "hourlyWarning": "Hourly builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.",
+          "mercuraiWarning": "Mercurai builds are the fork's own Windows builds, published by CI and unsigned. Keep a stable build handy."
         },
         "RemoteServerUpdateDialog": {
           "checkAgain": "Check for Server Updates",
