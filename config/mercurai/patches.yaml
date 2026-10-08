@@ -19,7 +19,7 @@ patches:
   - slug: orca-release-channel
     branch: patch/orca-release-channel
     status: ours-only
-    base: v1.4.222
+    base: v1.4.223
     issue: mercurai/claude-code-config#1088
     owner: harness
     added: 2026-10-08
