@@ -5,13 +5,13 @@
 # merged-upstream entries are dropped at the next tag that contains them.
 version: 1
 upstream: stablyai/orca
-base: v1.4.222
+base: v1.4.223
 release_branch: release/mercurai
 patches:
   - slug: fork-canary
     branch: patch/fork-canary
     status: ours-only
-    base: v1.4.222
+    base: v1.4.223
     owner: harness
     added: 2026-10-08
     tests: []
