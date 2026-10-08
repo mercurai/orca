@@ -1,9 +1,10 @@
-# mercurai fork: keep every active patch branch in .mercurai/patches.yaml rebased.
-# With a `tag` input (dispatched by fork-sync-upstream for each new release tag): rebase each
-# branch from its recorded base onto the tag, run the patch's tests, push with
-# --force-with-lease, record the new base in the manifest and mark patches upstream already
-# carries. On the daily schedule, with no tag: a dry rebase onto upstream/main that only reports,
-# so a conflict shows days before the tag that would carry it. Lives in the fork only.
+# mercurai fork: keep every active patch branch in config/mercurai/patches.yaml rebased.
+# With a `tag` input (dispatched by fork-sync-upstream for the newest release tag): rebase each
+# active branch from its recorded base onto the tag, run the patch's tests, push with
+# --force-with-lease, and when every patch rebased, record the base in the manifest and mark
+# patches the tag already carries. On the daily schedule, with no tag, it dry-rebases onto
+# upstream/main and only reports, so a conflict shows days before the tag that would carry it.
+# Dispatched from a non-default branch it only reports. Lives in the fork only.
 name: fork-rebase-patches
 
 on:
@@ -28,9 +29,11 @@ env:
   UPSTREAM_REPO: stablyai/orca
   # The branch this run was started from: `mercurai` on the schedule, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
-  MANIFEST: .mercurai/patches.yaml
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  MANIFEST: config/mercurai/patches.yaml
   MANIFEST_WORK: /tmp/manifest.yaml
   CONFLICT_LABEL: patch-conflict
+  GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
 
 jobs:
   rebase:
@@ -38,13 +41,31 @@ jobs:
     env:
       TARGET: ${{ inputs.tag }}
     steps:
+      - name: Require the bot token
+        run: |
+          if [ -z "${{ secrets.FORK_BOT_TOKEN }}" ]; then
+            echo "::error::FORK_BOT_TOKEN is not set; see config/mercurai/README.md (one-time setup)"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-          token: ${{ secrets.FORK_BOT_TOKEN || github.token }}
+          token: ${{ secrets.FORK_BOT_TOKEN }}
 
-      - name: Fetch upstream and the patch branches
+      - name: Decide the mode
+        id: mode
+        # real: a tag on the default branch (push, record, mark). dry: no tag, or a non-default branch (report only).
+        run: |
+          if [ -n "$TARGET" ] && [ "$FORK_BRANCH" = "$DEFAULT_BRANCH" ]; then
+            echo "mode=real" >> "$GITHUB_OUTPUT"; echo "base=$TARGET" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=dry" >> "$GITHUB_OUTPUT"; echo "base=${TARGET:-upstream/main}" >> "$GITHUB_OUTPUT"
+            echo "dry run against ${TARGET:-upstream/main} (branch $FORK_BRANCH, default $DEFAULT_BRANCH)"
+          fi
+
+      - name: Fetch upstream, the tag and the patch branches
         run: |
           set -euo pipefail
           git config user.name 'mercurai-fork-bot'
@@ -54,18 +75,21 @@ jobs:
           git fetch --no-tags upstream main
           git fetch upstream --tags
           git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*'
-          if [ -n "$TARGET" ]; then git rev-parse --verify "refs/tags/$TARGET" >/dev/null; fi
+          if [ -n "$TARGET" ]; then git rev-parse --verify "refs/tags/$TARGET^{commit}" >/dev/null; fi
 
       - name: Active patches
         id: patches
         run: |
           set -euo pipefail
-          # Patch branches and tags do not carry .mercurai/, so every later read and edit uses this copy.
+          # Patch branches and tags do not carry config/mercurai/, so every later read and edit uses this copy.
           cp "$MANIFEST" "$MANIFEST_WORK"
           yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > /tmp/active
           echo "count=$(wc -l < /tmp/active)" >> "$GITHUB_OUTPUT"
           echo "active patches: $(tr '\n' ' ' < /tmp/active)"
 
+      - name: Check out the base so the installed dependencies match the code under test
+        if: ${{ steps.patches.outputs.count != '0' }}
+        run: git checkout -q --detach "${{ steps.mode.outputs.base }}"
       - uses: ./.github/actions/install-node-dependencies
         if: ${{ steps.patches.outputs.count != '0' }}
 
@@ -73,76 +97,78 @@ jobs:
         if: ${{ steps.patches.outputs.count != '0' }}
         id: rebase
         env:
-          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN || github.token }}
+          MODE: ${{ steps.mode.outputs.mode }}
+          BASE: ${{ steps.mode.outputs.base }}
         run: |
           set -euo pipefail
-          base="${TARGET:-upstream/main}"
-          mode=$([ -n "$TARGET" ] && echo real || echo dry)
           failed=0
+          : > /tmp/merged
           while read -r branch; do
             [ -z "$branch" ] && continue
             old=$(yq -r ".patches[] | select(.branch == \"$branch\") | .base // \"\"" "$MANIFEST_WORK")
             old=${old:-$(yq -r '.base' "$MANIFEST_WORK")}
             git checkout -q -B "$branch" "origin/$branch"
             before=$(git rev-parse HEAD)
-            if git rebase --onto "$base" "$old"; then
-              mapfile -t tests < <(yq -r ".patches[] | select(.branch == \"$branch\") | .tests[]?" "$MANIFEST_WORK")
-              if [ "${#tests[@]}" -gt 0 ] && ! pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"; then
-                echo "::error::$branch: tests fail after rebase onto $base"
-                failed=1
-                git checkout -q "$FORK_BRANCH"
-                continue
-              fi
-              if [ "$mode" = real ]; then
-                git push --force-with-lease="refs/heads/$branch:$before" origin "$branch"
-                git checkout -q "$FORK_BRANCH"
-                yq -i "(.patches[] | select(.branch == \"$branch\") | .base) = \"$TARGET\"" "$MANIFEST_WORK"
-              else
-                echo "$branch rebases cleanly onto $base (dry run)"
-                git checkout -q "$FORK_BRANCH"
-              fi
-            else
+            if ! git rebase --onto "$BASE" "$old"; then
               git diff --name-only --diff-filter=U | head -50 > /tmp/conflicts
               git rebase --abort
-              git checkout -q "$FORK_BRANCH"
               failed=1
-              title="patch-conflict: $branch does not rebase onto $base"
-              body=$(printf 'Rebasing `%s` from `%s` onto `%s` (%s run) conflicts in:\n\n```\n%s\n```\n\nResolve in a lane, push the branch, and rerun fork-rebase-patches with tag=%s.\n' \
-                "$branch" "$old" "$base" "$mode" "$(cat /tmp/conflicts)" "${TARGET:-<next tag>}")
-              existing=$(gh issue list --label "$CONFLICT_LABEL" --state open --search "in:title \"$branch\"" --json number --jq '.[0].number')
-              if [ -n "$existing" ]; then gh issue comment "$existing" --body "$body"; else
-                gh label create "$CONFLICT_LABEL" --color d93f0b --description 'a patch branch no longer rebases' 2>/dev/null || true
-                gh issue create --label "$CONFLICT_LABEL" --title "$title" --body "$body"
+              title="patch-conflict: $branch does not rebase onto $BASE"
+              body=$(printf 'Rebasing `%s` from `%s` onto `%s` (%s run) conflicts in:\n\n```\n%s\n```\n\nResolve in a lane (a patch upstream squash-merged shows up here too: mark it merged-upstream), push the branch, and rerun fork-rebase-patches with tag=%s.\n' \
+                "$branch" "$old" "$BASE" "$MODE" "$(cat /tmp/conflicts)" "${TARGET:-<next tag>}")
+              if [ "$MODE" = real ]; then
+                existing=$(gh issue list --label "$CONFLICT_LABEL" --state open --search "in:title \"$branch\"" --json number --jq '.[0].number')
+                if [ -n "$existing" ]; then gh issue comment "$existing" --body "$body"; else
+                  gh label create "$CONFLICT_LABEL" --color d93f0b --description 'a patch branch no longer rebases' 2>/dev/null || true
+                  gh issue create --label "$CONFLICT_LABEL" --title "$title" --body "$body"
+                fi
+              else
+                echo "::warning::$title"; echo "$body"
               fi
+              continue
+            fi
+            # Nothing left after the rebase means the base already carries the patch.
+            if [ "$(git rev-list --count "$BASE..HEAD")" = 0 ]; then
+              echo "$branch" >> /tmp/merged
+              echo "$branch: no commits beyond $BASE -> merged-upstream"
+              continue
+            fi
+            mapfile -t tests < <(yq -r ".patches[] | select(.branch == \"$branch\") | .tests[]?" "$MANIFEST_WORK")
+            if [ "${#tests[@]}" -gt 0 ] && ! pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"; then
+              echo "::error::$branch: tests fail after rebase onto $BASE"
+              failed=1
+              continue
+            fi
+            if [ "$MODE" = real ]; then
+              git push --force-with-lease="refs/heads/$branch:$before" origin "$branch"
+              yq -i "(.patches[] | select(.branch == \"$branch\") | .base) = \"$TARGET\"" "$MANIFEST_WORK"
+            else
+              echo "$branch rebases cleanly onto $BASE ($(git rev-list --count "$BASE..HEAD") commits; dry run, not pushed)"
             fi
           done < /tmp/active
+          git checkout -q "$FORK_BRANCH"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
-      - name: Mark patches upstream already carries
-        if: ${{ inputs.tag != '' && steps.patches.outputs.count != '0' }}
+      - name: Record the base and the merged patches
+        # Only when every patch rebased: a partly rebased series must not look assembled.
+        if: ${{ steps.mode.outputs.mode == 'real' && steps.patches.outputs.count != '0' && steps.rebase.outputs.failed == '0' }}
         run: |
           set -euo pipefail
           while read -r branch; do
             [ -z "$branch" ] && continue
-            # `git cherry` prints `+` for commits upstream lacks; none left means upstream merged the patch.
-            if ! git cherry upstream/main "origin/$branch" | grep -q '^+'; then
-              yq -i "(.patches[] | select(.branch == \"$branch\") | .status) = \"merged-upstream\"" "$MANIFEST_WORK"
-              echo "$branch is fully contained in upstream/main -> merged-upstream"
-            fi
-          done < /tmp/active
-
-      - name: Record the new base in the manifest
-        if: ${{ inputs.tag != '' }}
-        run: |
-          set -euo pipefail
+            yq -i "(.patches[] | select(.branch == \"$branch\") | .status) = \"merged-upstream\"" "$MANIFEST_WORK"
+          done < /tmp/merged
           yq -i ".base = \"$TARGET\"" "$MANIFEST_WORK"
-          git checkout -q "$FORK_BRANCH"
           cp "$MANIFEST_WORK" "$MANIFEST"
-          if ! git diff --quiet -- "$MANIFEST"; then
-            git add "$MANIFEST"
-            git commit -m "chore(fork): patch series rebased onto $TARGET"
-            git push origin "$FORK_BRANCH"
-          fi
+          if git diff --quiet -- "$MANIFEST"; then echo "manifest unchanged"; exit 0; fi
+          git add "$MANIFEST"
+          git commit -m "chore(fork): patch series rebased onto $TARGET"
+          # fork-sync-upstream may push a merge-forward at the same time; retry on top of it.
+          for attempt in 1 2 3; do
+            git fetch origin "$FORK_BRANCH" && git rebase "origin/$FORK_BRANCH" && git push origin "$FORK_BRANCH" && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep 15
+          done
 
       - name: Fail the run when any patch failed
         if: ${{ steps.rebase.outputs.failed == '1' }}

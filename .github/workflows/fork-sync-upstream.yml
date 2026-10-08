@@ -1,6 +1,7 @@
-# mercurai fork: mirror upstream into `main` (fast-forward only), mirror tags, merge `main`
-# forward into `mercurai` (the default branch that carries the fork's own files), and hand every
-# new release tag to fork-rebase-patches. Lives in the fork only; never sent upstream.
+# mercurai fork: mirror upstream into `main` (fast-forward only), mirror tags, hand the newest
+# release tag to fork-rebase-patches, then merge `main` forward into `mercurai` (the default
+# branch that carries the fork's own files). Lives in the fork only; never sent upstream.
+# Dispatched from a non-default branch it only reports (nothing is pushed).
 name: fork-sync-upstream
 
 on:
@@ -10,6 +11,10 @@ on:
     inputs:
       mirror_branches:
         description: Also mirror every upstream branch under upstream/* (tags are what the patch series rebases onto, so this is off by default)
+        type: boolean
+        default: false
+      dry_run:
+        description: Fetch and compare only; push nothing and dispatch nothing
         type: boolean
         default: false
 
@@ -26,46 +31,77 @@ env:
   UPSTREAM_REPO: stablyai/orca
   # The branch this run was started from: `mercurai` on the schedule, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
+  DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
   SYNC_ISSUE_LABEL: fork-sync
+  GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
 
 jobs:
   mirror:
     runs-on: ubuntu-latest
     steps:
+      - name: Require the bot token
+        # GITHUB_TOKEN cannot push commits that touch .github/workflows, and upstream changes those
+        # in most releases, so the merge-forward needs a token with contents, workflows, issues and actions write.
+        run: |
+          if [ -z "${{ secrets.FORK_BOT_TOKEN }}" ]; then
+            echo "::error::FORK_BOT_TOKEN is not set; see config/mercurai/README.md (one-time setup)"
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-          token: ${{ secrets.FORK_BOT_TOKEN || github.token }}
+          token: ${{ secrets.FORK_BOT_TOKEN }}
 
-      - name: Identify the bot
+      - name: Decide whether this run may push
+        id: mode
         run: |
-          git config user.name 'mercurai-fork-bot'
-          git config user.email 'fork-bot@users.noreply.github.com'
+          if [ "${{ inputs.dry_run }}" = "true" ] || [ "$FORK_BRANCH" != "$DEFAULT_BRANCH" ]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"; echo "report-only run (dry_run or non-default branch $FORK_BRANCH)"
+          else
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Fetch upstream main and tags
         id: fetch
         run: |
           set -euo pipefail
+          git config user.name 'mercurai-fork-bot'
+          git config user.email 'fork-bot@users.noreply.github.com'
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           git ls-remote --tags origin | awk '{print $2}' | grep -v '\^{}$' | sort > /tmp/tags-before
           git fetch --no-tags upstream main
           git fetch upstream --tags
           git tag -l | sed 's#^#refs/tags/#' | sort > /tmp/tags-after
           comm -13 /tmp/tags-before /tmp/tags-after | sed 's#^refs/tags/##' > /tmp/tags-new
+          # Stable tags win over release candidates; one dispatch per run, the newest tag of the better kind.
+          stable=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
+          rc=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
           echo "new tags: $(tr '\n' ' ' < /tmp/tags-new)"
+          echo "rebase_tag=${stable:-$rc}" >> "$GITHUB_OUTPUT"
           echo "upstream_sha=$(git rev-parse upstream/main)" >> "$GITHUB_OUTPUT"
+          echo "main is $(git rev-list --left-right --count origin/main...upstream/main | awk '{print $1" ahead / "$2" behind"}') upstream/main"
 
       - name: Mirror main (fast-forward only)
+        if: ${{ steps.mode.outputs.push == 'true' }}
         # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
         run: git push origin refs/remotes/upstream/main:refs/heads/main
 
       - name: Mirror tags
+        if: ${{ steps.mode.outputs.push == 'true' }}
         # A tag that upstream moved is rejected rather than forced; the job fails and a human decides.
         run: git push origin --tags
 
+      - name: Hand the newest release tag to fork-rebase-patches
+        # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
+        if: ${{ steps.mode.outputs.push == 'true' && steps.fetch.outputs.rebase_tag != '' }}
+        run: |
+          echo "dispatching rebase onto ${{ steps.fetch.outputs.rebase_tag }}"
+          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=${{ steps.fetch.outputs.rebase_tag }}"
+
       - name: Mirror upstream branches under upstream/*
-        if: ${{ inputs.mirror_branches == true }}
+        if: ${{ steps.mode.outputs.push == 'true' && inputs.mirror_branches == true }}
         run: |
           git fetch --no-tags upstream '+refs/heads/*:refs/remotes/upstream/*'
           git push origin 'refs/remotes/upstream/*:refs/heads/upstream/*'
@@ -74,10 +110,19 @@ jobs:
         id: merge
         run: |
           set -euo pipefail
-          git checkout "$FORK_BRANCH"
+          git checkout -q "$FORK_BRANCH"
           if git merge --no-edit upstream/main; then
-            git push origin "$FORK_BRANCH"
             echo "conflict=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ steps.mode.outputs.push }}" = "true" ]; then
+              # fork-rebase-patches may push the manifest to this branch at the same time; retry on top of it.
+              for attempt in 1 2 3; do
+                git fetch origin "$FORK_BRANCH" && git rebase "origin/$FORK_BRANCH" && git push origin "$FORK_BRANCH" && break
+                [ "$attempt" = 3 ] && exit 1
+                sleep 15
+              done
+            else
+              echo "merge is clean; not pushed (report-only run)"
+            fi
           else
             git diff --name-only --diff-filter=U | head -50 > /tmp/conflicts
             git merge --abort
@@ -86,13 +131,12 @@ jobs:
 
       - name: Report a merge conflict as an issue
         if: ${{ steps.merge.outputs.conflict == 'true' }}
-        env:
-          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN || github.token }}
         run: |
           set -euo pipefail
           title="fork-sync: ${FORK_BRANCH} does not merge with upstream main ${{ steps.fetch.outputs.upstream_sha }}"
           body=$(printf 'Merging upstream/main (%s) into `%s` conflicts in:\n\n```\n%s\n```\n\nResolve on a branch from `%s`, open a PR, and the next hourly run continues.\n' \
             "${{ steps.fetch.outputs.upstream_sha }}" "$FORK_BRANCH" "$(cat /tmp/conflicts)" "$FORK_BRANCH")
+          if [ "${{ steps.mode.outputs.push }}" != "true" ]; then echo "$body"; exit 1; fi
           existing=$(gh issue list --label "$SYNC_ISSUE_LABEL" --state open --search "in:title fork-sync:" --json number --jq '.[0].number')
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
@@ -101,13 +145,3 @@ jobs:
             gh issue create --label "$SYNC_ISSUE_LABEL" --title "$title" --body "$body"
           fi
           exit 1
-
-      - name: Hand new release tags to fork-rebase-patches
-        env:
-          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN || github.token }}
-        run: |
-          set -euo pipefail
-          grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' /tmp/tags-new | while read -r tag; do
-            echo "dispatching rebase onto $tag"
-            gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag"
-          done

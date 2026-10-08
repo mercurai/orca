@@ -14,50 +14,68 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-08.
 | `upstream/*` | optional mirror of upstream branches (off by default) | `fork-sync-upstream` with `mirror_branches=true` |
 
 Tags: upstream's tags are mirrored as they are; mercurai releases are `v<upstream>-mercurai.N`.
+Upstream cuts its tags on release branches, not on `main`, so "merged upstream" is always judged
+against the tag being rebased onto, never against `main`.
 
-## The series: `.mercurai/patches.yaml`
+## The series: `config/mercurai/patches.yaml`
 
 One entry per patch branch. `status` is the only field the jobs branch on:
 
 - `planned`: documented, not yet a branch; jobs skip it.
 - `upstream-open`: a branch with an open upstream PR; rebased on every tag, included in releases.
 - `ours-only`: a branch we keep without upstreaming; needs a reason in `notes`; rebased and included.
-- `merged-upstream`: upstream carries every commit (`git cherry` shows none); dropped from the next
-  release automatically; delete the entry when the tag that contains it is the base.
+- `merged-upstream`: the tag carries every commit (nothing left after the rebase); dropped from the
+  next release automatically; delete the entry when the tag that contains it is the base.
 
-`tests` lists the Vitest files that prove the patch; the rebase and assembly jobs run them.
+`base` is recorded per patch and at the top level, only after every active patch rebased onto a
+tag; assembly refuses a series whose per-patch bases do not all equal the tag. `tests` lists the
+Vitest files that prove the patch; the rebase and assembly jobs run them on the rebased code with
+dependencies installed from that code's lockfile.
 
 Adding a patch: branch `patch/<slug>` from the manifest `base:` tag, open the upstream PR from it,
 add the entry with `status: upstream-open`, merge the manifest change into `mercurai` by PR.
+A patch upstream squash-merges does not rebase cleanly (the squashed commit has a different
+patch-id); it shows up as a `patch-conflict` issue and a human marks it `merged-upstream`.
+
+`patch/fork-canary` is a permanent `ours-only` patch adding one file (`config/mercurai/CANARY.md`);
+every rebase and assembly exercises it, and a mercurai build without that file did not get the
+series.
 
 ## Workflows (all in the fork only, never sent upstream)
 
 - `fork-sync-upstream`: hourly. Fast-forwards `main` to `upstream/main` (a non-fast-forward push
   fails the run; `main` never carries fork commits), mirrors tags (a moved tag is rejected, not
-  forced), merges `main` into `mercurai` (a conflict opens a `fork-sync` issue and fails), then
-  dispatches `fork-rebase-patches` for every new `vX.Y.Z` or `vX.Y.Z-rc.N` tag.
+  forced), dispatches `fork-rebase-patches` for the newest new tag (a stable `vX.Y.Z` wins over an
+  `-rc.N`; one dispatch per run), then merges `main` into `mercurai` (a conflict opens a
+  `fork-sync` issue and fails the run; the tags were already handed on).
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, pushes with `--force-with-lease` (patch branches are the only branches where
-  force is allowed), records the base in the manifest and marks patches upstream already merged.
-  Daily without a tag it dry-rebases onto `upstream/main` and reports; a conflict opens or updates a
-  `patch-conflict` issue naming the files. `rerere` is on, so a resolution done once in a lane
-  replays.
-- `fork-assemble-release`: manual. Checks the manifest base equals the tag, builds
-  `release/mercurai` = tag + cherry-picked patches, runs the series tests, tags
-  `v<upstream>-mercurai.N` and pushes both (`dry_run=true` pushes nothing). Building the installer
-  and publishing it to the mercurai update channel is the next increment
-  (mercurai/claude-code-config#1088).
+  force is allowed), and when every patch rebased, records the base and marks patches the tag
+  already carries. Daily without a tag it dry-rebases onto `upstream/main` and reports; a conflict
+  opens or updates a `patch-conflict` issue naming the files. `rerere` is on, so a resolution done
+  once in a lane replays.
+- `fork-assemble-release`: manual. Checks every active patch is recorded on the tag and contains
+  it, builds `release/mercurai` = tag + cherry-picked patches (a patch with no commits beyond the
+  tag is skipped with a warning), runs the series tests, tags `v<upstream>-mercurai.N` and pushes
+  both. Building the installer and publishing it to the mercurai update channel is the next
+  increment (mercurai/claude-code-config#1088).
+
+Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
+fetches, rebases or assembles and reports, but pushes nothing and opens no issue. That is how a
+change to these workflows is tested from its PR branch.
 
 ## One-time setup
 
-1. Actions on the fork: scheduled workflows in a fork are disabled until enabled once in the
-   Actions tab ("Enable workflow" on each `fork-*` workflow), or via
+1. `FORK_BOT_TOKEN` repository secret, required: a fine-grained token (or GitHub App installation
+   token) for `mercurai/orca` with Contents, Workflows, Issues and Actions write. `GITHUB_TOKEN`
+   is not enough: it cannot push commits that touch `.github/workflows`, and upstream changes those
+   in most releases, so the hourly merge-forward would fail; its pushes also trigger no workflow.
+   Every job fails at its first step while the secret is missing.
+2. Scheduled workflows in a fork are disabled until enabled once in the Actions tab ("Enable
+   workflow" on each `fork-*` workflow), or via
    `gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/enable`.
-2. Upstream's own workflows also run in the fork on pushes to `main` and `mercurai`; disable the
+3. Upstream's own workflows also run in the fork on pushes to `main` and `mercurai`; disable the
    ones that need upstream secrets or runners (`gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/disable`).
-3. Optional `FORK_BOT_TOKEN` repository secret (fine-grained, contents and issues write on this
-   repo): without it the jobs use `GITHUB_TOKEN`, which pushes and dispatches fine but whose pushes
-   trigger no other workflow.
 4. Branch protection: `main` and `mercurai` accept pushes only from the bot and reviewed PRs;
    `patch/*` branches may be force-pushed by the bot and the lane that owns them.
 

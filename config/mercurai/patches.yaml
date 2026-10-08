@@ -1,6 +1,6 @@
 # The mercurai patch series: what gets applied on top of an upstream release tag to make a
-# mercurai build. `base:` is maintained by .github/workflows/rebase-patches.yml; lanes maintain
-# the rest. Status vocabulary: planned | upstream-open | ours-only | merged-upstream.
+# mercurai build. `base:` (top-level and per patch) is maintained by
+# .github/workflows/fork-rebase-patches.yml; lanes maintain the rest. Status vocabulary: planned | upstream-open | ours-only | merged-upstream.
 # Jobs act only on upstream-open and ours-only patches; planned entries document the series,
 # merged-upstream entries are dropped at the next tag that contains them.
 version: 1
@@ -15,7 +15,7 @@ patches:
     owner: harness
     added: 2026-10-08
     tests: []
-    notes: pipeline canary, one file under .mercurai/; proves rebase and assembly on every tag, never upstreamed
+    notes: pipeline canary, one file under config/mercurai/; proves rebase and assembly on every tag, never upstreamed
   - slug: orca-loop-probes
     branch: patch/orca-loop-probes
     status: planned
