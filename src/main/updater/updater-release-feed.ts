@@ -3,6 +3,7 @@ import {
   fetchNewerReleaseTagsWithReadiness,
   getReleaseDownloadUrl
 } from '../updater-prerelease-feed'
+import { followsMercuraiChannel, resolveMercuraiRoutineFeed } from './updater-mercurai-feed'
 import { isMissingUpdateManifestFailure, isPrereleaseVersion } from '../updater-fallback'
 import type { CheckFailureSource } from './updater-state'
 import type { UpdateCheckVariant } from './updater-types'
@@ -111,6 +112,26 @@ export abstract class UpdaterReleaseFeed extends UpdaterInstallExecution {
     )
   }
 
+  private async pinMercuraiRoutineFeed(currentVersion: string): Promise<'ready' | 'not-available'> {
+    this.clearPrereleaseFallbackContext()
+    this.clearPublishingWindowLastGoodCheck()
+    let url: string | null
+    try {
+      url = await resolveMercuraiRoutineFeed(currentVersion)
+    } catch (error) {
+      console.warn(
+        `[updater] mercurai channel lookup failed: ${String((error as Error)?.message ?? error)}`
+      )
+      return 'not-available'
+    }
+    if (!url) {
+      return 'not-available'
+    }
+    console.info(`[updater] mercurai feed pinned: current=${currentVersion} → ${url}`)
+    this.getAutoUpdater().setFeedURL({ provider: 'generic', url })
+    return 'ready'
+  }
+
   protected async pinDefaultReleaseFeed(
     variant: UpdateCheckVariant = 'default'
   ): Promise<'ready' | 'not-available'> {
@@ -119,6 +140,13 @@ export abstract class UpdaterReleaseFeed extends UpdaterInstallExecution {
     // Why: the latest/download redirect can move between check and download, so pin the concrete tag (prerelease users resolve any channel, stable only stable).
     const currentVersion = app.getVersion()
     const isPerfCheck = variant === 'perf'
+    // Why: a mercurai build must update from its own channel, not be offered upstream stable.
+    if (
+      !isPerfCheck &&
+      followsMercuraiChannel(currentVersion, this.getReleaseChannelOverride?.() ?? null)
+    ) {
+      return this.pinMercuraiRoutineFeed(currentVersion)
+    }
     const includePrerelease =
       isPerfCheck || this.includePrereleaseActive || isPrereleaseVersion(currentVersion)
     const releaseTagsResult = await fetchNewerReleaseTagsWithReadiness(
