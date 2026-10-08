@@ -120,7 +120,7 @@ export abstract class UpdaterReleaseFeed extends UpdaterInstallExecution {
       url = await resolveMercuraiRoutineFeed(currentVersion)
     } catch (error) {
       console.warn(
-        `[updater] mercurai channel lookup failed: ${String((error as Error)?.message ?? error)}`
+        `[updater] mercurai channel lookup failed: ${error instanceof Error ? error.message : String(error)}`
       )
       return 'not-available'
     }
