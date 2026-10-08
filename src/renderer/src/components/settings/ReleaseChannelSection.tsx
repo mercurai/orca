@@ -29,7 +29,9 @@ const CHANNEL_DESCRIPTIONS: Record<ReleaseChannel, string> = {
   hourly: 'macOS and Windows. Unvetted builds from main, built every hour. No tests.',
   daily:
     'macOS and Windows. Unvetted builds from main, cut once a day at 14:15 UTC (early morning Pacific). No tests.',
-  adhoc: 'macOS and Windows. One-off builds cut from a branch to try a feature before it lands.'
+  adhoc: 'macOS and Windows. One-off builds cut from a branch to try a feature before it lands.',
+  mercurai:
+    'Windows only. Unsigned builds of the mercurai fork, published by its CI from a version tag.'
 }
 
 const DEDICATED_CHANNEL_WARNINGS: Record<DedicatedRepoChannel, { key: string; fallback: string }> =
@@ -48,6 +50,11 @@ const DEDICATED_CHANNEL_WARNINGS: Record<DedicatedRepoChannel, { key: string; fa
       key: 'auto.components.settings.ReleaseChannelSection.adhocWarning',
       fallback:
         'Adhoc builds come from a branch that has not landed, and the Windows ones are unsigned. Whoever cut one may abandon it — keep a stable build handy.'
+    },
+    mercurai: {
+      key: 'auto.components.settings.ReleaseChannelSection.mercuraiWarning',
+      fallback:
+        "Mercurai builds are the fork's own Windows builds, published by CI and unsigned. Keep a stable build handy."
     }
   }
 
