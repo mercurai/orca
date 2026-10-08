@@ -13,6 +13,7 @@ import { withTimeoutResult } from './runtime-async-boundaries'
 import { readRepoWorktreeAdminFingerprint } from './repo-worktree-admin-fingerprint'
 import type { RuntimeWorktreeScanResult } from './repo-worktree-resolution-scan'
 import { scanLocalRepoWorktreesForResolution } from './repo-worktree-resolution-scan'
+import { withGitCaller } from '../git/command-runner/git-operation-executor'
 import { dropRepeatedWorktreeRows } from './repeated-worktree-rows'
 import { getSshGitProvider } from '../providers/ssh-git-dispatch'
 import type { GitWorktreeInfo } from '../../shared/worktree/types'
@@ -102,9 +103,11 @@ export class OrcaRuntimeWithRefreshRepoWorktreeScan extends OrcaRuntimeWithListK
     // `git worktree list` then reports nothing, so the remote worktrees never resolve at all.
     const sshConnectionId = getRepoSshConnectionId(repo)
     if (!sshConnectionId) {
-      return await scanLocalRepoWorktreesForResolution(
-        repo.path,
-        getLocalProjectWorktreeGitOptionsForRuntime(repo, projectRuntime)
+      return await withGitCaller('runtime:refreshWorktreeScan', () =>
+        scanLocalRepoWorktreesForResolution(
+          repo.path,
+          getLocalProjectWorktreeGitOptionsForRuntime(repo, projectRuntime)
+        )
       )
     }
     const provider = getSshGitProvider(sshConnectionId)
