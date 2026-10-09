@@ -9,6 +9,10 @@ vi.mock('node:child_process', async (importOriginal) => ({
   spawn: spawnMock
 }))
 
+vi.mock('./spawned-command-tree-kill', () => ({
+  killSpawnedCommandTree: vi.fn().mockResolvedValue(undefined)
+}))
+
 import { createGitSpawnWorkerHandler } from './git-spawn-worker-handler'
 import {
   STREAM_HIGH_WATER_CHUNKS,
@@ -66,5 +70,31 @@ describe('git spawn worker handler stream pacing', () => {
 
     expect(posted).toContainEqual({ type: 'closed', id: 8, code: 3, signal: null })
     expect(posted.some((message) => message.type === 'killed')).toBe(false)
+  })
+
+  it('still releases a waiting kill when main answers after the child closed', async () => {
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    try {
+      const child = fakeStreamingChild()
+      spawnMock.mockReturnValue(child)
+      const posted: SpawnWorkerResponse[] = []
+      const handler = createGitSpawnWorkerHandler({
+        postMessage: (message) => posted.push(message)
+      })
+      handler.handle({ type: 'stream', id: 9, command: 'git', args: ['log'], cwd: '/repo' })
+      handler.handle({ type: 'terminate', id: 9 })
+      expect(posted).toContainEqual({ type: 'kill-check', id: 9, pid: 4242 })
+
+      child.emit('close', null, 'SIGTERM')
+      handler.handle({ type: 'verdict', id: 9, admit: true })
+      await vi.waitFor(() =>
+        expect(posted).toContainEqual({ type: 'killed', id: 9, reason: 'abort' })
+      )
+    } finally {
+      if (platform) {
+        Object.defineProperty(process, 'platform', platform)
+      }
+    }
   })
 })
