@@ -98,6 +98,7 @@ async function gitExecFileAsyncUnlocked(
           terminationBarrier: options.terminationBarrier,
           admissionTier: options.admissionTier,
           onChildTerminated: reportTerminated,
+          onSpawned: (spawnMs: number) => span?.setAttribute('git.spawn_ms', spawnMs),
           ...(timeoutMs === undefined
             ? {}
             : { createTimeoutError: () => new GitCommandTimeoutError(timeoutMs) })

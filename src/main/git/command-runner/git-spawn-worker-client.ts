@@ -14,6 +14,8 @@ import {
 
 export const IDLE_TEARDOWN_MS = 5 * 60_000
 export const MAX_CONSECUTIVE_DEATHS = 3
+/** `code` on the error a caller sees when the worker died with its child running. */
+export const SPAWN_WORKER_EXIT_CODE = 'EGITSPAWNWORKER'
 
 type CaptureRequest = Extract<SpawnWorkerRequest, { type: 'capture' }>
 type StreamRequest = Extract<SpawnWorkerRequest, { type: 'stream' }>
@@ -23,7 +25,8 @@ export type StreamSpec = Omit<StreamRequest, 'type' | 'id'>
 export type CaptureOutcome =
   | { kind: 'result'; error: Error | null; stdout: string | Buffer; stderr: string | Buffer }
   | { kind: 'killed'; reason: 'abort' | 'timeout' }
-  | { kind: 'failed'; error: Error }
+  /** `spawned` false means the child never started, so the caller may retry in-process. */
+  | { kind: 'failed'; error: Error; spawned: boolean }
 
 export type CaptureHandle = {
   outcome: Promise<CaptureOutcome>
@@ -54,7 +57,13 @@ type Entry = {
   closed: boolean
   /** A capture's outcome has been delivered; a `killed` after `close` still needs the entry. */
   settled: boolean
-  capture?: { settle: (outcome: CaptureOutcome) => void; onTerminated: () => void }
+  /** The worker reported the spawn, so a child may be running. */
+  spawned: boolean
+  capture?: {
+    settle: (outcome: CaptureOutcome) => void
+    onTerminated: () => void
+    onSpawned?: (spawnMs: number) => void
+  }
   stream?: StreamEvents
 }
 
@@ -96,18 +105,23 @@ export class GitSpawnWorkerClient {
   }
 
   dispose(): void {
+    this.reapChildren()
     this.host.destroy()
     this.fail(new Error('Git spawn worker disposed'))
   }
 
   /** Null means the caller must spawn in-process instead. */
-  capture(spec: CaptureSpec, onTerminated: () => void): CaptureHandle | null {
+  capture(
+    spec: CaptureSpec,
+    onTerminated: () => void,
+    onSpawned?: (spawnMs: number) => void
+  ): CaptureHandle | null {
     let settle: (outcome: CaptureOutcome) => void = () => {}
     const outcome = new Promise<CaptureOutcome>((resolve) => {
       settle = resolve
     })
     const entry = this.register(spec.command, spec.args)
-    entry.capture = { settle, onTerminated }
+    entry.capture = { settle, onTerminated, onSpawned }
     if (!this.send({ type: 'capture', id: entry.id, ...spec }, entry)) {
       return null
     }
@@ -139,6 +153,7 @@ export class GitSpawnWorkerClient {
       unackedChunks: 0,
       ackScheduled: false,
       closed: false,
+      spawned: false,
       settled: false
     }
     this.active.set(entry.id, entry)
@@ -164,6 +179,19 @@ export class GitSpawnWorkerClient {
   }
 
   private handleMessage(message: SpawnWorkerResponse): void {
+    // Why before the lookup: the worker waits on this answer even if the entry has just closed.
+    if (message.type === 'kill-check') {
+      this.post({
+        type: 'verdict',
+        id: message.id,
+        admit: admitSelfInitiatedTreeKill({
+          pid: message.pid,
+          site: 'git-command-tree-kill',
+          scope: 'win-taskkill-tree'
+        })
+      })
+      return
+    }
     const entry = this.active.get(message.id)
     if (!entry) {
       return
@@ -171,19 +199,10 @@ export class GitSpawnWorkerClient {
     switch (message.type) {
       case 'spawned':
         entry.pid = message.pid
+        entry.spawned = true
+        entry.capture?.onSpawned?.(message.spawnMs)
         // Main did not block on this spawn; the entry keeps per-command spawn counts honest.
         recordSubprocessSpawn(entry.command, entry.args, 0)
-        break
-      case 'kill-check':
-        this.post({
-          type: 'verdict',
-          id: entry.id,
-          admit: admitSelfInitiatedTreeKill({
-            pid: message.pid,
-            site: 'git-command-tree-kill',
-            scope: 'win-taskkill-tree'
-          })
-        })
         break
       case 'chunk':
         this.handleChunk(entry, message.channel, message.data)
@@ -270,21 +289,39 @@ export class GitSpawnWorkerClient {
     }
   }
 
+  // Why: a terminated or crashed worker thread never runs its exit hook (verified on a real
+  // worker), so main ends the roots itself. process.kill by pid spawns nothing on this thread.
+  private reapChildren(): void {
+    for (const entry of this.active.values()) {
+      if (entry.pid && !entry.closed) {
+        try {
+          process.kill(entry.pid)
+        } catch {
+          // Already exited.
+        }
+      }
+    }
+  }
+
   private handleWorkerDeath(error: Error): void {
+    this.reapChildren()
     this.host.destroy()
     this.consecutiveDeaths += 1
     if (this.consecutiveDeaths >= MAX_CONSECUTIVE_DEATHS && !this.unavailable) {
       this.unavailable = true
       this.log(`[git-spawn-worker] crashed repeatedly, spawning in-process. ${error.message}`)
     }
-    this.fail(error)
+    this.fail(Object.assign(error, { code: SPAWN_WORKER_EXIT_CODE }))
   }
 
-  // Why: the worker's exit hook kills its children, so every in-flight request is over.
+  // Every in-flight request is over: the worker and its children are gone.
   private fail(error: Error): void {
     for (const entry of [...this.active.values()]) {
-      this.markClosed(entry)
-      this.settle(entry, { kind: 'failed', error })
+      // A request that never spawned is retried in-process, so it must not release its grant yet.
+      if (entry.spawned || !entry.capture) {
+        this.markClosed(entry)
+      }
+      this.settle(entry, { kind: 'failed', error, spawned: entry.spawned })
       this.active.delete(entry.id)
       entry.stream?.onError(error, false)
     }

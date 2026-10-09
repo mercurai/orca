@@ -6,6 +6,7 @@ import {
   restoreGitSpawnMode,
   useGitSpawnMode
 } from './git-spawn-worker-test-fixture'
+import { getGitSpawnWorkerClient } from './git-spawn-worker-access'
 import { gitStreamStdout } from './git-stream-stdout'
 
 const SPAWN_COUNT = 30
@@ -129,6 +130,23 @@ describe('git spawn worker on a real worker thread', () => {
     setTimeout(() => controller.abort(), 200)
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     await vi.waitFor(() => expect(onChildTerminated).toHaveBeenCalledOnce(), { timeout: 10_000 })
+  })
+
+  it('kills a running child when the worker is torn down', async () => {
+    const client = getGitSpawnWorkerClient()
+    expect(client).not.toBeNull()
+    const handle = client?.stream(
+      {
+        command: process.execPath,
+        args: ['-e', 'setTimeout(() => {}, 60000)'],
+        cwd: process.cwd()
+      },
+      { onChunk: () => {}, onError: () => {}, onClose: () => {} }
+    )
+    await vi.waitFor(() => expect(handle?.pid).toBeGreaterThan(0))
+    const pid = handle?.pid as number
+    client?.dispose()
+    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 10_000 })
   })
 
   it('streams stdout through the worker', async () => {

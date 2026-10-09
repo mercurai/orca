@@ -1,7 +1,11 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { endSubprocessStdin } from '../../../shared/subprocess-stdin-write'
 import { isExecFileResultObject } from './exec-file-result'
-import { deliverKillVerdict, killChildWithMainVerdict } from './git-spawn-worker-kill'
+import {
+  deliverKillVerdict,
+  killChildWithMainVerdict,
+  killTreeAtShutdown
+} from './git-spawn-worker-kill'
 import {
   STREAM_HIGH_WATER_CHUNKS,
   STREAM_LOW_WATER_CHUNKS,
@@ -238,26 +242,27 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
       startStream(request)
       return
     }
+    // Why before the lookup: the child can close between kill-check and verdict, and the
+    // waiting kill must still be released rather than wait out its 2 s fallback.
+    if (request.type === 'verdict') {
+      deliverKillVerdict(request.id, request.admit)
+      return
+    }
     const entry = active.get(request.id)
     if (!entry) {
       return
     }
     if (request.type === 'terminate') {
       beginKill(entry, 'abort')
-    } else if (request.type === 'verdict') {
-      deliverKillVerdict(request.id, request.admit)
     } else {
       acknowledge(entry, request.chunks)
     }
   }
 
+  // Why: runs when the worker thread exits, so it cannot await; reap each tree synchronously.
   function killAll(): void {
     for (const entry of active.values()) {
-      try {
-        entry.child?.kill()
-      } catch {
-        // Already exited; nothing to reap.
-      }
+      killTreeAtShutdown(entry.child)
     }
     active.clear()
   }
