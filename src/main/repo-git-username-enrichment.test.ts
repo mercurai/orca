@@ -4,8 +4,20 @@ import type { ResolvedGitUsername } from './git/git-username'
 
 const resolveLocalGitUsernameDetailedMock = vi.hoisted(() => vi.fn())
 
+const readSignatureMock = vi.hoisted(() => vi.fn())
+const loadSignaturesMock = vi.hoisted(() => vi.fn())
+const saveSignaturesMock = vi.hoisted(() => vi.fn())
+
 vi.mock('./git/git-username', () => ({
   resolveLocalGitUsernameDetailed: resolveLocalGitUsernameDetailedMock
+}))
+vi.mock('./git/git-username-signature', () => ({
+  readGlobalGitConfigStamp: async () => 'global',
+  readLocalGitUsernameSignature: readSignatureMock
+}))
+vi.mock('./repo-git-username-signature-store', () => ({
+  loadRepoUsernameSignatures: loadSignaturesMock,
+  saveRepoUsernameSignatures: saveSignaturesMock
 }))
 
 import {
@@ -50,6 +62,68 @@ describe('enrichRepoGitUsernames', () => {
     vi.clearAllMocks()
     resetRepoGitUsernameEnrichmentForTests()
     resolveLocalGitUsernameDetailedMock.mockResolvedValue(resolved('demo-user'))
+    readSignatureMock.mockResolvedValue('sig-1')
+    loadSignaturesMock.mockResolvedValue(new Map())
+    saveSignaturesMock.mockResolvedValue(undefined)
+  })
+
+  describe('persisted config signature', () => {
+    const location = 'local\0C:/repos/one'
+
+    it('spawns nothing for a repo whose stored signature is unchanged', async () => {
+      loadSignaturesMock.mockResolvedValue(new Map([[location, 'sig-1']]))
+      const store = makeStore([makeRepo()])
+
+      enrichRepoGitUsernames(store)
+      await flushRepoGitUsernameEnrichmentForTests()
+
+      expect(resolveLocalGitUsernameDetailedMock).not.toHaveBeenCalled()
+      expect(store.setResolvedRepoGitUsername).not.toHaveBeenCalled()
+      expect(saveSignaturesMock).not.toHaveBeenCalled()
+    })
+
+    it('re-resolves and stores the new signature after a config edit', async () => {
+      loadSignaturesMock.mockResolvedValue(new Map([[location, 'sig-old']]))
+      const store = makeStore([makeRepo()])
+
+      enrichRepoGitUsernames(store)
+      await flushRepoGitUsernameEnrichmentForTests()
+
+      expect(resolveLocalGitUsernameDetailedMock).toHaveBeenCalledTimes(1)
+      expect(saveSignaturesMock).toHaveBeenCalledWith(new Map([[location, 'sig-1']]))
+    })
+
+    it('always resolves when the signature cannot be read', async () => {
+      readSignatureMock.mockResolvedValue(undefined)
+      loadSignaturesMock.mockResolvedValue(new Map([[location, 'sig-1']]))
+      const store = makeStore([makeRepo()])
+
+      enrichRepoGitUsernames(store)
+      await flushRepoGitUsernameEnrichmentForTests()
+
+      expect(resolveLocalGitUsernameDetailedMock).toHaveBeenCalledTimes(1)
+      expect(saveSignaturesMock).not.toHaveBeenCalled()
+    })
+
+    it('does not remember a non-authoritative resolution', async () => {
+      resolveLocalGitUsernameDetailedMock.mockResolvedValue(resolved('', false))
+      const store = makeStore([makeRepo()])
+
+      enrichRepoGitUsernames(store)
+      await flushRepoGitUsernameEnrichmentForTests()
+
+      expect(saveSignaturesMock).not.toHaveBeenCalled()
+    })
+
+    it('drops stored signatures for repos that are no longer registered', async () => {
+      loadSignaturesMock.mockResolvedValue(new Map([['local\0C:/gone', 'sig-x']]))
+      const store = makeStore([])
+
+      enrichRepoGitUsernames(store)
+      await flushRepoGitUsernameEnrichmentForTests()
+
+      expect(saveSignaturesMock).toHaveBeenCalledWith(new Map())
+    })
   })
 
   it('resolves and persists usernames, then notifies once', async () => {
@@ -181,6 +255,8 @@ describe('enrichRepoGitUsernames', () => {
     // A repo lands while the first pass is still probing r1.
     repos.push(makeRepo({ id: 'r2', path: 'C:/repos/two' }))
     enrichRepoGitUsernames(store)
+    // The pass reads signatures before it probes, so wait for the probe to start.
+    await vi.waitFor(() => expect(releaseFirstProbe).toBeTypeOf('function'))
     releaseFirstProbe()
     await flushRepoGitUsernameEnrichmentForTests()
 
