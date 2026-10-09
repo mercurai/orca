@@ -29,11 +29,15 @@ patches:
     notes: mercurai update channel (Windows, unsigned, mercurai/orca-mercurai); upstream will not take a fork channel, so it stays ours
   - slug: orca-loop-probes
     branch: patch/orca-loop-probes
-    status: planned
+    status: ours-only
+    base: v1.4.223
     issue: mercurai/claude-code-config#1081
     owner: harness
     added: 2026-10-08
-    tests: []
+    tests:
+      - src/main/diagnostics/main-loop-span.test.ts
+      - src/main/diagnostics/main-thread-churn-probe.test.ts
+      - src/main/observability/git-caller-attribution.test.ts
     notes: always-on main-loop span, main_loop_stall breadcrumb, git.caller attribution
   - slug: orca-username-signature
     branch: patch/orca-username-signature
