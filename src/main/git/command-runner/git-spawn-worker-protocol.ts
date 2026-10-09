@@ -105,6 +105,8 @@ export function serializeSpawnError(error: unknown): SerializedSpawnError {
   }
 }
 
+// Why: the class does not survive the thread hop, so a RangeError (e.g. a maxBuffer overrun)
+// comes back as a plain Error carrying the original `name` and `code`; match on those, not instanceof.
 export function reviveSpawnError(serialized: SerializedSpawnError): Error {
   const { message, name, ...fields } = serialized
   return Object.assign(new Error(message), { name }, fields)
