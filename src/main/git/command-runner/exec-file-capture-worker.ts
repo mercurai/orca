@@ -53,7 +53,7 @@ export function execFileCaptureOnWorker(
   if (!client) {
     return null
   }
-  const cwd = options.cwd instanceof URL ? fileURLToPath(options.cwd) : options.cwd
+  const cwd = options.cwd instanceof URL ? fileURLToPath(options.cwd) : options.cwd?.toString()
   const handle = client.capture(
     {
       command,
