@@ -28,7 +28,8 @@ import { pruneMetadataMissingFromAuthoritativeLocalScan } from './authoritative-
 import {
   canFingerprintDetectedWorktreeScan,
   isCachedScanProvenUnchanged,
-  readDetectedWorktreeScanFingerprint
+  readDetectedWorktreeScanFingerprint,
+  settleDetectedScanFingerprint
 } from './detected-worktree-scan-fingerprint'
 
 // Why: absorb renderer polling bursts while bounding external worktree-change lag to one short refresh window.
@@ -201,17 +202,13 @@ export async function listDetectedGitWorktrees(
       ? store.captureNativeLocalWorktreeMetadataScanExpectation(repo)
       : undefined
   const scannedAt = Date.now()
+  // Why concurrent with the listing: ordering them would delay every cache miss behind filesystem reads.
   const fingerprintProbe = fingerprintCapable
     ? readDetectedWorktreeScanFingerprint(cacheKey, repo)
     : null
   const scan: DetectedWorktreeScan = {
     invalidated: false,
-    // Why chained: the stamp must never postdate the rows. A change that lands after the stamp
-    // only makes the next probe disagree, but one landing between an unordered listing and read
-    // would be stamped onto rows that lack it and stay hidden until the reconcile interval.
-    promise: (fingerprintProbe ?? Promise.resolve(null)).then(() =>
-      listRepoWorktreesForDetectedScan(repo, localWorktreeGitOptions)
-    ),
+    promise: listRepoWorktreesForDetectedScan(repo, localWorktreeGitOptions),
     sideEffectToken: { generation, authorizedRootsRevision, ...localWorktreeGitOptions },
     hygieneDue,
     ...(metadataPruneExpectation
@@ -232,7 +229,7 @@ export async function listDetectedGitWorktrees(
       gitWorktrees.map((worktree) => worktree.path)
     )
     // Why before the staleness checks: this await must not widen the window they cover.
-    const adminFingerprint = fingerprintProbe ? await fingerprintProbe : null
+    const adminFingerprint = await settleDetectedScanFingerprint(cacheKey, repo, fingerprintProbe)
     const routingUnchanged =
       getDetectedWorktreeScanCacheKey(repo.id, getLocalProjectWorktreeGitOptions(store, repo)) ===
       cacheKey
