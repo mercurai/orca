@@ -6,13 +6,28 @@ import { _resetTracerForTests, setActiveSink, type TracerSink } from './tracer'
 
 type Pushed = { name: string; attributes: Record<string, unknown> }
 
+function asPushed(record: unknown): Pushed {
+  if (
+    record !== null &&
+    typeof record === 'object' &&
+    'name' in record &&
+    typeof record.name === 'string' &&
+    'attributes' in record &&
+    record.attributes !== null &&
+    typeof record.attributes === 'object'
+  ) {
+    return { name: record.name, attributes: Object.fromEntries(Object.entries(record.attributes)) }
+  }
+  throw new Error('expected span record')
+}
+
 let pushed: Pushed[]
 
 beforeEach(() => {
   pushed = []
   drainGitExecWindow()
   const sink: TracerSink = {
-    push: (record) => pushed.push(record as Pushed),
+    push: (record) => pushed.push(asPushed(record)),
     flush: () => undefined,
     close: () => undefined
   }
