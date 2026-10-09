@@ -39,7 +39,7 @@ export async function readLocalGitConfigSignature(
 }
 
 /** Resolves undefined rather than waiting on a read the filesystem may never finish. */
-function withConfigSignatureDeadline(
+export function withConfigSignatureDeadline(
   read: Promise<string | undefined>
 ): Promise<string | undefined> {
   return new Promise((settle) => {
