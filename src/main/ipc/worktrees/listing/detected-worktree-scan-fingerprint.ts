@@ -11,7 +11,7 @@ export const DETECTED_WORKTREE_SCAN_RECONCILE_INTERVAL_MS = 5 * 60_000
 // yields `null` ("cannot prove unchanged"), which falls back to the real scan.
 const DETECTED_WORKTREE_SCAN_FINGERPRINT_TIMEOUT_MS = 2_000
 
-/** SSH and WSL repos run Git off-host, so a local admin-dir read cannot describe their listing. */
+/** SSH and WSL repos run Git off-host (the SSH half is a defensive guard: callers route SSH earlier), so a local admin-dir read cannot describe their listing. */
 export function canFingerprintDetectedWorktreeScan(
   repo: Repo,
   localWorktreeGitOptions: { wslDistro?: string }
@@ -44,22 +44,4 @@ export async function isCachedScanProvenUnchanged(
   }
   const current = await readDetectedWorktreeScanFingerprint(cacheKey, repo)
   return current !== null && current === cached.adminFingerprint
-}
-
-/**
- * Resolve the fingerprint to store beside a fresh scan. `before` was read as the scan started; a
- * second read after it settles proves nothing moved in between, because a change landing between
- * Git's listing and the first read would otherwise be stamped as already observed and hide until the
- * reconcile interval. Any disagreement or failure yields `null`, which forces the next poll to rescan.
- */
-export async function settleDetectedScanFingerprint(
-  cacheKey: string,
-  repo: Repo,
-  before: Promise<string | null> | null
-): Promise<string | null> {
-  const first = before ? await before : null
-  if (first === null) {
-    return null
-  }
-  return (await readDetectedWorktreeScanFingerprint(cacheKey, repo)) === first ? first : null
 }
