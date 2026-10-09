@@ -71,7 +71,6 @@ describe('git spawn worker on a real worker thread', () => {
     useGitSpawnMode('in-process')
     await gitExecFileAsync(['--version'], { cwd: process.cwd() })
     const inProcess = await measureLoopBlockDuringGitSpawns()
-    // oxlint-disable-next-line no-console -- the measured before/after numbers are the evidence for the perf claim
     console.info(`${describeBlock('worker', worker)}\n${describeBlock('in-process', inProcess)}`)
     expect(worker.cumulativeBlockMs).toBeLessThanOrEqual(MAX_CUMULATIVE_BLOCK_MS)
     expect(worker.maxGapMs).toBeLessThanOrEqual(MAX_GAP_MS)
@@ -144,7 +143,10 @@ describe('git spawn worker on a real worker thread', () => {
       { onChunk: () => {}, onError: () => {}, onClose: () => {} }
     )
     await vi.waitFor(() => expect(handle?.pid).toBeGreaterThan(0), { timeout: 10_000 })
-    const pid = handle?.pid as number
+    const pid = handle?.pid
+    if (pid === undefined) {
+      throw new Error('stream never reported a pid')
+    }
     client?.dispose()
     await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 10_000 })
   })
