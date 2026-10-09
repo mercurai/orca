@@ -111,6 +111,7 @@ describe('main.loop span', () => {
   })
 
   it('writes the stderr line only when ORCA_MAIN_THREAD_DIAGNOSTICS=1', () => {
+    vi.stubEnv(MAIN_THREAD_DIAGNOSTICS_ENV, '')
     startMainThreadChurnProbe()
     for (let i = 0; i < 400; i++) {
       tick(TICK_MS)
