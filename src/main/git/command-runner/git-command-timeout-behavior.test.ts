@@ -1,9 +1,15 @@
 import { chmod, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { gitExecFileAsync, gitExecFileAsyncBuffer } from './git-exec-file'
 import { GitCommandTimeoutError } from './git-command-timeout'
+import {
+  GIT_SPAWN_MODES,
+  createThreadWorkerFactory,
+  restoreGitSpawnMode,
+  useGitSpawnMode
+} from './git-spawn-worker-test-fixture'
 import { gitStreamStdout } from './git-stream-stdout'
 
 const tempRoots: string[] = []
@@ -52,75 +58,87 @@ void run()
   }
 }
 
-describe.skipIf(process.platform === 'win32')('git read timeout behavior', () => {
-  it('allows a progressively streaming read that exits at 0.9 times the deadline', async () => {
-    const fixture = await createTimedGitFixture()
-    let output = ''
-    await expect(
-      gitStreamStdout(['status', '--porcelain=v2'], {
-        ...fixture,
-        env: {
-          ...fixture.env,
-          ORCA_STUB_PROGRESSIVE: '1',
-          ORCA_STUB_EXIT_AT_MS: String(Date.now() + 900)
-        },
-        timeoutMsForTest: 1000,
-        onStdout: (chunk) => {
-          output += chunk
-        }
-      })
-    ).resolves.toEqual({ stoppedEarly: false })
-    expect(output).toBe('onetwothree')
-  })
+// Why (#1085): deadlines are armed on the worker thread in worker mode, so run them on a real one.
+describe.skipIf(process.platform === 'win32').each(GIT_SPAWN_MODES)(
+  'git read timeout behavior (%s spawn)',
+  (mode) => {
+    let threadWorker: ReturnType<typeof createThreadWorkerFactory> | null = null
+    beforeAll(() => {
+      threadWorker = mode === 'worker' ? createThreadWorkerFactory() : null
+    })
+    afterAll(() => threadWorker?.cleanup())
+    beforeEach(() => useGitSpawnMode(mode, threadWorker?.factory))
+    afterEach(() => restoreGitSpawnMode())
 
-  it('rejects a silent read at 1.1 times the deadline with a typed error', async () => {
-    const fixture = await createTimedGitFixture()
-    await expect(
-      gitExecFileAsync(['status', '--porcelain=v2'], {
-        ...fixture,
-        env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
-        timeoutMsForTest: 100
-      })
-    ).rejects.toBeInstanceOf(GitCommandTimeoutError)
-  })
+    it('allows a progressively streaming read that exits at 0.9 times the deadline', async () => {
+      const fixture = await createTimedGitFixture()
+      let output = ''
+      await expect(
+        gitStreamStdout(['status', '--porcelain=v2'], {
+          ...fixture,
+          env: {
+            ...fixture.env,
+            ORCA_STUB_PROGRESSIVE: '1',
+            ORCA_STUB_EXIT_AT_MS: String(Date.now() + 900)
+          },
+          timeoutMsForTest: 1000,
+          onStdout: (chunk) => {
+            output += chunk
+          }
+        })
+      ).resolves.toEqual({ stoppedEarly: false })
+      expect(output).toBe('onetwothree')
+    })
 
-  it('times out a silent streaming read with the same typed error', async () => {
-    const fixture = await createTimedGitFixture()
-    await expect(
-      gitStreamStdout(['status'], {
-        ...fixture,
-        env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
-        timeoutMsForTest: 100,
-        onStdout: () => {}
-      })
-    ).rejects.toBeInstanceOf(GitCommandTimeoutError)
-  })
-
-  it('applies the read default to binary blob reads', async () => {
-    const fixture = await createTimedGitFixture()
-    await expect(
-      gitExecFileAsyncBuffer(['show', 'HEAD:file.bin'], {
-        ...fixture,
-        env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
-        timeoutMsForTest: 100
-      })
-    ).rejects.toBeInstanceOf(GitCommandTimeoutError)
-  })
-
-  it.each([['fetch'], ['checkout'], ['unrecognized-command']])(
-    'does not default-timeout the fail-safe %s class',
-    async (subcommand) => {
+    it('rejects a silent read at 1.1 times the deadline with a typed error', async () => {
       const fixture = await createTimedGitFixture()
       await expect(
-        gitExecFileAsync([subcommand], {
+        gitExecFileAsync(['status', '--porcelain=v2'], {
           ...fixture,
           env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
           timeoutMsForTest: 100
         })
-      ).resolves.toMatchObject({ stdout: 'done' })
-    }
-  )
-})
+      ).rejects.toBeInstanceOf(GitCommandTimeoutError)
+    })
+
+    it('times out a silent streaming read with the same typed error', async () => {
+      const fixture = await createTimedGitFixture()
+      await expect(
+        gitStreamStdout(['status'], {
+          ...fixture,
+          env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
+          timeoutMsForTest: 100,
+          onStdout: () => {}
+        })
+      ).rejects.toBeInstanceOf(GitCommandTimeoutError)
+    })
+
+    it('applies the read default to binary blob reads', async () => {
+      const fixture = await createTimedGitFixture()
+      await expect(
+        gitExecFileAsyncBuffer(['show', 'HEAD:file.bin'], {
+          ...fixture,
+          env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
+          timeoutMsForTest: 100
+        })
+      ).rejects.toBeInstanceOf(GitCommandTimeoutError)
+    })
+
+    it.each([['fetch'], ['checkout'], ['unrecognized-command']])(
+      'does not default-timeout the fail-safe %s class',
+      async (subcommand) => {
+        const fixture = await createTimedGitFixture()
+        await expect(
+          gitExecFileAsync([subcommand], {
+            ...fixture,
+            env: { ...fixture.env, ORCA_STUB_SLEEP_MS: '110' },
+            timeoutMsForTest: 100
+          })
+        ).resolves.toMatchObject({ stdout: 'done' })
+      }
+    )
+  }
+)
 
 describe.skipIf(process.platform === 'win32' || process.env.ORCA_RUN_SLOW_GIT_SMOKE !== '1')(
   'slow git read timeout smoke',
