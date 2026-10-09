@@ -2,6 +2,7 @@ import type { SshGitProvider } from '../providers/ssh-git-provider'
 import { extractExecError, ghExecFileAsync, gitExecFileAsync } from './runner'
 import { parseHostedRemote } from './hosted-remote-url'
 import { resolveDefaultBaseRefViaExec } from './repo'
+import { listCachedRemoteNames } from './remote-name-listing'
 
 const EXPLICIT_USERNAME_CONFIG_KEYS = ['github.user', 'user.username'] as const
 
@@ -259,11 +260,9 @@ async function getConfiguredBranchRemote(repoPath: string, branch: string | null
  * the GitHub account name as its branch prefix.
  */
 async function localRepoHasEffectiveGitHubRemote(repoPath: string): Promise<boolean> {
-  const remoteList = await gitExecFileAsync(['remote'], {
-    cwd: repoPath,
-    timeout: LOCAL_GIT_READ_TIMEOUT_MS
-  }).catch(() => null)
-  const remotes = (remoteList?.stdout.trim() ?? '').split('\n').filter(Boolean)
+  // Why the shared listing: its signed cache lets the other `git remote` callers reuse this probe.
+  const remoteList = await listCachedRemoteNames(repoPath)
+  const remotes = remoteList ?? []
   // Only a successful empty list proves there is no hosted remote to inspect.
   if (remoteList && remotes.length === 0) {
     return false
