@@ -23,7 +23,7 @@ import type {
   TerminalLeafMoveResult
 } from '../../../shared/terminal-leaf-move'
 import { moveLeaf } from '../terminal-topology/terminal-topology-commit'
-import { findTerminalBindingConflict } from '../terminal-topology/terminal-owner-invariants'
+import { findTerminalBindingConflict } from '../../../shared/workspace-layout/terminal-owner-invariants'
 
 type PtyBindingPersistenceOperationsRuntime = Pick<
   StoreRuntimeState,

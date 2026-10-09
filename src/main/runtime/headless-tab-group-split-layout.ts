@@ -1,48 +1,17 @@
 import type { RuntimeMobileSessionTabGroup } from '../../shared/runtime-types'
 import type { TabGroupLayoutNode } from '../../shared/tab-types'
+import { buildSplitNode, replaceLeaf } from '../../shared/workspace-layout/tab-group-layout-tree'
 
 /**
  * Headless ("Orca server") tab-GROUP split operations (distinct from terminal
  * PANE splits inside one tab). The headless host historically coalesced every
  * tab into a single group, so a client drag-to-split-group was lost on the next
  * snapshot. These pure helpers let the host model + persist a real multi-group
- * layout, mirroring the renderer's buildSplitNode/replaceLeaf semantics so host
- * and client agree on the tree.
+ * layout, sharing the renderer's group tree operations so host and client
+ * agree on the tree.
  */
 
 type SplitDirection = 'left' | 'right' | 'up' | 'down'
-
-function buildSplitNode(
-  existingGroupId: string,
-  newGroupId: string,
-  direction: 'horizontal' | 'vertical',
-  position: 'first' | 'second'
-): TabGroupLayoutNode {
-  const existingLeaf: TabGroupLayoutNode = { type: 'leaf', groupId: existingGroupId }
-  const newLeaf: TabGroupLayoutNode = { type: 'leaf', groupId: newGroupId }
-  return {
-    type: 'split',
-    direction,
-    first: position === 'first' ? newLeaf : existingLeaf,
-    second: position === 'second' ? newLeaf : existingLeaf,
-    ratio: 0.5
-  }
-}
-
-function replaceLeaf(
-  root: TabGroupLayoutNode,
-  targetGroupId: string,
-  replacement: TabGroupLayoutNode
-): TabGroupLayoutNode {
-  if (root.type === 'leaf') {
-    return root.groupId === targetGroupId ? replacement : root
-  }
-  return {
-    ...root,
-    first: replaceLeaf(root.first, targetGroupId, replacement),
-    second: replaceLeaf(root.second, targetGroupId, replacement)
-  }
-}
 
 /** Collect every groupId referenced by a layout tree. */
 export function collectTabGroupLayoutGroupIds(

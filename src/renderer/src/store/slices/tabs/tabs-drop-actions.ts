@@ -2,7 +2,11 @@ import { createBrowserUuid } from '@/lib/browser-uuid'
 import type { TabGroup } from '../../../../../shared/tab-types'
 import type { TabsSlice, TabsSliceGet, TabsSliceSet } from './tabs-slice-contract'
 import { isPaneColumnSplitDropNoOp } from '../pane-column-split-drop-no-op'
-import { collapseGroupLayout, buildSplitNode, replaceLeaf } from './tabs-layout'
+import {
+  collapseGroupLayout,
+  buildSplitNode,
+  replaceLeaf
+} from '../../../../../shared/workspace-layout/tab-group-layout-tree'
 import { buildActiveSurfacePatch } from './tabs-surface'
 import {
   dedupeTabOrder,

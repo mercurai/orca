@@ -3,7 +3,10 @@ import { getActiveExecutionHostIdForWorktree } from '@/lib/unified-tab-host-owne
 import type { Tab, TabGroup } from '../../../../../shared/tab-types'
 import type { TabsSlice, TabsSliceGet, TabsSliceSet } from './tabs-slice-contract'
 import { buildActiveSurfacePatch } from './tabs-surface'
-import { buildSplitNode, replaceLeaf } from './tabs-layout'
+import {
+  buildSplitNode,
+  replaceLeaf
+} from '../../../../../shared/workspace-layout/tab-group-layout-tree'
 import {
   dedupeTabOrder,
   ensureGroup,

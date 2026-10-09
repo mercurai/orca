@@ -1,5 +1,5 @@
 import type { TabsSlice, TabsSliceGet, TabsSliceSet } from './tabs-slice-contract'
-import { collapseGroupLayout } from './tabs-layout'
+import { collapseGroupLayout } from '../../../../../shared/workspace-layout/tab-group-layout-tree'
 import {
   dedupeTabOrder,
   findGroupForTab,
