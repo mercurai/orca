@@ -55,11 +55,15 @@ patches:
     notes: skip git username enrichment while the repo's config signature is unchanged
   - slug: orca-worktree-list-fingerprint
     branch: patch/orca-worktree-list-fingerprint
-    status: planned
+    status: ours-only
+    base: v1.4.223
     issue: mercurai/claude-code-config#1083
     owner: harness
     added: 2026-10-08
-    tests: []
+    tests:
+      - src/main/ipc/worktrees/listing/detected-worktree-scan-fingerprint.test.ts
+      - src/main/runtime/repo-worktree-admin-fingerprint-shared.test.ts
+      - src/main/runtime/repo-worktree-admin-fingerprint.test.ts
     notes: fingerprint-gate the IPC worktree listing
   - slug: orca-remote-listing-cache
     branch: patch/orca-remote-listing-cache
