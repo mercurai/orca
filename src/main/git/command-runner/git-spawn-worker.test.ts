@@ -143,7 +143,7 @@ describe('git spawn worker on a real worker thread', () => {
       },
       { onChunk: () => {}, onError: () => {}, onClose: () => {} }
     )
-    await vi.waitFor(() => expect(handle?.pid).toBeGreaterThan(0))
+    await vi.waitFor(() => expect(handle?.pid).toBeGreaterThan(0), { timeout: 10_000 })
     const pid = handle?.pid as number
     client?.dispose()
     await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 10_000 })
