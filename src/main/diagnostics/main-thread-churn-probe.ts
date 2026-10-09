@@ -163,6 +163,13 @@ export function startMainThreadChurnProbe(options: MainThreadChurnProbeOptions =
   const reportGaps = newGapCounter()
   const windowGaps = newGapCounter()
   const windowSpawns: Record<string, SubprocessSpawnStats> = {}
+  const reportSpawns: Record<string, SubprocessSpawnStats> = {}
+  // Why both: a window roll between stderr reports must not steal spawns from the next report.
+  const drainSpawns = (): void => {
+    const drained = drainSubprocessSpawnStats()
+    mergeSpawnStats(windowSpawns, drained)
+    mergeSpawnStats(reportSpawns, drained)
+  }
   const timer = setInterval(() => {
     const now = performance.now()
     const gap = now - last - TICK_MS
@@ -172,8 +179,8 @@ export function startMainThreadChurnProbe(options: MainThreadChurnProbeOptions =
     recordMainLoopStall(gap)
     if (now - lastReport >= REPORT_EVERY_MS) {
       lastReport = now
-      const spawns = drainSubprocessSpawnStats()
-      mergeSpawnStats(windowSpawns, spawns)
+      drainSpawns()
+      const spawns = { ...reportSpawns }
       if (isMainThreadDiagnosticsEnabled()) {
         const report = {
           t: Math.round(now),
@@ -187,9 +194,12 @@ export function startMainThreadChurnProbe(options: MainThreadChurnProbeOptions =
         writeStartupDiagnosticLine(`[main-thread] ${JSON.stringify(report)}`)
       }
       resetGapCounter(reportGaps)
+      for (const key of Object.keys(reportSpawns)) {
+        delete reportSpawns[key]
+      }
     }
     if (now - windowStart >= MAIN_LOOP_WINDOW_MS) {
-      mergeSpawnStats(windowSpawns, drainSubprocessSpawnStats())
+      drainSpawns()
       emitMainLoopSpan(now - windowStart, windowGaps, windowSpawns)
       windowStart = now
       resetGapCounter(windowGaps)

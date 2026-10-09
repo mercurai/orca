@@ -4,7 +4,7 @@ import type { GitAdmissionTier } from './git-exec-options'
 const operations = new AsyncLocalStorage<{ tier: GitAdmissionTier; active: boolean }>()
 const callers = new AsyncLocalStorage<string>()
 
-/** Label the code path that starts git work so `git.exec` spans carry `git.caller`. */
+/** Label the code path that starts git work so `git.exec` spans carry `git.caller`. Detached timers started inside keep the label, which still names the entry point that scheduled them. */
 export function withGitCaller<T>(caller: string, operation: () => T): T {
   return callers.run(caller, operation)
 }
