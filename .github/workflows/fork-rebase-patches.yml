@@ -161,6 +161,17 @@ jobs:
           git checkout -q "$FORK_BRANCH"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
 
+      # Patch CI: a draft PR from a patch branch against ci-base/<tag> runs upstream's pr.yml on the tag plus
+      # the patch, which is what gets assembled. A merge with the default branch is not that and conflicts.
+      - name: Publish the CI base branch for the tag
+        if: ${{ steps.mode.outputs.mode == 'real' }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "ci-base/$TARGET" >/dev/null 2>&1; then
+            echo "ci-base/$TARGET exists"; exit 0
+          fi
+          git push origin "$(git rev-parse "refs/tags/$TARGET^{commit}"):refs/heads/ci-base/$TARGET"
+
       - name: Record the base and the merged patches
         # Only when every patch rebased: a partly rebased series must not look assembled.
         if: ${{ steps.mode.outputs.mode == 'real' && steps.patches.outputs.count != '0' && steps.rebase.outputs.failed == '0' }}
