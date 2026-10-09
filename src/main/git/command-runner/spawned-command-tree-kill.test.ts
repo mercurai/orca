@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { spawnMock, admitMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
-  admitMock: vi.fn(() => true)
+  admitMock: vi.fn((_kill: { pid: number; site: string; scope: string }) => true)
 }))
 
 vi.mock('node:child_process', async (importOriginal) => ({
@@ -168,7 +168,7 @@ describe('Git command tree termination through the spawn worker', () => {
     )
     expect(spawnMock).toHaveBeenCalledWith(
       'taskkill',
-      ['/pid', String(admitMock.mock.calls[0]?.[0].pid), '/t', '/f'],
+      ['/pid', String(admitMock.mock.calls[0]?.[0]?.pid), '/t', '/f'],
       expect.anything()
     )
   })
