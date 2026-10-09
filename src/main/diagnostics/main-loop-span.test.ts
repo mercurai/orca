@@ -22,6 +22,21 @@ import {
 
 type Pushed = { name: string; attributes: Record<string, unknown> }
 
+function asPushed(record: unknown): Pushed {
+  if (
+    record !== null &&
+    typeof record === 'object' &&
+    'name' in record &&
+    typeof record.name === 'string' &&
+    'attributes' in record &&
+    record.attributes !== null &&
+    typeof record.attributes === 'object'
+  ) {
+    return { name: record.name, attributes: Object.fromEntries(Object.entries(record.attributes)) }
+  }
+  throw new Error('expected span record')
+}
+
 const TICK_MS = 25
 let pushed: Pushed[]
 let fakeNow: number
@@ -48,7 +63,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   vi.spyOn(performance, 'now').mockImplementation(() => fakeNow)
   const sink: TracerSink = {
-    push: (record) => pushed.push(record as Pushed),
+    push: (record) => pushed.push(asPushed(record)),
     flush: () => undefined,
     close: () => undefined
   }
