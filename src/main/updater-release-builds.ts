@@ -169,8 +169,8 @@ function parseReleaseEntry(
  *
  * Why the REST API rather than the atom feed the routine update path uses: the
  * feed caps at the 10 newest entries, which cannot express "jump back to
- * yesterday's hourly". This runs only on explicit dev interaction, so it never
- * touches background checks; it sends the local gh token when there is one so
+ * yesterday's hourly". This runs on explicit dev interaction and, for a running
+ * mercurai build, on its routine checks (low cadence, one request each); it sends the local gh token when there is one so
  * the request spends the user's own quota, not the per-IP bucket every
  * unauthenticated caller on the network shares.
  */
