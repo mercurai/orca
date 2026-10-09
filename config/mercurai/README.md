@@ -72,8 +72,8 @@ A `v<upstream>-mercurai.N` tag becomes an installer on the `mercurai` update cha
 repo `mercurai/orca-mercurai`, Windows only. The channel code is the `orca-release-channel` patch
 (`ours-only`, upstream will not take a fork channel): version scheme `1.4.222-mercurai.1`, repo
 `mercurai/orca-mercurai`, unsigned Windows build like upstream's `adhoc` channel. `fork-release-win-build`
-checks out the tag, builds, and publishes the installer, blockmap and `latest.yml` as a prerelease
-named by the tag (a normal release, not a prerelease, so the channel's `/releases/latest` resolves).
+checks out the tag, builds, and publishes the installer, blockmap and `latest.yml` as a normal
+release named by the tag (not a prerelease, so the channel's `/releases/latest` resolves).
 
 Trust boundary:
 

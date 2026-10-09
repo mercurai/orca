@@ -80,6 +80,7 @@ jobs:
           set -euo pipefail
           echo "ORCA_WIN_MERCURAI=1" >> "$GITHUB_ENV"
           echo "ORCA_MERCURAI_BUILD_VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "ORCA_BUILD_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           if ! grep -q "ORCA_WIN_MERCURAI" config/electron-builder.config.cjs; then
             echo "::error::$TAG has no mercurai channel in config/electron-builder.config.cjs; it was assembled without the orca-release-channel patch."
             exit 1
