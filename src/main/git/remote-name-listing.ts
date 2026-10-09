@@ -8,6 +8,8 @@ import { gitExecFileAsync } from './runner'
 export type RemoteNameListingGitOptions = {
   wslDistro?: string
   admissionTier?: GitAdmissionTier
+  // Local listing only; callers that run in a sequential pass pass a shorter bound.
+  timeoutMs?: number
 }
 
 const SIGNED_REMOTE_NAME_LISTING_TTL_MS = 5 * 60_000
@@ -152,7 +154,7 @@ async function listUncachedRemoteNames(
   try {
     const { stdout } = await gitExecFileAsync(['remote'], {
       cwd: repoPath,
-      timeout: REMOTE_URL_PROBE_TIMEOUT_MS,
+      timeout: localGitOptions.timeoutMs ?? REMOTE_URL_PROBE_TIMEOUT_MS,
       ...(localGitOptions.wslDistro ? { wslDistro: localGitOptions.wslDistro } : {}),
       ...(localGitOptions.admissionTier ? { admissionTier: localGitOptions.admissionTier } : {})
     })

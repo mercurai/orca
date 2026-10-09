@@ -1,31 +1,26 @@
-import { readFile, stat } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
+  readConfigPathSignatures,
   readLocalGitConfigSignature,
   resolveLocalGitConfigPaths
 } from '../github/local-git-config-signature'
 
 // Why: the repo-level config signature does not cover the user's global git config, which feeds
 // github.user / user.username / user.name, nor HEAD, which picks the branch whose remote counts.
-async function statStamp(path: string): Promise<string> {
-  try {
-    const stats = await stat(path)
-    return `${path}\0${stats.mtimeMs}\0${stats.size}`
-  } catch {
-    return `${path}\0missing`
-  }
-}
-
+// A gh login change is not covered either: it is picked up when this signature next changes.
 /** Read once per enrichment pass: every repo shares the same global config files. */
 export async function readGlobalGitConfigStamp(): Promise<string> {
-  const home = homedir()
+  // Git for Windows prefers %HOME% over the profile directory; GIT_CONFIG_GLOBAL replaces both files.
+  const home = process.env.HOME || homedir()
   const xdg = process.env.XDG_CONFIG_HOME || join(home, '.config')
-  const stamps = await Promise.all([
-    statStamp(join(home, '.gitconfig')),
-    statStamp(join(xdg, 'git', 'config'))
-  ])
-  return stamps.join('\0')
+  const globalPaths = process.env.GIT_CONFIG_GLOBAL
+    ? [process.env.GIT_CONFIG_GLOBAL]
+    : [join(home, '.gitconfig'), join(xdg, 'git', 'config')]
+  // Why includes: user.name / github.user commonly live in an [include]d work config.
+  const stamps = await Promise.all(globalPaths.map((path) => readConfigPathSignatures(path)))
+  return stamps.flat().join('\0')
 }
 
 async function readHeadStamp(repoPath: string): Promise<string | undefined> {
