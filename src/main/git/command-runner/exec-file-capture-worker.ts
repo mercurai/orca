@@ -80,8 +80,12 @@ export function execFileCaptureOnWorker(
   return handle.outcome.then((outcome) => {
     signal?.removeEventListener('abort', onAbort)
     // Why: a worker that died before spawning never ran the command, so run it here instead.
-    if (outcome.kind === 'failed' && !outcome.spawned && !signal?.aborted) {
-      return retryInProcess()
+    if (outcome.kind === 'failed' && !outcome.spawned) {
+      if (!signal?.aborted) {
+        return retryInProcess()
+      }
+      // Not retried, and the client skipped the release for a request it expected to retry.
+      options.onChildTerminated?.()
     }
     return settleCapture(outcome, command, options)
   })
