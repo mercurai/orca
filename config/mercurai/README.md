@@ -57,12 +57,40 @@ series.
 - `fork-assemble-release`: manual. Checks every active patch is recorded on the tag and contains
   it, builds `release/mercurai` = tag + cherry-picked patches (a patch with no commits beyond the
   tag is skipped with a warning), runs the series tests, tags `v<upstream>-mercurai.N` and pushes
-  both. Building the installer and publishing it to the mercurai update channel is the next
-  increment (mercurai/claude-code-config#1088).
+  both, then dispatches `fork-release-win-build` with the new tag.
+- `fork-release-win-build`: builds the Windows installer for a `v<upstream>-mercurai.N` tag and
+  publishes it to the release channel (below). Dispatchable by hand with `-f tag=...` to rebuild
+  or retry a tag.
 
 Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
 fetches, rebases or assembles and reports, but pushes nothing and opens no issue. That is how a
 change to these workflows is tested from its PR branch.
+
+## Release channel
+
+A `v<upstream>-mercurai.N` tag becomes an installer on the `mercurai` update channel: the public
+repo `mercurai/orca-mercurai`, Windows only. The channel code is the `orca-release-channel` patch
+(`ours-only`, upstream will not take a fork channel): version scheme `1.4.222-mercurai.1`, repo
+`mercurai/orca-mercurai`, unsigned Windows build like upstream's `adhoc` channel. `fork-release-win-build`
+checks out the tag, builds, and publishes the installer, blockmap and `latest.yml` as a normal
+release named by the tag (not a prerelease, so the channel's `/releases/latest` resolves).
+
+Trust boundary:
+
+- The channel is unsigned: no `publisherName`, `verifyUpdateCodeSignature` is false, so the app
+  installs whatever `latest.yml` on that repo points at. Whoever can write to `orca-mercurai` can ship
+  code to the host.
+- Assets come from CI only: the one writer is `FORK_BOT_TOKEN` inside `fork-release-win-build`.
+  Nobody uploads by hand, and no write-scoped personal token is placed in a shell.
+- Branch protection on (see One-time setup 4) is what keeps an unreviewed workflow change from
+  reaching that token.
+- Accepted risk: the build steps run code from the tag while `FORK_BOT_TOKEN` is in the job, so only
+  reviewed fork code may be on `release/mercurai`.
+- First install is by hand: a signed upstream install verifies update signatures against upstream's
+  publisher and refuses an unsigned update, so run the first `orca-windows-setup.exe` yourself. From
+  then on routine update checks of a mercurai build read the channel repo (not upstream stable, which
+  sorts above `X.Y.Z-mercurai.N`), so the next `-mercurai.N+1` arrives in-app. The channel picker's
+  pinned-build check (`checkForPinnedBuild`) jumps back to upstream stable when wanted.
 
 ## One-time setup
 
@@ -76,7 +104,11 @@ change to these workflows is tested from its PR branch.
    `gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/enable`.
 3. Upstream's own workflows also run in the fork on pushes to `main` and `mercurai`; disable the
    ones that need upstream secrets or runners (`gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/disable`).
-4. Branch protection: `main` and `mercurai` accept pushes only from the bot and reviewed PRs;
+4. Release channel: add `mercurai/orca-mercurai` to the repositories of the `FORK_BOT_TOKEN`
+   fine-grained token with Contents read and write; the token also needs Actions read and write on
+   `mercurai/orca` so `fork-assemble-release` can dispatch the build. The publish job fails with an `::error::` naming
+   this step when the upload is denied. The job also gives an empty channel repo its first commit.
+5. Branch protection: `main` and `mercurai` accept pushes only from the bot and reviewed PRs;
    `patch/*` branches may be force-pushed by the bot and the lane that owns them.
 
 ## Rules

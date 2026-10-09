@@ -1,6 +1,6 @@
 # mercurai fork: assemble a release branch = one upstream release tag + the active patch series,
 # run the patches' tests, and tag it `v<upstream>-mercurai.N`. The branch and tag are what the
-# build/publish job (the mercurai release channel, a separate increment) consumes. The series must
+# build/publish job (fork-release-win-build, which this workflow dispatches after tagging) consumes. The series must
 # already be rebased onto the tag (fork-rebase-patches does that and records it per patch).
 # Dispatched from a non-default branch, or with dry_run, it pushes nothing. Lives in the fork only.
 name: fork-assemble-release
@@ -32,6 +32,8 @@ env:
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   MANIFEST: config/mercurai/patches.yaml
   MANIFEST_WORK: /tmp/manifest.yaml
+  # The runner checkout has an upstream remote; gh prefers it when inferring the repo.
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   assemble:
@@ -137,6 +139,17 @@ jobs:
           git tag -a "${{ steps.assemble.outputs.release_tag }}" -m "mercurai release on $TAG: $(tr '\n' ' ' < /tmp/active)"
           git push origin "refs/tags/${{ steps.assemble.outputs.release_tag }}"
           echo "tagged ${{ steps.assemble.outputs.release_tag }} on ${{ steps.assemble.outputs.release_branch }}"
+
+      - name: Hand the new tag to fork-release-win-build
+        if: ${{ steps.mode.outputs.push == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
+        run: |
+          gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" || {
+            echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
+            exit 1
+          }
 
       - name: Report the dry run
         if: ${{ steps.mode.outputs.push != 'true' }}
