@@ -75,11 +75,18 @@ patches:
     notes: raw git remote callers use listCachedRemoteNames
   - slug: orca-spawn-worker
     branch: patch/orca-spawn-worker
-    status: planned
+    status: ours-only
+    base: v1.4.223
     issue: mercurai/claude-code-config#1085
     owner: harness
     added: 2026-10-08
-    tests: []
+    tests:
+      - src/main/git/command-runner/git-spawn-worker.test.ts
+      - src/main/git/command-runner/git-spawn-worker-client.test.ts
+      - src/main/git/command-runner/git-spawn-worker-handler.test.ts
+      - src/main/git/command-runner/git-exec-admission-lifetime.test.ts
+      - src/main/git/command-runner/git-command-timeout-behavior.test.ts
+      - src/main/git/command-runner/spawned-command-tree-kill.test.ts
     notes: git spawns on a worker thread behind ORCA_GIT_SPAWN_WORKER
   - slug: orca-spawn-worker-barrier
     branch: patch/orca-spawn-worker-barrier

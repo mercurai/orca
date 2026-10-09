@@ -113,9 +113,11 @@ Trust boundary:
 
 ## Rules
 
-- A patch may stack on an earlier patch in the series: start its branch from that patch's branch and list it
-  after it in `patches.yaml`. Assembly cherry-picks in manifest order and drops the already-applied commits as
-  empty (`--empty=drop`); the rebase workflow rebases each branch onto the tag on its own.
+- Every patch stands on the bare tag by itself: its branch starts from the tag and touches files no other
+  active patch touches. Stacking one patch on another is not supported: replaying the earlier patch's commits
+  on the release branch conflicts once later commits of that patch changed the same files (seen on
+  2026-10-09, run 37969444055). A lane that develops on top of another patch rebases its own commits onto the
+  tag before the patch is recorded (`git rebase --onto <tag> origin/patch/<other>`).
 - Patch CI: open a draft PR from the patch branch (unchanged) against `ci-base/<tag>`, a branch equal to the
   manifest base tag that `fork-rebase-patches` publishes per tag; upstream's `pr.yml` then runs on the tag plus
   the patch. Never merge the default branch into a patch for CI: it conflicts and stages upstream files.
