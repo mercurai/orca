@@ -104,7 +104,7 @@ describe('command receipt transaction hook', () => {
       readOnly: () => database.readOnly,
       highestFence: () => 0,
       nextSequence: () => 7,
-      commit: (row) => committed.push(row)
+      commit: (rows) => committed.push(...rows)
     })
     await writer.enqueue(
       epochRow,

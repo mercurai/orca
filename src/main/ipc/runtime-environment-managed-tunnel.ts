@@ -9,10 +9,10 @@ import { ensureOrcadManagedTunnel } from '../ssh/orcad-managed-tunnel'
 import { verifyOrcadManagedServing } from '../ssh/orcad-managed-serving-verify'
 import { setManagedOrcadStartListener } from '../ssh/orcad-managed-serving'
 import { updateManagedOrcadOnRestore } from '../ssh/orcad-managed-update-on-restore'
-import { setSshHostServerStatus } from '../ssh/ssh-host-server-status'
+import { getSshHostServerStatus, setSshHostServerStatus } from '../ssh/ssh-host-server-status'
 import { getSshTargetRegistryStore } from '../ssh/ssh-target-registry'
 import { connectionManager, getCurrentMainWindow } from './ssh-ipc-context'
-import { broadcastSshState } from './ssh-renderer-broadcast'
+import { broadcastSshState, relayStateOverrides } from './ssh-renderer-broadcast'
 
 export async function resolveManagedRuntimeEnvironment(
   userDataPath: string,
@@ -41,7 +41,7 @@ function publishRestoreUpdate(
   note?: SshManagedServerUpdateNote
 ): void {
   publishHostServerStatus(
-    target,
+    target.id,
     phase === 'updating'
       ? { kind: 'setting-up', phase: 'updating' }
       : { kind: 'managed', environmentId, ...(note ? { update: note } : {}) }
@@ -52,9 +52,9 @@ function publishRestoreUpdate(
 export function installManagedOrcadStartStatus(): void {
   setManagedOrcadStartListener({
     starting: (target) =>
-      publishHostServerStatus(target, { kind: 'setting-up', phase: 'starting' }),
+      publishHostServerStatus(target.id, { kind: 'setting-up', phase: 'starting' }),
     settled: (target, environmentId, serving) =>
-      publishHostServerStatus(target, {
+      publishHostServerStatus(target.id, {
         kind: 'managed',
         environmentId,
         ...(serving.state === 'unverifiable' ? { serving } : {})
@@ -78,11 +78,26 @@ export function publishResolvedChangedHostStatus(target: SshTarget, environmentI
   )
 }
 
-function publishHostServerStatus(target: SshTarget, status: SshManagedServerStatus): void {
-  setSshHostServerStatus(target.id, status)
+export function publishHostServerStatus(targetId: string, status: SshManagedServerStatus): void {
+  setSshHostServerStatus(targetId, status)
+  const override = relayStateOverrides.get(targetId)
+  if (override) {
+    relayStateOverrides.set(targetId, { ...override, managedServer: status })
+  }
   // Only a host with a connection state has a status line to refresh.
-  const state = connectionManager?.getState(target.id)
+  const state = relayStateOverrides.get(targetId) ?? connectionManager?.getState(targetId)
   if (state) {
-    broadcastSshState(getCurrentMainWindow, target.id, state)
+    broadcastSshState(getCurrentMainWindow, targetId, { ...state, managedServer: status })
+  }
+}
+
+/** A verified update supersedes the host's update and serving notes; any other host route is kept. */
+export function clearManagedServerNotes(targetId: string, environmentId: string): void {
+  const current = getSshHostServerStatus(targetId)
+  if (current?.kind !== 'managed' || current.environmentId !== environmentId) {
+    return
+  }
+  if (current.update || current.serving) {
+    publishHostServerStatus(targetId, { kind: 'managed', environmentId })
   }
 }

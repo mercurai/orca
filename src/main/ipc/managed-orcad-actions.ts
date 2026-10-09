@@ -15,6 +15,8 @@ export type ManagedOrcadActionOptions = {
   getUserDataPath: () => string
   getActiveEnvironmentId: () => string | null | undefined
   invalidateTransport: (environmentId: string) => Promise<void> | void
+  /** Drops the SSH host's stale update/serving notes once an update verified its server. */
+  clearHostServerNotes: (sshTargetId: string, environmentId: string) => void
   /** Drops the SSH host's stale managed-server state once its server is unlinked. */
   clearHostServerStatus: (sshTargetId: string) => void
   /** Drops the unlinked server's workspace session partition. */
@@ -32,6 +34,12 @@ export function createManagedOrcadActions(
       // Why: a restarted orcad drops the old connection; reconnect on the new one.
       if (result.outcome === 'updated') {
         await options.invalidateTransport(result.environment.id)
+      }
+      if (result.outcome !== 'deferred') {
+        const targetId = result.environment.orcadDeployment?.sshTargetId
+        if (targetId) {
+          options.clearHostServerNotes(targetId, result.environment.id)
+        }
       }
       return result
     },
