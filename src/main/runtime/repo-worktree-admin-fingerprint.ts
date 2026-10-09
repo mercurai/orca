@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { resolveGitCommonDirectory } from '../../shared/git-common-directory'
 import { mapWithConcurrency } from '../../shared/map-with-concurrency'
+import { withTimeout } from '../../shared/promise-timeout-fallback'
 
 // NUL can appear in neither a path nor a Git ref, so field boundaries stay unambiguous.
 const FIELD_SEPARATOR = '\u0000'
@@ -47,6 +48,33 @@ export async function readRepoWorktreeAdminFingerprint(repoPath: string): Promis
   } catch {
     return null
   }
+}
+
+const sharedFingerprintReads = new Map<string, Promise<string | null>>()
+
+/**
+ * Read a repo's fingerprint, sharing one in-flight read per `key` among concurrent callers.
+ * Why the gate: a timeout abandons the wait without cancelling the read, and readdir/stat take no
+ * AbortSignal, so on a wedged mount a fresh read per poll would pin every libuv fs thread. The slot
+ * stays held until the read itself settles; a caller that times out gets `null` ("cannot prove
+ * unchanged") and falls back to a real scan.
+ */
+export function readRepoWorktreeAdminFingerprintShared(
+  key: string,
+  repoPath: string,
+  timeoutMs: number
+): Promise<string | null> {
+  let read = sharedFingerprintReads.get(key)
+  if (!read) {
+    const started = readRepoWorktreeAdminFingerprint(repoPath).finally(() => {
+      if (sharedFingerprintReads.get(key) === started) {
+        sharedFingerprintReads.delete(key)
+      }
+    })
+    sharedFingerprintReads.set(key, started)
+    read = started
+  }
+  return withTimeout(read, timeoutMs, null)
 }
 
 async function readLinkedWorktreeStamp(
