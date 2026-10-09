@@ -100,7 +100,7 @@ function streamOnWorker(
       ? {
           binary: command.binary,
           args: command.args,
-          cwd: command.cwd,
+          cwd: command.cwd ?? options.cwd,
           env: untranslatedGitOutputEnv(options.env)
         }
       : resolveGitSpawnTarget(args, options)
