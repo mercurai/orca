@@ -10,7 +10,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readRepoWorktreeAdminFingerprint } from './repo-worktree-admin-fingerprint'
+import {
+  readRepoWorktreeAdminFingerprint,
+  readRepoWorktreeAdminFingerprintShared
+} from './repo-worktree-admin-fingerprint'
 
 const execFileAsync = promisify(execFile)
 
@@ -163,5 +166,21 @@ describe('readRepoWorktreeAdminFingerprint', () => {
 
   it('returns null for a missing path', async () => {
     expect(await fingerprint(join(scratchDir, 'absent'))).toBeNull()
+  })
+})
+
+describe('readRepoWorktreeAdminFingerprintShared', () => {
+  it('frees the slot once the read settles, so the next call reads fresh state', async () => {
+    const before = await readRepoWorktreeAdminFingerprintShared('k', repoPath, 10_000)
+    await git(['worktree', 'add', '-q', join(scratchDir, 'trees', 'next'), '-b', 'next'], repoPath)
+    const after = await readRepoWorktreeAdminFingerprintShared('k', repoPath, 10_000)
+    expect(after).not.toBeNull()
+    expect(after).not.toBe(before)
+  })
+
+  it('returns null for a repo that cannot be fingerprinted', async () => {
+    expect(
+      await readRepoWorktreeAdminFingerprintShared('missing', join(scratchDir, 'absent'), 10_000)
+    ).toBeNull()
   })
 })
