@@ -69,3 +69,17 @@ export async function killChildWithMainVerdict(
     port.postMessage({ type: 'killed', id, reason })
   }
 }
+
+/**
+ * Worker shutdown: start the tree kill for a live child without awaiting it. The spawn of
+ * taskkill happens synchronously inside, and git children are ours, so the walk is admitted.
+ */
+export function killTreeAtShutdown(child: ChildProcess | null): void {
+  if (!child || hasExited(child)) {
+    return
+  }
+  if (child.pid) {
+    treeKillVerdicts.set(child.pid, true)
+  }
+  void killSpawnedCommandTree(child)
+}
