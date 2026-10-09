@@ -41,11 +41,17 @@ patches:
     notes: always-on main-loop span, main_loop_stall breadcrumb, git.caller attribution
   - slug: orca-username-signature
     branch: patch/orca-username-signature
-    status: planned
+    status: ours-only
+    base: v1.4.223
     issue: mercurai/claude-code-config#1082
     owner: harness
     added: 2026-10-08
-    tests: []
+    tests:
+      - src/main/repo-git-username-enrichment.test.ts
+      - src/main/git/git-username-signature.test.ts
+      - src/main/repo-git-username-signature-store.test.ts
+      - src/main/git/repo-username.test.ts
+      - src/main/git/remote-name-listing.test.ts
     notes: skip git username enrichment while the repo's config signature is unchanged
   - slug: orca-worktree-list-fingerprint
     branch: patch/orca-worktree-list-fingerprint
