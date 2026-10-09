@@ -73,7 +73,13 @@ async function enrichRepoGitUsernamesInBackground(
     // Why before resolving: an edit that lands mid-resolution then differs from the stored
     // signature and re-resolves on the next launch instead of being masked.
     const signature = await readLocalGitUsernameSignature(repo.path, globalConfigStamp)
-    if (signature !== undefined && signatures.get(location) === signature) {
+    const remembered = signatures.get(location)
+    if (signature !== undefined && remembered?.signature === signature) {
+      // Why apply it: a re-added repo has a fresh record without the username, and the record save
+      // is debounced, so the sidecar copy is what survives a kill between the two writes.
+      if (store.setResolvedRepoGitUsername(repo, remembered.username)) {
+        changed = true
+      }
       continue
     }
     const { username, authoritative } = await resolveLocalGitUsernameDetailed(repo.path)
@@ -86,8 +92,8 @@ async function enrichRepoGitUsernamesInBackground(
     }
     // Why: a non-authoritative result (gh timed out) must retry next launch, so only an
     // authoritative one is remembered as "unchanged".
-    if (authoritative && signature !== undefined && signatures.get(location) !== signature) {
-      signatures.set(location, signature)
+    if (authoritative && signature !== undefined) {
+      signatures.set(location, { signature, username })
       signaturesChanged = true
     }
     if (store.setResolvedRepoGitUsername(repo, username)) {
