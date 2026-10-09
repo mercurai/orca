@@ -13,12 +13,18 @@ vi.mock('./runner', async () => {
   }
 })
 
+// Why: the remote listing reads config files from disk; real I/O would settle outside fake timers.
+vi.mock('../github/local-git-config-signature', () => ({
+  readLocalGitConfigSignature: async () => undefined
+}))
+
 import {
   isBranchSafeHostedLogin,
   resolveLocalGitUsername,
   resolveLocalGitUsernameDetailed,
   resetGhLoginCacheForTests
 } from './git-username'
+import { _resetRemoteNameListingCache } from './remote-name-listing'
 
 function makeExecError(
   message: string,
@@ -68,6 +74,7 @@ describe('resolveLocalGitUsername', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     resetGhLoginCacheForTests()
+    _resetRemoteNameListingCache()
     gitConfig = {}
     originRemoteUrl = undefined
     remoteUrls = {}
@@ -138,6 +145,16 @@ describe('resolveLocalGitUsername', () => {
     ghExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'gh-demo\n', stderr: '' })
 
     await expect(resolveLocalGitUsername('/repo')).resolves.toBe('gh-demo')
+  })
+
+  it('lists remotes once for a repo resolved twice through the shared listing cache', async () => {
+    await resolveLocalGitUsernameDetailed('/repo')
+    await resolveLocalGitUsernameDetailed('/repo')
+
+    const remoteListCalls = gitExecFileAsyncMock.mock.calls.filter(
+      ([args]) => args.length === 1 && args[0] === 'remote'
+    )
+    expect(remoteListCalls).toHaveLength(1)
   })
 
   it('stops after a successful empty remote list', async () => {
