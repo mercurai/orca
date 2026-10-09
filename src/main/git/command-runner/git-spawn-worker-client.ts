@@ -311,19 +311,21 @@ export class GitSpawnWorkerClient {
       this.unavailable = true
       this.log(`[git-spawn-worker] crashed repeatedly, spawning in-process. ${error.message}`)
     }
-    this.fail(Object.assign(error, { code: SPAWN_WORKER_EXIT_CODE }))
+    this.fail(error, SPAWN_WORKER_EXIT_CODE)
   }
 
   // Every in-flight request is over: the worker and its children are gone.
-  private fail(error: Error): void {
+  private fail(error: Error, code?: string): void {
     for (const entry of this.active.values()) {
       // A request that never spawned is retried in-process, so it must not release its grant yet.
       if (entry.spawned || !entry.capture) {
         this.markClosed(entry)
       }
-      this.settle(entry, { kind: 'failed', error, spawned: entry.spawned })
+      // Why a copy per request: callers attach their own output to the error they receive.
+      const own = Object.assign(new Error(error.message), code ? { code } : {})
+      this.settle(entry, { kind: 'failed', error: own, spawned: entry.spawned })
       this.active.delete(entry.id)
-      entry.stream?.onError(error, false)
+      entry.stream?.onError(own, false)
     }
   }
 }
