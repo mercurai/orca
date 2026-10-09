@@ -316,7 +316,7 @@ export class GitSpawnWorkerClient {
 
   // Every in-flight request is over: the worker and its children are gone.
   private fail(error: Error): void {
-    for (const entry of [...this.active.values()]) {
+    for (const entry of this.active.values()) {
       // A request that never spawned is retried in-process, so it must not release its grant yet.
       if (entry.spawned || !entry.capture) {
         this.markClosed(entry)
