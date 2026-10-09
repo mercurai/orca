@@ -14,6 +14,8 @@ if (!parentPort) {
 const port = parentPort
 
 installSpawnWorkerTreeKillGate()
-const handler = createGitSpawnWorkerHandler(port)
+const handler = createGitSpawnWorkerHandler({
+  postMessage: (message, transfer) => port.postMessage(message, transfer)
+})
 process.once('exit', handler.killAll)
 port.on('message', (request: SpawnWorkerRequest) => handler.handle(request))
