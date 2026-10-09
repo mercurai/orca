@@ -28,8 +28,7 @@ import { pruneMetadataMissingFromAuthoritativeLocalScan } from './authoritative-
 import {
   canFingerprintDetectedWorktreeScan,
   isCachedScanProvenUnchanged,
-  readDetectedWorktreeScanFingerprint,
-  settleDetectedScanFingerprint
+  readDetectedWorktreeScanFingerprint
 } from './detected-worktree-scan-fingerprint'
 
 // Why: absorb renderer polling bursts while bounding external worktree-change lag to one short refresh window.
@@ -201,14 +200,18 @@ export async function listDetectedGitWorktrees(
     hygieneDue && !localWorktreeGitOptions.wslDistro
       ? store.captureNativeLocalWorktreeMetadataScanExpectation(repo)
       : undefined
-  // Why before the scan: the stamp must not postdate Git's listing (re-checked once the scan settles).
   const scannedAt = Date.now()
   const fingerprintProbe = fingerprintCapable
     ? readDetectedWorktreeScanFingerprint(cacheKey, repo)
     : null
   const scan: DetectedWorktreeScan = {
     invalidated: false,
-    promise: listRepoWorktreesForDetectedScan(repo, localWorktreeGitOptions),
+    // Why chained: the stamp must never postdate the rows. A change that lands after the stamp
+    // only makes the next probe disagree, but one landing between an unordered listing and read
+    // would be stamped onto rows that lack it and stay hidden until the reconcile interval.
+    promise: (fingerprintProbe ?? Promise.resolve(null)).then(() =>
+      listRepoWorktreesForDetectedScan(repo, localWorktreeGitOptions)
+    ),
     sideEffectToken: { generation, authorizedRootsRevision, ...localWorktreeGitOptions },
     hygieneDue,
     ...(metadataPruneExpectation
@@ -229,7 +232,7 @@ export async function listDetectedGitWorktrees(
       gitWorktrees.map((worktree) => worktree.path)
     )
     // Why before the staleness checks: this await must not widen the window they cover.
-    const adminFingerprint = await settleDetectedScanFingerprint(cacheKey, repo, fingerprintProbe)
+    const adminFingerprint = fingerprintProbe ? await fingerprintProbe : null
     const routingUnchanged =
       getDetectedWorktreeScanCacheKey(repo.id, getLocalProjectWorktreeGitOptions(store, repo)) ===
       cacheKey
