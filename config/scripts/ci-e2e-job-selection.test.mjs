@@ -32,6 +32,14 @@ it.each(['errors', 'status', 'lifecycle', 'restart-attempt'])(
   }
 )
 
+it.each([
+  'src/renderer/src/lib/ssh-workspace-browser-route-eligibility.ts',
+  'src/renderer/src/components/browser-pane/use-ssh-workspace-browser-route.ts',
+  'src/main/browser/local-ssh-browser-route.ts'
+])('routes the managed browser routing oracle from %s', (path) => {
+  expect(selectPrE2eSpecs([path])).toContain('tests/e2e/ssh-orcad-browser-routing.spec.ts')
+})
+
 const workflow = parse(readFileSync('.github/workflows/e2e.yml', 'utf8'))
 const prWorkflow = parse(readFileSync('.github/workflows/pr.yml', 'utf8'))
 const classify = (specs, ssh = 'false') => classifyE2eJobs(JSON.stringify(specs), ssh)
@@ -163,4 +171,20 @@ it('runs remaining SSH tests after real failures and stops them when a run is ca
   for (const step of steps.filter((step) => step.name?.startsWith('Keep '))) {
     expect(step.if).toContain('always()')
   }
+})
+
+it.each([
+  'src/renderer/src/runtime/web-session-tabs-sync/mirrored-editor-file-identity.ts',
+  'src/renderer/src/runtime/web-session-tabs-sync/tab-builders.ts',
+  'src/renderer/src/runtime/web-session-tabs-sync/apply-preparation-browser.ts',
+  'src/renderer/src/runtime/web-session-existing-tab-index.ts'
+])('routes %s to the template-building editor ownership lane', (file) => {
+  const spec = 'tests/e2e/ssh-orcad-editor-ownership.spec.ts'
+  expect(selectPrE2eSpecs([file])).toContain(spec)
+  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
+  const job = workflow.jobs['orcad-auto-convert-docker']
+  expect(job.if).toContain(spec)
+  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
+    spec
+  )
 })
