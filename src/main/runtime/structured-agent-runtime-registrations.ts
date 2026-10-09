@@ -238,6 +238,8 @@ function acpRegistration(spec: AcpLaunchSpec): StructuredAgentRuntimeRegistratio
           logger: deps.logger
         }),
         connect: (launch, options) => createAcpAgentConnection(launch, options),
+        onChildWorkEvidence: (sessionId, evidence) =>
+          context.host()?.publishChildWorkEvidence(sessionId, evidence),
         ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
         onDispatchSettledLate: followUps.onDispatchSettledLate,
         logger: deps.logger,

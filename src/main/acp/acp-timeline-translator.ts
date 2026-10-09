@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { BoundedMap } from '../../shared/bounded-map'
-import type { ProviderTimelineEvent } from '../native-chat/agent-session-timeline/provider-timeline-event'
+import type { AcpTimelineEvent as ProviderTimelineEvent } from './acp-timeline-event'
 import { acpNotificationEnvelopeSchema, AcpContextTimeline } from './acp-context-usage'
 import { AcpBackgroundTaskTimeline } from './acp-background-task-timeline'
 import { GENERIC_ACP_DIALECT, type AcpDialect } from './acp-dialects/acp-dialect'
@@ -9,6 +9,7 @@ import { acpTurnEnd, AcpPromptTurns } from './acp-prompt-turns'
 import { readAcpSessionEvent, type AcpSessionEvent } from './acp-session-events'
 import { translateAcpRequest } from './acp-timeline-requests'
 import { acpSessionUpdate } from './acp-session-update'
+import { AcpSubagentTimeline } from './acp-subagent-timeline'
 import { AcpToolTimeline } from './acp-tool-timeline'
 import {
   AcpTurnFailures,
@@ -17,6 +18,7 @@ import {
 } from './acp-turn-failures'
 import { acpNamedTextKey, AcpTurnMessages, type AcpTextDrop } from './acp-turn-messages'
 import type { PromptResponse } from './generated/acp-protocol.generated'
+import type { NativeChatSubagentState } from '../../shared/native-chat-types'
 
 export { acpTurnEnd } from './acp-prompt-turns'
 
@@ -45,6 +47,7 @@ export class AcpTimelineTranslator {
   private readonly prompts: AcpPromptTurns
   private readonly tools = new AcpToolTimeline()
   private readonly backgroundTasks: AcpBackgroundTaskTimeline
+  private readonly subagents = new AcpSubagentTimeline()
   private readonly messages = new AcpTurnMessages()
   private readonly started = new BoundedMap<string, true>({ maxEntries: 128 })
   private readonly failures: AcpTurnFailures
@@ -60,6 +63,10 @@ export class AcpTimelineTranslator {
       options.sessionId,
       this.dialect.injectedPromptIdentity === true
     )
+  }
+
+  dispose(): void {
+    this.subagents.dispose()
   }
 
   /** Whether the agent's dialect echoes an injected prompt identity on the turn's events. */
@@ -147,6 +154,22 @@ export class AcpTimelineTranslator {
     this.loading = false
   }
 
+  get providerSessionId(): string {
+    return this.options.sessionId
+  }
+
+  reconcileSubagent(
+    id: string,
+    state: NativeChatSubagentState,
+    at: number
+  ): ProviderTimelineEvent[] {
+    return this.subagents.translate(
+      [{ id, state, knownOnly: true }],
+      { thread: this.options.sessionId },
+      at
+    )
+  }
+
   sessionEvent(event: AcpSessionEvent, at: number): ProviderTimelineEvent[] {
     return this.notification(
       'session/update',
@@ -158,7 +181,13 @@ export class AcpTimelineTranslator {
   notification(method: string, params: unknown, at: number): ProviderTimelineEvent[] {
     const session = requestSessionSchema.safeParse(params)
     if (session.success && session.data.sessionId !== this.options.sessionId) {
-      return []
+      const id = session.data.sessionId
+      const child = acpNotificationEnvelopeSchema.safeParse(params)
+      if (this.loading || !this.subagents.has(id) || !child.success || child.data._meta?.isReplay) {
+        return []
+      }
+      const state = this.dialect.subagentSessionEnd?.(method, params)
+      return state ? this.reconcileSubagent(id, state, at) : []
     }
     const extension = this.dialect.notification?.(method, params, at)
     if (extension?.disposition === 'ignore') {
@@ -207,7 +236,11 @@ export class AcpTimelineTranslator {
     }
     const join = { thread: this.options.sessionId, ...(turn === undefined ? {} : { turn }) }
     if (extension?.backgroundTasks) {
-      events.push(...this.backgroundTasks.translate(extension.backgroundTasks, join))
+      const tasks = extension.backgroundTasks.filter((task) => !this.subagents.has(task.taskId))
+      events.push(...this.backgroundTasks.translate(tasks, join))
+    }
+    if (extension?.subagents) {
+      events.push(...this.subagents.translate(extension.subagents, join, at))
     }
     if (extension?.usage) {
       events.push(...this.context.update(extension.usage, join))
@@ -238,6 +271,7 @@ export class AcpTimelineTranslator {
           tools: this.tools,
           dialect: this.dialect,
           backgroundTasks: this.backgroundTasks,
+          subagents: this.subagents,
           messageKey
         })
       ]
