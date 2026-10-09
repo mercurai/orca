@@ -45,3 +45,29 @@ export async function isCachedScanProvenUnchanged(
   const current = await readDetectedWorktreeScanFingerprint(cacheKey, repo)
   return current !== null && current === cached.adminFingerprint
 }
+
+const STILL_PENDING = Symbol('pending')
+
+/**
+ * Resolve the fingerprint to store beside a fresh scan. The opening read runs beside Git's listing,
+ * so it only proves "unchanged since the rows" when it settled before the listing did, and a second
+ * read after the scan must agree with it. Anything else yields `null`, which makes the next poll
+ * rescan instead of stamping a change that landed mid-scan onto rows that lack it. A change landing
+ * in the few milliseconds between Git's snapshot and a read that still beats the listing home is
+ * bounded by the reconcile interval, as on the runtime scan path.
+ */
+export async function settleDetectedScanFingerprint(
+  cacheKey: string,
+  repo: Repo,
+  opening: Promise<string | null> | null
+): Promise<string | null> {
+  if (!opening) {
+    return null
+  }
+  // An already-settled promise wins the race because it is listed first.
+  const first = await Promise.race([opening, Promise.resolve(STILL_PENDING)])
+  if (first === STILL_PENDING || first === null) {
+    return null
+  }
+  return (await readDetectedWorktreeScanFingerprint(cacheKey, repo)) === first ? first : null
+}
