@@ -1,9 +1,9 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { __resetLocalGitConfigSignatureCacheForTests } from '../github/local-git-config-signature'
-import { readLocalGitUsernameSignature } from './git-username-signature'
+import { readGlobalGitConfigStamp, readLocalGitUsernameSignature } from './git-username-signature'
 
 describe('readLocalGitUsernameSignature', () => {
   let repoPath: string
@@ -48,5 +48,44 @@ describe('readLocalGitUsernameSignature', () => {
 
   it('is undefined for a path that is not a git repo', async () => {
     expect(await readLocalGitUsernameSignature(join(repoPath, 'missing'), 'g')).toBeUndefined()
+  })
+})
+
+describe('readGlobalGitConfigStamp', () => {
+  let dir: string
+  const savedGlobal = process.env.GIT_CONFIG_GLOBAL
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'orca-global-sig-'))
+  })
+
+  afterEach(async () => {
+    if (savedGlobal === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = savedGlobal
+    }
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('changes when an included file is edited', async () => {
+    const included = join(dir, 'work.gitconfig')
+    const main = join(dir, 'gitconfig')
+    await writeFile(included, '[user]\n\tname = one\n')
+    await writeFile(main, `[include]\n\tpath = ${included.split(sep).join('/')}\n`)
+    process.env.GIT_CONFIG_GLOBAL = main
+
+    const before = await readGlobalGitConfigStamp()
+    await writeFile(included, '[user]\n\tname = two-longer\n')
+
+    expect(await readGlobalGitConfigStamp()).not.toBe(before)
+  })
+
+  it('reads GIT_CONFIG_GLOBAL instead of the home gitconfig', async () => {
+    const main = join(dir, 'gitconfig')
+    await writeFile(main, '[user]\n')
+    process.env.GIT_CONFIG_GLOBAL = main
+
+    expect(await readGlobalGitConfigStamp()).toContain(main)
   })
 })
