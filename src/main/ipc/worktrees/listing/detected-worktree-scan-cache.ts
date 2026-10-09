@@ -25,6 +25,12 @@ import {
   requireLocalWorktreeMetadataPrune
 } from '../../../local-worktree-metadata-prune-gate'
 import { pruneMetadataMissingFromAuthoritativeLocalScan } from './authoritative-local-worktree-metadata-pruning'
+import {
+  canFingerprintDetectedWorktreeScan,
+  isCachedScanProvenUnchanged,
+  readDetectedWorktreeScanFingerprint,
+  settleDetectedScanFingerprint
+} from './detected-worktree-scan-fingerprint'
 
 // Why: absorb renderer polling bursts while bounding external worktree-change lag to one short refresh window.
 export const DETECTED_WORKTREE_SCAN_CACHE_TTL_MS = 5_000
@@ -34,6 +40,10 @@ export type DetectedWorktreeScanCacheEntry = {
   worktrees: GitWorktreeInfo[]
   /** The generation the cached scan began at: the catalog its rows describe. */
   generation: number
+  /** The repo's admin-state fingerprint taken before the scan; null means it cannot prove "unchanged". */
+  adminFingerprint: string | null
+  /** When the cached scan began; bounds how long an unchanged fingerprint may extend it. */
+  scannedAt: number
 }
 
 export type DetectedWorktreeScan = {
@@ -117,6 +127,15 @@ export function __getDetectedWorktreeScanCacheStatsForTests(): {
   }
 }
 
+function cachedScanResult(cached: DetectedWorktreeScanCacheEntry): DetectedWorktreeScanResult {
+  return {
+    gitWorktrees: cached.worktrees,
+    fresh: false,
+    superseded: false,
+    generation: cached.generation
+  }
+}
+
 export async function listDetectedGitWorktrees(
   store: Store,
   repo: Repo
@@ -135,12 +154,22 @@ export async function listDetectedGitWorktrees(
   const cacheKey = getDetectedWorktreeScanCacheKey(repo.id, localWorktreeGitOptions)
   const cached = detectedWorktreeScanCache.get(cacheKey)
   if (cached && cached.expiresAt > Date.now()) {
-    return {
-      gitWorktrees: cached.worktrees,
-      fresh: false,
-      superseded: false,
-      generation: cached.generation
-    }
+    return cachedScanResult(cached)
+  }
+
+  const fingerprintCapable = canFingerprintDetectedWorktreeScan(repo, localWorktreeGitOptions)
+  // Why: an expired entry whose repo admin state is unchanged still describes `git worktree list`;
+  // extending it avoids a subprocess on every poll. A scan already in flight is joined below instead.
+  if (
+    cached &&
+    fingerprintCapable &&
+    !detectedWorktreeScanInFlight.has(cacheKey) &&
+    (await isCachedScanProvenUnchanged(cacheKey, repo, cached)) &&
+    detectedWorktreeScanCache.get(cacheKey) === cached &&
+    isLocalWorktreeScanGenerationCurrent(repo.id, cached.generation)
+  ) {
+    cached.expiresAt = Date.now() + DETECTED_WORKTREE_SCAN_CACHE_TTL_MS
+    return cachedScanResult(cached)
   }
 
   const inFlight = detectedWorktreeScanInFlight.get(cacheKey)
@@ -172,6 +201,11 @@ export async function listDetectedGitWorktrees(
     hygieneDue && !localWorktreeGitOptions.wslDistro
       ? store.captureNativeLocalWorktreeMetadataScanExpectation(repo)
       : undefined
+  // Why before the scan: the stamp must not postdate Git's listing (re-checked once the scan settles).
+  const scannedAt = Date.now()
+  const fingerprintProbe = fingerprintCapable
+    ? readDetectedWorktreeScanFingerprint(cacheKey, repo)
+    : null
   const scan: DetectedWorktreeScan = {
     invalidated: false,
     promise: listRepoWorktreesForDetectedScan(repo, localWorktreeGitOptions),
@@ -194,6 +228,8 @@ export async function listDetectedGitWorktrees(
       repo.id,
       gitWorktrees.map((worktree) => worktree.path)
     )
+    // Why before the staleness checks: this await must not widen the window they cover.
+    const adminFingerprint = await settleDetectedScanFingerprint(cacheKey, repo, fingerprintProbe)
     const routingUnchanged =
       getDetectedWorktreeScanCacheKey(repo.id, getLocalProjectWorktreeGitOptions(store, repo)) ===
       cacheKey
@@ -203,7 +239,9 @@ export async function listDetectedGitWorktrees(
       detectedWorktreeScanCache.set(cacheKey, {
         worktrees: gitWorktrees,
         expiresAt: Date.now() + DETECTED_WORKTREE_SCAN_CACHE_TTL_MS,
-        generation
+        generation,
+        adminFingerprint,
+        scannedAt
       })
     }
     const fresh = !scan.invalidated && routingUnchanged && generationCurrent
