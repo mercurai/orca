@@ -100,12 +100,14 @@ jobs:
           git checkout -q -B "$branch" "refs/tags/$TAG"
           while read -r patch; do
             [ -z "$patch" ] && continue
-            # Patches are rebased onto the tag, so tag..branch is exactly the patch's commits.
+            # Patches are rebased onto the tag, so tag..branch is the patch's commits. A patch stacked on an
+            # earlier patch in the series (its branch starts from that patch's branch) carries the earlier
+            # commits too; they are already applied here, so cherry-pick drops them as empty instead of failing.
             if [ "$(git rev-list --count "refs/tags/$TAG..origin/$patch")" = 0 ]; then
               echo "::warning::$patch has no commits beyond $TAG (merged upstream?); skipped"
               continue
             fi
-            git cherry-pick -x "refs/tags/$TAG..origin/$patch" || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
+            git cherry-pick -x --empty=drop "refs/tags/$TAG..origin/$patch" || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
           done < /tmp/active
           version=${TAG#v}
           last=$(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1)
