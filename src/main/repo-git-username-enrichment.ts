@@ -65,7 +65,7 @@ async function enrichRepoGitUsernamesInBackground(
       signaturesChanged = true
     }
   }
-  const globalConfigStamp = candidates.length > 0 ? await readGlobalGitConfigStamp() : ''
+  const globalConfigStamp = candidates.length > 0 ? await readGlobalGitConfigStamp() : undefined
   let changed = false
   for (const repo of candidates) {
     const location = getRepoLocationKey(repo)
