@@ -20,6 +20,8 @@ export type ExecFileCaptureOptions = Omit<ExecFileOptions, 'timeout'> & {
   createTimeoutError?: () => Error
   /** Called once when the deadline — not an abort — is what ended the process. */
   onDeadlineKill?: () => void
+  /** Worker mode only: how long the child took to start, measured on the worker thread. */
+  onSpawned?: (spawnMs: number) => void
 }
 
 const GIT_TERMINATION_BARRIER_FALLBACK_TIMEOUT_MS = 2_147_000_000
@@ -102,8 +104,9 @@ export function execFileCapture(
   // Why (#1085): libuv runs CreateProcess on the calling loop, so the worker thread takes
   // the spawn off CrBrowserMain; null means no worker is usable and we spawn here.
   return (
-    execFileCaptureOnWorker(command, args, options) ??
-    execFileCaptureInProcess(command, args, options)
+    execFileCaptureOnWorker(command, args, options, () =>
+      execFileCaptureInProcess(command, args, options)
+    ) ?? execFileCaptureInProcess(command, args, options)
   )
 }
 
