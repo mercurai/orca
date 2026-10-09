@@ -4312,6 +4312,10 @@
             "resumingTooltip": "Restoring interrupted chats and asking them to carry on…",
             "resumingProgressLabel": "Resuming chats {{value0}}/{{value1}}",
             "resumingProgressAria": "Resuming chats, {{value0}} of {{value1}} done. Click to open details."
+          },
+          "StatusBarUsageChangeNotices": {
+            "compactTitle": "Usage is now compact",
+            "compactBody": "One headline metric per provider. Choose Detailed in the Usage menu to show more limits."
           }
         }
       },
@@ -17648,6 +17652,7 @@
       "BrowserPane": {
         "streamConnectionLost": "Lost connection to the remote server.",
         "streamConnectionUnreachable": "Cannot reach the remote server.",
+        "streamBrowserUnavailable": "The remote browser is unavailable. Check its setup on the server.",
         "streamRestartFailed": "Failed to restart remote browser stream.",
         "streamCapabilityUnsupported": "The selected runtime does not support remote browser streaming."
       },
@@ -18636,6 +18641,8 @@
         "delete": "Delete",
         "moreActions": "More actions",
         "editMessage": "Edit message",
+        "showFullMessage": "Show full message",
+        "showLess": "Show less",
         "turnOffQueueing": "Turn off queueing",
         "listLabel": "Queued messages",
         "alreadySent": "This message was already sent.",

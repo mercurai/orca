@@ -3978,6 +3978,10 @@
             "used": "{{value0}}% usado",
             "remaining": "{{value0}}% restante"
           },
+          "StatusBarUsageChangeNotices": {
+            "compactTitle": "El uso ahora es compacto",
+            "compactBody": "Una métrica principal por proveedor. Elige «Detailed» en el menú «Usage» para ver más límites."
+          },
           "UsagePercentageDisplayChangeNotice": {
             "title": "Usage now shows % used",
             "body": "Prefer remaining? Change it in Settings.",
@@ -18250,6 +18254,8 @@
         "delete": "Eliminar",
         "moreActions": "Más acciones",
         "editMessage": "Editar mensaje",
+        "showFullMessage": "Mostrar el mensaje completo",
+        "showLess": "Mostrar menos",
         "turnOffQueueing": "Desactivar la cola",
         "withdrawnHold": "Detenido antes de enviarse",
         "pausedSendFailed": "No se pudo enviar. Pulsa Enviar para reintentar.",

@@ -3978,6 +3978,10 @@
             "used": "已用 {{value0}}%",
             "remaining": "剩余 {{value0}}%"
           },
+          "StatusBarUsageChangeNotices": {
+            "compactTitle": "用量现以紧凑模式显示",
+            "compactBody": "每个服务提供商显示一个主要指标。在用量菜单中选择“详细”即可查看更多限额。"
+          },
           "UsagePercentageDisplayChangeNotice": {
             "title": "用量现在显示已用百分比",
             "body": "更喜欢剩余额度？请在设置中更改。",
@@ -18387,6 +18391,8 @@
         "delete": "删除",
         "moreActions": "更多操作",
         "editMessage": "编辑消息",
+        "showFullMessage": "显示完整消息",
+        "showLess": "收起",
         "turnOffQueueing": "关闭排队",
         "withdrawnHold": "在发送前已停止",
         "pausedSendFailed": "无法发送。点按发送以重试。",
