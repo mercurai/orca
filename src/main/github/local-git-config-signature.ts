@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { runCoalescedProbe, type CoalescedProbes } from '../git/coalesced-probe'
 import type { GitHubRepoContext } from './github-repository-identity'
 
-type LocalGitConfigPaths = {
+export type LocalGitConfigPaths = {
   commonConfigPath: string
   worktreeConfigPath: string
 }
@@ -221,7 +221,9 @@ function resolveIncludedConfigPath(includePath: string, baseDir: string): string
   return resolve(baseDir, includePath)
 }
 
-async function resolveLocalGitConfigPaths(repoPath: string): Promise<LocalGitConfigPaths | null> {
+export async function resolveLocalGitConfigPaths(
+  repoPath: string
+): Promise<LocalGitConfigPaths | null> {
   const dotGitPath = join(repoPath, '.git')
   try {
     const dotGitStats = await stat(dotGitPath)
