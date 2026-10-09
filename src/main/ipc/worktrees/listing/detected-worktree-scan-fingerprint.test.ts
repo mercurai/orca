@@ -162,23 +162,25 @@ describe('detected worktree scan admin fingerprint gate', () => {
     expect(readSharedMock).not.toHaveBeenCalled()
   })
 
-  it('starts the listing only after the opening fingerprint read settles', async () => {
+  it('does not stamp rows whose listing settled before the opening fingerprint read', async () => {
     let release: (value: string | null) => void = () => {}
     readSharedMock.mockImplementationOnce(
       () => new Promise<string | null>((resolve) => (release = resolve))
     )
-    const pending = listDetectedGitWorktrees(store, repo)
-    await vi.advanceTimersByTimeAsync(0)
-    expect(listRepoWorktreesMock).not.toHaveBeenCalled()
-    release(null)
-    await pending
-    expect(listRepoWorktreesMock).toHaveBeenCalledTimes(1)
+    const first = await listDetectedGitWorktrees(store, repo)
+    release(await realReadShared('probe', repo.path, 10_000))
+    expect(first.fresh).toBe(true)
+
+    advancePastListingTtl()
+    await listDetectedGitWorktrees(store, repo)
+
+    expect(listRepoWorktreesMock).toHaveBeenCalledTimes(2)
   })
 
   it('does not hide a change that lands right after the listing for the reconcile interval', async () => {
-    listRepoWorktreesMock.mockImplementationOnce(async () => {
-      const rows = listRealWorktrees(repo.path)
-      git(repo.path, 'worktree', 'add', '-q', '-b', 'racing', path.join(root, 'racing'))
+    listRepoWorktreesMock.mockImplementationOnce(async (listed: Repo) => {
+      const rows = listRealWorktrees(listed.path)
+      git(listed.path, 'worktree', 'add', '-q', '-b', 'racing', path.join(root, 'racing'))
       return rows
     })
     await listDetectedGitWorktrees(store, repo)
