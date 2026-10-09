@@ -119,6 +119,10 @@ export abstract class UpdaterReleaseFeed extends UpdaterInstallExecution {
     try {
       url = await resolveMercuraiRoutineFeed(currentVersion)
     } catch (error) {
+      // Why: a failed lookup must not read as "up to date" when the user asked.
+      if (this.userInitiatedCheck) {
+        throw error
+      }
       console.warn(
         `[updater] mercurai channel lookup failed: ${error instanceof Error ? error.message : String(error)}`
       )
