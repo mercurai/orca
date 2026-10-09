@@ -3979,8 +3979,8 @@
             "remaining": "剩余 {{value0}}%"
           },
           "StatusBarUsageChangeNotices": {
-            "compactTitle": "用量现以紧凑模式显示",
-            "compactBody": "每个服务提供商显示一个主要指标。在用量菜单中选择“详细”即可查看更多限额。"
+            "compactTitle": "用量显示现已精简",
+            "compactBody": "每个服务提供商显示一个主要指标。在用量菜单中选择“<detailed>详细</detailed>”即可查看更多限额。"
           },
           "UsagePercentageDisplayChangeNotice": {
             "title": "用量现在显示已用百分比",
@@ -12396,7 +12396,7 @@
           "connecting": "正在连接到受管的 Orca 服务器…",
           "updating": "正在更新受管服务器…",
           "starting": "正在启动受管服务器…",
-          "notServing": "受管的 Orca 服务器未运行，且无法启动。",
+          "notServing": "Orca 无法确认受管服务器是否正在响应。",
           "hostNewer": "运行来自较新版本 Orca 的受管 Orca 服务器；它会保留该版本。",
           "terminalsLive": "在其 {{count}} 个打开的终端全部关闭前运行中继，然后迁移到受管服务器。",
           "terminalsLive_one": "在其 {{count}} 个打开的终端关闭前运行中继，然后迁移到受管服务器。",
@@ -18407,7 +18407,7 @@
         "sendConfirmBody_other": "你即将发送一条消息。是否清除之前排队的 {{count}} 条消息？",
         "sendConfirmClear": "清空队列",
         "sendConfirmSend": "发送消息",
-        "from": "来自 {{names}}",
+        "fromSender": "来自",
         "pausedSendFailedWaiting": "无法发送。智能体完成后，点按发送以重试。"
       },
       "thought": "已思考",
