@@ -44,3 +44,13 @@ export function childRecord<T>(
   record[key] ??= {}
   return record[key]
 }
+
+/** The entries `keep` accepts; undefined stays undefined. */
+export function filterRecord<T>(
+  record: Record<string, T> | undefined,
+  keep: (key: string, value: T) => boolean
+): Record<string, T> | undefined {
+  return (
+    record && Object.fromEntries(Object.entries(record).filter(([key, value]) => keep(key, value)))
+  )
+}

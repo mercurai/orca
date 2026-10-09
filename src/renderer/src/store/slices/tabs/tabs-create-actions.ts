@@ -8,7 +8,6 @@ import {
   replaceLeaf
 } from '../../../../../shared/workspace-layout/tab-group-layout-tree'
 import {
-  dedupeTabOrder,
   ensureGroup,
   findGroupForTab,
   pushRecentTabId,
@@ -18,8 +17,9 @@ import {
 import {
   applyTabOrderSortValues,
   canReplacePreviewContentType,
+  dedupeTabOrder,
   insertTabIdIntoOrder
-} from './tabs-tab-order'
+} from '../../../../../shared/workspace-layout/tab-order'
 import { resolveUnifiedTabCreatePlacement } from './tabs-create-placement'
 import { folderWorkspaceToWorktree } from '../../../../../shared/folder-workspace-worktree'
 

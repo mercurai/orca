@@ -9,7 +9,6 @@ import {
 } from '../../../../../shared/workspace-layout/tab-group-layout-tree'
 import { buildActiveSurfacePatch } from './tabs-surface'
 import {
-  dedupeTabOrder,
   findGroupAndWorktree,
   findGroupForTab,
   findTabAndWorktree,
@@ -17,6 +16,7 @@ import {
   pushRecentTabId,
   sanitizeRecentTabIds
 } from '../tab-group-state'
+import { dedupeTabOrder } from '../../../../../shared/workspace-layout/tab-order'
 
 export function createTabsDropActions(
   set: TabsSliceSet,

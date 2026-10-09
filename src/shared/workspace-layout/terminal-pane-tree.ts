@@ -47,3 +47,78 @@ export function removeLayoutLeaf(
   }
   return first === node.first && second === node.second ? node : { ...node, first, second }
 }
+
+export type PaneSide = 'left' | 'right' | 'top' | 'bottom'
+
+/** Replaces `targetLeafId` with a split holding it and `newLeafId` on `side` of it. */
+export function insertLeafBeside(
+  node: TerminalPaneLayoutNode,
+  targetLeafId: string,
+  newLeafId: string,
+  side: PaneSide,
+  ratio?: number
+): TerminalPaneLayoutNode {
+  if (node.type === 'leaf') {
+    if (node.leafId !== targetLeafId) {
+      return node
+    }
+    const added: TerminalPaneLayoutNode = { type: 'leaf', leafId: newLeafId }
+    const before = side === 'left' || side === 'top'
+    return {
+      type: 'split',
+      direction: side === 'left' || side === 'right' ? 'vertical' : 'horizontal',
+      first: before ? added : node,
+      second: before ? node : added,
+      ...(ratio !== undefined ? { ratio } : {})
+    }
+  }
+  return {
+    ...node,
+    first: insertLeafBeside(node.first, targetLeafId, newLeafId, side, ratio),
+    second: insertLeafBeside(node.second, targetLeafId, newLeafId, side, ratio)
+  }
+}
+
+/** Same splits, directions and panes in the same places; only ratios may differ. */
+export function samePanesIgnoringRatios(
+  left: TerminalPaneLayoutNode,
+  right: TerminalPaneLayoutNode
+): boolean {
+  if (left.type === 'leaf' || right.type === 'leaf') {
+    return (
+      left.type === right.type &&
+      left.type === 'leaf' &&
+      right.type === 'leaf' &&
+      left.leafId === right.leafId
+    )
+  }
+  return (
+    left.direction === right.direction &&
+    samePanesIgnoringRatios(left.first, right.first) &&
+    samePanesIgnoringRatios(left.second, right.second)
+  )
+}
+
+function equalizeWeight(
+  node: TerminalPaneLayoutNode,
+  direction: 'vertical' | 'horizontal'
+): number {
+  return node.type === 'split' && node.direction === direction
+    ? equalizeWeight(node.first, direction) + equalizeWeight(node.second, direction)
+    : 1
+}
+
+/** Same-axis panes get equal shares, so three side by side become thirds, as the window does. */
+export function equalizeLayout(node: TerminalPaneLayoutNode): TerminalPaneLayoutNode {
+  if (node.type === 'leaf') {
+    return node
+  }
+  const first = equalizeWeight(node.first, node.direction)
+  const second = equalizeWeight(node.second, node.direction)
+  return {
+    ...node,
+    ratio: first / (first + second),
+    first: equalizeLayout(node.first),
+    second: equalizeLayout(node.second)
+  }
+}

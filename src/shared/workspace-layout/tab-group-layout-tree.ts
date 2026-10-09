@@ -126,3 +126,20 @@ export function collapseGroupLayout(
     }
   }
 }
+
+/** Moves an existing group's leaf to `side` of another group; the moved group keeps its id. */
+export function moveGroupLeafBeside(
+  root: TabGroupLayoutNode,
+  groupId: string,
+  besideGroupId: string,
+  side: 'left' | 'right' | 'up' | 'down'
+): TabGroupLayoutNode {
+  const rest = removeGroupLayoutLeaf(root, groupId) ?? { type: 'leaf', groupId: besideGroupId }
+  const direction = side === 'left' || side === 'right' ? 'horizontal' : 'vertical'
+  const position = side === 'left' || side === 'up' ? 'first' : 'second'
+  return replaceLeaf(
+    rest,
+    besideGroupId,
+    buildSplitNode(besideGroupId, groupId, direction, position)
+  )
+}
