@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as FingerprintModule from '../../../runtime/repo-worktree-admin-fingerprint'
+import type { Store } from '../../../persistence/loading-store/store'
 import type { Repo } from '../../../../shared/repo-types'
 import type { GitWorktreeInfo } from '../../../../shared/worktree/types'
 
@@ -41,7 +42,10 @@ const { readRepoWorktreeAdminFingerprintShared: realReadShared } = await vi.impo
   typeof FingerprintModule
 >('../../../runtime/repo-worktree-admin-fingerprint')
 
-const store = { captureNativeLocalWorktreeMetadataScanExpectation: vi.fn() } as never
+// Object.create yields `any`, so the partial store types as Store without an assertion.
+const store: Store = Object.assign(Object.create(null), {
+  captureNativeLocalWorktreeMetadataScanExpectation: vi.fn()
+})
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, encoding: 'utf-8' })
@@ -79,7 +83,7 @@ describe('detected worktree scan admin fingerprint gate', () => {
     writeFileSync(path.join(repoPath, 'file.txt'), 'one')
     git(repoPath, 'add', '.')
     git(repoPath, 'commit', '-q', '-m', 'init')
-    repo = { id: 'repo-1', path: repoPath, displayName: 'repo' } as Repo
+    repo = { id: 'repo-1', path: repoPath, displayName: 'repo', badgeColor: '#000', addedAt: 0 }
 
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     gitOptionsMock.mockReset().mockReturnValue({})
@@ -216,7 +220,7 @@ describe('detected worktree scan admin fingerprint gate', () => {
   })
 
   it('lists again when the repo cannot be fingerprinted', async () => {
-    const missing = { ...repo, path: path.join(root, 'not-a-repo') } as Repo
+    const missing: Repo = { ...repo, path: path.join(root, 'not-a-repo') }
     await listDetectedGitWorktrees(store, missing)
     advancePastListingTtl()
     await listDetectedGitWorktrees(store, missing)
