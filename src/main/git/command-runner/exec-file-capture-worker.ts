@@ -46,7 +46,8 @@ function settleCapture(
 export function execFileCaptureOnWorker(
   command: string,
   args: string[],
-  options: ExecFileCaptureOptions
+  options: ExecFileCaptureOptions,
+  retryInProcess: () => Promise<CaptureOutput>
 ): Promise<CaptureOutput> | null {
   const client = getGitSpawnWorkerClient()
   if (!client) {
@@ -64,7 +65,8 @@ export function execFileCaptureOnWorker(
       ...(options.timeout && options.timeout > 0 ? { timeoutMs: options.timeout } : {}),
       ...(options.stdin === undefined ? {} : { stdin: options.stdin })
     },
-    () => options.onChildTerminated?.()
+    () => options.onChildTerminated?.(),
+    options.onSpawned
   )
   if (!handle) {
     return null
@@ -77,6 +79,10 @@ export function execFileCaptureOnWorker(
   }
   return handle.outcome.then((outcome) => {
     signal?.removeEventListener('abort', onAbort)
+    // Why: a worker that died before spawning never ran the command, so run it here instead.
+    if (outcome.kind === 'failed' && !outcome.spawned && !signal?.aborted) {
+      return retryInProcess()
+    }
     return settleCapture(outcome, command, options)
   })
 }
