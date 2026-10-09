@@ -13,8 +13,8 @@ vi.mock('../startup/startup-diagnostics', () => ({
 
 import { _resetTracerForTests, setActiveSink, type TracerSink } from '../observability/tracer'
 import { recordGitExecForWindow } from '../observability/git-exec-window-aggregate'
-import { MAIN_THREAD_DIAGNOSTICS_ENV } from './main-thread-churn-probe'
 import {
+  MAIN_THREAD_DIAGNOSTICS_ENV,
   drainSubprocessSpawnStats,
   recordSubprocessSpawn,
   startMainThreadChurnProbe
