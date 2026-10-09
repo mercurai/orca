@@ -85,17 +85,31 @@ describe('GitSpawnWorkerClient', () => {
     expect(workers[0]?.requests.at(-1)).toEqual({ type: 'verdict', id: 1, admit: true })
   })
 
-  it('fails in-flight work and reports termination once when the worker exits', async () => {
+  it('hands a request the dead worker never spawned back to the caller without releasing it', async () => {
     const workers: FakeWorker[] = []
     const client = newClient(workers)
     const onTerminated = vi.fn()
     const handle = client.capture(SPEC, onTerminated)
     workers[0]?.emit('exit', 1)
 
-    await expect(handle?.outcome).resolves.toMatchObject({ kind: 'failed' })
-    expect(onTerminated).toHaveBeenCalledOnce()
+    await expect(handle?.outcome).resolves.toMatchObject({ kind: 'failed', spawned: false })
+    expect(onTerminated).not.toHaveBeenCalled()
     expect(client.capture(SPEC, () => {})).not.toBeNull()
     expect(workers).toHaveLength(2)
+  })
+
+  it('fails a spawned request with a distinct code and reports termination once', async () => {
+    const workers: FakeWorker[] = []
+    const client = newClient(workers)
+    const onTerminated = vi.fn()
+    const handle = client.capture(SPEC, onTerminated)
+    workers[0]?.reply({ type: 'spawned', id: 1, pid: undefined, spawnMs: 1 })
+    workers[0]?.emit('exit', 1)
+
+    const outcome = await handle?.outcome
+    expect(outcome).toMatchObject({ kind: 'failed', spawned: true })
+    expect(outcome?.kind === 'failed' && outcome.error).toMatchObject({ code: 'EGITSPAWNWORKER' })
+    expect(onTerminated).toHaveBeenCalledOnce()
   })
 
   it('stops using the worker after repeated consecutive deaths', () => {
