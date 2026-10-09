@@ -113,6 +113,10 @@ Trust boundary:
 
 ## Rules
 
+- A patch may stack on an earlier patch in the series: start its branch from that patch's branch and list it
+  after it in `patches.yaml`. Assembly cherry-picks in manifest order and drops the already-applied commits as
+  empty (`--empty=drop`); the rebase workflow rebases each branch onto the tag on its own.
+
 - Upstream first: every `upstream-open` patch has an open PR on `stablyai/orca`; an `ours-only`
   patch has a one-line reason and should be a plugin, config key or env flag before it is a fork
   edit.
