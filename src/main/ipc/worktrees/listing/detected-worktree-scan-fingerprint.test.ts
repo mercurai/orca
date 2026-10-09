@@ -89,6 +89,8 @@ describe('detected worktree scan admin fingerprint gate', () => {
     gitOptionsMock.mockReset().mockReturnValue({})
     readSharedMock.mockReset().mockImplementation(realReadShared)
     listRepoWorktreesMock.mockReset().mockImplementation(async (listed: Repo) => {
+      // Git's listing outlasts the opening fingerprint read in practice; model that ordering.
+      await Promise.all(readSharedMock.mock.results.map((result) => result.value))
       try {
         return listRealWorktrees(listed.path)
       } catch {
@@ -166,6 +168,9 @@ describe('detected worktree scan admin fingerprint gate', () => {
     let release: (value: string | null) => void = () => {}
     readSharedMock.mockImplementationOnce(
       () => new Promise<string | null>((resolve) => (release = resolve))
+    )
+    listRepoWorktreesMock.mockImplementationOnce(async (listed: Repo) =>
+      listRealWorktrees(listed.path)
     )
     const first = await listDetectedGitWorktrees(store, repo)
     release(await realReadShared('probe', repo.path, 10_000))
