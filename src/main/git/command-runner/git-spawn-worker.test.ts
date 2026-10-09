@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { execFileCapture } from './exec-file-capture'
 import { gitExecFileAsync, gitExecFileAsyncBuffer } from './git-exec-file'
@@ -134,21 +137,32 @@ describe('git spawn worker on a real worker thread', () => {
   it('kills a running child when the worker is torn down', async () => {
     const client = getGitSpawnWorkerClient()
     expect(client).not.toBeNull()
-    const handle = client?.stream(
-      {
-        command: process.execPath,
-        args: ['-e', 'setTimeout(() => {}, 60000)'],
-        cwd: process.cwd()
-      },
-      { onChunk: () => {}, onError: () => {}, onClose: () => {} }
-    )
-    await vi.waitFor(() => expect(handle?.pid).toBeGreaterThan(0), { timeout: 10_000 })
-    const pid = handle?.pid
-    if (pid === undefined) {
-      throw new Error('stream never reported a pid')
+    // Why a heartbeat file: a killed child can linger as an unreaped zombie under some runtimes,
+    // so "pid is gone" is not a portable signal, but a dead child stops writing.
+    const directory = mkdtempSync(path.join(tmpdir(), 'orca-git-spawn-heartbeat-'))
+    const heartbeat = path.join(directory, 'beat')
+    try {
+      const handle = client?.stream(
+        {
+          command: process.execPath,
+          args: [
+            '-e',
+            `setInterval(() => require('fs').writeFileSync(${JSON.stringify(heartbeat)}, String(Date.now())), 50)`
+          ],
+          cwd: process.cwd()
+        },
+        { onChunk: () => {}, onError: () => {}, onClose: () => {} }
+      )
+      await vi.waitFor(() => expect(existsSync(heartbeat)).toBe(true), { timeout: 10_000 })
+      expect(handle?.pid).toBeGreaterThan(0)
+      client?.dispose()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      const settled = readFileSync(heartbeat, 'utf8')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect(readFileSync(heartbeat, 'utf8')).toBe(settled)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
     }
-    client?.dispose()
-    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 10_000 })
   })
 
   it('streams stdout through the worker', async () => {
