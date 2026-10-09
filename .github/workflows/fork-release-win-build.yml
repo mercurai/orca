@@ -128,6 +128,19 @@ jobs:
           done
           grep -q "^version: ${VERSION}\$" dist/latest.yml || { echo "::error::dist/latest.yml does not carry version ${VERSION}"; cat dist/latest.yml; exit 1; }
 
+      # Keep the installer even when publishing fails (a token without the channel repo, a GitHub outage):
+      # the run's artifact can be installed by hand, and a re-run publishes without a rebuild.
+      - name: Keep the installer as a run artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: orca-windows-${{ inputs.tag }}
+          path: |
+            dist/orca-windows-setup.exe
+            dist/orca-windows-setup.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
       # A repo with no commit cannot hold a release tag, so give an empty channel repo its first commit once.
       - name: Make sure the channel repo has a commit
         shell: bash
