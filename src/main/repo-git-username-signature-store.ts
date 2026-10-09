@@ -4,7 +4,19 @@ import { app } from 'electron'
 
 const SIGNATURE_FILE_NAME = 'repo-git-username-signatures.json'
 
-export type RepoUsernameSignatures = Map<string, string>
+export type RepoUsernameSignature = { signature: string; username: string }
+export type RepoUsernameSignatures = Map<string, RepoUsernameSignature>
+
+function isSignatureEntry(value: unknown): value is RepoUsernameSignature {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'signature' in value &&
+    typeof value.signature === 'string' &&
+    'username' in value &&
+    typeof value.username === 'string'
+  )
+}
 
 // Why a sidecar file: the signature is a launch-to-launch cache of "nothing changed", not repo
 // data, so it stays out of the repo record and the renderer-visible Repo shape.
@@ -18,11 +30,7 @@ export async function loadRepoUsernameSignatures(): Promise<RepoUsernameSignatur
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return new Map()
     }
-    return new Map(
-      Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string'
-      )
-    )
+    return new Map(Object.entries(parsed).filter(([, value]) => isSignatureEntry(value)))
   } catch {
     // Missing or corrupt file: every repo resolves once and the file is rewritten.
     return new Map()

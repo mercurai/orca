@@ -57,6 +57,17 @@ describe('cached git remote name listing', () => {
     })
   })
 
+  it('honours a caller timeout for the local listing', async () => {
+    gitExecFileAsyncMock.mockResolvedValue({ stdout: 'origin\n' })
+
+    await listCachedRemoteNames('/repo', null, { timeoutMs: 5000 })
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(['remote'], {
+      cwd: '/repo',
+      timeout: 5000
+    })
+  })
+
   it('still probes upstream when listing includes that remote', async () => {
     gitExecFileAsyncMock.mockResolvedValue({ stdout: 'origin\nupstream\n' })
 
