@@ -105,7 +105,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     specs: ['tests/e2e/ssh-orcad-browser-routing.spec.ts'],
     matches: (file) =>
       isProductSource(file) &&
-      /^src\/(?:main\/browser\/local-ssh-browser|main\/ipc\/browser\.ts$|renderer\/src\/(?:lib\/(?:ssh-workspace-browser-route-eligibility|worktree-host-connection-phase)|components\/browser-pane\/use-ssh-workspace-browser-route))/.test(
+      /^src\/(?:main\/browser\/local-ssh-browser|main\/ipc\/browser\.ts$|renderer\/src\/(?:lib\/(?:ssh-workspace-browser-route-eligibility|worktree-host-connection-phase)|components\/browser-pane\/use-ssh-workspace-browser-route|store\/repos\/converted-ssh-browser-pages|store\/slices\/browser\/browser-tab-actions|hooks\/ipc-events\/ssh-managed-server-state-effects))/.test(
         file
       )
   },
@@ -127,7 +127,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     matches: (file) =>
       /^tests\/e2e\/helpers\/orcad-convert-(?:flow|host)\.ts$/.test(file) ||
       (isProductSource(file) &&
-        /^src\/(?:main\/(?:orcad\/orcad-(?:idle-|managed-idle-)|ssh\/orcad-(?:managed-wake|managed-tunnel|recovery-slot|remote-launch|remote-runtime-control))|shared\/orcad-idle-exit)/.test(
+        /^src\/(?:main\/(?:orcad\/orcad-(?:idle-|managed-idle-)|ssh\/orcad-(?:managed-serving|managed-wake|managed-tunnel|recovery-slot|remote-launch|remote-runtime-control))|shared\/orcad-idle-exit)/.test(
           file
         ))
   },
