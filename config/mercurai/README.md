@@ -116,6 +116,9 @@ Trust boundary:
 - A patch may stack on an earlier patch in the series: start its branch from that patch's branch and list it
   after it in `patches.yaml`. Assembly cherry-picks in manifest order and drops the already-applied commits as
   empty (`--empty=drop`); the rebase workflow rebases each branch onto the tag on its own.
+- Patch CI: open a draft PR from the patch branch (unchanged) against `ci-base/<tag>`, a branch equal to the
+  manifest base tag that `fork-rebase-patches` publishes per tag; upstream's `pr.yml` then runs on the tag plus
+  the patch. Never merge the default branch into a patch for CI: it conflicts and stages upstream files.
 
 - Upstream first: every `upstream-open` patch has an open PR on `stablyai/orca`; an `ours-only`
   patch has a one-line reason and should be a plugin, config key or env flag before it is a fork
