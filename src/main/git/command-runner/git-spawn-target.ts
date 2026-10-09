@@ -15,7 +15,7 @@ export function resolveGitSpawnTarget(
   return {
     binary: resolved.binary,
     args: resolved.args,
-    cwd: resolved.cwd,
+    cwd: resolved.cwd ?? options.cwd,
     env: untranslatedGitOutputEnv(options.env ?? process.env)
   }
 }
