@@ -24,9 +24,13 @@ describe('repo git username signature store', () => {
   })
 
   it('round-trips signatures through the sidecar file', async () => {
-    await saveRepoUsernameSignatures(new Map([['local\0C:/repos/one', 'sig']]))
+    await saveRepoUsernameSignatures(
+      new Map([['local\0C:/repos/one', { signature: 'sig', username: 'demo-user' }]])
+    )
 
-    expect(await loadRepoUsernameSignatures()).toEqual(new Map([['local\0C:/repos/one', 'sig']]))
+    expect(await loadRepoUsernameSignatures()).toEqual(
+      new Map([['local\0C:/repos/one', { signature: 'sig', username: 'demo-user' }]])
+    )
   })
 
   it('loads an empty map when the file is missing', async () => {
@@ -39,12 +43,14 @@ describe('repo git username signature store', () => {
     expect((await loadRepoUsernameSignatures()).size).toBe(0)
   })
 
-  it('ignores non-string entries', async () => {
+  it('ignores malformed entries', async () => {
     await writeFile(
       join(userDataState.dir, 'repo-git-username-signatures.json'),
-      JSON.stringify({ a: 'sig', b: 3 })
+      JSON.stringify({ a: { signature: 'sig', username: 'u' }, b: 3, c: { signature: 'x' } })
     )
 
-    expect(await loadRepoUsernameSignatures()).toEqual(new Map([['a', 'sig']]))
+    expect(await loadRepoUsernameSignatures()).toEqual(
+      new Map([['a', { signature: 'sig', username: 'u' }]])
+    )
   })
 })
