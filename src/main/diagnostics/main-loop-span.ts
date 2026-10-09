@@ -37,7 +37,7 @@ export function mergeSpawnStats(
     into[key] = existing
       ? {
           count: existing.count + stats.count,
-          blockMsTotal: existing.blockMsTotal + stats.blockMsTotal,
+          blockMsTotal: Math.round((existing.blockMsTotal + stats.blockMsTotal) * 100) / 100,
           blockMsMax: Math.max(existing.blockMsMax, stats.blockMsMax)
         }
       : { ...stats }
