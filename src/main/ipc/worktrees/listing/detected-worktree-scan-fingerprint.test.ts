@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type * as FingerprintModule from '../../../runtime/repo-worktree-admin-fingerprint'
 import type { Repo } from '../../../../shared/repo-types'
 import type { GitWorktreeInfo } from '../../../../shared/worktree/types'
 
@@ -37,7 +38,7 @@ const { DETECTED_WORKTREE_SCAN_RECONCILE_INTERVAL_MS } =
   await import('./detected-worktree-scan-fingerprint')
 
 const { readRepoWorktreeAdminFingerprintShared: realReadShared } = await vi.importActual<
-  typeof import('../../../runtime/repo-worktree-admin-fingerprint')
+  typeof FingerprintModule
 >('../../../runtime/repo-worktree-admin-fingerprint')
 
 const store = { captureNativeLocalWorktreeMetadataScanExpectation: vi.fn() } as never
@@ -83,7 +84,13 @@ describe('detected worktree scan admin fingerprint gate', () => {
     vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
     gitOptionsMock.mockReset().mockReturnValue({})
     readSharedMock.mockReset().mockImplementation(realReadShared)
-    listRepoWorktreesMock.mockReset().mockImplementation(async () => listRealWorktrees(repo.path))
+    listRepoWorktreesMock.mockReset().mockImplementation(async (listed: Repo) => {
+      try {
+        return listRealWorktrees(listed.path)
+      } catch {
+        return []
+      }
+    })
     __resetDetectedWorktreeScanCacheForTests()
   })
 
@@ -151,17 +158,22 @@ describe('detected worktree scan admin fingerprint gate', () => {
     expect(readSharedMock).not.toHaveBeenCalled()
   })
 
-  it('does not stamp a change that landed between the listing and the fingerprint read', async () => {
-    // The listing resolves only after the opening read settled, then a worktree appears and the
-    // (stale) rows are returned: the closing read sees a different state and the stamp is dropped.
-    let openingRead: Promise<unknown> | undefined
-    readSharedMock.mockImplementationOnce((...args: Parameters<typeof realReadShared>) => {
-      openingRead = realReadShared(...args)
-      return openingRead
-    })
+  it('starts the listing only after the opening fingerprint read settles', async () => {
+    let release: (value: string | null) => void = () => {}
+    readSharedMock.mockImplementationOnce(
+      () => new Promise<string | null>((resolve) => (release = resolve))
+    )
+    const pending = listDetectedGitWorktrees(store, repo)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(listRepoWorktreesMock).not.toHaveBeenCalled()
+    release(null)
+    await pending
+    expect(listRepoWorktreesMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not hide a change that lands right after the listing for the reconcile interval', async () => {
     listRepoWorktreesMock.mockImplementationOnce(async () => {
       const rows = listRealWorktrees(repo.path)
-      await openingRead
       git(repo.path, 'worktree', 'add', '-q', '-b', 'racing', path.join(root, 'racing'))
       return rows
     })
@@ -194,11 +206,13 @@ describe('detected worktree scan admin fingerprint gate', () => {
   it('lets concurrent expired polls share one answer without listing', async () => {
     await listDetectedGitWorktrees(store, repo)
     advancePastListingTtl()
+    readSharedMock.mockClear()
     await Promise.all([
       listDetectedGitWorktrees(store, repo),
       listDetectedGitWorktrees(store, repo)
     ])
     expect(listRepoWorktreesMock).toHaveBeenCalledTimes(1)
+    expect(readSharedMock).toHaveBeenCalledTimes(2)
   })
 
   it('lists again when the repo cannot be fingerprinted', async () => {
