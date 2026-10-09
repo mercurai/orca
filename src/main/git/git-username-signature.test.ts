@@ -89,3 +89,37 @@ describe('readGlobalGitConfigStamp', () => {
     expect(await readGlobalGitConfigStamp()).toContain(main)
   })
 })
+
+describe('readGlobalGitConfigStamp gh login state', () => {
+  let dir: string
+  const saved = { global: process.env.GIT_CONFIG_GLOBAL, gh: process.env.GH_CONFIG_DIR }
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'orca-gh-sig-'))
+    process.env.GIT_CONFIG_GLOBAL = join(dir, 'gitconfig')
+    process.env.GH_CONFIG_DIR = join(dir, 'gh')
+    await mkdir(join(dir, 'gh'))
+  })
+
+  afterEach(async () => {
+    for (const [key, value] of [
+      ['GIT_CONFIG_GLOBAL', saved.global],
+      ['GH_CONFIG_DIR', saved.gh]
+    ] as const) {
+      if (value === undefined) {
+        delete process.env[key]
+      } else {
+        process.env[key] = value
+      }
+    }
+    await rm(dir, { recursive: true, force: true })
+  })
+
+  it('changes when the gh hosts file changes (login, logout, switch)', async () => {
+    await writeFile(join(dir, 'gh', 'hosts.yml'), 'github.com:\n  user: one\n')
+    const before = await readGlobalGitConfigStamp()
+    await writeFile(join(dir, 'gh', 'hosts.yml'), 'github.com:\n  user: two-longer\n')
+
+    expect(await readGlobalGitConfigStamp()).not.toBe(before)
+  })
+})
