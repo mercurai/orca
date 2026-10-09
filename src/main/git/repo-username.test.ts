@@ -70,6 +70,7 @@ describe('resolveLocalGitUsername', () => {
   let originRemoteUrl: string | undefined
   let remoteUrls: Record<string, string>
   let currentBranch: string
+  let timedOutArgs: Set<string>
 
   beforeEach(() => {
     vi.resetAllMocks()
@@ -79,8 +80,12 @@ describe('resolveLocalGitUsername', () => {
     originRemoteUrl = undefined
     remoteUrls = {}
     currentBranch = ''
+    timedOutArgs = new Set()
 
     gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
+      if (timedOutArgs.has(args.join(' '))) {
+        throw makeExecError('timed out', { killed: true, signal: 'SIGTERM' })
+      }
       if (args[0] === 'config' && args[1] === '--get') {
         const value = gitConfig[args[2]]
         if (value !== undefined) {
@@ -155,6 +160,58 @@ describe('resolveLocalGitUsername', () => {
       ([args]) => args.length === 1 && args[0] === 'remote'
     )
     expect(remoteListCalls).toHaveLength(1)
+  })
+
+  it('is non-authoritative when an explicit username read times out', async () => {
+    gitConfig['user.username'] = 'repo-demo'
+    timedOutArgs.add('config --get github.user')
+
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toEqual({
+      username: 'repo-demo',
+      authoritative: false
+    })
+  })
+
+  it('is non-authoritative when the author-name read times out', async () => {
+    timedOutArgs.add('config --get user.name')
+
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toEqual({
+      username: '',
+      authoritative: false
+    })
+  })
+
+  it('is non-authoritative when the remote listing fails', async () => {
+    timedOutArgs.add('remote')
+
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toMatchObject({
+      authoritative: false
+    })
+  })
+
+  it('is non-authoritative when a remote url read times out', async () => {
+    originRemoteUrl = 'https://github.com/stablyai/orca.git'
+    timedOutArgs.add('remote get-url origin')
+    ghExecFileAsyncMock.mockResolvedValue({ stdout: 'gh-demo', stderr: '' })
+
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toMatchObject({
+      authoritative: false
+    })
+  })
+
+  it('bounds the remote listing with the local read timeout', async () => {
+    await resolveLocalGitUsernameDetailed('/repo')
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      ['remote'],
+      expect.objectContaining({ timeout: 5000 })
+    )
+  })
+
+  it('stays authoritative when keys are simply unset', async () => {
+    await expect(resolveLocalGitUsernameDetailed('/repo')).resolves.toMatchObject({
+      authoritative: true
+    })
   })
 
   it('stops after a successful empty remote list', async () => {

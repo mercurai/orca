@@ -220,14 +220,32 @@ async function getGhLoginOutcome(): Promise<GhLoginOutcome> {
   return probe
 }
 
-async function readGitStdout(repoPath: string, args: string[]): Promise<string> {
+// Whether every git read behind a resolution completed. Only a plain non-zero exit means "not set".
+type ProbeState = { incomplete: boolean }
+
+function noteIfInterrupted(error: unknown, state: ProbeState): void {
+  if (typeof error !== 'object' || error === null) {
+    return
+  }
+  // Why: a timeout or kill (killed / signal) or a spawn failure (string code) says nothing about the config.
+  if (
+    ('killed' in error && error.killed === true) ||
+    ('signal' in error && Boolean(error.signal)) ||
+    ('code' in error && typeof error.code === 'string')
+  ) {
+    state.incomplete = true
+  }
+}
+
+async function readGitStdout(repoPath: string, args: string[], state: ProbeState): Promise<string> {
   try {
     const { stdout } = await gitExecFileAsync(args, {
       cwd: repoPath,
       timeout: LOCAL_GIT_READ_TIMEOUT_MS
     })
     return stdout.trim()
-  } catch {
+  } catch (error) {
+    noteIfInterrupted(error, state)
     return ''
   }
 }
@@ -244,11 +262,19 @@ function getDefaultBranchName(shortRef: string, remoteName: string): string {
   return remoteName ? shortRef.slice(remoteName.length + 1) : shortRef.split('/').slice(1).join('/')
 }
 
-async function getConfiguredBranchRemote(repoPath: string, branch: string | null): Promise<string> {
+async function getConfiguredBranchRemote(
+  repoPath: string,
+  branch: string | null,
+  state: ProbeState
+): Promise<string> {
   if (!branch) {
     return ''
   }
-  const remote = await readGitStdout(repoPath, ['config', '--get', `branch.${branch}.remote`])
+  const remote = await readGitStdout(
+    repoPath,
+    ['config', '--get', `branch.${branch}.remote`],
+    state
+  )
   return remote === '.' ? '' : remote
 }
 
@@ -259,26 +285,40 @@ async function getConfiguredBranchRemote(repoPath: string, branch: string | null
  * Why: a GitLab-primary repo with a secondary GitHub mirror must NOT pick up
  * the GitHub account name as its branch prefix.
  */
-async function localRepoHasEffectiveGitHubRemote(repoPath: string): Promise<boolean> {
+async function localRepoHasEffectiveGitHubRemote(
+  repoPath: string,
+  state: ProbeState
+): Promise<boolean> {
   // Why the shared listing: its signed cache lets the other `git remote` callers reuse this probe.
-  const remoteList = await listCachedRemoteNames(repoPath)
+  // Bounded like the other reads: the enrichment pass is sequential, so one stuck git holds every repo.
+  const remoteList = await listCachedRemoteNames(repoPath, null, {
+    timeoutMs: LOCAL_GIT_READ_TIMEOUT_MS
+  })
+  if (remoteList === null) {
+    state.incomplete = true
+  }
   const remotes = remoteList ?? []
   // Only a successful empty list proves there is no hosted remote to inspect.
   if (remoteList && remotes.length === 0) {
     return false
   }
   const defaultBaseRef = await resolveDefaultBaseRefViaExec((argv) =>
-    gitExecFileAsync(argv, { cwd: repoPath, timeout: LOCAL_GIT_READ_TIMEOUT_MS })
+    gitExecFileAsync(argv, { cwd: repoPath, timeout: LOCAL_GIT_READ_TIMEOUT_MS }).catch(
+      (error: unknown) => {
+        noteIfInterrupted(error, state)
+        throw error
+      }
+    )
   )
   const defaultBaseRemote = defaultBaseRef ? getRemoteNameFromRef(defaultBaseRef, remotes) : ''
   const defaultBranch = defaultBaseRef
     ? getDefaultBranchName(defaultBaseRef, defaultBaseRemote)
     : null
 
-  const currentBranch = await readGitStdout(repoPath, ['branch', '--show-current'])
+  const currentBranch = await readGitStdout(repoPath, ['branch', '--show-current'], state)
   const candidateRemotes = [
-    await getConfiguredBranchRemote(repoPath, currentBranch || null),
-    await getConfiguredBranchRemote(repoPath, defaultBranch),
+    await getConfiguredBranchRemote(repoPath, currentBranch || null, state),
+    await getConfiguredBranchRemote(repoPath, defaultBranch, state),
     defaultBaseRemote,
     'origin',
     remotes.length === 1 ? remotes[0] : ''
@@ -290,7 +330,7 @@ async function localRepoHasEffectiveGitHubRemote(repoPath: string): Promise<bool
       continue
     }
     seen.add(remote)
-    const remoteUrl = await readGitStdout(repoPath, ['remote', 'get-url', remote])
+    const remoteUrl = await readGitStdout(repoPath, ['remote', 'get-url', remote], state)
     if (remoteUrl && parseHostedRemote(remoteUrl)?.provider === 'github') {
       return true
     }
@@ -308,6 +348,11 @@ async function localRepoHasEffectiveGitHubRemote(repoPath: string): Promise<bool
 export async function resolveLocalGitUsernameDetailed(
   repoPath: string
 ): Promise<ResolvedGitUsername> {
+  const state: ProbeState = { incomplete: false }
+  const result = (username: string, ghTimedOut = false): ResolvedGitUsername => ({
+    username,
+    authoritative: !ghTimedOut && !state.incomplete
+  })
   for (const key of EXPLICIT_USERNAME_CONFIG_KEYS) {
     try {
       const { stdout } = await gitExecFileAsync(['config', '--get', key], {
@@ -317,24 +362,25 @@ export async function resolveLocalGitUsernameDetailed(
       // Why: config can hold free-form strings; only branch-safe logins become prefixes.
       const username = normalizeConfiguredLogin(stdout)
       if (username) {
-        return { username, authoritative: true }
+        return result(username)
       }
-    } catch {
+    } catch (error) {
       // Missing config keys are expected; try the next explicit username key.
+      noteIfInterrupted(error, state)
     }
   }
-  if (await localRepoHasEffectiveGitHubRemote(repoPath)) {
+  if (await localRepoHasEffectiveGitHubRemote(repoPath, state)) {
     const outcome = await getGhLoginOutcome()
     if (outcome.login || outcome.timedOut) {
-      return { username: outcome.login, authoritative: !outcome.timedOut }
+      return result(outcome.login, outcome.timedOut)
     }
   }
   // Author names become prefixes only when they already form a safe branch component.
-  const authorName = (await readGitStdout(repoPath, ['config', '--get', 'user.name'])).trim()
+  const authorName = (await readGitStdout(repoPath, ['config', '--get', 'user.name'], state)).trim()
   if (isBranchSafeHostedLogin(authorName)) {
-    return { username: authorName, authoritative: true }
+    return result(authorName)
   }
-  return { username: '', authoritative: true }
+  return result('')
 }
 
 export async function resolveLocalGitUsername(repoPath: string): Promise<string> {

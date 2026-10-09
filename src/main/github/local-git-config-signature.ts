@@ -76,7 +76,7 @@ async function readUncachedLocalGitConfigSignature(repoPath: string): Promise<st
   return signatures.flat().join('\0')
 }
 
-async function readConfigPathSignatures(
+export async function readConfigPathSignatures(
   configPath: string,
   visited = new Set<string>()
 ): Promise<string[]> {
