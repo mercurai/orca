@@ -47,6 +47,25 @@ const workflow = parse(readFileSync('.github/workflows/e2e.yml', 'utf8'))
 const prWorkflow = parse(readFileSync('.github/workflows/pr.yml', 'utf8'))
 const classify = (specs, ssh = 'false') => classifyE2eJobs(JSON.stringify(specs), ssh)
 
+it('runs real browser file-drop ownership in the template-building Docker job', () => {
+  const spec = 'tests/e2e/ssh-orcad-browser-drop-owner.spec.ts'
+  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
+  const job = workflow.jobs['orcad-auto-convert-docker']
+  expect(job.if).toContain(spec)
+  expect(
+    job.steps.some((step) => step.run?.includes(spec) && step.env?.ORCA_E2E_SSH_DOCKER === '1')
+  ).toBe(true)
+  for (const source of [
+    'src/renderer/src/lib/file-preview.ts',
+    'src/renderer/src/lib/workspace-file-drag.ts',
+    'src/renderer/src/components/browser-pane/navigate/use-browser-page-navigation-downloads.ts',
+    'src/renderer/src/components/right-sidebar/FileExplorerRow.tsx',
+    'tests/e2e/helpers/browser-split-guest-probes.ts'
+  ]) {
+    expect(selectPrE2eSpecs([source]), source).toContain(spec)
+  }
+})
+
 it('skips the general consumer only when every requested spec has a dedicated owner', () => {
   for (const spec of DEDICATED_E2E_SPECS) {
     expect(classify([spec]).e2e_run_changed, spec).toBe(false)
@@ -232,6 +251,51 @@ it.each([
     e2e_run_changed: false,
     e2e_needs_build: true
   })
+  const job = workflow.jobs['orcad-auto-convert-docker']
+  expect(job.if).toContain(spec)
+  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
+    spec
+  )
+})
+
+it.each([
+  'src/renderer/src/hooks/useEditorExternalWatch.ts',
+  'src/renderer/src/hooks/editor-runtime-file-watch.ts'
+])('routes %s to the template-building editor watch recovery lane', (file) => {
+  const spec = 'tests/e2e/ssh-orcad-editor-watch-recovery.spec.ts'
+  expect(selectPrE2eSpecs([file])).toContain(spec)
+  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
+  const job = workflow.jobs['orcad-auto-convert-docker']
+  expect(job.if).toContain(spec)
+  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
+    spec
+  )
+})
+
+it.each([
+  'src/renderer/src/components/right-sidebar/useFileExplorerWatch.ts',
+  'src/renderer/src/hooks/worktree-file-change-event.ts'
+])('routes %s to the template-building explorer watch recovery lane', (file) => {
+  const spec = 'tests/e2e/ssh-orcad-explorer-watch-recovery.spec.ts'
+  expect(selectPrE2eSpecs([file])).toContain(spec)
+  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
+  const job = workflow.jobs['orcad-auto-convert-docker']
+  expect(job.if).toContain(spec)
+  expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
+    spec
+  )
+})
+
+it.each([
+  'src/renderer/src/components/right-sidebar/useFileExplorerWatch.ts',
+  'src/renderer/src/components/right-sidebar/file-explorer-operation-owner.ts',
+  'src/renderer/src/components/right-sidebar/FileExplorer.tsx',
+  'src/renderer/src/components/right-sidebar/useFileExplorerTree.ts',
+  'src/renderer/src/components/right-sidebar/use-file-explorer-tree-load-effects.ts'
+])('routes %s to the template-building selected-host explorer lane', (file) => {
+  const spec = 'tests/e2e/ssh-orcad-explorer-selected-host.spec.ts'
+  expect(selectPrE2eSpecs([file])).toContain(spec)
+  expect(classify([spec])).toEqual({ e2e_run_changed: false, e2e_needs_build: true })
   const job = workflow.jobs['orcad-auto-convert-docker']
   expect(job.if).toContain(spec)
   expect(job.steps.find((step) => step.name === 'Convert a relay-era Docker host').run).toContain(
