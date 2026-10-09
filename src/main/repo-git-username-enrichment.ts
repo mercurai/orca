@@ -1,6 +1,14 @@
 import { getRepoExecutionHostId } from '../shared/execution-host'
 import type { Repo } from '../shared/repo-types'
 import { resolveLocalGitUsernameDetailed } from './git/git-username'
+import {
+  readGlobalGitConfigStamp,
+  readLocalGitUsernameSignature
+} from './git/git-username-signature'
+import {
+  loadRepoUsernameSignatures,
+  saveRepoUsernameSignatures
+} from './repo-git-username-signature-store'
 
 type RepoUsernameStore = {
   getRepos(): Repo[]
@@ -17,7 +25,7 @@ type EnrichmentOptions = {
 
 // Why: resolution spawns git (and possibly gh) subprocesses, so run it at most
 // once per repo location per app session — hydrateRepo serves the persisted
-// value in between, and a relaunch picks up config changes.
+// value in between. A relaunch re-resolves only repos whose config signature changed.
 const attemptedLocations = new Set<string>()
 let enrichmentInFlight: Promise<void> | null = null
 let rerunRequested = false
@@ -49,9 +57,25 @@ async function enrichRepoGitUsernamesInBackground(
       !repo.connectionId &&
       !attemptedLocations.has(getRepoLocationKey(repo))
   )
+  const signatures = await loadRepoUsernameSignatures()
+  let signaturesChanged = false
+  for (const location of signatures.keys()) {
+    if (!liveLocations.has(location)) {
+      signatures.delete(location)
+      signaturesChanged = true
+    }
+  }
+  const globalConfigStamp = candidates.length > 0 ? await readGlobalGitConfigStamp() : ''
   let changed = false
   for (const repo of candidates) {
-    attemptedLocations.add(getRepoLocationKey(repo))
+    const location = getRepoLocationKey(repo)
+    attemptedLocations.add(location)
+    // Why before resolving: an edit that lands mid-resolution then differs from the stored
+    // signature and re-resolves on the next launch instead of being masked.
+    const signature = await readLocalGitUsernameSignature(repo.path, globalConfigStamp)
+    if (signature !== undefined && signatures.get(location) === signature) {
+      continue
+    }
     const { username, authoritative } = await resolveLocalGitUsernameDetailed(repo.path)
     // Why: a non-authoritative '' means a probe timed out and says nothing
     // about the account — keep the persisted value. An authoritative result
@@ -60,9 +84,18 @@ async function enrichRepoGitUsernamesInBackground(
     if (!authoritative && !username) {
       continue
     }
+    // Why: a non-authoritative result (gh timed out) must retry next launch, so only an
+    // authoritative one is remembered as "unchanged".
+    if (authoritative && signature !== undefined && signatures.get(location) !== signature) {
+      signatures.set(location, signature)
+      signaturesChanged = true
+    }
     if (store.setResolvedRepoGitUsername(repo, username)) {
       changed = true
     }
+  }
+  if (signaturesChanged) {
+    await saveRepoUsernameSignatures(signatures)
   }
   if (changed) {
     options.onChanged?.()
