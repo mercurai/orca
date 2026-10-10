@@ -213,6 +213,8 @@ it('a restart sends the original delivery fence in the existing native gateway f
   if (!original) {
     throw new Error('prompt not delivered')
   }
+  // Dispatch persists without awaiting; let the write land before the restart reads the file.
+  await h.controller.flushDismissals()
   const restarted = new RuntimeMobileNotificationController()
   restarted.configureDismissalStore(directory)
   const gateway = createHarness({
