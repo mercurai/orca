@@ -30,6 +30,20 @@ const MAX_PATH_GENERATIONS = 8
 // Why PATH-keyed: shell-PATH hydration rewrites PATH, so a new PATH is a new generation.
 const hostBinariesByPath = new Map<string, Map<string, string>>()
 
+function searchPathForExecutable(binary: string, pathValue: string): string | null {
+  // Why this order: libuv's search tries .com before .exe, and skips relative PATH entries here.
+  for (const entry of pathValue.split(';')) {
+    const dir = entry.replace(/^"(.*)"$/, '$1')
+    for (const extension of ['.com', '.exe']) {
+      const candidate = path.join(dir, binary + extension)
+      if (dir && path.isAbsolute(candidate) && existsSync(candidate)) {
+        return candidate
+      }
+    }
+  }
+  return null
+}
+
 /**
  * Absolute path for a bare git, gh or wsl.exe on Windows, found once per PATH generation, so
  * CreateProcess stops searching a long hydrated PATH on every spawn. Anything else, and a
@@ -55,20 +69,14 @@ export function resolveHostBinaryOnce(
     hostBinariesByPath.set(pathValue, resolved)
   }
   const known = resolved.get(binary)
-  if (known) {
+  // Why re-stat a hit: PATH stays the same when the binary is removed or moved.
+  if (known !== undefined && (known === binary || existsSync(known))) {
     return known
   }
-  // Why .exe and .com only: those are the extensions CreateProcess itself would find.
-  for (const dir of pathValue.split(';')) {
-    for (const extension of ['.exe', '.com']) {
-      const candidate = path.join(dir, binary + extension)
-      if (dir && path.isAbsolute(candidate) && existsSync(candidate)) {
-        resolved.set(binary, candidate)
-        return candidate
-      }
-    }
-  }
-  return binary
+  // A miss is cached too, so a host without gh does not search the PATH on every call.
+  const found = searchPathForExecutable(binary, pathValue) ?? binary
+  resolved.set(binary, found)
+  return found
 }
 
 export function resolveGitCommand(

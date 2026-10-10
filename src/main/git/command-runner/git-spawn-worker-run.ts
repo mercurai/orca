@@ -46,7 +46,10 @@ export function createRunProcessHost(port: SpawnWorkerPort): {
           children.set(id, child)
           port.postMessage({ type: 'run-spawned', id, pid: child.pid })
         },
-        onChildTerminated: () => port.postMessage({ type: 'run-terminated', id })
+        onChildTerminated: () => {
+          children.delete(id)
+          port.postMessage({ type: 'run-terminated', id })
+        }
       },
       capture
     )
@@ -56,7 +59,6 @@ export function createRunProcessHost(port: SpawnWorkerPort): {
       )
       .then((outcome) => {
         aborts.delete(id)
-        children.delete(id)
         port.postMessage({ type: 'run-result', id, ...outcome })
       })
   }

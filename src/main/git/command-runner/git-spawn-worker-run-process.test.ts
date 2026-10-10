@@ -135,6 +135,21 @@ describe('runProcess on a real spawn worker thread', () => {
     await vi.waitFor(() => expect(onChildTerminated).toHaveBeenCalledOnce(), { timeout: 10_000 })
   })
 
+  it('still reports the child terminated when a descendant holds the pipes past the result', async () => {
+    const onChildTerminated = vi.fn()
+    // Why: the root exits at once but its child keeps stdout open, so `close` can trail the result.
+    const holder =
+      "require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 6000)'], { stdio: 'inherit' })"
+    const result = await runProcess({
+      program: process.execPath,
+      args: ['-e', holder],
+      timeoutMs: 300,
+      onChildTerminated
+    })
+    expect(result.timedOut).toBe(true)
+    await vi.waitFor(() => expect(onChildTerminated).toHaveBeenCalledOnce(), { timeout: 20_000 })
+  })
+
   it('counts the spawn for the probes with no main-thread block attributed', async () => {
     const observer = vi.fn()
     setSpawnObserver(observer)
