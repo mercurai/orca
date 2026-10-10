@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import type * as SecureFileAsyncWrite from './secure-file-async-write'
 import { encodePairingOffer } from './pairing'
 import {
   addEnvironmentFromPairingCode,
@@ -15,7 +16,7 @@ import { markEnvironmentUsedDetached } from './runtime-environment-usage-detache
 const writes = vi.hoisted(() => [] as Promise<unknown>[])
 
 vi.mock('./secure-file-async-write', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./secure-file-async-write')>()
+  const actual = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...actual,
     writeSecureFileAsync: (...args: Parameters<typeof actual.writeSecureFileAsync>) => {
