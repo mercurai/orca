@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { spawnMock, admitMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
-  admitMock: vi.fn(() => true)
+  admitMock: vi.fn((_kill: { pid: number; site: string; scope: string }) => true)
 }))
 
 vi.mock('node:child_process', async (importOriginal) => ({
@@ -17,6 +17,10 @@ vi.mock('../../own-chromium-tree-kill-guard', () => ({
   admitSelfInitiatedTreeKill: admitMock
 }))
 
+import { setProcessTreeKillGate } from '../../../shared/child-process/process-tree-kill-gate'
+import { execFileCapture } from './exec-file-capture'
+import { installSpawnWorkerTreeKillGate } from './git-spawn-worker-kill'
+import { restoreGitSpawnMode, useGitSpawnMode } from './git-spawn-worker-test-fixture'
 import { killSpawnedCommandTree } from './spawned-command-tree-kill'
 
 const originalPlatform = process.platform
@@ -34,10 +38,13 @@ describe('Git command tree termination', () => {
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     spawnMock.mockReset()
     admitMock.mockReset().mockReturnValue(true)
+    // Main installs this gate at startup; the guard decision is what these cases pin.
+    setProcessTreeKillGate((kill) => admitMock(kill))
   })
 
   afterEach(() => {
     Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+    setProcessTreeKillGate(null)
     vi.restoreAllMocks()
   })
 
@@ -119,4 +126,73 @@ describe('Git command tree termination', () => {
       await closed
     }
   )
+})
+
+// Why (#1085): in worker mode the taskkill runs on the worker thread, but the own-Chromium
+// guard must still be main's decision, taken before the pid-addressed walk.
+describe('Git command tree termination through the spawn worker', () => {
+  const sleepForever = ['-e', 'setTimeout(() => {}, 5000)']
+
+  function fakeTaskkill(): void {
+    spawnMock.mockImplementation(() => {
+      const killer = childWithPid(5678)
+      queueMicrotask(() => killer.emit('close', 0))
+      return killer
+    })
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
+    spawnMock.mockReset()
+    admitMock.mockReset().mockReturnValue(true)
+    installSpawnWorkerTreeKillGate()
+    useGitSpawnMode('worker')
+  })
+
+  afterEach(() => {
+    restoreGitSpawnMode()
+    setProcessTreeKillGate(null)
+    Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true })
+    vi.restoreAllMocks()
+  })
+
+  it('walks the tree after main admits the pid on abort', async () => {
+    fakeTaskkill()
+    const controller = new AbortController()
+    const pending = execFileCapture(process.execPath, sleepForever, { signal: controller.signal })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(admitMock).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ site: 'git-command-tree-kill', scope: 'win-taskkill-tree' })
+    )
+    expect(spawnMock).toHaveBeenCalledWith(
+      'taskkill',
+      ['/pid', String(admitMock.mock.calls[0]?.[0]?.pid), '/t', '/f'],
+      expect.anything()
+    )
+  })
+
+  it('kills only the root handle when main refuses the pid', async () => {
+    admitMock.mockReturnValue(false)
+    const controller = new AbortController()
+    const pending = execFileCapture(process.execPath, sleepForever, { signal: controller.signal })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
+    expect(admitMock).toHaveBeenCalledOnce()
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
+
+  it('applies the same guard when the worker deadline fires', async () => {
+    admitMock.mockReturnValue(false)
+    await expect(
+      execFileCapture(process.execPath, sleepForever, {
+        timeout: 100,
+        createTimeoutError: () => new Error('deadline 1085')
+      })
+    ).rejects.toThrow('deadline 1085')
+    expect(admitMock).toHaveBeenCalledOnce()
+    expect(spawnMock).not.toHaveBeenCalled()
+  })
 })

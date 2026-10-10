@@ -89,7 +89,8 @@ describe('gh exec deadline', () => {
 
     expect(result.stdout).toContain('204 No Content')
     const [command, args, options] = spawnMock.mock.calls[0]
-    expect(command).toBe('gh')
+    // Why a pattern: on Windows a bare gh resolves to an absolute path once per PATH generation.
+    expect(command).toMatch(/(^|[/\\])gh(\.exe)?$/i)
     expect(args).toEqual(['api', '--include', 'user/starred/stablyai/orca'])
     expect(options.windowsHide).toBe(true)
     expect(options.stdio).toEqual(['pipe', 'pipe', 'pipe'])
