@@ -88,6 +88,29 @@ patches:
       - src/main/git/command-runner/git-command-timeout-behavior.test.ts
       - src/main/git/command-runner/spawned-command-tree-kill.test.ts
     notes: git spawns on a worker thread behind ORCA_GIT_SPAWN_WORKER
+  - slug: orca-secure-file-async
+    branch: patch/orca-secure-file-async
+    status: ours-only
+    base: v1.4.223
+    issue: mercurai/claude-code-config#1090
+    owner: harness
+    added: 2026-10-09
+    tests:
+      - src/main/ipc/runtime-environments-status-diagnostics.test.ts
+      - src/main/ipc/runtime-environments-subscription-lifecycle.test.ts
+      - src/main/runtime/mobile-notification-dismissal-read-failure.test.ts
+      - src/main/runtime/mobile-notification-dismissal-store.test.ts
+      - src/main/runtime/structured-agent-session-mobile-restore.test.ts
+      - src/shared/runtime-environment-usage-detached.test.ts
+      - src/shared/secure-file-async-spawn-count.test.ts
+      - src/shared/secure-file-async-write-serialization.test.ts
+      - src/shared/secure-file.test.ts
+      - src/shared/secure-path-windows-acl-sid-lookup.test.ts
+      - src/shared/secure-path-windows-acl.win32.test.ts
+      - tests/e2e/structured-attention-host-read-retirement.unit.test.ts
+      - tests/e2e/structured-attention-prompt-relay.unit.test.ts
+      - tests/e2e/structured-attention-relay-settlement.unit.test.ts
+    notes: hot secure-file writers on an async lane with two icacls per write, cached async whoami, debounced dismissal store and usage stamp (upstream stablyai/orca#26027)
   - slug: orca-spawn-worker-barrier
     branch: patch/orca-spawn-worker-barrier
     status: planned
