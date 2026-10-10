@@ -2,8 +2,6 @@
 # getActiveRuntimeTarget( + legacyRouteFromSettings( + settingsForRuntimeOwner(, per file.
 # This is a RATCHET: counts may only go DOWN. Route new work by the resource owner instead.
 # Prune after removing sites: pnpm check:owner-routing-ratchet --prune
-1 src/renderer/src/components/editor/combined-diff/load-sections/fetch-combined-diff-section.ts
-1 src/renderer/src/components/editor/useEditorPanelDiffContentLoader.ts
 1 src/renderer/src/components/linear-api-key-dialog.tsx
 1 src/renderer/src/components/settings/GeneralPane.tsx
 1 src/renderer/src/components/settings/RepositoryGitHubAccountSection.tsx
@@ -11,17 +9,9 @@
 1 src/renderer/src/components/setup-guide/setup-guide-progress-readiness.ts
 1 src/renderer/src/hooks/composer-state/provider-runtime-sync.ts
 1 src/renderer/src/hooks/composer-state/quick-creation-execution.ts
-1 src/renderer/src/lib/github-pr-start-point.ts
 1 src/renderer/src/lib/worktree-creation-flow-startup.ts
-1 src/renderer/src/runtime/runtime-git-client-context.ts
-5 src/renderer/src/runtime/runtime-git-diff-client.ts
-5 src/renderer/src/runtime/runtime-git-generation-client.ts
-6 src/renderer/src/runtime/runtime-git-status-client.ts
-10 src/renderer/src/runtime/runtime-git-sync-client.ts
-9 src/renderer/src/runtime/runtime-git-working-tree-client.ts
 3 src/renderer/src/runtime/runtime-hooks-client.ts
 3 src/renderer/src/runtime/runtime-repo-client.ts
-1 src/renderer/src/store/slices/diff-comment-persistence.ts
 1 src/renderer/src/store/slices/preflight.ts
 1 src/renderer/src/store/slices/worktree-visibility-owner-settings.ts
 3 src/renderer/src/store/slices/worktree-visibility-settings-write.ts
@@ -29,9 +19,6 @@
 1 src/renderer/src/store/slices/worktrees/create/prefetch-worktree-create-base.ts
 2 src/renderer/src/store/slices/worktrees/listing/detected-worktree-provider-request.ts
 1 src/renderer/src/store/slices/worktrees/listing/detected-worktree-refresh.ts
-2 src/renderer/src/store/slices/worktrees/metadata/hosted-review-push-target.ts
-3 src/renderer/src/store/slices/worktrees/metadata/worktree-lineage-refresh.ts
-1 src/renderer/src/store/slices/worktrees/metadata/worktree-meta-persist.ts
 1 src/renderer/src/store/slices/worktrees/teardown/force-delete-preserved-branch.ts
 1 src/renderer/src/store/slices/worktrees/teardown/missing-worktree-terminal-teardown.ts
 1 src/renderer/src/store/slices/worktrees/teardown/remove-worktree.ts

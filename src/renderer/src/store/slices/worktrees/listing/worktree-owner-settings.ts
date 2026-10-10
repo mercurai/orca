@@ -1,4 +1,5 @@
 import type { AppState } from '../../../types'
+import { tryRuntimeTargetForWorktreeOwner } from './worktree-owner-target'
 import type { Worktree } from '../../../../../../shared/worktree/types'
 import type { WorktreeMeta } from '../../../../../../shared/worktree/meta-types'
 import { getRepoIdFromWorktreeId } from '../../worktree-helpers'
@@ -147,12 +148,12 @@ export function persistPassiveWorktreeMetaForOwner(
   updates: Partial<WorktreeMeta>,
   errorLabel: string
 ): void {
-  const ownerSettings = trySettingsForWorktreeOwner(get(), worktreeId)
-  if (!ownerSettings) {
+  const ownerTarget = tryRuntimeTargetForWorktreeOwner(get(), worktreeId)
+  if (!ownerTarget) {
     warnAmbiguousOwnerOnce(worktreeId, errorLabel)
     return
   }
-  void persistWorktreeMeta(ownerSettings, worktreeId, updates).catch((err) => {
+  void persistWorktreeMeta(ownerTarget, worktreeId, updates).catch((err) => {
     if (isRuntimeSelectorNotFoundError(err)) {
       void get().fetchWorktrees(getRepoIdFromWorktreeId(worktreeId))
       return

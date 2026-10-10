@@ -150,7 +150,7 @@ export function createRepoCatalogActions(
             )
           }
         })
-        scheduleSafeAutoForkSync(get, finalizedHostRepos)
+        scheduleSafeAutoForkSync(finalizedHostRepos)
       } catch (err) {
         localCatalogOutcome = { status: 'rejected', reason: err }
         console.error('Failed to fetch repos:', err)

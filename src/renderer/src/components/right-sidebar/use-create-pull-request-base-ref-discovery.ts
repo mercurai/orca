@@ -1,5 +1,5 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import type { AppState } from '@/store'
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import {
   getRuntimeRepoBaseRefDefault,
   searchRuntimeRepoBaseRefDetails
@@ -12,7 +12,8 @@ import {
 type CreatePullRequestBaseRefDiscoveryOptions = {
   open: boolean
   repoId: string
-  settings: AppState['settings']
+  /** The repo owner's transport; `null` skips discovery. */
+  target: RuntimeClientTarget | null
   base: string
   baseQuery: string
   setBase: Dispatch<SetStateAction<string>>
@@ -21,10 +22,17 @@ type CreatePullRequestBaseRefDiscoveryOptions = {
   setBaseSearchError: Dispatch<SetStateAction<string | null>>
 }
 
+// Why: the repo client still takes the settings shape; build it from the owner, never from focus.
+function repoClientRoute(target: RuntimeClientTarget) {
+  return {
+    activeRuntimeEnvironmentId: target.kind === 'environment' ? target.environmentId : null
+  }
+}
+
 export function useCreatePullRequestBaseRefDiscovery({
   open,
   repoId,
-  settings,
+  target,
   base,
   baseQuery,
   setBase,
@@ -43,11 +51,11 @@ export function useCreatePullRequestBaseRefDiscovery({
   useEffect(() => {
     // Why: the repo default doesn't move while a repo stays open, so skip the probe
     // once it is known — on a remote runtime it is an RPC round-trip per composer open.
-    if (!open || repoDefaultBaseRef) {
+    if (!open || repoDefaultBaseRef || !target) {
       return
     }
     let stale = false
-    void getRuntimeRepoBaseRefDefault(settings, repoId)
+    void getRuntimeRepoBaseRefDefault(repoClientRoute(target), repoId)
       .then((result) => {
         if (!stale && result.defaultBaseRef) {
           setRepoDefault({ repoId, baseRef: stripBaseRef(result.defaultBaseRef) })
@@ -57,7 +65,7 @@ export function useCreatePullRequestBaseRefDiscovery({
     return () => {
       stale = true
     }
-  }, [open, repoDefaultBaseRef, repoId, settings])
+  }, [open, repoDefaultBaseRef, repoId, target])
 
   useEffect(() => {
     if (!open || base || !repoDefaultBaseRef) {
@@ -67,7 +75,7 @@ export function useCreatePullRequestBaseRefDiscovery({
   }, [base, open, repoDefaultBaseRef, setBase])
 
   useEffect(() => {
-    if (!open || baseQuery.trim().length < 2) {
+    if (!open || baseQuery.trim().length < 2 || !target) {
       setBaseResults([])
       setBaseSearchPending(false)
       setBaseSearchError(null)
@@ -76,7 +84,7 @@ export function useCreatePullRequestBaseRefDiscovery({
     let stale = false
     setBaseSearchPending(true)
     const timer = window.setTimeout(() => {
-      void searchRuntimeRepoBaseRefDetails(settings, repoId, baseQuery.trim(), 20)
+      void searchRuntimeRepoBaseRefDetails(repoClientRoute(target), repoId, baseQuery.trim(), 20)
         .then((results) => {
           if (!stale) {
             setBaseResults(normalizeCreateReviewBaseSearchResults(results))
@@ -99,7 +107,7 @@ export function useCreatePullRequestBaseRefDiscovery({
       stale = true
       window.clearTimeout(timer)
     }
-  }, [baseQuery, open, repoId, settings, setBaseResults, setBaseSearchError, setBaseSearchPending])
+  }, [baseQuery, open, repoId, target, setBaseResults, setBaseSearchError, setBaseSearchPending])
 
   return repoDefaultBaseRef
 }

@@ -101,7 +101,7 @@ export function createAllHostRepoCatalogActions(
           }
         })
         // Why: keep the safe-auto fork sync (as fetchRepos does) so cold-start, which now routes here, still updates safe-auto forks.
-        scheduleSafeAutoForkSync(get, hostRepos)
+        scheduleSafeAutoForkSync(hostRepos)
         return true
       }
       const validateRepoScopedUi = (): void => {

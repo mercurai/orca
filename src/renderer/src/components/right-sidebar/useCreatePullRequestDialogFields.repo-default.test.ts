@@ -52,6 +52,7 @@ function renderFields(initialRepoId: string): {
       branch: 'feature/child',
       eligibility,
       settings: null,
+      target: { kind: 'local' },
       submitting: false
     })
     return null
