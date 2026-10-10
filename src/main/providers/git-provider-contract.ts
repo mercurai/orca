@@ -95,7 +95,6 @@ export type IGitProvider = {
     branchName: string,
     expectedHead: string
   ): Promise<void>
-  isGitRepo(path: string): Promise<boolean>
   isGitRepoAsync(dirPath: string): Promise<{ isRepo: boolean; rootPath: string | null }>
   exec(
     args: string[],
