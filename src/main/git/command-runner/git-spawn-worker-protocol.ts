@@ -5,6 +5,12 @@
 // Kept free of Electron, node:worker_threads and node:child_process so either
 // side can import it without dragging the other side's dependencies across.
 import type { ExecFileOptions } from 'node:child_process'
+import type { ProcessTreeKill } from '../../../shared/child-process/process-tree-kill-gate'
+import type {
+  ProcessResult,
+  ProcessSpec,
+  WorkerBarrierDescriptor
+} from '../../../shared/child-process/process-spec'
 
 /** Fields of a Node child-process error that callers read; the rest does not clone usefully. */
 export type SerializedSpawnError = {
@@ -20,7 +26,22 @@ export type SerializedSpawnError = {
   cmd?: string
 }
 
+/** The part of a ProcessSpec that crosses the thread; callbacks and the signal stay on main. */
+export type WireProcessSpec = Omit<
+  ProcessSpec,
+  'signal' | 'stdio' | 'serialization' | 'terminationBarrier' | 'onChildTerminated' | 'onSpawn'
+> & { terminationBarrier?: boolean | WorkerBarrierDescriptor }
+
+/** A ProcessResult as structured clone delivers it: byte output arrives as a plain Uint8Array. */
+export type WireProcessResult = Omit<ProcessResult, 'stdoutBytes'> & { stdoutBytes?: Uint8Array }
+
 export type SpawnWorkerRequest =
+  | {
+      type: 'run'
+      id: number
+      spec: WireProcessSpec
+      capture: 'head' | 'tail'
+    }
   | {
       type: 'capture'
       id: number
@@ -48,7 +69,23 @@ export type SpawnWorkerRequest =
   /** Stream chunks main has consumed; releases the worker's stdout pause. */
   | { type: 'ack'; id: number; chunks: number }
 
+export type RunWorkerResponse =
+  /** runProcess started the child; `pid` is undefined when the spawn failed asynchronously. */
+  | { type: 'run-spawned'; id: number; pid: number | undefined }
+  /** The child exited or its tree termination was verified: spec.onChildTerminated. */
+  | { type: 'run-terminated'; id: number }
+  /** runProcess settled: exactly one of `result` and `error`. */
+  | {
+      type: 'run-result'
+      id: number
+      result: WireProcessResult | null
+      error: SerializedSpawnError | null
+    }
+  /** The worker walked a process tree on its own authority; main puts it on the record. */
+  | ({ type: 'tree-kill' } & ProcessTreeKill)
+
 export type SpawnWorkerResponse =
+  | RunWorkerResponse
   | { type: 'spawned'; id: number; pid: number | undefined; spawnMs: number }
   /** The Windows tree kill needs main's own-Chromium guard before it walks `pid`. */
   | { type: 'kill-check'; id: number; pid: number }
@@ -110,4 +147,10 @@ export function serializeSpawnError(error: unknown): SerializedSpawnError {
 export function reviveSpawnError(serialized: SerializedSpawnError): Error {
   const { message, name, ...fields } = serialized
   return Object.assign(new Error(message), { name }, fields)
+}
+
+export function toBuffer(value: string | Uint8Array): string | Buffer {
+  return typeof value === 'string'
+    ? value
+    : Buffer.from(value.buffer, value.byteOffset, value.byteLength)
 }
