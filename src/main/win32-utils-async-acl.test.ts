@@ -101,16 +101,26 @@ describe('grantDirAclAsync', () => {
     expect(runProcessSyncMock).not.toHaveBeenCalled()
   })
 
-  it('never spawns whoami synchronously and warms the identity cache for the next attempt', async () => {
+  it('a cold grantDirAcl never spawns whoami synchronously and warms the cache for the next one', async () => {
     delete process.env.USERNAME
     runProcessMock.mockResolvedValue(exited('"DOMAIN\\alice","S-1-5-21-456"\r\n'))
-    const { resolveCurrentWindowsIdentity } = await import('./win32-utils')
+    runProcessSyncMock.mockReturnValue(exited())
+    const { grantDirAcl } = await import('./win32-utils')
 
-    expect(resolveCurrentWindowsIdentity()).toBeNull()
-    await vi.waitFor(() => expect(resolveCurrentWindowsIdentity()).toBe('*S-1-5-21-456'))
-
+    grantDirAcl('C:\\Orca')
     expect(runProcessSyncMock).not.toHaveBeenCalled()
+
+    await vi.waitFor(() => {
+      grantDirAcl('C:\\Orca')
+      expect(runProcessSyncMock).toHaveBeenCalled()
+    })
     expect(runProcessMock).toHaveBeenCalledTimes(1)
+    expect(runProcessSyncMock.mock.lastCall?.[0].args).toEqual([
+      'C:\\Orca',
+      '/grant:r',
+      '*S-1-5-21-456:(OI)(CI)(F)',
+      '/q'
+    ])
   })
 
   it('retries identity resolution after a transient whoami failure', async () => {
