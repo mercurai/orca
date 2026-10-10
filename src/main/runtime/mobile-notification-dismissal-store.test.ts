@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
+import type * as SecureFileAsyncWrite from '../../shared/secure-file-async-write'
 import { MobileNotificationDismissalStore } from './mobile-notification-dismissal-store'
 
 // Every snapshot handed to the async writer, so a test can count writes and read what they carried.
 const snapshots = vi.hoisted(() => [] as unknown[])
 
 vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../shared/secure-file-async-write')>()
+  const actual = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...actual,
     writeSecureJsonFileAsync: (path: string, value: unknown) => {

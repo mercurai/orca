@@ -77,7 +77,7 @@ describe('the SID lookup failure backoff', () => {
     const now = vi.spyOn(performance, 'now')
     now.mockReturnValue(0)
     runProcessMock.mockResolvedValueOnce(exited('', 1))
-    runProcessMock.mockResolvedValue(exited(`"DOMAIN\alice","${SID}"\r\n`))
+    runProcessMock.mockResolvedValue(exited(`"DOMAIN\\alice","${SID}"\r\n`))
     vi.resetModules()
     const { getCurrentWindowsUserSidAsync } = await import('./windows-current-user-sid')
 
