@@ -19,6 +19,7 @@ import {
   recordSubprocessSpawn,
   startMainThreadChurnProbe
 } from './main-thread-churn-probe'
+import { terminalInputLatency } from './terminal-input-latency'
 
 type Pushed = { name: string; attributes: Record<string, unknown> }
 
@@ -104,6 +105,20 @@ describe('main.loop span', () => {
       'git.status.count': 2,
       'git.status.execMsSum': 100
     })
+  })
+
+  it('carries the window's terminal input latency on the span', () => {
+    startMainThreadChurnProbe()
+    terminalInputLatency.noteInput('pty-1', Date.now() - 30)
+    fakeNow += 80
+    terminalInputLatency.noteOutput('pty-1')
+    runUntilWindowRolls()
+
+    const span = pushed.filter((s) => s.name === 'main.loop')[0]
+    expect(span.attributes['terminalInput.inputCount']).toBe(1)
+    expect(span.attributes['terminalInput.echoCount']).toBe(1)
+    expect(span.attributes['terminalInput.echoP50Ms']).toBe(80)
+    expect(span.attributes['terminalInput.ipcLagMaxMs']).toBeGreaterThanOrEqual(30)
   })
 
   it('starts a fresh window after the roll and keeps only the top 5 spawn keys', () => {
