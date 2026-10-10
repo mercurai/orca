@@ -33,7 +33,7 @@ afterEach(() => {
 
 describe('restrictNewFileAsync', () => {
   it('runs reset and grant only, and trusts them', async () => {
-    const { restrictNewFileAsync } = await import('./secure-path-windows-acl')
+    const { restrictNewFileAsync } = await import('./secure-path-windows-acl.js')
 
     await expect(restrictNewFileAsync('C:\\a.json')).resolves.toBe(true)
 
@@ -43,7 +43,7 @@ describe('restrictNewFileAsync', () => {
 
   it('fails closed on a bad read-back when ORCA_SECURE_FILE_VERIFY=1', async () => {
     process.env.ORCA_SECURE_FILE_VERIFY = '1'
-    const { restrictNewFileAsync } = await import('./secure-path-windows-acl')
+    const { restrictNewFileAsync } = await import('./secure-path-windows-acl.js')
 
     await expect(restrictNewFileAsync('C:\\a.json')).resolves.toBe(false)
 
@@ -59,7 +59,7 @@ describe('restrictNewFileAsync', () => {
         ? exited(`"DOMAIN\\alice","${SID}"\r\n`)
         : { ...exited(), code: null, timedOut: true }
     )
-    const { restrictNewFileAsync } = await import('./secure-path-windows-acl')
+    const { restrictNewFileAsync } = await import('./secure-path-windows-acl.js')
 
     await expect(restrictNewFileAsync('C:\\a.json')).resolves.toBe(false)
 
