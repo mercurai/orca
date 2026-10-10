@@ -13,10 +13,10 @@ vi.mock('fs', () => ({
   chmodSync: vi.fn()
 }))
 
-const { spawnMock, runWslProcessMock, gitExecFileSyncMock } = vi.hoisted(() => ({
+const { spawnMock, runWslProcessMock, gitExecFileAsyncMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),
   runWslProcessMock: vi.fn(),
-  gitExecFileSyncMock: vi.fn()
+  gitExecFileAsyncMock: vi.fn()
 }))
 
 vi.mock('child_process', () => ({
@@ -32,7 +32,7 @@ vi.mock('./wsl/wsl-runner', () => ({
 
 vi.mock('./git/runner', async () => ({
   ...(await vi.importActual<typeof GitRunner>('./git/runner')),
-  gitExecFileSync: gitExecFileSyncMock
+  gitExecFileAsync: gitExecFileAsyncMock
 }))
 
 /** Minimal ChildProcess stand-in: hooks.ts reads the streams and waits for close/error. */
@@ -318,8 +318,11 @@ describe('runHook', () => {
   })
 
   it('writes Windows-path setup runners through WSL git when the project runtime targets WSL', async () => {
-    gitExecFileSyncMock.mockReset()
-    gitExecFileSyncMock.mockReturnValue('/mnt/c/Users/jinwo/git/orca/.git/orca/setup-runner.sh\n')
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: '/mnt/c/Users/jinwo/git/orca/.git/orca/setup-runner.sh\n',
+      stderr: ''
+    })
 
     const fs = await import('node:fs')
     const mkdirSyncMock = vi.mocked(fs.mkdirSync)
@@ -334,7 +337,7 @@ describe('runHook', () => {
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         {
           ...makeRepo(),
           path: 'C:\\Users\\jinwo\\git\\orca'
@@ -344,7 +347,7 @@ describe('runHook', () => {
         { wslDistro: 'Ubuntu' }
       )
 
-      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+      expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
         {
           cwd: 'C:\\Users\\jinwo\\git\\orca-feature',
