@@ -20,8 +20,8 @@ vi.mock('fs', () => ({
   chmodSync: vi.fn()
 }))
 
-const { gitExecFileSyncMock } = vi.hoisted(() => ({
-  gitExecFileSyncMock: vi.fn()
+const { gitExecFileAsyncMock } = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn()
 }))
 
 vi.mock('child_process', () => ({
@@ -34,7 +34,7 @@ vi.mock('child_process', () => ({
 
 vi.mock('./git/runner', async () => ({
   ...(await vi.importActual<typeof GitRunner>('./git/runner')),
-  gitExecFileSync: gitExecFileSyncMock
+  gitExecFileAsync: gitExecFileAsyncMock
 }))
 
 vi.mock('./git/check-ignored-paths', () => ({
@@ -150,8 +150,11 @@ describe('createIssueCommandRunnerScript', () => {
   const makeRepo = () => makeHookTestRepo({ mode: 'auto', scripts: { setup: '', archive: '' } })
 
   it('writes a POSIX issue-command runner when a shebang declares bash and setup resolves to Git Bash', async () => {
-    gitExecFileSyncMock.mockReset()
-    gitExecFileSyncMock.mockReturnValue('C:\\repo\\.git\\orca\\issue-command-runner.sh\n')
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\orca\\issue-command-runner.sh\n',
+      stderr: ''
+    })
     const fs = await import('node:fs')
     const writeFileSyncMock = vi.mocked(fs.writeFileSync)
     writeFileSyncMock.mockClear()
@@ -160,7 +163,7 @@ describe('createIssueCommandRunnerScript', () => {
 
     try {
       const { createIssueCommandRunnerScript } = await import('./worktree-runner-script')
-      const result = createIssueCommandRunnerScript(
+      const result = await createIssueCommandRunnerScript(
         makeRepo(),
         'C:\\repo-worktree',
         '#!/usr/bin/env bash\ngh issue view 42',
@@ -168,7 +171,7 @@ describe('createIssueCommandRunnerScript', () => {
         { family: 'posix' }
       )
 
-      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+      expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/issue-command-runner.sh'],
         { cwd: 'C:\\repo-worktree' }
       )
@@ -184,14 +187,17 @@ describe('createIssueCommandRunnerScript', () => {
   })
 
   it('keeps a plain issue command on the cmd runner under a Git Bash terminal', async () => {
-    gitExecFileSyncMock.mockReset()
-    gitExecFileSyncMock.mockReturnValue('C:\\repo\\.git\\orca\\issue-command-runner.cmd\n')
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\orca\\issue-command-runner.cmd\n',
+      stderr: ''
+    })
     const originalPlatform = process.platform
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
 
     try {
       const { createIssueCommandRunnerScript } = await import('./worktree-runner-script')
-      const result = createIssueCommandRunnerScript(
+      const result = await createIssueCommandRunnerScript(
         makeRepo(),
         'C:\\repo-worktree',
         'gh issue view 42',
@@ -199,7 +205,7 @@ describe('createIssueCommandRunnerScript', () => {
         { family: 'posix' }
       )
 
-      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+      expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/issue-command-runner.cmd'],
         { cwd: 'C:\\repo-worktree' }
       )
@@ -211,20 +217,23 @@ describe('createIssueCommandRunnerScript', () => {
   })
 
   it('keeps the cmd issue-command runner when no setup shell is resolved', async () => {
-    gitExecFileSyncMock.mockReset()
-    gitExecFileSyncMock.mockReturnValue('C:\\repo\\.git\\orca\\issue-command-runner.cmd\n')
+    gitExecFileAsyncMock.mockReset()
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\orca\\issue-command-runner.cmd\n',
+      stderr: ''
+    })
     const originalPlatform = process.platform
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
 
     try {
       const { createIssueCommandRunnerScript } = await import('./worktree-runner-script')
-      const result = createIssueCommandRunnerScript(
+      const result = await createIssueCommandRunnerScript(
         makeRepo(),
         'C:\\repo-worktree',
         'gh issue view 42'
       )
 
-      expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+      expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/issue-command-runner.cmd'],
         { cwd: 'C:\\repo-worktree' }
       )
