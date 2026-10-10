@@ -126,6 +126,9 @@ export function writeDurableSecureJsonFile(targetPath: string, value: unknown): 
  * `profile-cloud-*`, `runtime-environment-store`). It bypasses that lane's per-path serialization;
  * a file both lanes write (the environment store, until #1100) guards its async read-modify-write
  * with a generation counter and `shouldPublish`.
+ *
+ * The sync lane keeps the staged-file restriction (reset, grant) without the old verify passes;
+ * `ORCA_SECURE_FILE_VERIFY=1` re-enables the read-back on the async lane only.
  */
 export function writeSecureFile(
   targetPath: string,
