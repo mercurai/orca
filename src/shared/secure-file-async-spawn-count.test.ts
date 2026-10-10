@@ -43,7 +43,7 @@ it('writes a secure file with no synchronous spawn and two icacls runs', async (
   directories.push(directory)
   const target = join(directory, 'secret.json')
 
-  // The first write also resolves the SID (cached for the process) and hardens the directory once.
+  // The bound is the steady state: a process's first write also pays one whoami and the directory's one-time harden.
   await writeSecureFileAsync(target, 'first')
   await settlePathWritesForTests()
   await new Promise((resolve) => setTimeout(resolve, 50))
