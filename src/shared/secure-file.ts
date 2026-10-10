@@ -123,8 +123,9 @@ export function writeDurableSecureJsonFile(targetPath: string, value: unknown): 
  *
  * Blocking twin of `writeSecureFileAsync`, kept for the stores that are synchronous by construction
  * and have no await to give (`device-registry`, `plugin-*-store`, `artifact-share-record-store`,
- * `profile-cloud-*`, `runtime-environment-store`). It also bypasses that lane's per-path
- * serialization, so a given file must be written through one lane or the other, not both.
+ * `profile-cloud-*`, `runtime-environment-store`). It bypasses that lane's per-path serialization;
+ * a file both lanes write (the environment store, until #1100) guards its async read-modify-write
+ * with a generation counter and `shouldPublish`.
  */
 export function writeSecureFile(
   targetPath: string,
@@ -148,20 +149,23 @@ export function writeSecureFile(
       fsyncFileSync(tmpFile)
     }
     // Why: writeFileSync mode is a no-op on Windows, so restrict the credential's ACL synchronously before the rename publishes it under inherited ACLs.
-    const stagedOutcome = applySecurePathRestriction(tmpFile, false, process.platform, true)
-    if (stagedOutcome === 'applied') {
+    let outcome = applySecurePathRestriction(tmpFile, false, process.platform, true)
+    if (outcome === 'applied') {
       recordHardeningOutcome(targetPath, true)
     }
     renameSync(tmpFile, targetPath)
-    // The staged file's protected DACL travels with the rename (same volume), so the published path
-    // needs no second pass; cache only on confirmed success so failures retry.
-    if (stagedOutcome === 'applied') {
+    // The staged file's protected DACL travels with the rename (same volume), so a successful staged
+    // pass needs no second one; a failed one gets the published path's retry the tag had.
+    if (outcome === 'failed') {
+      outcome = applySecurePathRestriction(targetPath, false, process.platform, true)
+    }
+    if (outcome === 'applied') {
       rememberHardenedPath(targetPath, false)
     }
     if (options.durable) {
       bestEffortFsyncDirectorySync(dir)
     }
-    return stagedOutcome === 'applied'
+    return outcome === 'applied'
   } catch (error) {
     rmSync(tmpFile, { force: true })
     throw error

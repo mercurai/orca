@@ -712,8 +712,8 @@ describe('hardenSecurePath', () => {
       throw new Error('access denied')
     })
     expect(writeSecureFile(targetPath, 'first')).toBe(false)
-    // The reset throws, so the pass stops after one attempt.
-    expect(syncIcaclsSpecs()).toHaveLength(1)
+    // The staged pass stops at its first throw, and the published path gets one retry (as at the tag).
+    expect(syncIcaclsSpecs()).toHaveLength(2)
 
     // Second write: ACL apply now succeeds. Because the failed apply was NOT cached, the
     // target file is hardened again rather than skipped.
@@ -725,7 +725,7 @@ describe('hardenSecurePath', () => {
     })
     expect(writeSecureFile(targetPath, 'second')).toBe(true)
     // A failed apply is not cached: the second write runs its own full reset-and-grant pass.
-    expect(syncIcaclsSpecs()).toHaveLength(3)
+    expect(syncIcaclsSpecs()).toHaveLength(4)
   })
 
   // Nit #2 (review) / hardening: the process-lifetime directory cache hardens a directory
