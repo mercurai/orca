@@ -3,9 +3,11 @@ import { LazyWorkerThreadHost, type WorkerThreadFactory } from '../../lazy-worke
 import { admitSelfInitiatedTreeKill } from '../../own-chromium-tree-kill-guard'
 import {
   reviveSpawnError,
+  toBuffer,
   type SpawnWorkerRequest,
   type SpawnWorkerResponse
 } from './git-spawn-worker-protocol'
+import { isRunMessage, RunProcessTable } from './git-spawn-worker-client-runprocess'
 
 // Why (#1085): main-thread half of the git spawn worker. It multiplexes every
 // capture and stream request onto one worker thread keyed by request id, and keeps
@@ -67,18 +69,14 @@ type Entry = {
   stream?: StreamEvents
 }
 
-function toBuffer(value: string | Uint8Array): string | Buffer {
-  return typeof value === 'string'
-    ? value
-    : Buffer.from(value.buffer, value.byteOffset, value.byteLength)
-}
-
 export class GitSpawnWorkerClient {
   private readonly host: LazyWorkerThreadHost<SpawnWorkerResponse>
   private readonly active = new Map<number, Entry>()
   private nextId = 0
   private consecutiveDeaths = 0
   private unavailable = false
+  /** runProcess captures in flight (#1091); see runProcessOnWorker. */
+  readonly runs: RunProcessTable
   private readonly log: (message: string) => void
 
   constructor(options: { workerFactory: WorkerThreadFactory; log?: (message: string) => void }) {
@@ -90,13 +88,19 @@ export class GitSpawnWorkerClient {
       onError: (error) => this.handleWorkerDeath(error),
       onExit: (code) =>
         this.handleWorkerDeath(new Error(`Git spawn worker exited with code ${code}`)),
-      isIdle: () => this.active.size === 0,
+      isIdle: () => this.active.size === 0 && this.runs.size === 0,
       // Why: git is required for the app to work, so a missing worker means
       // in-process spawning (the pre-#1085 behaviour), never a failed command.
       onUnavailable: (error) => {
         this.unavailable = true
         this.log(`[git-spawn-worker] unavailable, spawning in-process. ${String(error)}`)
       }
+    })
+    this.runs = new RunProcessTable({
+      allocateId: () => ++this.nextId,
+      send: (request) => Boolean(this.host.ensure()) && this.post(request),
+      onBusy: () => this.host.clearIdleTimer(),
+      onIdle: () => this.active.size === 0 && this.host.scheduleIdleTeardown()
     })
   }
 
@@ -192,6 +196,10 @@ export class GitSpawnWorkerClient {
       })
       return
     }
+    if (isRunMessage(message)) {
+      this.runs.handle(message)
+      return
+    }
     const entry = this.active.get(message.id)
     if (!entry) {
       return
@@ -284,7 +292,7 @@ export class GitSpawnWorkerClient {
     if (!entry.closed || (entry.capture && !entry.settled) || !this.active.delete(entry.id)) {
       return
     }
-    if (this.active.size === 0) {
+    if (this.active.size === 0 && this.runs.size === 0) {
       this.host.scheduleIdleTeardown()
     }
   }
@@ -292,6 +300,7 @@ export class GitSpawnWorkerClient {
   // Why: a terminated or crashed worker thread never runs its exit hook (verified on a real
   // worker), so main ends the roots itself. process.kill by pid spawns nothing on this thread.
   private reapChildren(): void {
+    this.runs.reapChildren()
     for (const entry of this.active.values()) {
       if (entry.pid && !entry.closed) {
         try {
@@ -316,6 +325,7 @@ export class GitSpawnWorkerClient {
 
   // Every in-flight request is over: the worker and its children are gone.
   private fail(error: Error, code?: string): void {
+    this.runs.failAll(error, code)
     for (const entry of this.active.values()) {
       // A request that never spawned is retried in-process, so it must not release its grant yet.
       if (entry.spawned || !entry.capture) {
