@@ -5,7 +5,7 @@ import { nativeWindowsPathToPosixShellPath } from '../shared/setup-runner-comman
 import { scriptDeclaresPosixShell } from '../shared/setup-script-shebang'
 import { resolveWindowsShellStartupFamily } from '../shared/windows-terminal-shell'
 import { resolveWindowsGitBashShellPath } from './git-bash'
-import { gitExecFileSync } from './git/runner'
+import { gitExecFileAsync } from './git/runner'
 import { isWslPath, toWindowsWslPath, toLinuxPath } from './wsl'
 import { getHookRuntimeTarget, getHookWslContext } from './hook-runtime-target'
 import { SETUP_RUNNER_PATH_ENV_KEYS, getSetupRunnerEnvVars } from './setup-hook-env-vars'
@@ -19,22 +19,27 @@ import type { SetupRunnerShell } from '../shared/setup-runner-command'
 
 type SetupRunnerShellSettings = Record<string, unknown> | undefined
 
-function getGitPath(cwd: string, relativePath: string, runtimeTarget?: HookRuntimeTarget): string {
-  return gitExecFileSync(['rev-parse', '--git-path', relativePath], {
+async function getGitPath(
+  cwd: string,
+  relativePath: string,
+  runtimeTarget?: HookRuntimeTarget
+): Promise<string> {
+  const { stdout } = await gitExecFileAsync(['rev-parse', '--git-path', relativePath], {
     cwd,
     ...(runtimeTarget?.wslDistro ? { wslDistro: runtimeTarget.wslDistro } : {})
-  }).trim()
+  })
+  return stdout.trim()
 }
 
-export function createSetupRunnerScript(
+export async function createSetupRunnerScript(
   repo: Repo,
   worktreePath: string,
   script: string,
   projectRuntime?: ProjectExecutionRuntimeResolution | HookRuntimeTarget,
   setupShell?: SetupRunnerShell,
   projectStartupPolicy?: SetupAgentStartupPolicy
-): WorktreeSetupLaunch {
-  return createWorktreeRunnerScript({
+): Promise<WorktreeSetupLaunch> {
+  return await createWorktreeRunnerScript({
     repo,
     worktreePath,
     script,
@@ -48,15 +53,15 @@ export function createSetupRunnerScript(
   })
 }
 
-export function createIssueCommandRunnerScript(
+export async function createIssueCommandRunnerScript(
   repo: Repo,
   worktreePath: string,
   command: string,
   projectRuntime?: ProjectExecutionRuntimeResolution | HookRuntimeTarget,
   setupShell?: SetupRunnerShell
-): WorktreeSetupLaunch {
+): Promise<WorktreeSetupLaunch> {
   // Why: writing long commands into a runner script avoids the PTY line editor wrapping/truncating them.
-  return createWorktreeRunnerScript({
+  return await createWorktreeRunnerScript({
     repo,
     worktreePath,
     script: command,
@@ -68,7 +73,7 @@ export function createIssueCommandRunnerScript(
   })
 }
 
-function createWorktreeRunnerScript(args: {
+async function createWorktreeRunnerScript(args: {
   repo: Repo
   worktreePath: string
   script: string
@@ -76,7 +81,7 @@ function createWorktreeRunnerScript(args: {
   runtimeTarget?: HookRuntimeTarget
   waitForAgentStartup?: boolean
   setupShell?: SetupRunnerShell
-}): WorktreeSetupLaunch {
+}): Promise<WorktreeSetupLaunch> {
   const {
     repo,
     worktreePath,
@@ -111,7 +116,7 @@ function createWorktreeRunnerScript(args: {
   // Why: linked worktrees use a `.git` file, so resolve the real per-worktree gitdir via git rev-parse --git-path.
   const runnerExtension = runnerShell.family === 'cmd' ? 'cmd' : 'sh'
   const gitRelPath = `orca/${runnerBaseName}.${runnerExtension}`
-  let runnerScriptPath = getGitPath(worktreePath, gitRelPath, runtimeTarget)
+  let runnerScriptPath = await getGitPath(worktreePath, gitRelPath, runtimeTarget)
 
   // Why: git runs inside WSL and returns a Linux path; convert to a UNC path so the Windows fs calls can reach it.
   if (wslWorktree) {
