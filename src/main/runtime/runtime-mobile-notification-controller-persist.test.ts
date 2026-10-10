@@ -17,12 +17,7 @@ async function dispatchAndFlush(hasPairedMobileDevice: () => boolean): Promise<b
   directories.push(directory)
   const controller = new RuntimeMobileNotificationController()
   controller.configureDismissalStore(directory, { hasPairedMobileDevice })
-  // A push registrar and a listener always exist on a desktop host; only the registry decides.
-  controller.setPushRegistrar({
-    test: async () => ({ accepted: true }),
-    register: async () => ({ registered: true }),
-    unregister: async () => ({ unregistered: true })
-  })
+  // A listener always exists on a desktop host; only the registry decides.
   controller.onDispatched(() => {})
 
   controller.dispatch({
