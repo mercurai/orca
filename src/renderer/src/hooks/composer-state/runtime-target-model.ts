@@ -1,3 +1,4 @@
+import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import type { RefObject } from 'react'
 import type { ExecutionHostId, ParsedExecutionHost } from '../../../../shared/execution-host'
 import type { Repo } from '../../../../shared/repo-types'
@@ -45,6 +46,8 @@ export type ComposerRuntimeTargetModel = {
   projectHostSetupOptions: ProjectHostSetupOption[]
   projectOptions: NewWorkspaceProjectOption[]
   selectedRepoSettings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null
+  /** Transport to the selected repo's owner; `null` with no repo selected. */
+  selectedRepoTarget: RuntimeClientTarget | null
   selectedRecipeRepoId: string | null
   selectedRecipeRepoConnectionId: string | null
   ephemeralVmsEnabled: boolean

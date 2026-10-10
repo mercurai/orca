@@ -1,4 +1,3 @@
-import type { GlobalSettings } from '../../../shared/global-settings-types'
 import { parseRoutableExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
 import {
   parseHostAuthorityKey,
@@ -7,13 +6,6 @@ import {
 } from '../../../shared/host-authority'
 
 export type RuntimeClientTarget = { kind: 'local' } | { kind: 'environment'; environmentId: string }
-
-export function getActiveRuntimeTarget(
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
-): RuntimeClientTarget {
-  const environmentId = settings?.activeRuntimeEnvironmentId?.trim()
-  return environmentId ? { kind: 'environment', environmentId } : { kind: 'local' }
-}
 
 /** Transport to an owner's runtime environment; `null` is this app (local or direct SSH). */
 export function runtimeTargetForOwnerEnvironment(
@@ -76,15 +68,4 @@ export function hostRouteForAuthority(authority: HostAuthority): HostRoute {
         : { kind: 'environment', environmentId: endpoint.environmentId },
     at: authority.at
   }
-}
-
-export function settingsForRuntimeOwner(
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined,
-  runtimeEnvironmentId: string | null | undefined
-): Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined {
-  if (runtimeEnvironmentId === null) {
-    return { activeRuntimeEnvironmentId: null }
-  }
-  const ownerId = runtimeEnvironmentId?.trim()
-  return ownerId ? { activeRuntimeEnvironmentId: ownerId } : settings
 }

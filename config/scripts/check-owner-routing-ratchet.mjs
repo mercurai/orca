@@ -340,8 +340,8 @@ export const RATCHETS = [
     header: [
       '# Renderer call sites that route by the Active Server focus setting:',
       '# getActiveRuntimeTarget( + legacyRouteFromSettings( + settingsForRuntimeOwner(, per file.',
-      '# This is a RATCHET: counts may only go DOWN. Route new work by the resource owner instead.',
-      '# Prune after removing sites: pnpm check:owner-routing-ratchet --prune'
+      '# The helpers are deleted and this list is empty: any new use fails lint. Route by the',
+      "# resource's owner; only a creation flow with no source row may use defaultCreationHost."
     ],
     advice:
       "Route by the resource's owner (resolveOwner + callHostRoute) instead of the Active Server setting."

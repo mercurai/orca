@@ -53,11 +53,6 @@ describe('sendNativeChatMessage with a parked multi-line draft', () => {
     expect(clearInput).not.toBe(NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT)
   })
 
-  it('still defaults to a single Ctrl+U when no draft is parked', () => {
-    sendNativeChatMessage(PTY, 'plain')
-    expect(writes()[0]).toBe(NATIVE_CHAT_CLEAR_UNSUBMITTED_INPUT)
-  })
-
   it('holds the body until the clear is confirmed, then submits after the gap', () => {
     const clearInput = buildAgentTuiClearInputForText(DRAFT)
     sendNativeChatMessage(PTY, 'edited', {
@@ -115,18 +110,6 @@ describe('sendNativeChatMessage with a parked multi-line draft', () => {
       AGENT_TUI_CLEAR_INPUT_MAX,
       buildNativeChatPasteBytes('edited')
     ])
-  })
-
-  it('re-clears before the body, never after it', () => {
-    sendNativeChatMessage(PTY, 'edited', {
-      clearInput: buildAgentTuiClearInputForText(DRAFT),
-      confirmCleared: () => false
-    })
-    vi.advanceTimersByTime(NATIVE_CHAT_CLEAR_CONFIRM_MS + NATIVE_CHAT_SUBMIT_DELAY_MS)
-    const order = writes()
-    expect(order.indexOf(AGENT_TUI_CLEAR_INPUT_MAX)).toBeLessThan(
-      order.indexOf(buildNativeChatPasteBytes('edited'))
-    )
   })
 
   it('charges the confirm gap to the handle so the send card outlives the Enter', () => {

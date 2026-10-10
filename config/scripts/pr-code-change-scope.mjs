@@ -574,9 +574,12 @@ function isProductBundlePath(file, extraPrefixes) {
   return matchesPrefix(file, extraPrefixes)
 }
 
-// This shared fixture is consumed only by unit suites and their placement rig.
+// These shared fixtures are consumed only by unit tests.
 export function isUnitTestSupportSource(file) {
-  return file === 'src/renderer/src/runtime/web-session-tabs-sync-test-harness.ts'
+  return (
+    file === 'src/renderer/src/runtime/web-session-tabs-sync-test-harness.ts' ||
+    file === 'src/renderer/src/components/native-chat/NativeChatStructuredSession.test-harness.tsx'
+  )
 }
 
 function isTestFile(file) {

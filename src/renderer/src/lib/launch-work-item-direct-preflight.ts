@@ -38,7 +38,7 @@ export async function resolveDirectSetupDecision(
   let yamlHooks: OrcaHooks | null = null
   try {
     // Why: the same owner host as the PR start point and createWorktree, never focus.
-    const result = await checkRuntimeHooks(null, repoId, ownerHostId)
+    const result = await checkRuntimeHooks(ownerHostId, repoId)
     yamlHooks = (result.hooks as OrcaHooks | null) ?? null
   } catch {
     yamlHooks = null

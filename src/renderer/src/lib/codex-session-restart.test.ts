@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAppStore } from '@/store'
-import { getActiveRuntimeTarget } from '@/runtime/runtime-client-target'
+import { defaultScopeHost } from '@/lib/default-creation-host'
 
 // Why: these cases model a switch made on the focused host, as the status bar does.
 const markForFocusedHost = (
   args: Omit<Parameters<typeof markLiveCodexSessionsForRestart>[0], 'owner'>
 ): Promise<void> =>
   markLiveCodexSessionsForRestart({
-    owner: getActiveRuntimeTarget(useAppStore.getState().settings),
+    owner: defaultScopeHost(useAppStore.getState().settings),
     ...args
   })
 import { shouldUseShellReadyStartupDelivery } from '../../../shared/codex-startup-delivery'

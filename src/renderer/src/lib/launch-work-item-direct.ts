@@ -118,7 +118,12 @@ export async function launchWorkItemDirect(args: LaunchWorkItemDirectArgs): Prom
     return false
   }
 
-  const trustDecision = await ensureHooksConfirmed(useAppStore.getState(), repoId, 'setup')
+  const trustDecision = await ensureHooksConfirmed(
+    useAppStore.getState(),
+    repoId,
+    'setup',
+    repoOwnerHostId
+  )
   const finalSetupDecision: SetupDecision =
     trustDecision === 'skip' ? 'skip' : setupResolution.decision
 

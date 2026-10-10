@@ -1,3 +1,4 @@
+import { runtimeTargetForOwnerHostId } from '@/runtime/runtime-client-target'
 import type { ComposerRuntimeTargetSelectionInput } from './composer-target-input-contracts'
 
 import { useEffect, useMemo, useRef } from 'react'
@@ -221,6 +222,11 @@ export function useComposerRuntimeTargetSelection(input: ComposerRuntimeTargetSe
     )
   }, [selectedRepo, settings])
 
+  const selectedRepoTarget = useMemo(
+    () => (selectedRepo ? runtimeTargetForOwnerHostId(getRepoExecutionHostId(selectedRepo)) : null),
+    [selectedRepo]
+  )
+
   // Why: key on repo id, not the repo object — updateRepo replaces it by reference and would re-run this effect, wiping the user's chosen recipe.
   const selectedRecipeRepoId = selectedRepo?.id ?? null
 
@@ -292,6 +298,7 @@ export function useComposerRuntimeTargetSelection(input: ComposerRuntimeTargetSe
     projectHostSetupOptions,
     projectOptions,
     selectedRepoSettings,
+    selectedRepoTarget,
     selectedRecipeRepoId,
     selectedRecipeRepoConnectionId,
     ephemeralVmsEnabled,

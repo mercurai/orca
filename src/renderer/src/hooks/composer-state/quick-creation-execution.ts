@@ -23,7 +23,7 @@ type QuickCreationExecutionInput = Pick<
   | 'selectedRepoExecutionHostId'
   | 'selectedRepoIsGit'
   | 'selectedRepoIsRemote'
-  | 'selectedRepoSettings'
+  | 'selectedRepoTarget'
   | 'selectedRepoStartupShell'
   | 'selectedWorkspaceTarget'
   | 'settings'
@@ -37,7 +37,6 @@ import type { TuiAgent } from '../../../../shared/tui-agent'
 import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { useAppStore } from '@/store'
 import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
-import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
 import { translate } from '@/i18n/i18n'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
@@ -69,7 +68,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
     selectedRepoExecutionHostId,
     selectedRepoIsGit,
     selectedRepoIsRemote,
-    selectedRepoSettings,
+    selectedRepoTarget,
     selectedRepoStartupShell,
     selectedWorkspaceTarget,
     settings,
@@ -194,8 +193,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         repoId,
         ephemeralVmRecipe,
         indeterminateProgress:
-          Boolean(activeEphemeralVmRecipeId) ||
-          getActiveRuntimeTarget(selectedRepoSettings).kind !== 'local',
+          Boolean(activeEphemeralVmRecipeId) || selectedRepoTarget?.kind === 'environment',
         taskSourceContext,
         linkedWorkItem: submitLinkedWorkItem,
         workspaceRunContext,
@@ -280,7 +278,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       selectedRepoExecutionHostId,
       selectedRepoIsGit,
       selectedRepoIsRemote,
-      selectedRepoSettings,
+      selectedRepoTarget,
       selectedRepoStartupShell,
       selectedWorkspaceTarget,
       settings,

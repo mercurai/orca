@@ -8,7 +8,6 @@ import {
 
 const mocks = vi.hoisted(() => ({ supports: vi.fn(), rpc: vi.fn() }))
 vi.mock('./runtime-rpc-client', () => ({
-  getActiveRuntimeTarget: () => ({ kind: 'environment', environmentId: 'remote-test' }),
   runtimeEnvironmentSupportsCapability: mocks.supports,
   callRuntimeRpc: mocks.rpc
 }))

@@ -15,11 +15,7 @@ const apiMocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
-  callRuntimeRpc: vi.fn(),
-  getActiveRuntimeTarget: (settings?: { activeRuntimeEnvironmentId?: string | null } | null) =>
-    settings?.activeRuntimeEnvironmentId
-      ? { kind: 'environment', environmentId: settings.activeRuntimeEnvironmentId }
-      : { kind: 'local' }
+  callRuntimeRpc: vi.fn()
 }))
 
 const roots: Root[] = []

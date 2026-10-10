@@ -1,5 +1,7 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from 'react'
-import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import { useAppStore } from '@/store'
+import { findRepoForHost } from '@/store/slices/repo-host-identity'
+import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import {
   getRuntimeRepoBaseRefDefault,
   searchRuntimeRepoBaseRefDetails
@@ -12,8 +14,6 @@ import {
 type CreatePullRequestBaseRefDiscoveryOptions = {
   open: boolean
   repoId: string
-  /** The repo owner's transport; `null` skips discovery. */
-  target: RuntimeClientTarget | null
   base: string
   baseQuery: string
   setBase: Dispatch<SetStateAction<string>>
@@ -22,17 +22,9 @@ type CreatePullRequestBaseRefDiscoveryOptions = {
   setBaseSearchError: Dispatch<SetStateAction<string | null>>
 }
 
-// Why: the repo client still takes the settings shape; build it from the owner, never from focus.
-function repoClientRoute(target: RuntimeClientTarget) {
-  return {
-    activeRuntimeEnvironmentId: target.kind === 'environment' ? target.environmentId : null
-  }
-}
-
 export function useCreatePullRequestBaseRefDiscovery({
   open,
   repoId,
-  target,
   base,
   baseQuery,
   setBase,
@@ -44,6 +36,11 @@ export function useCreatePullRequestBaseRefDiscovery({
   // previous repo's default branch would silently suppress the stacked-PR lookup.
   const [repoDefault, setRepoDefault] = useState<{ repoId: string; baseRef: string } | null>(null)
   const repoDefaultBaseRef = repoDefault?.repoId === repoId ? repoDefault.baseRef : null
+  // Why: refs live on the repo's own host, not the focused one.
+  const repoHostId = useAppStore((s) => {
+    const repo = findRepoForHost(s.repos, repoId, { settings: s.settings })
+    return repo ? getRepoExecutionHostId(repo) : null
+  })
 
   // Why: resolved separately from eligibility's defaultBaseRef, which reports the
   // worktree's own base. Consumers that need "is this the repo's default branch?"
@@ -51,11 +48,11 @@ export function useCreatePullRequestBaseRefDiscovery({
   useEffect(() => {
     // Why: the repo default doesn't move while a repo stays open, so skip the probe
     // once it is known — on a remote runtime it is an RPC round-trip per composer open.
-    if (!open || repoDefaultBaseRef || !target) {
+    if (!open || repoDefaultBaseRef || !repoHostId) {
       return
     }
     let stale = false
-    void getRuntimeRepoBaseRefDefault(repoClientRoute(target), repoId)
+    void getRuntimeRepoBaseRefDefault(repoHostId, repoId)
       .then((result) => {
         if (!stale && result.defaultBaseRef) {
           setRepoDefault({ repoId, baseRef: stripBaseRef(result.defaultBaseRef) })
@@ -65,7 +62,7 @@ export function useCreatePullRequestBaseRefDiscovery({
     return () => {
       stale = true
     }
-  }, [open, repoDefaultBaseRef, repoId, target])
+  }, [open, repoDefaultBaseRef, repoHostId, repoId])
 
   useEffect(() => {
     if (!open || base || !repoDefaultBaseRef) {
@@ -75,7 +72,7 @@ export function useCreatePullRequestBaseRefDiscovery({
   }, [base, open, repoDefaultBaseRef, setBase])
 
   useEffect(() => {
-    if (!open || baseQuery.trim().length < 2 || !target) {
+    if (!open || !repoHostId || baseQuery.trim().length < 2) {
       setBaseResults([])
       setBaseSearchPending(false)
       setBaseSearchError(null)
@@ -84,7 +81,7 @@ export function useCreatePullRequestBaseRefDiscovery({
     let stale = false
     setBaseSearchPending(true)
     const timer = window.setTimeout(() => {
-      void searchRuntimeRepoBaseRefDetails(repoClientRoute(target), repoId, baseQuery.trim(), 20)
+      void searchRuntimeRepoBaseRefDetails(repoHostId, repoId, baseQuery.trim(), 20)
         .then((results) => {
           if (!stale) {
             setBaseResults(normalizeCreateReviewBaseSearchResults(results))
@@ -107,7 +104,15 @@ export function useCreatePullRequestBaseRefDiscovery({
       stale = true
       window.clearTimeout(timer)
     }
-  }, [baseQuery, open, repoId, target, setBaseResults, setBaseSearchError, setBaseSearchPending])
+  }, [
+    baseQuery,
+    open,
+    repoHostId,
+    repoId,
+    setBaseResults,
+    setBaseSearchError,
+    setBaseSearchPending
+  ])
 
   return repoDefaultBaseRef
 }

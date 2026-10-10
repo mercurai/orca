@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => {
     resolvePrBase: vi.fn(),
     checkRuntimeHooks: vi.fn(),
     callRuntimeRpc: vi.fn(),
+    ensureHooksConfirmed: vi.fn(),
     store
   }
 })
@@ -14,7 +15,7 @@ const mocks = vi.hoisted(() => {
 vi.mock('@/store', () => ({ useAppStore: { getState: () => mocks.store } }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
 vi.mock('@/lib/ensure-hooks-confirmed', () => ({
-  ensureHooksConfirmed: vi.fn().mockResolvedValue('run')
+  ensureHooksConfirmed: mocks.ensureHooksConfirmed
 }))
 vi.mock('@/lib/connection-context', () => ({ getConnectionId: () => null }))
 vi.mock('@/runtime/runtime-hooks-client', () => ({ checkRuntimeHooks: mocks.checkRuntimeHooks }))
@@ -27,6 +28,7 @@ import { launchWorkItemDirect } from './launch-work-item-direct'
 describe('launchWorkItemDirect owner row', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.ensureHooksConfirmed.mockResolvedValue('run')
     vi.stubGlobal('window', { api: { worktrees: { resolvePrBase: mocks.resolvePrBase } } })
     mocks.checkRuntimeHooks.mockResolvedValue({
       hasHooks: false,
@@ -67,7 +69,13 @@ describe('launchWorkItemDirect owner row', () => {
       item: { type: 'pr', number: 7, title: 'Fix', url: 'https://github.com/o/r/pull/7' }
     })
 
-    expect(mocks.checkRuntimeHooks).toHaveBeenCalledWith(null, 'repo-1', 'runtime:env-b')
+    expect(mocks.checkRuntimeHooks).toHaveBeenCalledWith('runtime:env-b', 'repo-1')
+    expect(mocks.ensureHooksConfirmed).toHaveBeenCalledWith(
+      expect.anything(),
+      'repo-1',
+      'setup',
+      'runtime:env-b'
+    )
     expect(mocks.callRuntimeRpc).toHaveBeenCalledWith(
       { kind: 'environment', environmentId: 'env-b' },
       'worktree.resolvePrBase',

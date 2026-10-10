@@ -70,7 +70,6 @@ vi.mock('@/runtime/runtime-hooks-client', () => ({
 }))
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({
-  getActiveRuntimeTarget: vi.fn().mockReturnValue({ kind: 'local' }),
   callRuntimeRpc: hostMocks.callRuntimeRpc
 }))
 
