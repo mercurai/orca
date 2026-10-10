@@ -55,7 +55,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
     const published = readRuntimeMetadata(userDataPath)
 
-    writeRuntimeMetadata(userDataPath, {
+    await writeRuntimeMetadata(userDataPath, {
       runtimeId: 'rt_second_instance',
       pid: 99999999,
       transports: [{ kind: 'unix', endpoint: join(userDataPath, 'o-99999999-rt2.sock') }],
@@ -80,7 +80,7 @@ describe('OrcaRuntimeRpcServer', () => {
     })
     await server.start()
 
-    writeRuntimeMetadata(userDataPath, {
+    await writeRuntimeMetadata(userDataPath, {
       runtimeId: 'rt_live_sibling',
       pid: process.pid,
       transports: [{ kind: 'unix', endpoint: join(userDataPath, `o-${process.pid}-rt2.sock`) }],
@@ -106,7 +106,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const watchStop = vi.spyOn(watch, 'stop')
     await server.stop()
 
-    writeRuntimeMetadata(userDataPath, {
+    await writeRuntimeMetadata(userDataPath, {
       runtimeId: 'rt_second_instance',
       pid: 99999999,
       transports: [],
@@ -138,7 +138,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const heldCheck = server.checkRuntimeMetadataOwnership()
 
     await server.stop()
-    writeRuntimeMetadata(userDataPath, {
+    await writeRuntimeMetadata(userDataPath, {
       runtimeId: 'rt_second_instance',
       pid: 99999999,
       transports: [],
@@ -231,9 +231,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath })
     const writeMetadataSpy = vi
       .spyOn(runtimeMetadataModule, 'writeRuntimeMetadata')
-      .mockImplementationOnce(() => {
-        throw new Error('write failed')
-      })
+      .mockRejectedValueOnce(new Error('write failed'))
     const endpoint = createRuntimeTransportMetadata(
       userDataPath,
       process.pid,

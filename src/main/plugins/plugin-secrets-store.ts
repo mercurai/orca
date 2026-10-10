@@ -1,7 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { safeStorage } from 'electron'
-import { isUnreadableError, writeSecureFile } from '../../shared/secure-file'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { isUnreadableError } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import {
   PLUGIN_STORAGE_KEY_LIMIT,
   PLUGIN_STORAGE_TOTAL_MAX_BYTES
@@ -90,7 +92,20 @@ export class PluginSecretsStore {
     }
   }
 
-  set(key: string, value: string): PluginSecretsResult<true> {
+  // Why: read-modify-write spans an await, so two writers must not both read the same snapshot.
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
+    return serializePathWrite(`${this.filePath}#read-modify-write`, task)
+  }
+
+  set(key: string, value: string): Promise<PluginSecretsResult<true>> {
+    return this.serialized(() => this.setUnserialized(key, value))
+  }
+
+  delete(key: string): Promise<void> {
+    return this.serialized(() => this.deleteUnserialized(key))
+  }
+
+  private async setUnserialized(key: string, value: string): Promise<PluginSecretsResult<true>> {
     if (!safeStorage.isEncryptionAvailable()) {
       return { ok: false, error: 'OS-backed encryption is unavailable; secret not stored' }
     }
@@ -109,11 +124,11 @@ export class PluginSecretsStore {
     if (Buffer.byteLength(nextFile, 'utf8') > PLUGIN_STORAGE_TOTAL_MAX_BYTES) {
       return { ok: false, error: `secret vault exceeds ${PLUGIN_STORAGE_TOTAL_MAX_BYTES} bytes` }
     }
-    writeSecureFile(this.filePath, nextFile)
+    await writeSecureFileAsync(this.filePath, nextFile)
     return { ok: true, value: true }
   }
 
-  delete(key: string): void {
+  private async deleteUnserialized(key: string): Promise<void> {
     const file = this.read()
     if (!file) {
       // Rewriting what we could not read would drop every other secret in the vault.
@@ -121,7 +136,7 @@ export class PluginSecretsStore {
     }
     if (Object.hasOwn(file.ciphertexts, key)) {
       delete file.ciphertexts[key]
-      writeSecureFile(this.filePath, JSON.stringify(file, null, 2))
+      await writeSecureFileAsync(this.filePath, JSON.stringify(file, null, 2))
     }
   }
 }

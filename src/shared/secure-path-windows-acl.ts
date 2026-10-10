@@ -263,13 +263,16 @@ async function verifyAsync(plan: AclPlan): Promise<string | null> {
  * post-check only re-reads what a successful grant just wrote; each cost a spawn on a loop thread
  * where spawn creation alone takes 0.2-3.8 s on affected hosts.
  */
-export async function restrictNewFileAsync(targetPath: string): Promise<boolean> {
+export async function restrictNewFileAsync(
+  targetPath: string,
+  isDirectory = false
+): Promise<boolean> {
   const currentUserSid = await getCurrentWindowsUserSidAsync()
   if (!currentUserSid) {
     report(targetPath, 'sid-lookup', 'could not resolve the current user SID')
     return false
   }
-  const plan = buildAclPlan(targetPath, currentUserSid, false)
+  const plan = buildAclPlan(targetPath, currentUserSid, isDirectory)
   for (const [stage, args] of [
     ['reset', plan.resetArgs],
     ['grant', plan.grantArgs]

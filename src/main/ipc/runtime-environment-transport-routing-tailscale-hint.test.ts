@@ -20,7 +20,7 @@ vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: () => [] } }))
 
 let userDataPath: string
 
-function seedEnvironment(name: string, endpoint: string): string {
+async function seedEnvironment(name: string, endpoint: string): Promise<string> {
   // A valid Curve25519 public key lets the client reach the socket-connect step
   // (and fail there) instead of bailing out early on key parsing.
   const keyPair = generateKeyPair()
@@ -30,7 +30,7 @@ function seedEnvironment(name: string, endpoint: string): string {
     deviceToken: 'a'.repeat(48),
     publicKeyB64: publicKeyToBase64(keyPair.publicKey)
   }
-  const environment = addEnvironmentFromPairingCode(userDataPath, {
+  const environment = await addEnvironmentFromPairingCode(userDataPath, {
     name,
     pairingCode: encodePairingOffer(offer)
   })
@@ -48,7 +48,7 @@ afterEach(() => {
 
 describe('Tailscale hint on remote runtime connection failure', () => {
   it('recommends Tailscale on the settings status probe for a non-tailnet endpoint', async () => {
-    const id = seedEnvironment('lan-host', 'ws://127.0.0.1:9')
+    const id = await seedEnvironment('lan-host', 'ws://127.0.0.1:9')
     const response = await getRuntimeEnvironmentStatus(userDataPath, id, 1000)
     expect(response.ok).toBe(false)
     if (response.ok === false) {
@@ -58,7 +58,7 @@ describe('Tailscale hint on remote runtime connection failure', () => {
   })
 
   it('gives tailnet-specific guidance on the status probe for a Tailscale endpoint', async () => {
-    const id = seedEnvironment('ts-host', 'ws://100.64.0.1:9')
+    const id = await seedEnvironment('ts-host', 'ws://100.64.0.1:9')
     const response = await getRuntimeEnvironmentStatus(userDataPath, id, 800)
     expect(response.ok).toBe(false)
     if (response.ok === false) {
@@ -68,14 +68,14 @@ describe('Tailscale hint on remote runtime connection failure', () => {
   })
 
   it('augments the thrown error for in-use calls (the toast path)', async () => {
-    const id = seedEnvironment('lan-host', 'ws://127.0.0.1:9')
+    const id = await seedEnvironment('lan-host', 'ws://127.0.0.1:9')
     await expect(callRuntimeEnvironment(userDataPath, id, 'files.read', {}, 1000)).rejects.toThrow(
       /connect both devices to Tailscale/
     )
   })
 
   it('augments a subscription that fails to connect initially', async () => {
-    const id = seedEnvironment('lan-host', 'ws://127.0.0.1:9')
+    const id = await seedEnvironment('lan-host', 'ws://127.0.0.1:9')
     await expect(
       subscribeRuntimeEnvironment(userDataPath, id, 'files.watch', {}, 1000, {
         onEvent: () => {},

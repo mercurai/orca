@@ -10,7 +10,7 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getEphemeralVmRuntimeFeatureStorePath,
   featureIdentity,
@@ -29,6 +29,18 @@ import {
   RollbackEphemeralVmRuntimeStoreSchema,
   type EphemeralVmRuntimeRecord
 } from './ephemeral-vm-runtimes'
+import type * as RunProcess from './child-process/run-process'
+import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
+
+// Why: real spawns stay the default; the win32 case swaps in stubs to count synchronous ones.
+vi.mock('./child-process/run-process', async (importOriginal) => {
+  const actual = await importOriginal<typeof RunProcess>()
+  return {
+    ...actual,
+    runProcess: vi.fn(actual.runProcess),
+    runProcessSync: vi.fn(actual.runProcessSync)
+  }
+})
 
 function runtimeRecord(
   overrides: Partial<EphemeralVmRuntimeRecord> = {}
@@ -110,10 +122,10 @@ describe('ephemeral VM runtime store rollback projection', () => {
     return path
   }
 
-  it('keeps a mixed store readable by the rollback schema and restores new fields', () => {
+  it('keeps a mixed store readable by the rollback schema and restores new fields', async () => {
     const userDataPath = makeUserDataPath()
-    const ordinary = upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
-    const provisioned = upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
+    const ordinary = await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    const provisioned = await upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
 
     const persisted = JSON.parse(readFileSync(getEphemeralVmRuntimeStorePath(userDataPath), 'utf8'))
     expect(RollbackEphemeralVmRuntimeStoreSchema.parse(persisted).runtimes).toHaveLength(2)
@@ -122,33 +134,33 @@ describe('ephemeral VM runtime store rollback projection', () => {
     expect(listEphemeralVmRuntimes(userDataPath)).toEqual([provisioned, ordinary])
   })
 
-  it('keeps ordinary v1 bytes and sidecar behavior unchanged', () => {
+  it('keeps ordinary v1 bytes and sidecar behavior unchanged', async () => {
     const userDataPath = makeUserDataPath()
     const runtime = runtimeRecord()
     const expected = JSON.stringify(
       EphemeralVmRuntimeStoreSchema.parse({ version: 1, runtimes: [runtime] })
     )
 
-    upsertEphemeralVmRuntime(userDataPath, runtime)
+    await upsertEphemeralVmRuntime(userDataPath, runtime)
 
     expect(readFileSync(getEphemeralVmRuntimeStorePath(userDataPath), 'utf8')).toBe(expected)
     expect(existsSync(getEphemeralVmRuntimeFeatureStorePath(userDataPath))).toBe(false)
   })
 
-  it('projects an explicit ordinary checkout mode without changing its current meaning', () => {
+  it('projects an explicit ordinary checkout mode without changing its current meaning', async () => {
     const userDataPath = makeUserDataPath()
     const runtime = runtimeRecord({
       recipe: { ...runtimeRecord().recipe!, checkoutMode: 'orca-worktree' }
     })
 
-    upsertEphemeralVmRuntime(userDataPath, runtime)
+    await upsertEphemeralVmRuntime(userDataPath, runtime)
 
     const persisted = JSON.parse(readFileSync(getEphemeralVmRuntimeStorePath(userDataPath), 'utf8'))
     expect(RollbackEphemeralVmRuntimeStoreSchema.safeParse(persisted).success).toBe(true)
     expect(listEphemeralVmRuntimes(userDataPath)).toEqual([runtime])
   })
 
-  it('does not rewrite unchanged features when runtime order differs from feature order', () => {
+  it('does not rewrite unchanged features when runtime order differs from feature order', async () => {
     const userDataPath = makeUserDataPath()
     const older = {
       ...provisionedRootRecord(),
@@ -162,21 +174,21 @@ describe('ephemeral VM runtime store rollback projection', () => {
       recipeId: 'z-recipe',
       createdAt: 2_000
     }
-    upsertEphemeralVmRuntime(userDataPath, older)
-    upsertEphemeralVmRuntime(userDataPath, newer)
+    await upsertEphemeralVmRuntime(userDataPath, older)
+    await upsertEphemeralVmRuntime(userDataPath, newer)
     const featurePath = getEphemeralVmRuntimeFeatureStorePath(userDataPath)
     const oldTimestamp = new Date('2020-01-01T00:00:00.000Z')
     utimesSync(featurePath, oldTimestamp, oldTimestamp)
     const beforeBytes = readFileSync(featurePath, 'utf8')
     const beforeMtime = statSync(featurePath).mtimeMs
 
-    updateEphemeralVmRuntimeStatus(userDataPath, newer.id, { status: 'suspended' })
+    await updateEphemeralVmRuntimeStatus(userDataPath, newer.id, { status: 'suspended' })
 
     expect(readFileSync(featurePath, 'utf8')).toBe(beforeBytes)
     expect(statSync(featurePath).mtimeMs).toBe(beforeMtime)
   })
 
-  it('migrates current-main poisoned bytes when they are first read', () => {
+  it('reads current-main poisoned bytes and migrates them on the next mutation', async () => {
     const userDataPath = makeUserDataPath()
     const poisoned = {
       version: 1 as const,
@@ -188,6 +200,7 @@ describe('ephemeral VM runtime store rollback projection', () => {
     )
 
     expect(listEphemeralVmRuntimes(userDataPath)).toEqual(poisoned.runtimes)
+    await updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', { status: 'suspended' })
     expect(
       RollbackEphemeralVmRuntimeStoreSchema.safeParse(
         JSON.parse(readFileSync(getEphemeralVmRuntimeStorePath(userDataPath), 'utf8'))
@@ -195,10 +208,10 @@ describe('ephemeral VM runtime store rollback projection', () => {
     ).toBe(true)
   })
 
-  it('carries rollback lifecycle mutations through re-upgrade', () => {
+  it('carries rollback lifecycle mutations through re-upgrade', async () => {
     const userDataPath = makeUserDataPath()
-    upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
-    upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
+    await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    await upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
     const path = getEphemeralVmRuntimeStorePath(userDataPath)
     const rollback = RollbackEphemeralVmRuntimeStoreSchema.parse(
       JSON.parse(readFileSync(path, 'utf8'))
@@ -230,10 +243,10 @@ describe('ephemeral VM runtime store rollback projection', () => {
     ])
   })
 
-  it('preserves unknown feature records while valid siblings remain usable', () => {
+  it('preserves unknown feature records while valid siblings remain usable', async () => {
     const userDataPath = makeUserDataPath()
-    upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
-    upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
+    await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    await upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
     const featurePath = getEphemeralVmRuntimeFeatureStorePath(userDataPath)
     const featureStore = JSON.parse(readFileSync(featurePath, 'utf8'))
     const futureRecord = { kind: 'future-runtime-feature', payload: { version: 3 } }
@@ -243,7 +256,7 @@ describe('ephemeral VM runtime store rollback projection', () => {
     )
 
     expect(listEphemeralVmRuntimes(userDataPath)).toHaveLength(2)
-    updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', { status: 'suspended' })
+    await updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', { status: 'suspended' })
     expect(JSON.parse(readFileSync(featurePath, 'utf8')).records).toContainEqual(futureRecord)
   })
 
@@ -252,10 +265,10 @@ describe('ephemeral VM runtime store rollback projection', () => {
     ['future-version', JSON.stringify({ version: 2, records: [] })]
   ])(
     'preserves an unreadable %s feature sidecar while keeping v1 records accessible',
-    (_, bytes) => {
+    async (_, bytes) => {
       const userDataPath = makeUserDataPath()
-      upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
-      upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
+      await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+      await upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
       const featurePath = getEphemeralVmRuntimeFeatureStorePath(userDataPath)
       writeFileSync(featurePath, bytes)
 
@@ -263,18 +276,18 @@ describe('ephemeral VM runtime store rollback projection', () => {
         'provisioned-runtime',
         'ordinary-runtime'
       ])
-      updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', { status: 'suspended' })
+      await updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', { status: 'suspended' })
       expect(readFileSync(featurePath, 'utf8')).toBe(bytes)
     }
   )
 
-  it('publishes lifecycle authority before an unreadable feature companion', () => {
+  it('publishes lifecycle authority before an unreadable feature companion', async () => {
     const userDataPath = makeUserDataPath()
-    upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
     const featurePath = getEphemeralVmRuntimeFeatureStorePath(userDataPath)
     writeFileSync(featurePath, '{}')
     truncateSync(featurePath, MAX_EPHEMERAL_VM_RUNTIME_FEATURE_STORE_FILE_BYTES + 1)
-    expect(() => upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())).toThrow(
+    await expect(upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())).rejects.toThrow(
       EphemeralVmRuntimeStoreError
     )
     const persisted = JSON.parse(readFileSync(getEphemeralVmRuntimeStorePath(userDataPath), 'utf8'))
@@ -286,6 +299,16 @@ describe('ephemeral VM runtime store rollback projection', () => {
       'provisioned-runtime',
       'ordinary-runtime'
     ])
+  })
+
+  it('spawns no synchronous process on win32 when writing the feature companion', async () => {
+    const userDataPath = makeUserDataPath()
+
+    await expectNoSyncSpawnOnWin32(async () => {
+      await upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
+    })
+
+    expect(existsSync(getEphemeralVmRuntimeFeatureStorePath(userDataPath))).toBe(true)
   })
 })
 

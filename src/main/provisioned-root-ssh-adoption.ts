@@ -107,7 +107,7 @@ export async function adoptProvisionedRootSshCheckout(args: {
   }
 
   const worktreeId = `${repo.id}::${gitWorktree.path}`
-  attachEphemeralVmRuntimeToWorkspace({
+  await attachEphemeralVmRuntimeToWorkspace({
     userDataPath: args.userDataPath,
     runtimeId: request.runtimeId,
     workspaceId: worktreeId

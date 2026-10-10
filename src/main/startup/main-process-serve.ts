@@ -60,7 +60,7 @@ export async function printServeReady(options: ServeOptions): Promise<void> {
         reason: 'disabled_by_operator',
         guidance: 'Restart without --no-pairing to create a client pairing offer.'
       } as const)
-    : runtimeRpc.createPairingOffer({
+    : await runtimeRpc.createPairingOffer({
         address: options.pairingAddress,
         name: `${options.mobilePairing ? 'Mobile' : 'CLI'} ${new Date().toLocaleDateString()}`,
         scope: options.mobilePairing ? 'mobile' : 'runtime'

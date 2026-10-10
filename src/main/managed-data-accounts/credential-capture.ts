@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { parse } from 'smol-toml'
 import SyncDatabase from '../sqlite/sync-database'
 import { tableExists } from '../opencode-usage/schema-helpers'
-import { writeSecureFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import type { ManagedDataAccountProvider } from '../../shared/managed-account-types'
 
 const credential = z.discriminatedUnion('type', [
@@ -97,7 +97,7 @@ export async function captureDataAccountCredentials(
     if (!z.object({ windsurf_api_key: z.string().trim().min(1) }).safeParse(parsed).success) {
       throw new Error('Devin login did not save supported credentials.')
     }
-    if (!writeSecureFile(join(destinationDataHome, 'devin', 'credentials.toml'), content)) {
+    if (!(await writeSecureFileAsync(join(destinationDataHome, 'devin', 'credentials.toml'), content))) {
       throw new Error('Could not restrict Devin credential file permissions.')
     }
     return ['devin']
@@ -115,7 +115,7 @@ export async function captureDataAccountCredentials(
   try {
     auditOpenCodeCredentials(database)
     snapshotCreated = true
-    if (!writeSecureFile(destination, '')) {
+    if (!(await writeSecureFileAsync(destination, ''))) {
       throw new Error('Could not restrict OpenCode credential file permissions.')
     }
     await database.backup(destination)

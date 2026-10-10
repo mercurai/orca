@@ -302,7 +302,7 @@ describe('runtime-selector flags on locally pinned CLI commands', () => {
       preferredEndpointId: null
     }
     resolveEnvironmentMock.mockReturnValue(environment)
-    removeEnvironmentMock.mockReturnValue(environment)
+    removeEnvironmentMock.mockResolvedValue(environment)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     await main(['environment', 'show', '--environment', 'm4air', '--json'], '/tmp/repo')

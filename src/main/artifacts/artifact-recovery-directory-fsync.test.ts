@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import type * as NodeFs from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,7 +33,7 @@ vi.mock('node:fs', async () => {
   }
 })
 
-import { bestEffortFsyncDirectorySync, writeDurableSecureJsonFile } from '../../shared/secure-file'
+import { bestEffortFsyncDirectorySync } from '../../shared/secure-file'
 import {
   clearArtifactCreateIntents,
   getOrCreateArtifactCreateIntent
@@ -61,15 +61,11 @@ it('skips directory fsync on Windows and propagates I/O failures elsewhere', () 
   }
 })
 
-it('keeps durable artifact records usable when directory fsync is unsupported', () => {
+it('keeps artifact recovery intents usable when directory fsync is unsupported', async () => {
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-artifact-directory-fsync-'))
   createdPaths.push(userDataPath)
-  const recordPath = join(userDataPath, 'artifact-shares.json')
 
-  expect(() => writeDurableSecureJsonFile(recordPath, { ok: true })).not.toThrow()
-  expect(JSON.parse(readFileSync(recordPath, 'utf8'))).toEqual({ ok: true })
-
-  expect(() =>
+  await expect(
     getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
@@ -83,6 +79,6 @@ it('keeps durable artifact records usable when directory fsync is unsupported', 
       'key-a',
       { content: 'hello', contentType: 'text/markdown', fileName: 'report.md' }
     )
-  ).not.toThrow()
+  ).resolves.toBeDefined()
   expect(() => clearArtifactCreateIntents('local-profile', userDataPath)).not.toThrow()
 })

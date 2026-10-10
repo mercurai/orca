@@ -1,7 +1,9 @@
 import { chmodSync, mkdtempSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { runProcess, runProcessSync } from '../../shared/child-process/run-process'
+import { resetSecureFileWindowsUserSidForTests } from '../../shared/secure-path-windows-acl'
 import { getRuntimeMetadataPath } from '../../shared/runtime-bootstrap'
 import { encodePairingOffer } from '../../shared/pairing'
 import {
@@ -18,20 +20,81 @@ import {
   writeRuntimeMetadata
 } from './runtime-metadata'
 
+vi.mock('../../shared/child-process/run-process', () => ({
+  runProcess: vi.fn(),
+  runProcessSync: vi.fn()
+}))
+
 const tempDirs: string[] = []
 
 describe('runtime metadata', () => {
+  beforeEach(() => {
+    // Why: no test here may reach a real icacls/whoami, whatever platform it runs on.
+    vi.mocked(runProcess).mockResolvedValue({
+      code: 0,
+      signal: null,
+      stdout: '"USER","S-1-5-21-1000"',
+      stderr: '',
+      timedOut: false
+    })
+    vi.mocked(runProcessSync).mockClear()
+    resetSecureFileWindowsUserSidForTests()
+  })
+
   afterEach(() => {
     for (const dir of tempDirs.splice(0)) {
       clearRuntimeMetadata(dir)
     }
   })
 
-  it('writes and reads runtime metadata atomically', () => {
+  async function withWin32Platform(run: () => Promise<void>): Promise<void> {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    try {
+      await run()
+    } finally {
+      if (original) {
+        Object.defineProperty(process, 'platform', original)
+      }
+      resetSecureFileWindowsUserSidForTests()
+    }
+  }
+
+  it('writes metadata on win32 without a synchronous spawn', async () => {
+    await withWin32Platform(async () => {
+      const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-win32-spawns-'))
+      tempDirs.push(userDataPath)
+
+      await writeRuntimeMetadata(userDataPath, {
+        runtimeId: 'rt_win32',
+        pid: 42,
+        transports: [{ kind: 'unix', endpoint: '/tmp/orca.sock' }],
+        authToken: 'secret',
+        startedAt: 100
+      })
+
+      expect(readRuntimeMetadata(userDataPath)?.runtimeId).toBe('rt_win32')
+      expect(runProcessSync).not.toHaveBeenCalled()
+    })
+  })
+
+  it('creates the E2EE keypair on win32 without a synchronous spawn', async () => {
+    await withWin32Platform(async () => {
+      const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-win32-spawns-'))
+      tempDirs.push(userDataPath)
+
+      const keypair = await loadOrCreateE2EEKeypair(userDataPath)
+
+      expect(keypair.publicKey).toHaveLength(32)
+      expect(runProcessSync).not.toHaveBeenCalled()
+    })
+  })
+
+  it('writes and reads runtime metadata atomically', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
     tempDirs.push(userDataPath)
 
-    writeRuntimeMetadata(userDataPath, {
+    await writeRuntimeMetadata(userDataPath, {
       runtimeId: 'rt_123',
       pid: 42,
       transports: [
@@ -58,11 +121,11 @@ describe('runtime metadata', () => {
     })
   })
 
-  it('clears the runtime metadata file', () => {
+  it('clears the runtime metadata file', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
     tempDirs.push(userDataPath)
 
-    writeRuntimeMetadata(userDataPath, {
+    await writeRuntimeMetadata(userDataPath, {
       runtimeId: 'rt_123',
       pid: 42,
       transports: [],
@@ -77,10 +140,10 @@ describe('runtime metadata', () => {
   })
 
   describe('clearRuntimeMetadataIfOwned', () => {
-    it('clears metadata when pid and runtimeId both match', () => {
+    it('clears metadata when pid and runtimeId both match', async () => {
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
       tempDirs.push(userDataPath)
-      writeRuntimeMetadata(userDataPath, {
+      await writeRuntimeMetadata(userDataPath, {
         runtimeId: 'rt_owner',
         pid: 42,
         transports: [],
@@ -93,10 +156,10 @@ describe('runtime metadata', () => {
       expect(readRuntimeMetadata(userDataPath)).toBeNull()
     })
 
-    it('retains metadata when the pid does not match (simulates auto-update handoff)', () => {
+    it('retains metadata when the pid does not match (simulates auto-update handoff)', async () => {
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
       tempDirs.push(userDataPath)
-      writeRuntimeMetadata(userDataPath, {
+      await writeRuntimeMetadata(userDataPath, {
         runtimeId: 'rt_replacement',
         pid: 999,
         transports: [],
@@ -112,13 +175,13 @@ describe('runtime metadata', () => {
       })
     })
 
-    it('retains metadata when only the runtimeId differs', () => {
+    it('retains metadata when only the runtimeId differs', async () => {
       // Why: pid reuse is possible across an auto-update (fork+exec keeps the
       // old pid if the OS reassigns it quickly). The runtimeId check is the
       // second-level guard that catches this even when pid collides.
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
       tempDirs.push(userDataPath)
-      writeRuntimeMetadata(userDataPath, {
+      await writeRuntimeMetadata(userDataPath, {
         runtimeId: 'rt_replacement',
         pid: 42,
         transports: [],
@@ -145,11 +208,11 @@ describe('runtime metadata', () => {
 
   it.runIf(process.platform !== 'win32')(
     'restricts runtime metadata permissions to the current user on Unix',
-    () => {
+    async () => {
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
       tempDirs.push(userDataPath)
 
-      writeRuntimeMetadata(userDataPath, {
+      await writeRuntimeMetadata(userDataPath, {
         runtimeId: 'rt_123',
         pid: 42,
         transports: [
@@ -172,13 +235,13 @@ describe('runtime metadata', () => {
 
   it.runIf(process.platform !== 'win32')(
     'uses hardened atomic writes for runtime credential stores on Unix',
-    () => {
+    async () => {
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-secure-files-'))
       tempDirs.push(userDataPath)
 
-      new DeviceRegistry(userDataPath).addDevice('phone')
-      loadOrCreateE2EEKeypair(userDataPath)
-      addEnvironmentFromPairingCode(userDataPath, {
+      await new DeviceRegistry(userDataPath).addDevice('phone')
+      await loadOrCreateE2EEKeypair(userDataPath)
+      await addEnvironmentFromPairingCode(userDataPath, {
         name: 'desk',
         pairingCode: encodePairingOffer({
           v: 2,
@@ -202,7 +265,7 @@ describe('runtime metadata', () => {
 
   it.runIf(process.platform !== 'win32')(
     'hardens existing runtime credential stores before reading them on Unix',
-    () => {
+    async () => {
       const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-existing-secure-files-'))
       tempDirs.push(userDataPath)
       const keyMaterial = Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
@@ -212,7 +275,7 @@ describe('runtime metadata', () => {
         deviceToken: 'device-token',
         publicKeyB64: keyMaterial
       })
-      const environment = addEnvironmentFromPairingCode(userDataPath, {
+      const environment = await addEnvironmentFromPairingCode(userDataPath, {
         name: 'desk',
         pairingCode
       })
@@ -245,7 +308,7 @@ describe('runtime metadata', () => {
         token: 'token',
         scope: 'mobile'
       })
-      expect(loadOrCreateE2EEKeypair(userDataPath).publicKeyB64).toBe(keyMaterial)
+      expect((await loadOrCreateE2EEKeypair(userDataPath)).publicKeyB64).toBe(keyMaterial)
       expect(listEnvironments(userDataPath)[0]?.id).toBe(environment.id)
 
       for (const path of [devicesPath, keypairPath, environmentsPath]) {
@@ -255,13 +318,13 @@ describe('runtime metadata', () => {
     }
   )
 
-  it('replaces oversized E2EE keypair files instead of reading them as metadata', () => {
+  it('replaces oversized E2EE keypair files instead of reading them as metadata', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-large-keypair-'))
     tempDirs.push(userDataPath)
     const keypairPath = join(userDataPath, 'orca-e2ee-keypair.json')
     writeFileSync(keypairPath, 'x'.repeat(9 * 1024))
 
-    const keypair = loadOrCreateE2EEKeypair(userDataPath)
+    const keypair = await loadOrCreateE2EEKeypair(userDataPath)
 
     expect(keypair.publicKey).toHaveLength(32)
     expect(statSync(keypairPath).size).toBeLessThan(1024)

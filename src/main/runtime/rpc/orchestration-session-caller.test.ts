@@ -175,7 +175,7 @@ describe('orchestration session callers at the dispatch entry', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry'].addDevice('laptop', 'runtime')
+    const device = await server['deviceRegistry'].addDevice('laptop', 'runtime')
     const request = orchestrationRequest(
       'orchestration.runCreate',
       { objective: 'o' },

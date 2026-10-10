@@ -12,7 +12,7 @@ export type OpenCodeGoApiKeyTarget = {
   has: () => boolean
   /** Throws when the saved key cannot be read or decrypted by this build. */
   read: () => string | null
-  save: (key: string) => void
+  save: (key: string) => Promise<void>
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -57,10 +57,10 @@ export function retainLegacyOpenCodeGoApiKey(
  * Saves the parked key into the main-owned store; a key already saved there wins.
  * @returns True once the legacy value is released and may be dropped from disk.
  */
-export function migrateLegacyOpenCodeGoApiKey(
+export async function migrateLegacyOpenCodeGoApiKey(
   secrets: LegacyOpenCodeGoApiKeySecrets,
   target: OpenCodeGoApiKeyTarget
-): boolean {
+): Promise<boolean> {
   const sealed = secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)
   if (!sealed) {
     return false
@@ -81,7 +81,7 @@ export function migrateLegacyOpenCodeGoApiKey(
       }
       const key = decrypted.plaintext.trim()
       if (key) {
-        target.save(key)
+        await target.save(key)
       }
     } else {
       // Why: the store is machine-wide, so another profile's key can win; leave a trace of the drop.

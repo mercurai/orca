@@ -37,7 +37,7 @@ describe('an unknown method reaching a mobile-scoped device', () => {
     const { runtime } = createMobileRpcSurfaceRuntime()
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('peer', scope)
+    const device = await server['deviceRegistry']!.addDevice('peer', scope)
     const replies: Record<string, unknown>[] = []
     await server['handleWebSocketMessage'](
       JSON.stringify({ id: 'req_1', method, deviceToken: device.token, params: {} }),

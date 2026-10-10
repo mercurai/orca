@@ -139,7 +139,7 @@ export class RuntimeRpcRequestAdmission extends RuntimeRpcBinaryRouting {
     return errorResponse(id, { runtimeId: this.runtime.getRuntimeId() }, code, message)
   }
 
-  protected writeMetadata(): void {
+  protected async writeMetadata(): Promise<void> {
     const metadata: RuntimeMetadata = {
       runtimeId: this.runtime.getRuntimeId(),
       pid: this.pid,
@@ -147,6 +147,6 @@ export class RuntimeRpcRequestAdmission extends RuntimeRpcBinaryRouting {
       authToken: this.authToken,
       startedAt: this.runtime.getStartedAt()
     }
-    writeRuntimeMetadata(this.userDataPath, metadata)
+    await writeRuntimeMetadata(this.userDataPath, metadata)
   }
 }

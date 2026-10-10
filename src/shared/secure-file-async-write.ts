@@ -20,6 +20,14 @@ export async function writeSecureJsonFileAsync(
   return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2))
 }
 
+/** Async lane for the stores that fsync before they report a write as committed. */
+export async function writeDurableSecureJsonFileAsync(
+  targetPath: string,
+  value: unknown
+): Promise<boolean> {
+  return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2), { durable: true })
+}
+
 /**
  * `writeSecureFile` off the event loop, and the lane every IPC-reachable caller should use: the
  * durable variant's fsync costs tens of milliseconds on NTFS behind a filter driver, and it runs on
@@ -92,6 +100,15 @@ export async function writeSecureFileAsync(
       throw error
     }
   })
+}
+
+/** Restricts a directory to the current user, off the event loop; false when the ACL did not take. */
+export async function hardenSecureDirectoryAsync(directory: string): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    await chmod(directory, 0o700)
+    return true
+  }
+  return await restrictNewFileAsync(directory, true)
 }
 
 /**

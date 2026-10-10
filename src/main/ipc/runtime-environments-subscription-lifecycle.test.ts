@@ -495,7 +495,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       )
 
       await vi.waitFor(() => expect(subscribeRemoteRuntimeRequestMock).toHaveBeenCalledTimes(1))
-      environmentStore.updateEnvironmentFromPairingCode(userDataPath, added.environment.id, {
+      await environmentStore.updateEnvironmentFromPairingCode(userDataPath, added.environment.id, {
         pairingCode: pairingCode('ws://127.0.0.1:7678')
       })
       invalidateRuntimeEnvironmentTransport(added.environment.id)

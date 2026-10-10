@@ -106,7 +106,11 @@ describe('external worktree discovery for paired clients', () => {
 
     const pairingUrls: string[] = []
     for (const name of ['client-a', 'client-b']) {
-      const offer = server.createPairingOffer({ address: '127.0.0.1', name, scope: 'runtime' })
+      const offer = await server.createPairingOffer({
+        address: '127.0.0.1',
+        name,
+        scope: 'runtime'
+      })
       if (!offer.available) {
         throw new Error('pairing_unavailable')
       }
@@ -129,7 +133,7 @@ describe('external worktree discovery for paired clients', () => {
       ])
     }
 
-    const legacyOffer = server.createPairingOffer({
+    const legacyOffer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'event-ignoring-client',
       scope: 'runtime'
@@ -289,7 +293,11 @@ describe('external worktree discovery for paired clients', () => {
     const clients: PairedSession[] = []
     const raceReaders: ResponseReader[] = []
     for (const name of ['race-client-a', 'race-client-b']) {
-      const offer = server.createPairingOffer({ address: '127.0.0.1', name, scope: 'runtime' })
+      const offer = await server.createPairingOffer({
+        address: '127.0.0.1',
+        name,
+        scope: 'runtime'
+      })
       if (!offer.available) {
         throw new Error('pairing_unavailable')
       }
@@ -411,7 +419,7 @@ describe('external worktree discovery for paired clients', () => {
     })
     servers.push(server)
     await server.start()
-    const offer = server.createPairingOffer({
+    const offer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'collision-client',
       scope: 'runtime'
@@ -467,7 +475,7 @@ describe('external worktree discovery for paired clients', () => {
     })
     servers.push(server)
     await server.start()
-    const offer = server.createPairingOffer({
+    const offer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'nested-ssh-client',
       scope: 'runtime'
@@ -525,7 +533,7 @@ describe('external worktree discovery for paired clients', () => {
     })
     servers.push(server)
     await server.start()
-    const offer = server.createPairingOffer({
+    const offer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'headless-client',
       scope: 'runtime'

@@ -62,7 +62,7 @@ describe('OrcaRuntimeRpcServer', () => {
         'local-only'
       )
       expect(
-        server.setMobileRelayBinding(offer.deviceId, {
+        await server.setMobileRelayBinding(offer.deviceId, {
           relayHostId: 'AbCdEf0123_-xyZ9',
           relayDeviceId: offer.deviceId,
           ownerIdentityKey: 'user\0profile\0org'
@@ -371,7 +371,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
     await server.start()
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '127.0.0.1',
         scope: 'mobile'
       })

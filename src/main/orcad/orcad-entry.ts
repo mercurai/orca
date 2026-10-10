@@ -357,7 +357,7 @@ async function startOrcadRuntime(
         reason: 'disabled_by_operator',
         guidance: 'Restart without --no-pairing to create a client pairing offer.'
       } as const)
-    : rpc.createPairingOffer({
+    : await rpc.createPairingOffer({
         address: options.pairingAddress,
         name: `CLI ${new Date().toLocaleDateString()}`,
         scope: 'runtime'

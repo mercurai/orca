@@ -52,7 +52,7 @@ it('constructs one record map when all ten thousand stored shares remain valid',
     return result
   })
 
-  expect(getArtifactShareRecord(profileId, userDataPath, sourceKey, scope)).toMatchObject({
+  expect(await getArtifactShareRecord(profileId, userDataPath, sourceKey, scope)).toMatchObject({
     slug: 'artifact-0',
     editToken: 'synthetic-edit-token'
   })

@@ -74,8 +74,8 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
     // Why: WebSocket uses per-device tokens + E2EE (tweetnacl) instead of TLS since React Native can't pin self-signed certs.
     if (this.enableWebSocket) {
       // Why: land any deferred lastSeen write before a replacement registry reads the same file.
-      this.deviceRegistry?.flushPendingLastSeen()
-      const pairingIdentity = this.initializePairingIdentity()
+      await this.deviceRegistry?.flushPendingLastSeen()
+      const pairingIdentity = await this.initializePairingIdentity()
       if (!pairingIdentity.ok) {
         this.deviceRegistry = null
         this.e2eeKeypair = null
@@ -111,7 +111,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
     this.transports = transportsMeta
 
     try {
-      this.writeMetadata()
+      await this.writeMetadata()
     } catch (error) {
       // Why: a runtime that can't publish metadata is invisible to the CLI — close transports rather than run undiscoverable.
       this.activeTransports = []
@@ -125,12 +125,12 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
       ownedPid: this.pid,
       ownedRuntimeId: this.runtime.getRuntimeId(),
       pollIntervalMs: this.metadataOwnershipPollMs,
-      republish: () => {
+      republish: async () => {
         // Why: never advertise endpoints we already tore down.
         if (this.activeTransports.length === 0) {
           return
         }
-        this.writeMetadata()
+        await this.writeMetadata()
       },
       onReclaim: (previous) => {
         console.warn(

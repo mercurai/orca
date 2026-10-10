@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodePairingOffer } from './pairing'
 import {
   RuntimeEnvironmentStoreError,
@@ -9,9 +9,13 @@ import {
   getEnvironmentStorePath,
   listEnvironments,
   MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
+  removeEnvironment,
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
 import { markEnvironmentUsed } from './runtime-environment-usage'
+import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
+
+vi.mock('./child-process/run-process', () => ({ runProcess: vi.fn(), runProcessSync: vi.fn() }))
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768', pairedDeviceId?: string): string {
   return encodePairingOffer({
@@ -41,42 +45,42 @@ describe('runtime environment store', () => {
     }
   })
 
-  it('rejects duplicate server names instead of silently replacing the saved server', () => {
+  it('rejects duplicate server names instead of silently replacing the saved server', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
 
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'dev box',
       pairingCode: pairingCode('ws://127.0.0.1:6768')
     })
 
-    expect(() =>
+    await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'dev box',
         pairingCode: pairingCode('ws://192.0.2.10:6768')
       })
-    ).toThrow(RuntimeEnvironmentStoreError)
+    ).rejects.toThrow(RuntimeEnvironmentStoreError)
     expect(listEnvironments(userDataPath)).toEqual([first])
   })
 
-  it('advances pairing revisions across equal and backward clock readings', () => {
+  it('advances pairing revisions across equal and backward clock readings', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
-    const environment = addEnvironmentFromPairingCode(userDataPath, {
+    const environment = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'dev box',
       pairingCode: pairingCode(),
       now: 100
     })
 
-    const sameClock = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+    const sameClock = await updateEnvironmentFromPairingCode(userDataPath, environment.id, {
       pairingCode: pairingCode('ws://192.0.2.10:6768'),
       now: 100
     })
-    const backwardClock = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+    const backwardClock = await updateEnvironmentFromPairingCode(userDataPath, environment.id, {
       pairingCode: pairingCode('ws://192.0.2.11:6768'),
       now: 50
     })
-    const laterClock = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+    const laterClock = await updateEnvironmentFromPairingCode(userDataPath, environment.id, {
       pairingCode: pairingCode('ws://192.0.2.12:6768'),
       now: 200
     })
@@ -88,22 +92,22 @@ describe('runtime environment store', () => {
     ]).toEqual([101, 102, 200])
   })
 
-  it('keeps SSH-tunnel metadata only while the pairing endpoint is loopback', () => {
+  it('keeps SSH-tunnel metadata only while the pairing endpoint is loopback', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
-    const environment = addEnvironmentFromPairingCode(userDataPath, {
+    const environment = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'tunneled box',
       pairingCode: pairingCode(),
       connectionDependency: 'ssh-tunnel'
     })
     expect(environment.connectionDependency).toBe('ssh-tunnel')
 
-    const updated = updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+    const updated = await updateEnvironmentFromPairingCode(userDataPath, environment.id, {
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
     expect(updated).not.toHaveProperty('connectionDependency')
 
-    const direct = addEnvironmentFromPairingCode(userDataPath, {
+    const direct = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'direct box',
       pairingCode: pairingCode('ws://192.0.2.11:6768'),
       connectionDependency: 'ssh-tunnel'
@@ -111,63 +115,63 @@ describe('runtime environment store', () => {
     expect(direct).not.toHaveProperty('connectionDependency')
   })
 
-  it('throttles lastUsedAt writes so it does not rewrite the store on every runtime call', () => {
+  it('throttles lastUsedAt writes so it does not rewrite the store on every runtime call', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
-    const env = addEnvironmentFromPairingCode(userDataPath, {
+    const env = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'dev box',
       pairingCode: pairingCode()
     })
 
     // First use persists (lastUsedAt started null).
-    markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 1_000 })
+    await markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 1_000 })
     expect(listEnvironments(userDataPath)[0]).toMatchObject({
       lastUsedAt: 1_000,
       runtimeId: 'runtime-1'
     })
 
     // A second use shortly after, same runtime, is skipped — lastUsedAt stays put.
-    markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 5_000 })
+    await markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 5_000 })
     expect(listEnvironments(userDataPath)[0]!.lastUsedAt).toBe(1_000)
 
     // Once the throttle window elapses, it persists again.
-    markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 61_000 })
+    await markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 61_000 })
     expect(listEnvironments(userDataPath)[0]!.lastUsedAt).toBe(61_000)
   })
 
-  it('persists immediately when the runtimeId changes within the throttle window', () => {
+  it('persists immediately when the runtimeId changes within the throttle window', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
-    const env = addEnvironmentFromPairingCode(userDataPath, {
+    const env = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'dev box',
       pairingCode: pairingCode()
     })
 
-    markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 1_000 })
+    await markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 1_000 })
     // A different runtimeId inside the window must not be dropped.
-    markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-2', now: 2_000 })
+    await markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-2', now: 2_000 })
     expect(listEnvironments(userDataPath)[0]).toMatchObject({
       lastUsedAt: 2_000,
       runtimeId: 'runtime-2'
     })
   })
 
-  it('persists paired device identity from pairing and status backfill', () => {
+  it('persists paired device identity from pairing and status backfill', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
     tempDirs.push(userDataPath)
-    const paired = addEnvironmentFromPairingCode(userDataPath, {
+    const paired = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'paired box',
       pairingCode: pairingCode('ws://127.0.0.1:6768', 'device-from-offer'),
       now: 1_000
     })
-    const legacy = addEnvironmentFromPairingCode(userDataPath, {
+    const legacy = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'legacy box',
       pairingCode: pairingCode('ws://192.0.2.10:6768'),
       now: 1_000
     })
 
     expect(paired.pairedDeviceId).toBe('device-from-offer')
-    markEnvironmentUsed(userDataPath, legacy.id, {
+    await markEnvironmentUsed(userDataPath, legacy.id, {
       pairedDeviceId: 'device-from-status',
       now: 2_000
     })
@@ -187,20 +191,59 @@ describe('runtime environment store', () => {
     expect(() => listEnvironments(userDataPath)).toThrow(RuntimeEnvironmentStoreError)
   })
 
-  it('rejects an oversized write without replacing the durable environment list', () => {
+  it('rejects an oversized write without replacing the durable environment list', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-write-bound-'))
     tempDirs.push(userDataPath)
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'dev box',
       pairingCode: pairingCode()
     })
 
-    expect(() =>
+    await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'x'.repeat(MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES),
         pairingCode: pairingCode('ws://192.0.2.10:6768')
       })
-    ).toThrow(RuntimeEnvironmentStoreError)
+    ).rejects.toThrow(RuntimeEnvironmentStoreError)
     expect(listEnvironments(userDataPath)).toEqual([first])
+  })
+
+  it('keeps both environments when two pairings are added concurrently', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+
+    await Promise.all([
+      addEnvironmentFromPairingCode(userDataPath, {
+        name: 'first box',
+        pairingCode: pairingCode('ws://127.0.0.1:6768')
+      }),
+      addEnvironmentFromPairingCode(userDataPath, {
+        name: 'second box',
+        pairingCode: pairingCode('ws://192.0.2.10:6768')
+      })
+    ])
+
+    expect(
+      listEnvironments(userDataPath)
+        .map((entry) => entry.name)
+        .sort()
+    ).toEqual(['first box', 'second box'])
+  })
+
+  it('spawns no synchronous process on win32 when writing the store', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+
+    await expectNoSyncSpawnOnWin32(async () => {
+      const env = await addEnvironmentFromPairingCode(userDataPath, {
+        name: 'dev box',
+        pairingCode: pairingCode()
+      })
+      await markEnvironmentUsed(userDataPath, env.id, { runtimeId: 'runtime-1', now: 1_000 })
+      await updateEnvironmentFromPairingCode(userDataPath, env.id, {
+        pairingCode: pairingCode('ws://192.0.2.10:6768')
+      })
+      await removeEnvironment(userDataPath, env.id)
+    })
   })
 })
