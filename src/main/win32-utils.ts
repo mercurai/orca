@@ -41,15 +41,6 @@ export function getRegExePath(env: NodeJS.ProcessEnv = process.env): string {
   return win32.join(root, 'System32', 'reg.exe')
 }
 
-/**
- * Why cached: resolution stats every candidate name in every PATH directory, each one through
- * the Windows filter-driver stack, and IPC handlers re-resolve the same few binaries. A hit
- * cannot go stale in a way the spawn's own ENOENT misses; a miss expires so a binary installed
- * mid-session is still found.
- */
-const RESOLVE_MISS_TTL_MS = 10_000
-const resolvedWindowsCommands = new Map<string, { resolved: string; expiresAt: number }>()
-
 export function resolveWindowsCommand(
   command: string,
   env: NodeJS.ProcessEnv = process.env
@@ -66,25 +57,14 @@ export function resolveWindowsCommand(
     return command
   }
 
-  const cacheKey = `${pathEnv}\u0000${command}`
-  const cached = resolvedWindowsCommands.get(cacheKey)
-  if (cached && cached.expiresAt > performance.now()) {
-    return cached.resolved
-  }
-
   for (const directory of pathEnv.split(delimiter).filter(Boolean)) {
     for (const name of [`${command}.cmd`, `${command}.exe`, `${command}.bat`, command]) {
       const candidate = join(directory, name)
       if (existsSync(candidate)) {
-        resolvedWindowsCommands.set(cacheKey, { resolved: candidate, expiresAt: Infinity })
         return candidate
       }
     }
   }
-  resolvedWindowsCommands.set(cacheKey, {
-    resolved: command,
-    expiresAt: performance.now() + RESOLVE_MISS_TTL_MS
-  })
   return command
 }
 
@@ -125,8 +105,8 @@ function identityFromWhoamiOutput(output: string): string | null {
   return sidMatch ? `*${sidMatch[1]}` : null
 }
 
-export function resolveCurrentWindowsIdentity(): string | null {
-  return resolveCurrentIdentity()
+export function resolveCurrentWindowsIdentityAsync(): Promise<string | null> {
+  return resolveCurrentIdentityAsync()
 }
 
 function resolveCurrentIdentity(): string | null {
@@ -134,9 +114,9 @@ function resolveCurrentIdentity(): string | null {
   if (knownIdentity !== undefined) {
     return knownIdentity
   }
-  // Why no sync whoami: the only synchronous caller is grantDirAcl's EACCES/EPERM recovery, and a
-  // blocking spawn there is not worth a rare environment (no USERNAME) — start the async lookup so
-  // the next recovery attempt finds the cache warm.
+  // Why no sync whoami: grantDirAcl's EACCES/EPERM recovery is the only synchronous caller, and a
+  // blocking spawn there is not worth a rare environment (no USERNAME). Start the async lookup so
+  // the next recovery finds the cache warm; the startup grant awaits the async resolver itself.
   void resolveCurrentIdentityAsync()
   return null
 }
@@ -155,8 +135,6 @@ async function resolveCurrentIdentityAsync(): Promise<string | null> {
           args: WHOAMI_SID_ARGS,
           timeoutMs: WHOAMI_TIMEOUT_MS
         })
-        // Why: a synchronous caller may resolve identity while async whoami
-        // is in flight; its authoritative cached result must win the race.
         const resolvedIdentity = result.code === 0 ? identityFromWhoamiOutput(result.stdout) : null
         if (cachedIdentity === undefined && resolvedIdentity) {
           cachedIdentity = resolvedIdentity
