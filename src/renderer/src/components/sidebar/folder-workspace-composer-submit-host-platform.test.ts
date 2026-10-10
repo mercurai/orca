@@ -1,8 +1,7 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { FolderWorkspace } from '../../../../shared/folder-workspace-types'
-import type { ProjectGroup } from '../../../../shared/project-group-types'
+import { makeProjectGroup, makeFolderWorkspace } from './folder-workspace-composer-submit-fixtures'
 
 const mocks = vi.hoisted(() => ({ activateAndRevealFolderWorkspace: vi.fn() }))
 
@@ -13,39 +12,6 @@ vi.mock('@/lib/worktree-activation', async (importOriginal) => {
 
 import { useAppStore } from '@/store'
 import { submitFolderWorkspaceCreate } from './folder-workspace-composer-submit'
-
-function makeProjectGroup(): ProjectGroup {
-  return {
-    id: 'group-1',
-    name: 'Platform',
-    parentPath: '/repo/platform',
-    parentGroupId: null,
-    createdFrom: 'folder-scan',
-    tabOrder: 0,
-    isCollapsed: false,
-    color: null,
-    createdAt: 1,
-    updatedAt: 1
-  }
-}
-
-function makeFolderWorkspace(): FolderWorkspace {
-  return {
-    id: 'folder-workspace-1',
-    projectGroupId: 'group-1',
-    name: 'hi',
-    folderPath: '/repo/platform/hi',
-    linkedTask: null,
-    comment: '',
-    isArchived: false,
-    isUnread: false,
-    isPinned: false,
-    sortOrder: 0,
-    lastActivityAt: 1,
-    createdAt: 1,
-    updatedAt: 1
-  }
-}
 
 // Why: a folder group on an Orca server runs its agents there, so the server's OS decides quoting.
 describe('submitFolderWorkspaceCreate on an Orca server', () => {

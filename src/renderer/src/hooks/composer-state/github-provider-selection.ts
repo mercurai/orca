@@ -9,6 +9,7 @@ type GitHubProviderSelectionInput = Pick<
   | 'handleBaseBranchPrSelect'
   | 'isProjectGroupTarget'
   | 'lastAutoNameRef'
+  | 'linkedWorkItem'
   | 'name'
   | 'selectedRepo'
   | 'selectedRepoGitHubSourceContext'
@@ -55,6 +56,7 @@ export function useGitHubProviderSelection(input: GitHubProviderSelectionInput) 
     handleBaseBranchPrSelect,
     isProjectGroupTarget,
     lastAutoNameRef,
+    linkedWorkItem,
     name,
     selectedRepo,
     selectedRepoGitHubSourceContext,
@@ -96,7 +98,8 @@ export function useGitHubProviderSelection(input: GitHubProviderSelectionInput) 
           nextName &&
           shouldApplyWorkspaceSourceAutoName({
             currentName: name,
-            lastAutoName: lastAutoNameRef.current
+            lastAutoName: lastAutoNameRef.current,
+            lookupTextIsQuery: !linkedWorkItem
           })
         ) {
           setName(nextName)
@@ -150,7 +153,8 @@ export function useGitHubProviderSelection(input: GitHubProviderSelectionInput) 
             normalizedItem,
             result.pushTarget,
             result.branchNameOverride,
-            result.compareBaseRef
+            result.compareBaseRef,
+            { sourceAlreadyLinked: true }
           )
           // Why: a fork PR push lands on the contributor's fork; without maintainer-edits allowed GitHub rejects it, so warn up front.
           setForkPushWarning(getForkPushWarning(result))
@@ -176,6 +180,7 @@ export function useGitHubProviderSelection(input: GitHubProviderSelectionInput) 
       handleBaseBranchPrSelect,
       isProjectGroupTarget,
       name,
+      linkedWorkItem,
       selectedRepo,
       selectedRepoGitHubSourceContext,
       branchAutoNameRef,

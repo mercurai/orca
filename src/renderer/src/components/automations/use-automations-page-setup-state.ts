@@ -150,8 +150,7 @@ export function useAutomationsPageSetupState({
       automationYamlHooksByRepoKey,
       getAutomationHooksCacheKey,
       repos,
-      setAutomationYamlHooksByRepoKey,
-      settings
+      setAutomationYamlHooksByRepoKey
     ]
   )
   const getDraftSetupDecisionDefaultSignature = useCallback(
