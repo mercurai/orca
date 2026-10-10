@@ -72,7 +72,7 @@ describe('runProcessOnWorker', () => {
     })
     const result = await pending
     expect(result).toMatchObject({ code: 0, stdout: 'x' })
-    expect(Buffer.isBuffer(result.stdoutBytes)).toBe(true)
+    expect(Buffer.isBuffer(result?.stdoutBytes)).toBe(true)
     expect(onChildTerminated).toHaveBeenCalledOnce()
   })
 
