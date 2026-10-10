@@ -257,7 +257,9 @@ function markEnvironmentUsedFromResponse(
   response: RuntimeRpcResponse<unknown>
 ): void {
   if (response.ok === true) {
-    markEnvironmentUsedDetached(userDataPath, environmentId, { runtimeId: response._meta.runtimeId })
+    markEnvironmentUsedDetached(userDataPath, environmentId, {
+      runtimeId: response._meta.runtimeId
+    })
   }
 }
 
