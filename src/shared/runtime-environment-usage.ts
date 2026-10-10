@@ -13,18 +13,18 @@ export function markEnvironmentUsed(
   selector: string,
   args: { runtimeId?: string | null; pairedDeviceId?: string; now?: number } = {}
 ): void {
-  const next = planEnvironmentUsedUpdate(userDataPath, selector, args)
-  if (next) {
-    writeEnvironmentStore(userDataPath, next)
+  const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
+  if (plan) {
+    writeEnvironmentStore(userDataPath, plan.store)
   }
 }
 
-// The store `markEnvironmentUsed` would write, or null while `lastUsedAt` is fresh; throws for an unknown environment.
+// What `markEnvironmentUsed` would write, or null while `lastUsedAt` is fresh; throws for an unknown environment.
 export function planEnvironmentUsedUpdate(
   userDataPath: string,
   selector: string,
   args: { runtimeId?: string | null; pairedDeviceId?: string; now?: number } = {}
-): RuntimeEnvironmentStore | null {
+): { store: RuntimeEnvironmentStore; environmentId: string } | null {
   const store = readEnvironmentStore(userDataPath)
   const environment = resolveEnvironmentFromStore(store, selector)
   const now = args.now ?? Date.now()
@@ -49,5 +49,5 @@ export function planEnvironmentUsedUpdate(
         }
       : entry
   )
-  return { version: 1, environments: next }
+  return { store: { version: 1, environments: next }, environmentId: environment.id }
 }
