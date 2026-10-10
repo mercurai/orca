@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as runner from '../../git/runner'
-import { getLinkedWorktreeMainRepoRoot, isGitRepo } from '../../git/repo'
+import { isGitRepo } from '../../git/repo'
+import { resolveLocalNestedRepoImportTargetPath } from '../../project-groups/nested-repo-import-target'
 import type { Store } from '../../persistence'
 
 // Every synchronous spawn route throws, so a regression anywhere on these paths fails loudly.
@@ -59,13 +60,12 @@ describe('repo detection spawn behaviour', () => {
 
   it('answers the nested-import checks without a synchronous spawn', async () => {
     const syncGit = vi.spyOn(runner, 'gitExecFileSync')
-    const nested = join(repo, 'packages', 'web')
-    mkdirSync(nested, { recursive: true })
 
-    // Both nested-import paths gate each candidate on isGitRepo and then resolve linked worktrees.
+    // Both nested-import paths gate each candidate on isGitRepo, then resolve its import target
+    // through the worktree graph.
     expect(await isGitRepo(repo)).toBe(true)
     expect(await isGitRepo(directory)).toBe(false)
-    expect(await getLinkedWorktreeMainRepoRoot(repo)).toBeNull()
+    expect(await resolveLocalNestedRepoImportTargetPath(repo)).toBe(repo.replaceAll('\\', '/'))
 
     expect(syncGit).not.toHaveBeenCalled()
     expect(runProcessSyncMock).not.toHaveBeenCalled()
