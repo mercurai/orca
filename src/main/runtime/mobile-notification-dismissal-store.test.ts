@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -11,7 +11,7 @@ afterEach(() => {
 function fixture() {
   const path = mkdtempSync(join(tmpdir(), 'orca-dismissals-'))
   paths.push(path)
-  return { path, store: new MobileNotificationDismissalStore(path) }
+  return { path, store: new MobileNotificationDismissalStore(path, { persistDelayMs: 0 }) }
 }
 const shown = { notificationId: 'same', notificationEpoch: 'old', notificationSeq: 12 }
 const alert = {
@@ -20,11 +20,11 @@ const alert = {
   title: 'QA',
   body: ''
 }
-it('reconciles an old delivered alert after desktop restart and preserves unrelated identities', () => {
+it('reconciles an old delivered alert after desktop restart and preserves unrelated identities', async () => {
   const h = fixture()
-  h.store.record({ ...alert, ...shown })
+  await h.store.record({ ...alert, ...shown })
   const restarted = new MobileNotificationDismissalStore(h.path)
-  restarted.record({
+  await restarted.record({
     type: 'dismiss',
     notificationId: 'same',
     notificationEpoch: 'new',
@@ -40,22 +40,22 @@ it('reconciles an old delivered alert after desktop restart and preserves unrela
     ])
   ).toEqual([shown])
 })
-it('does not dismiss a newer replacement and does not treat missing or expired history as dismissal', () => {
+it('does not dismiss a newer replacement and does not treat missing or expired history as dismissal', async () => {
   const h = fixture()
   const now = Date.now()
   vi.spyOn(Date, 'now').mockReturnValue(now)
-  h.store.record({ ...alert, ...shown })
-  h.store.record({ type: 'dismiss', ...shown, notificationSeq: 13 })
+  await h.store.record({ ...alert, ...shown })
+  await h.store.record({ type: 'dismiss', ...shown, notificationSeq: 13 })
   expect(h.store.reconcile([shown])).toEqual([shown])
-  h.store.record({ ...alert, ...shown, notificationSeq: 14 })
+  await h.store.record({ ...alert, ...shown, notificationSeq: 14 })
   expect(h.store.reconcile([{ ...shown, notificationSeq: 14 }])).toEqual([])
   expect(h.store.reconcile([shown])).toEqual([shown])
-  h.store.record({ type: 'dismiss', ...shown, notificationSeq: 15 })
+  await h.store.record({ type: 'dismiss', ...shown, notificationSeq: 15 })
   vi.mocked(Date.now).mockReturnValue(now + 7 * 86400_000)
   expect(h.store.reconcile([shown])).toEqual([])
   expect(new MobileNotificationDismissalStore(`${h.path}-unknown`).reconcile([shown])).toEqual([])
 })
-it('names the live deliveries a subject can still retire, across a restart', () => {
+it('names the live deliveries a subject can still retire, across a restart', async () => {
   const h = fixture()
   const keyed = (notificationId: string, notificationSeq: number) => ({
     ...alert,
@@ -63,10 +63,10 @@ it('names the live deliveries a subject can still retire, across a restart', () 
     notificationEpoch: 'e',
     notificationSeq
   })
-  h.store.record(keyed('subject:prompt:a1', 1))
-  h.store.record(keyed('subject:prompt:a10', 2))
-  h.store.record(keyed('other:prompt:a1', 3))
-  h.store.record({
+  await h.store.record(keyed('subject:prompt:a1', 1))
+  await h.store.record(keyed('subject:prompt:a10', 2))
+  await h.store.record(keyed('other:prompt:a1', 3))
+  await h.store.record({
     type: 'dismiss',
     notificationId: 'subject:prompt:a10',
     notificationEpoch: 'e',
@@ -111,12 +111,12 @@ it('keeps a record whose origin a newer build wrote, losing only that origin', (
   ])
 })
 
-it('retains in-memory delivery and retirement when durable writes fail', () => {
+it('retains in-memory delivery and retirement when durable writes fail', async () => {
   const h = fixture()
   mkdirSync(join(h.path, 'mobile-notification-dismissals.json'))
-  expect(() => h.store.record({ ...alert, ...shown })).toThrow()
+  await expect(h.store.record({ ...alert, ...shown })).rejects.toThrow()
   expect(h.store.liveDeliveries(shown.notificationId)).toHaveLength(1)
-  expect(() =>
+  await expect(
     h.store.record({
       type: 'dismiss',
       notificationId: shown.notificationId,
@@ -124,17 +124,17 @@ it('retains in-memory delivery and retirement when durable writes fail', () => {
       notificationSeq: 1,
       dismissedDelivery: shown
     })
-  ).toThrow()
+  ).rejects.toThrow()
   expect(h.store.liveDeliveries(shown.notificationId)).toEqual([])
   expect(h.store.reconcile([shown])).toEqual([shown])
 })
 
-it('a targeted old delivery cannot retire a newer replacement with the same logical id', () => {
+it('a targeted old delivery cannot retire a newer replacement with the same logical id', async () => {
   const h = fixture()
-  h.store.record({ ...alert, ...shown })
-  h.store.record({ ...alert, ...shown, notificationSeq: shown.notificationSeq + 1 })
-  h.store.record({ ...alert, ...shown, notificationEpoch: 'different' })
-  h.store.record({
+  await h.store.record({ ...alert, ...shown })
+  await h.store.record({ ...alert, ...shown, notificationSeq: shown.notificationSeq + 1 })
+  await h.store.record({ ...alert, ...shown, notificationEpoch: 'different' })
+  await h.store.record({
     type: 'dismiss',
     notificationId: shown.notificationId,
     notificationEpoch: 'current',
@@ -148,4 +148,28 @@ it('a targeted old delivery cannot retire a newer replacement with the same logi
     ['different', 12]
   ])
   expect(h.store.reconcile([shown, { ...shown, notificationSeq: 13 }])).toEqual([shown])
+})
+
+it('keeps an unpersisted record in memory only when nothing could have received it', async () => {
+  const h = fixture()
+  await h.store.record({ ...alert, ...shown }, { persist: false })
+  expect(h.store.liveDeliveries(shown.notificationId)).toHaveLength(1)
+  expect(existsSync(join(h.path, 'mobile-notification-dismissals.json'))).toBe(false)
+})
+
+it('coalesces a burst of records into one debounced write of the latest snapshot', async () => {
+  const h = fixture()
+  const file = join(h.path, 'mobile-notification-dismissals.json')
+  const debounced = new MobileNotificationDismissalStore(h.path, { persistDelayMs: 50 })
+  const writes = [1, 2, 3].map((seq) =>
+    debounced.record({ ...alert, ...shown, notificationId: `n${seq}`, notificationSeq: seq })
+  )
+  expect(existsSync(file)).toBe(false)
+  await Promise.all(writes)
+  expect(
+    new MobileNotificationDismissalStore(h.path)
+      .liveDeliveries()
+      .map((entry) => entry.notificationId)
+      .sort()
+  ).toEqual(['n1', 'n2', 'n3'])
 })

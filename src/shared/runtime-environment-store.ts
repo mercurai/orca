@@ -181,6 +181,22 @@ export function markEnvironmentUsed(
   selector: string,
   args: { runtimeId?: string | null; pairedDeviceId?: string; now?: number } = {}
 ): void {
+  const next = planEnvironmentUsedUpdate(userDataPath, selector, args)
+  if (next) {
+    writeEnvironmentStore(userDataPath, next)
+  }
+}
+
+/**
+ * The store `markEnvironmentUsed` would write, or null when the persisted `lastUsedAt` is still
+ * fresh. Reads synchronously and throws exactly as `markEnvironmentUsed` does for an unknown
+ * environment; only the write differs between the blocking and the detached caller.
+ */
+export function planEnvironmentUsedUpdate(
+  userDataPath: string,
+  selector: string,
+  args: { runtimeId?: string | null; pairedDeviceId?: string; now?: number } = {}
+): RuntimeEnvironmentStore | null {
   const store = readEnvironmentStore(userDataPath)
   const environment = resolveEnvironmentFromStore(store, selector)
   const now = args.now ?? Date.now()
@@ -192,7 +208,7 @@ export function markEnvironmentUsed(
     now >= environment.lastUsedAt &&
     now - environment.lastUsedAt < LAST_USED_PERSIST_INTERVAL_MS
   if (!runtimeIdChanged && !pairedDeviceIdChanged && lastUsedIsFresh) {
-    return
+    return null
   }
   const next = store.environments.map((entry) =>
     entry.id === environment.id
@@ -205,7 +221,7 @@ export function markEnvironmentUsed(
         }
       : entry
   )
-  writeEnvironmentStore(userDataPath, { version: 1, environments: next })
+  return { version: 1, environments: next }
 }
 
 function resolveEnvironmentFromStore(
@@ -260,21 +276,24 @@ function readEnvironmentStore(
   }
 }
 
+export function translateStoreWriteError(userDataPath: string, error: unknown): unknown {
+  if (error instanceof JsonStringifyByteLimitError) {
+    return new RuntimeEnvironmentStoreError(
+      'runtime_error',
+      `Could not write Orca environments at ${getEnvironmentStorePath(userDataPath)}; the store exceeds its durable capacity.`
+    )
+  }
+  return error
+}
+
 function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
-  const path = getEnvironmentStorePath(userDataPath)
   try {
     writeSecureJsonFileWithinLimit(
-      path,
+      getEnvironmentStorePath(userDataPath),
       RuntimeEnvironmentStoreSchema.parse(store),
       MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES
     )
   } catch (error) {
-    if (error instanceof JsonStringifyByteLimitError) {
-      throw new RuntimeEnvironmentStoreError(
-        'runtime_error',
-        `Could not write Orca environments at ${path}; the store exceeds its durable capacity.`
-      )
-    }
-    throw error
+    throw translateStoreWriteError(userDataPath, error)
   }
 }

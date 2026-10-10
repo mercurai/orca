@@ -24,7 +24,7 @@ vi.mock('./child-process/run-process', () => ({
 const OK = { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
 const USER_SID = 'S-1-5-21-1000'
 
-type FakeSpec = { program: string; args?: readonly string[] }
+type FakeSpec = { program: string; args?: readonly string[]; timeoutMs?: number | null }
 
 /** Paths the fake considers already hardened, with the ACE flags the grant pass used. */
 const hardenedByFake = new Map<string, string>()
@@ -68,6 +68,29 @@ function fakeSddl(path: string): string {
   return `name\r\nD:PAI${ace('BA')}${ace('SY')}${ace(USER_SID)}\r\n`
 }
 
+/** whoami answers on both lanes: the async harden resolves the SID through `runProcess` too. */
+function fakeSpawn(spec: FakeSpec): typeof OK {
+  if (spec.program === 'C:\\Windows\\System32\\whoami.exe') {
+    return { ...OK, stdout: `"USER","${USER_SID}"` }
+  }
+  return fakeIcacls(spec)
+}
+
+/** Replaces only the icacls answer on the async lane, so a SID is still resolvable. */
+function mockAsyncIcacls(answer: (spec: FakeSpec) => Promise<typeof OK>): void {
+  vi.mocked(runProcess).mockImplementation((spec) =>
+    spec.program.endsWith('whoami.exe') ? Promise.resolve(fakeSpawn(spec)) : answer(spec)
+  )
+}
+
+/** Every icacls spec the async lane received, with the SID-lookup spawns filtered out. */
+function asyncIcaclsSpecs(): FakeSpec[] {
+  return vi
+    .mocked(runProcess)
+    .mock.calls.map(([spec]) => spec)
+    .filter((spec) => spec.program.endsWith('icacls.exe'))
+}
+
 describe('hardenSecurePath', () => {
   const originalSystemRoot = process.env.SystemRoot
   const originalWindir = process.env.WINDIR
@@ -83,15 +106,10 @@ describe('hardenSecurePath', () => {
     vi.mocked(runProcess).mockReset()
     hardenedByFake.clear()
     forcedBadSddl.clear()
-    // runProcessSync serves whoami.exe (SID lookup) and the SYNCHRONOUS icacls file-ACL path
-    // used by writeSecureFile. Directory + read-path re-hardens use async runProcess.
-    vi.mocked(runProcessSync).mockImplementation((spec) => {
-      if (spec.program === 'C:\\Windows\\System32\\whoami.exe') {
-        return { ...OK, stdout: `"USER","${USER_SID}"` }
-      }
-      return fakeIcacls(spec)
-    })
-    vi.mocked(runProcess).mockImplementation((spec) => Promise.resolve(fakeIcacls(spec)))
+    // Both runners serve whoami.exe (SID lookup) and icacls: the synchronous file-ACL path used
+    // by writeSecureFile, and the async directory + read-path re-harden.
+    vi.mocked(runProcessSync).mockImplementation(fakeSpawn)
+    vi.mocked(runProcess).mockImplementation((spec) => Promise.resolve(fakeSpawn(spec)))
   })
 
   afterEach(() => {
@@ -122,14 +140,16 @@ describe('hardenSecurePath', () => {
     })
     await flushAsyncAcl()
 
-    // whoami.exe called synchronously to obtain SID
-    expect(vi.mocked(runProcessSync).mock.calls[0]![0]).toMatchObject({
+    // The read path resolves the SID asynchronously, so whoami is the async lane's first spawn.
+    const allSpecs = vi.mocked(runProcess).mock.calls.map(([spec]) => spec)
+    expect(allSpecs[0]).toMatchObject({
       program: 'C:\\Windows\\System32\\whoami.exe',
       args: ['/user', '/fo', 'csv', '/nh']
     })
+    expect(vi.mocked(runProcessSync)).not.toHaveBeenCalled()
 
-    const specs = vi.mocked(runProcess).mock.calls.map(([spec]) => spec)
-    expect(specs.every((spec) => spec.program === 'C:\\Windows\\System32\\icacls.exe')).toBe(true)
+    const specs = asyncIcaclsSpecs()
+    expect(specs).toHaveLength(4)
     // Verify runs first, so an already-correct DACL is never rewritten.
     expect(specs[0]!.args?.slice(0, 2)).toEqual(['C:\\Users\\me\\.orca\\secret.json', '/save'])
     expect(specs[1]!.args).toEqual(['C:\\Users\\me\\.orca\\secret.json', '/reset', '/q'])
@@ -158,7 +178,7 @@ describe('hardenSecurePath', () => {
     hardenSecurePath(target, { isDirectory: false, platform: 'win32' })
     await flushAsyncAcl()
 
-    const specs = vi.mocked(runProcess).mock.calls.map(([spec]) => spec)
+    const specs = asyncIcaclsSpecs()
     expect(specs).toHaveLength(1)
     expect(specs[0]!.args).toContain('/save')
     expect(specs.some((spec) => spec.args?.includes('/reset'))).toBe(false)
@@ -260,7 +280,7 @@ describe('hardenSecurePath', () => {
 
     // The transient condition clears; the next re-probe must notice.
     clock += 5 * 60_000
-    vi.mocked(runProcess).mockImplementation((spec) => Promise.resolve(fakeIcacls(spec)))
+    mockAsyncIcacls((spec) => Promise.resolve(fakeIcacls(spec)))
     hardenExistingSecureFile(targetPath)
     await flushAsyncAcl()
 
@@ -359,7 +379,7 @@ describe('hardenSecurePath', () => {
     tempDirs.push(userDataPath)
     const targetPath = join(userDataPath, 'secret.json')
     writeFileSync(targetPath, '{}')
-    vi.mocked(runProcess).mockResolvedValue({ ...OK, code: 5, stderr: 'Access is denied.' })
+    mockAsyncIcacls(() => Promise.resolve({ ...OK, code: 5, stderr: 'Access is denied.' }))
     return targetPath
   }
 
@@ -394,16 +414,15 @@ describe('hardenSecurePath', () => {
     hardenSecurePath('C:\\Users\\me\\.orca', { isDirectory: true, platform: 'win32' })
     await flushAsyncAcl()
 
-    const grantArgs = vi
-      .mocked(runProcess)
-      .mock.calls.map(([spec]) => spec.args as string[])
+    const grantArgs = asyncIcaclsSpecs()
+      .map((spec) => spec.args ?? [])
       .find((args) => args.includes('/grant:r'))!
     expect(grantArgs).toContain(`*${USER_SID}:(OI)(CI)(F)`)
     expect(grantArgs).toContain('*S-1-5-18:(OI)(CI)(F)')
   })
 
   it('keeps Windows hardening best-effort when ACL rewriting fails', async () => {
-    vi.mocked(runProcess).mockRejectedValue(new Error('access denied'))
+    mockAsyncIcacls(() => Promise.reject(new Error('access denied')))
 
     expect(() =>
       hardenSecurePath('C:\\Users\\me\\.orca\\secret.json', {
@@ -418,7 +437,7 @@ describe('hardenSecurePath', () => {
   // visible somewhere; "best effort" may not mean "undetectable".
   it('logs when a Windows ACL apply fails instead of swallowing it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    vi.mocked(runProcess).mockResolvedValue({ ...OK, code: 5, stderr: 'Access is denied.' })
+    mockAsyncIcacls(() => Promise.resolve({ ...OK, code: 5, stderr: 'Access is denied.' }))
 
     hardenSecurePath('C:\\Users\\me\\.orca\\secret.json', {
       isDirectory: false,
@@ -440,12 +459,11 @@ describe('hardenSecurePath', () => {
   it('reports a failed synchronous ACL apply to the caller and the log', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-    vi.mocked(runProcessSync).mockImplementation((spec) => {
-      if (spec.program === 'C:\\Windows\\System32\\whoami.exe') {
-        return { ...OK, stdout: '"USER","S-1-5-21-1000"' }
-      }
-      return { ...OK, code: 5, stderr: 'Access is denied.' }
-    })
+    vi.mocked(runProcessSync).mockImplementation((spec) =>
+      spec.program.endsWith('whoami.exe')
+        ? fakeSpawn(spec)
+        : { ...OK, code: 5, stderr: 'Access is denied.' }
+    )
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-secure-file-'))
     tempDirs.push(userDataPath)
 
@@ -464,12 +482,12 @@ describe('hardenSecurePath', () => {
     hardenSecurePath(longPath, { isDirectory: false, platform: 'win32' })
     await flushAsyncAcl()
 
-    for (const [spec] of vi.mocked(runProcess).mock.calls) {
+    for (const spec of asyncIcaclsSpecs()) {
       expect(spec.args![0]).toBe(`\\\\?\\${longPath}`)
     }
   })
 
-  it('caches successful existing-file hardening within a process', () => {
+  it('caches successful existing-file hardening within a process', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-secure-file-'))
     tempDirs.push(userDataPath)
@@ -478,13 +496,14 @@ describe('hardenSecurePath', () => {
 
     hardenExistingSecureFile(targetPath)
     hardenExistingSecureFile(targetPath)
+    await flushAsyncAcl()
 
     // dir hardened once (path-cached), file hardened once (metadata-cached) — 2 total
     expect(getHardenAclCalls()).toHaveLength(2)
     expect(getHardenAclCalls().map(getAclTarget)).toEqual([userDataPath, targetPath])
   })
 
-  it('LRU-evicts Windows file hardening entries and safely re-hardens an evicted path', () => {
+  it('LRU-evicts Windows file hardening entries and safely re-hardens an evicted path', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     __resetSecureFileHardenedPathsForTests({
       maxEntries: 2,
@@ -496,12 +515,16 @@ describe('hardenSecurePath', () => {
     const paths = ['first.json', 'second.json', 'third.json'].map((name) =>
       join(userDataPath, name)
     )
+    // Settle each harden before the next: an evicted path is re-hardened by a *second* pass, and
+    // overlapping passes on one path would interleave their verify/reset/grant spawns.
     for (const path of paths) {
       writeFileSync(path, '{}')
       hardenExistingSecureFile(path)
+      await flushAsyncAcl()
     }
 
     hardenExistingSecureFile(paths[0]!)
+    await flushAsyncAcl()
 
     const fileTargets = getHardenAclCalls()
       .map(getAclTarget)
@@ -512,7 +535,7 @@ describe('hardenSecurePath', () => {
     })
   })
 
-  it('LRU-evicts Windows directory hardening entries instead of retaining every path', () => {
+  it('LRU-evicts Windows directory hardening entries instead of retaining every path', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     __resetSecureFileHardenedPathsForTests({
       maxEntries: 2,
@@ -530,9 +553,11 @@ describe('hardenSecurePath', () => {
     })
     for (const file of files) {
       hardenExistingSecureFile(file)
+      await flushAsyncAcl()
     }
 
     hardenExistingSecureFile(files[0]!)
+    await flushAsyncAcl()
 
     const directoryTargets = getHardenAclCalls()
       .map(getAclTarget)
@@ -554,13 +579,14 @@ describe('hardenSecurePath', () => {
     await waitForFileTimestampTick()
     writeFileSync(targetPath, '{"changed":true}')
     hardenExistingSecureFile(targetPath)
+    await flushAsyncAcl()
 
     // call 1: dir + file. call 2: dir skipped (path-cached), file re-hardened (new mtime)
     expect(getHardenAclCalls()).toHaveLength(3)
     expect(getHardenAclCalls().map(getAclTarget)).toEqual([userDataPath, targetPath, targetPath])
   })
 
-  it('keeps post-rename target hardening on every write while caching the directory', () => {
+  it('applies one reset-and-grant pass per staged file, never to the published path, and caches the directory', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-secure-file-'))
     tempDirs.push(userDataPath)
@@ -568,18 +594,24 @@ describe('hardenSecurePath', () => {
 
     writeSecureFile(targetPath, 'first')
     writeSecureFile(targetPath, 'second')
+    await flushAsyncAcl()
 
     // The DIRECTORY is hardened async + path-cached: exactly once across both writes.
     const asyncTargets = getHardenAclCalls().map(getAclTarget)
     expect(asyncTargets).toEqual([userDataPath])
 
-    // The credential FILES (tmpFile + renamed target) are hardened SYNCHRONOUSLY on each write.
-    // write 1: tmpFile(1) + targetFile(1) = 2; write 2: tmpFile(1) + targetFile(1) = 2; total 4.
-    const syncTargets = getSyncHardenAclCalls().map(getAclTarget)
-    expect(syncTargets).toHaveLength(4)
-    expect(syncTargets.filter((entry) => entry === targetPath)).toHaveLength(2)
-    // No directory should be hardened via the synchronous path.
-    expect(syncTargets.filter((entry) => entry === userDataPath)).toHaveLength(0)
+    // Each write restricts only its staged temp file, with exactly two spawns (reset, then grant):
+    // no verify before or after, and no second pass on the published path (the DACL travels with
+    // the rename). Two writes: four spawns, none targeting the final path or the directory.
+    const syncSpecs = syncIcaclsSpecs()
+    expect(syncSpecs.map((spec) => (spec.args ?? []).slice(1, 2)[0])).toEqual([
+      '/reset',
+      '/inheritance:r',
+      '/reset',
+      '/inheritance:r'
+    ])
+    expect(syncSpecs.every((spec) => spec.args?.[0]?.endsWith('.tmp'))).toBe(true)
+    expect(syncSpecs.some((spec) => spec.args?.includes('/save'))).toBe(false)
   })
 
   // Regression test: #4901 — env-store reads at ~2×/s caused an ACL-spawn storm because the
@@ -600,13 +632,14 @@ describe('hardenSecurePath', () => {
     writeFileSync(join(userDataPath, 'other.json'), '{}')
     hardenExistingSecureFile(targetPath)
     hardenExistingSecureFile(targetPath)
+    await flushAsyncAcl()
 
     // The parent directory must be hardened exactly ONCE despite its mtime changing
     const dirCalls = getHardenAclCalls().filter((call) => getAclTarget(call) === userDataPath)
     expect(dirCalls).toHaveLength(1)
   })
 
-  it('does not re-harden an unchanged file on repeated reads', () => {
+  it('does not re-harden an unchanged file on repeated reads', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-secure-file-'))
     tempDirs.push(userDataPath)
@@ -616,18 +649,24 @@ describe('hardenSecurePath', () => {
     hardenExistingSecureFile(targetPath)
     hardenExistingSecureFile(targetPath)
     hardenExistingSecureFile(targetPath)
+    await flushAsyncAcl()
 
     const fileCalls = getHardenAclCalls().filter((call) => getAclTarget(call) === targetPath)
     expect(fileCalls).toHaveLength(1)
   })
 
-  it('applies the read-path ACL asynchronously without blocking (async runProcess)', () => {
+  it('applies the read-path ACL asynchronously without blocking (async runProcess)', async () => {
     hardenSecurePath('C:\\Users\\me\\.orca\\secret.json', {
       isDirectory: false,
       platform: 'win32'
     })
 
-    // The default (read/dir) path must launch icacls via runProcess (async), never sync.
+    // The default (read/dir) path must launch icacls via runProcess (async), never sync — and it
+    // must not have spawned anything at all yet, since the SID lookup itself is now awaited.
+    expect(vi.mocked(runProcessSync)).not.toHaveBeenCalled()
+    expect(getHardenAclCalls()).toHaveLength(0)
+
+    await flushAsyncAcl()
     expect(getSyncHardenAclCalls()).toHaveLength(0)
     expect(getHardenAclCalls()).toHaveLength(1)
   })
@@ -636,21 +675,23 @@ describe('hardenSecurePath', () => {
   // credential FILE's ACL SYNCHRONOUSLY before returning. On Windows writeFileSync({mode})
   // is a no-op, so an async file ACL would leave the credential briefly readable under the
   // parent's inherited (broader) ACL for the duration of the spawn.
-  it('hardens the credential file synchronously while keeping the directory async', () => {
+  it('hardens the credential file synchronously while keeping the directory async', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-secure-file-'))
     tempDirs.push(userDataPath)
     const targetPath = join(userDataPath, 'secret.json')
 
     writeSecureFile(targetPath, 'contents')
+    await flushAsyncAcl()
 
     // Directory: async only.
     expect(getHardenAclCalls().map(getAclTarget)).toEqual([userDataPath])
-    // File (tmpFile + renamed target): synchronous only — no async file ACL window.
-    const syncTargets = getSyncHardenAclCalls().map(getAclTarget)
-    expect(syncTargets).toContain(targetPath)
+    // File: the staged temp is restricted synchronously, before the rename publishes it.
+    const syncTargets = syncIcaclsSpecs().map(getAclTarget)
+    expect(syncTargets).toHaveLength(2)
+    expect(syncTargets.every((entry) => entry.startsWith(targetPath))).toBe(true)
     expect(syncTargets.filter((entry) => entry === userDataPath)).toHaveLength(0)
-    // The final published target's ACL must have been applied via the synchronous path.
+    // No async file ACL window.
     expect(getHardenAclCalls().map(getAclTarget)).not.toContain(targetPath)
   })
 
@@ -670,11 +711,9 @@ describe('hardenSecurePath', () => {
       }
       throw new Error('access denied')
     })
-    expect(() => writeSecureFile(targetPath, 'first')).not.toThrow()
-    const firstWriteTargetCalls = getSyncHardenAclCalls()
-      .map(getAclTarget)
-      .filter((entry) => entry === targetPath)
-    expect(firstWriteTargetCalls).toHaveLength(1)
+    expect(writeSecureFile(targetPath, 'first')).toBe(false)
+    // The reset throws, so the pass stops after one attempt.
+    expect(syncIcaclsSpecs()).toHaveLength(1)
 
     // Second write: ACL apply now succeeds. Because the failed apply was NOT cached, the
     // target file is hardened again rather than skipped.
@@ -684,17 +723,15 @@ describe('hardenSecurePath', () => {
       }
       return OK
     })
-    writeSecureFile(targetPath, 'second')
-    const allTargetCalls = getSyncHardenAclCalls()
-      .map(getAclTarget)
-      .filter((entry) => entry === targetPath)
-    expect(allTargetCalls).toHaveLength(2)
+    expect(writeSecureFile(targetPath, 'second')).toBe(true)
+    // A failed apply is not cached: the second write runs its own full reset-and-grant pass.
+    expect(syncIcaclsSpecs()).toHaveLength(3)
   })
 
   // Nit #2 (review) / hardening: the process-lifetime directory cache hardens a directory
   // exactly once even when its mtime churns across many writes (the #4901 storm condition,
   // exercised through the write path rather than the read path).
-  it('hardens the directory exactly once across many writes despite mtime churn', () => {
+  it('hardens the directory exactly once across many writes despite mtime churn', async () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-secure-file-'))
     tempDirs.push(userDataPath)
@@ -703,6 +740,7 @@ describe('hardenSecurePath', () => {
       // Each write changes the directory's mtime (a new file lands in it).
       writeSecureFile(join(userDataPath, `secret-${i}.json`), `contents-${i}`)
     }
+    await flushAsyncAcl()
 
     const dirCalls = getHardenAclCalls().filter((call) => getAclTarget(call) === userDataPath)
     expect(dirCalls).toHaveLength(1)
@@ -792,6 +830,14 @@ function hardenInitiations(specs: FakeSpec[]): { args?: readonly string[] }[] {
     }
   }
   return initiations
+}
+
+// Every synchronous icacls spawn (credential-file ACL on the write path).
+function syncIcaclsSpecs(): { args?: readonly string[] }[] {
+  return vi
+    .mocked(runProcessSync)
+    .mock.calls.map(([spec]) => spec)
+    .filter((spec) => spec.program.endsWith('icacls.exe'))
 }
 
 // Async icacls calls (directory hardening + read-path file re-harden).

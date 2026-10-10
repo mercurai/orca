@@ -6,7 +6,8 @@ import type {
 } from '../../shared/runtime-rpc-envelope'
 import type { KnownRuntimeEnvironment } from '../../shared/runtime-environments'
 import { getPreferredPairingOffer } from '../../shared/runtime-environments'
-import { markEnvironmentUsed, resolveEnvironment } from '../../shared/runtime-environment-store'
+import { resolveEnvironment } from '../../shared/runtime-environment-store'
+import { markEnvironmentUsedDetached } from '../../shared/runtime-environment-usage-detached'
 import { recordRuntimeEnvironmentUsage } from './runtime-environment-usage-record'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../shared/electron-remote-runtime-client-capabilities'
 import {
@@ -103,7 +104,7 @@ export function executeSupportRoutedCall(args: {
       ),
     markUsed: (environmentId, response) => {
       if (response.ok) {
-        markEnvironmentUsed(args.userDataPath, environmentId, {
+        markEnvironmentUsedDetached(args.userDataPath, environmentId, {
           runtimeId: response._meta.runtimeId
         })
       }
