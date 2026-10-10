@@ -1,6 +1,6 @@
 import type { ProcessResult, ProcessSpec } from '../../../shared/child-process/process-spec'
 import { notifyWorkerSpawn } from '../../../shared/child-process/spawn-observer'
-import { admitSelfInitiatedTreeKill } from '../../own-chromium-tree-kill-guard'
+import { recordSelfInitiatedTreeKill } from '../../crash-reporting/self-initiated-tree-kill-log'
 import {
   reviveSpawnError,
   type RunWorkerResponse,
@@ -35,6 +35,8 @@ type RunEntry = {
   pid: number | undefined
   /** runProcess started the child (or failed trying), so retrying in-process would repeat it. */
   spawned: boolean
+  /** Its outcome was delivered; the entry stays until the child is also reported terminated. */
+  settled: boolean
   terminated: boolean
   settle: (outcome: RunOutcome) => void
   onTerminated: () => void
@@ -43,6 +45,8 @@ type RunEntry = {
 type RunTransport = {
   allocateId: () => number
   send: (request: SpawnWorkerRequest) => boolean
+  /** Post to a live worker only; a stop request must never start a new one. */
+  post: (request: SpawnWorkerRequest) => boolean
   onBusy: () => void
   onIdle: () => void
 }
@@ -90,6 +94,7 @@ export class RunProcessTable {
       args: spec.args ?? [],
       pid: undefined,
       spawned: false,
+      settled: false,
       terminated: false,
       settle,
       onTerminated
@@ -101,15 +106,15 @@ export class RunProcessTable {
     return {
       outcome,
       terminate: () => {
-        this.transport.send({ type: 'terminate', id })
+        this.transport.post({ type: 'terminate', id })
       }
     }
   }
 
   handle(message: RunWorkerResponse): void {
     if (message.type === 'tree-kill') {
-      // Recorded on main's breadcrumb store; the worker already decided, so the answer is unused.
-      admitSelfInitiatedTreeKill(message)
+      // Why record only: the worker kills a root its own handle still holds, so pid reuse cannot apply.
+      recordSelfInitiatedTreeKill(message)
       return
     }
     const entry = this.entries.get(message.id)
@@ -124,8 +129,12 @@ export class RunProcessTable {
     } else if (message.type === 'run-terminated') {
       this.reportTerminated(entry)
     } else {
-      this.entries.delete(message.id)
+      entry.settled = true
       entry.settle(settledOutcome(message))
+    }
+    // Why both: a descendant can hold the pipes, so the child is reported gone after the result.
+    if (entry.settled && entry.terminated) {
+      this.entries.delete(message.id)
       if (this.entries.size === 0) {
         this.transport.onIdle()
       }
@@ -134,9 +143,10 @@ export class RunProcessTable {
 
   /** The worker is gone with these runs in flight: their children are reaped by pid. */
   failAll(error: Error, code?: string): void {
-    this.reapChildren()
     for (const entry of this.entries.values()) {
-      if (entry.spawned || entry.terminated) {
+      if (entry.settled) {
+        this.reportTerminated(entry)
+      } else if (entry.spawned || entry.terminated) {
         this.reportTerminated(entry)
         // Why a copy per run: callers attach their own output to the error they receive.
         entry.settle({

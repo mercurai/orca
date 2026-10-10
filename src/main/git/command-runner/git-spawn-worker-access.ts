@@ -10,8 +10,9 @@ import { GitSpawnWorkerClient } from './git-spawn-worker-client'
 import { runProcessOnWorker } from './git-spawn-worker-client-runprocess'
 
 // Why (#1085): ORCA_GIT_SPAWN_WORKER=0 (or ORCA_SPAWN_WORKER=0, since #1091 also carries
-// runProcess) is the kill switch that puts every spawn back on the main thread; unset or any other value uses the worker whenever the
-// built entry can be started, and falls back to in-process spawning otherwise.
+// runProcess) is the kill switch that puts every spawn back on the main thread; unset or any
+// other value uses the worker whenever the built entry can be started, and falls back to
+// in-process spawning otherwise.
 
 const WORKER_ENTRY_FILENAME = 'git-spawn-worker-entry.js'
 
