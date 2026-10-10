@@ -151,7 +151,7 @@ export class SshGitProvider extends SshGitWorktreeProvider implements IGitProvid
   }
 
   // Remote paths are validated asynchronously by the relay before registration.
-  isGitRepo(_path: string): boolean {
+  async isGitRepo(_path: string): Promise<boolean> {
     return true
   }
 

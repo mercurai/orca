@@ -10,13 +10,22 @@ import type { Repo } from '../../shared/repo-types'
 
 // Why: the watch must stay one stat per folder project per tick — counting the real
 // calls is what keeps a directory-listing fan-out from creeping back in.
-const { statCalls, readdirSpy, gitProbes } = vi.hoisted(() => ({
+const { statCalls, readdirSpy, gitProbes, gitInFlight } = vi.hoisted(() => ({
   statCalls: [] as string[],
   readdirSpy: vi.fn(),
   // Why: the rejected-marker cache exists to stop git respawning every tick; counting the
   // real probes is the only way that guarantee stays true.
-  gitProbes: [] as string[]
+  gitProbes: new Array<string>(),
+  // Detection spawns git asynchronously now, so a tick is only settled once these have returned.
+  gitInFlight: { count: 0 }
 }))
+
+function trackInFlight<T>(probe: Promise<T>): Promise<T> {
+  gitInFlight.count++
+  return probe.finally(() => {
+    gitInFlight.count--
+  })
+}
 
 vi.mock('../git/repo', async (importOriginal) => {
   const actual = await importOriginal<typeof GitRepo>()
@@ -24,8 +33,9 @@ vi.mock('../git/repo', async (importOriginal) => {
     ...actual,
     isGitRepo: (path: string) => {
       gitProbes.push(path)
-      return actual.isGitRepo(path)
-    }
+      return trackInFlight(actual.isGitRepo(path))
+    },
+    getGitRepoRoot: (path: string) => trackInFlight(actual.getGitRepoRoot(path))
   }
 })
 
@@ -146,17 +156,27 @@ describe('folder repo git upgrade watch', () => {
     await symlink(root, symlinkedRoot, 'dir')
     statCalls.length = 0
     gitProbes.length = 0
+    gitInFlight.count = 0
   })
 
   afterEach(async () => {
     stopFolderRepoGitUpgradeWatch()
     await rm(symlinkedRoot, { force: true })
-    await rm(root, { recursive: true, force: true })
+    // An in-flight git probe can still hold the folder as its cwd on Windows.
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   })
 
   // Real timers: the tick awaits real filesystem stats, which fake timers cannot flush.
   async function tick(times = 1): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS * times + POLL_MS))
+    const deadline = Date.now() + 5_000
+    while (gitInFlight.count > 0) {
+      if (Date.now() > deadline) {
+        throw new Error('git probes still in flight after 5 s')
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
   }
 
   /** Why: a tick that spawns git can outrun a fixed wait on a loaded machine. */
@@ -214,7 +234,7 @@ describe('folder repo git upgrade watch', () => {
           folderUpgradeGitRootPath: join(root, 'symlinked-project').replaceAll('\\', '/')
         })
       },
-      { timeout: 5_000, interval: POLL_MS }
+      { timeout: 15_000, interval: POLL_MS }
     )
   })
 
