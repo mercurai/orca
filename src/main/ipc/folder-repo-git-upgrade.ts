@@ -101,13 +101,13 @@ function resolveRealPath(pathValue: string): string {
  *   the path the user picked; when a symlinked parent makes those differ, the root reads
  *   as an *external* worktree, and hiding those would hide the project's only workspace.
  */
-function resolveUpgrade(
+async function resolveUpgrade(
   repoPath: string
-): { folderUpgradeGitRootPath: string; externalWorktreeVisibility?: 'hide' } | null {
-  if (!isGitRepo(repoPath)) {
+): Promise<{ folderUpgradeGitRootPath: string; externalWorktreeVisibility?: 'hide' } | null> {
+  if (!(await isGitRepo(repoPath))) {
     return null
   }
-  const gitRoot = getGitRepoRoot(repoPath)
+  const gitRoot = await getGitRepoRoot(repoPath)
   if (resolveRealPath(gitRoot) !== resolveRealPath(repoPath)) {
     return null
   }
@@ -127,9 +127,21 @@ async function upgradeFolderRepo(watch: UpgradeWatch, repoId: string): Promise<U
   if (hasExtraFolderWorkspaces(watch.store, current)) {
     return 'blocked'
   }
-  const updates = resolveUpgrade(current.path)
+  const updates = await resolveUpgrade(current.path)
   if (!updates) {
     return 'rejected'
+  }
+  // Why re-check: the probes above await up to 15 s each, during which a workspace can be added
+  // (the flip would delete its lineage), the repo moved or removed, or the watch disposed.
+  const latest = watch.store.getRepo(repoId)
+  if (
+    watch.disposed ||
+    !latest ||
+    latest.path !== current.path ||
+    !isUpgradeCandidate(latest) ||
+    hasExtraFolderWorkspaces(watch.store, latest)
+  ) {
+    return 'blocked'
   }
   const upgraded = watch.store.updateRepo(repoId, { kind: 'git', ...updates })
   if (!upgraded) {

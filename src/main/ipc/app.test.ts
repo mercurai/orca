@@ -118,7 +118,6 @@ vi.mock('./macos-keyboard-layout-change-notifications', () => ({
 }))
 
 const windowsProbes = vi.hoisted(() => ({
-  isWslAvailable: vi.fn(() => true),
   isWslAvailableAsync: vi.fn(async () => true),
   listWslDistros: vi.fn(() => ['Ubuntu']),
   listWslDistrosAsync: vi.fn(async () => ['Ubuntu']),
@@ -127,7 +126,6 @@ const windowsProbes = vi.hoisted(() => ({
 }))
 
 vi.mock('../wsl', () => ({
-  isWslAvailable: windowsProbes.isWslAvailable,
   isWslAvailableAsync: windowsProbes.isWslAvailableAsync,
   listWslDistros: windowsProbes.listWslDistros,
   listWslDistrosAsync: windowsProbes.listWslDistrosAsync
@@ -433,7 +431,6 @@ describe('registerAppHandlers', () => {
     expect(windowsProbes.isWslAvailableAsync).toHaveBeenCalledTimes(1)
     expect(windowsProbes.listWslDistrosAsync).toHaveBeenCalledTimes(1)
     expect(windowsProbes.isPwshAvailableAsync).toHaveBeenCalledTimes(1)
-    expect(windowsProbes.isWslAvailable).not.toHaveBeenCalled()
     expect(windowsProbes.listWslDistros).not.toHaveBeenCalled()
     expect(windowsProbes.isPwshAvailable).not.toHaveBeenCalled()
   })
