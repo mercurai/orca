@@ -235,7 +235,15 @@ function translateStoreWriteError(path: string, error: unknown): unknown {
     : error
 }
 
+// Bumped by every synchronous write: an async read-modify-write compares it before publishing.
+let environmentWriteGeneration = 0
+
+export function getEnvironmentWriteGeneration(): number {
+  return environmentWriteGeneration
+}
+
 export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
+  environmentWriteGeneration += 1
   const path = getEnvironmentStorePath(userDataPath)
   try {
     const parsed = RuntimeEnvironmentStoreSchema.parse(store)
@@ -247,7 +255,8 @@ export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnviro
 
 export async function writeEnvironmentStoreAsync(
   userDataPath: string,
-  store: RuntimeEnvironmentStore
+  store: RuntimeEnvironmentStore,
+  options: { shouldPublish?: () => boolean } = {}
 ): Promise<void> {
   const path = getEnvironmentStorePath(userDataPath)
   try {
@@ -255,7 +264,8 @@ export async function writeEnvironmentStoreAsync(
     await writeSecureJsonFileWithinLimitAsync(
       path,
       parsed,
-      MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES
+      MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
+      options
     )
   } catch (error) {
     throw translateStoreWriteError(path, error)

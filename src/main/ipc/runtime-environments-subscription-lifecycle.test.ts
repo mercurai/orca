@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../shared/electron-remote-runtime-client-capabilities'
 import * as environmentStore from '../../shared/runtime-environment-store'
-import * as environmentUsage from '../../shared/runtime-environment-usage'
+import * as environmentUsage from '../../shared/runtime-environment-usage-detached'
 
 const {
   handleMock,
@@ -181,7 +181,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     registerRuntimeEnvironmentHandlers(store as never)
     const close = vi.fn()
     const sendBinary = vi.fn()
-    const markUsedSpy = vi.spyOn(environmentUsage, 'planEnvironmentUsedUpdate')
+    const markUsedSpy = vi.spyOn(environmentUsage, 'markEnvironmentUsedDetached')
     subscribeRemoteRuntimeRequestMock.mockImplementation(
       async (_pairing, _method, _params, _timeoutMs, callbacks) => {
         callbacks.onResponse({
