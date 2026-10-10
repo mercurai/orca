@@ -40,6 +40,8 @@ type CodexActionContext = {
   setCodexAction: Dispatch<SetStateAction<CodexAccountAction>>
   fetchSettings: () => Promise<void>
   recordFeatureInteraction: (featureId: FeatureInteractionId) => void
+  /** False once the pane shows a different account owner than this action targeted. */
+  isCurrentAccountOwner: () => boolean
 }
 
 export function createCodexAccountActionRunner(
@@ -49,6 +51,7 @@ export function createCodexAccountActionRunner(
     accountRuntime,
     codexAccounts,
     fetchSettings,
+    isCurrentAccountOwner,
     isRemoteAccountScope,
     recordFeatureInteraction,
     setCodexAccounts,
@@ -56,8 +59,11 @@ export function createCodexAccountActionRunner(
     setCodexAction
   } = context
   const syncCodexAccounts = async (next: CodexRateLimitAccountsState): Promise<void> => {
-    setCodexAccounts(next)
-    setCodexAccountsLoaded(true)
+    // Why: only the roster is the shown owner's; the toast and follow-up still describe this action.
+    if (isCurrentAccountOwner()) {
+      setCodexAccounts(next)
+      setCodexAccountsLoaded(true)
+    }
     // Why: remote mutations never change local GlobalSettings account fields.
     if (!isRemoteAccountScope) {
       await fetchSettings()
@@ -147,6 +153,8 @@ type ClaudeActionContext = {
   setClaudeAction: Dispatch<SetStateAction<ClaudeAccountAction>>
   fetchSettings: () => Promise<void>
   recordFeatureInteraction: (featureId: FeatureInteractionId) => void
+  /** False once the pane shows a different account owner than this action targeted. */
+  isCurrentAccountOwner: () => boolean
 }
 
 export function createClaudeAccountActionRunner(
@@ -156,13 +164,16 @@ export function createClaudeAccountActionRunner(
     accountRuntime,
     claudeAccounts,
     fetchSettings,
+    isCurrentAccountOwner,
     isRemoteAccountScope,
     recordFeatureInteraction,
     setClaudeAccounts,
     setClaudeAction
   } = context
   const syncClaudeAccounts = async (next: ClaudeRateLimitAccountsState): Promise<void> => {
-    setClaudeAccounts(next)
+    if (isCurrentAccountOwner()) {
+      setClaudeAccounts(next)
+    }
     if (!isRemoteAccountScope) {
       await fetchSettings()
     }

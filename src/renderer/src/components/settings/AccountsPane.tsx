@@ -12,6 +12,7 @@ import { isWebClientLocation } from '@/lib/web-client-location'
 import {
   emptyClaudeAccountsState,
   emptyCodexAccountsState,
+  getProviderAccountsOwnerKey,
   hasRemoteProviderAccountOwner,
   watchProviderAccounts
 } from '@/runtime/runtime-provider-accounts-client'
@@ -110,6 +111,14 @@ export function AccountsPane({
   // (see #7973); every list/select/remove below must scope to it, not host/WSL.
   const isRemoteAccountScope = hasRemoteProviderAccountOwner(settings)
   const activeRuntimeEnvironmentId = settings.activeRuntimeEnvironmentId?.trim() || null
+  // Why: a select/remove can outlive a default-runtime change; its result
+  // belongs to the owner it was sent to, not the one now shown.
+  const accountOwnerKey = getProviderAccountsOwnerKey(settings)
+  const currentAccountOwnerKeyRef = useRef(accountOwnerKey)
+  useEffect(() => {
+    currentAccountOwnerKeyRef.current = accountOwnerKey
+  }, [accountOwnerKey])
+  const isCurrentAccountOwner = (): boolean => currentAccountOwnerKeyRef.current === accountOwnerKey
   // Why: keep the real name separate from the prose fallback below; the scope
   // label must not interpolate the fallback.
   const remoteServerName = isRemoteAccountScope
@@ -301,6 +310,7 @@ export function AccountsPane({
 
   const runCodexAccountAction = createCodexAccountActionRunner({
     settings,
+    isCurrentAccountOwner,
     accountRuntime,
     isRemoteAccountScope,
     codexAccounts,
@@ -312,6 +322,7 @@ export function AccountsPane({
   })
   const runClaudeAccountAction = createClaudeAccountActionRunner({
     settings,
+    isCurrentAccountOwner,
     accountRuntime,
     isRemoteAccountScope,
     claudeAccounts,
