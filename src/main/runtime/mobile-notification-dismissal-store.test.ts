@@ -3,6 +3,20 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MobileNotificationDismissalStore } from './mobile-notification-dismissal-store'
+
+// Every snapshot handed to the async writer, so a test can count writes and read what they carried.
+const snapshots = vi.hoisted(() => [] as unknown[])
+
+vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../shared/secure-file-async-write')>()
+  return {
+    ...actual,
+    writeSecureJsonFileAsync: (path: string, value: unknown) => {
+      snapshots.push(value)
+      return actual.writeSecureJsonFileAsync(path, value)
+    }
+  }
+})
 const paths: string[] = []
 afterEach(() => {
   paths.splice(0).forEach((path) => rmSync(path, { recursive: true, force: true }))
@@ -158,18 +172,30 @@ it('keeps an unpersisted record in memory only when nothing could have received 
 })
 
 it('coalesces a burst of records into one debounced write of the latest snapshot', async () => {
-  const h = fixture()
-  const file = join(h.path, 'mobile-notification-dismissals.json')
-  const debounced = new MobileNotificationDismissalStore(h.path, { persistDelayMs: 50 })
-  const writes = [1, 2, 3].map((seq) =>
-    debounced.record({ ...alert, ...shown, notificationId: `n${seq}`, notificationSeq: seq })
-  )
-  expect(existsSync(file)).toBe(false)
-  await Promise.all(writes)
-  expect(
-    new MobileNotificationDismissalStore(h.path)
-      .liveDeliveries()
-      .map((entry) => entry.notificationId)
-      .sort()
-  ).toEqual(['n1', 'n2', 'n3'])
+  vi.useFakeTimers()
+  try {
+    snapshots.length = 0
+    const h = fixture()
+    const debounced = new MobileNotificationDismissalStore(h.path, { persistDelayMs: 5_000 })
+    const writes = [1, 2, 3].map((seq) =>
+      debounced.record({ ...alert, ...shown, notificationId: `n${seq}`, notificationSeq: seq })
+    )
+
+    await vi.advanceTimersByTimeAsync(4_999)
+    expect(snapshots).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    await Promise.all(writes)
+
+    expect(snapshots).toHaveLength(1)
+    expect(JSON.stringify(snapshots[0])).toContain('n1')
+    expect(JSON.stringify(snapshots[0])).toContain('n3')
+    expect(
+      new MobileNotificationDismissalStore(h.path)
+        .liveDeliveries()
+        .map((entry) => entry.notificationId)
+        .sort()
+    ).toEqual(['n1', 'n2', 'n3'])
+  } finally {
+    vi.useRealTimers()
+  }
 })

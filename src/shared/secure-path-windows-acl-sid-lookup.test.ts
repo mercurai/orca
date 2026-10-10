@@ -71,3 +71,23 @@ describe('the read path SID lookup', () => {
     expect(runProcessSyncMock).not.toHaveBeenCalled()
   })
 })
+
+describe('the SID lookup failure backoff', () => {
+  it('does not retry a failed whoami inside 60 s and retries after it', async () => {
+    const now = vi.spyOn(performance, 'now')
+    now.mockReturnValue(0)
+    runProcessMock.mockResolvedValueOnce(exited('', 1))
+    runProcessMock.mockResolvedValue(exited(`"DOMAIN\alice","${SID}"\r\n`))
+    vi.resetModules()
+    const { getCurrentWindowsUserSidAsync } = await import('./windows-current-user-sid')
+
+    expect(await getCurrentWindowsUserSidAsync()).toBeNull()
+    now.mockReturnValue(59_000)
+    expect(await getCurrentWindowsUserSidAsync()).toBeNull()
+    expect(runProcessMock).toHaveBeenCalledTimes(1)
+
+    now.mockReturnValue(61_000)
+    expect(await getCurrentWindowsUserSidAsync()).toBe(SID)
+    expect(runProcessMock).toHaveBeenCalledTimes(2)
+  })
+})
