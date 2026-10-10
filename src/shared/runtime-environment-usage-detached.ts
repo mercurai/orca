@@ -1,26 +1,8 @@
-import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import {
   getEnvironmentStorePath,
-  MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
   planEnvironmentUsedUpdate,
-  translateStoreWriteError
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store'
-import { RuntimeEnvironmentStoreSchema, type RuntimeEnvironmentStore } from './runtime-environments'
-
-async function writeEnvironmentStoreAsync(
-  userDataPath: string,
-  store: RuntimeEnvironmentStore
-): Promise<void> {
-  try {
-    await writeSecureJsonFileWithinLimitAsync(
-      getEnvironmentStorePath(userDataPath),
-      RuntimeEnvironmentStoreSchema.parse(store),
-      MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES
-    )
-  } catch (error) {
-    throw translateStoreWriteError(userDataPath, error)
-  }
-}
 
 // Why: the environment store is rewritten (two icacls spawns on Windows) at most once per minute per
 // environment, but the write is now async, so responses arriving while it is in flight would each
