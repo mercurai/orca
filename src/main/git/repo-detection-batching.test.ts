@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as runner from './runner'
+import { GitCommandTimeoutError } from './command-runner/git-command-timeout'
 import {
   getGitRepoRoot,
   getLinkedWorktreeMainRepoRoot,
@@ -141,6 +142,18 @@ describe('repository registration probe batching', () => {
       mainRepoPath: null
     })
     expect(probe).toHaveBeenCalledOnce()
+  })
+
+  it('falls back to the .git marker when a probe times out', async () => {
+    const nested = join(repo, 'packages', 'web')
+    mkdirSync(nested, { recursive: true })
+    const probe = vi
+      .spyOn(runner, 'gitExecFileAsync')
+      .mockRejectedValue(new GitCommandTimeoutError(15_000))
+
+    expect(await isGitRepo(nested)).toBe(true)
+    expect(await getGitRepoRoot(nested)).toBe(repo.replace(/\\/g, '/'))
+    expect(probe).toHaveBeenCalled()
   })
 
   it('uses one boolean query for bare checks and none for a missing path', async () => {
