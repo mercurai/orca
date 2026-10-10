@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type * as FsPromises from 'node:fs/promises'
 import type * as GitRepo from '../git/repo'
+import * as runner from '../git/runner'
 import type { Repo } from '../../shared/repo-types'
 
 // Why: the watch must stay one stat per folder project per tick — counting the real
@@ -196,6 +197,7 @@ describe('folder repo git upgrade watch', () => {
   }
 
   it('upgrades a local folder repo once an external git init creates .git', async () => {
+    const syncGit = vi.spyOn(runner, 'gitExecFileSync')
     const repoPath = join(root, 'my-project')
     await mkdir(repoPath)
     const store = makeStore([makeRepo({ id: 'folder-repo', path: repoPath })])
@@ -220,6 +222,8 @@ describe('folder repo git upgrade watch', () => {
     // Why: the shared notifier is what also reaches paired clients (#11994).
     expect(notifyReposChanged).toHaveBeenCalledWith(window)
     expect(notifyWorktreesChanged).toHaveBeenCalledWith(window, 'folder-repo')
+    // Detection is asynchronous end to end: no synchronous git on the upgrade path.
+    expect(syncGit).not.toHaveBeenCalled()
   })
 
   it("keeps external worktrees visible when the stored path is not git's own root", async () => {
