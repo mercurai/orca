@@ -13,7 +13,7 @@ import {
 import { markEnvironmentUsedDetached } from './runtime-environment-usage-detached'
 
 // Every call into the async lane, so a test can wait for the whole retry chain to finish.
-const writes = vi.hoisted(() => [] as Promise<unknown>[])
+const writes = vi.hoisted((): Promise<unknown>[] => [])
 
 vi.mock('./secure-file-async-write', async (importOriginal) => {
   const actual = await importOriginal<typeof SecureFileAsyncWrite>()

@@ -6,7 +6,7 @@ import type * as SecureFileAsyncWrite from '../../shared/secure-file-async-write
 import { MobileNotificationDismissalStore } from './mobile-notification-dismissal-store'
 
 // Every snapshot handed to the async writer, so a test can count writes and read what they carried.
-const snapshots = vi.hoisted(() => [] as unknown[])
+const snapshots = vi.hoisted((): unknown[] => [])
 
 vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
   const actual = await importOriginal<typeof SecureFileAsyncWrite>()
