@@ -351,7 +351,8 @@ describe('runHook', () => {
         ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
         {
           cwd: 'C:\\Users\\jinwo\\git\\orca-feature',
-          wslDistro: 'Ubuntu'
+          wslDistro: 'Ubuntu',
+          timeout: 15_000
         }
       )
       expect(result.runnerScriptPath).toContain('setup-runner.sh')
