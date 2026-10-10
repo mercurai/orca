@@ -87,6 +87,12 @@ patches:
       - src/main/git/command-runner/git-exec-admission-lifetime.test.ts
       - src/main/git/command-runner/git-command-timeout-behavior.test.ts
       - src/main/git/command-runner/spawned-command-tree-kill.test.ts
+      - src/main/git/command-runner/gh-exec-file-deadline.test.ts
+      - src/main/git/command-runner/git-host-binary-resolution.test.ts
+      - src/main/git/command-runner/git-spawn-worker-client-runprocess.test.ts
+      - src/main/git/command-runner/git-spawn-worker-run-barrier.test.ts
+      - src/main/git/command-runner/git-spawn-worker-run-process.test.ts
+      - src/main/git/runner-wsl-direct-read.test.ts
     notes: git spawns on a worker thread behind ORCA_GIT_SPAWN_WORKER
   - slug: orca-secure-file-async
     branch: patch/orca-secure-file-async
@@ -110,20 +116,36 @@ patches:
       - tests/e2e/structured-attention-host-read-retirement.unit.test.ts
       - tests/e2e/structured-attention-prompt-relay.unit.test.ts
       - tests/e2e/structured-attention-relay-settlement.unit.test.ts
+      - src/main/ipc/runtime-environments-call-routing.test.ts
+      - src/main/runtime/rpc/mobile-auth-acl-critical-path.test.ts
+      - src/main/runtime/runtime-mobile-notification-controller-persist.test.ts
+      - src/main/startup/main-process-quit-dismissal-flush.test.ts
+      - src/shared/runtime-environment-store.test.ts
+      - src/shared/secure-path-windows-acl-write-lane.test.ts
     notes: hot secure-file writers on an async lane with two icacls per write, cached async whoami, debounced dismissal store and usage stamp (upstream stablyai/orca#26027)
-  - slug: orca-spawn-worker-barrier
-    branch: patch/orca-spawn-worker-barrier
-    status: planned
-    issue: mercurai/claude-code-config#1086
-    owner: harness
-    added: 2026-10-08
-    tests: []
-    notes: gh, glab and remote-rebase through the spawn worker
   - slug: orca-sync-spawn-sites
     branch: patch/orca-sync-spawn-sites
-    status: planned
-    issue: mercurai/claude-code-config#1087
+    status: ours-only
+    base: v1.4.223
+    issue: mercurai/claude-code-config#1096
     owner: harness
-    added: 2026-10-08
-    tests: []
-    notes: async repo-detection and the Windows sync probe sites (borrowed from upstream PR 20498)
+    added: 2026-10-10
+    tests:
+      - src/main/git/repo-detection-batching.test.ts
+      - src/main/git/repo-detection.test.ts
+      - src/main/ipc/app.test.ts
+      - src/main/ipc/folder-repo-git-upgrade.test.ts
+      - src/main/ipc/repos-local-add-and-project-setup.test.ts
+      - src/main/ipc/repos-nested-import.test.ts
+      - src/main/ipc/repos-nested-scan.test.ts
+      - src/main/ipc/repos/local-repo-registration-spawn.test.ts
+      - src/main/providers/ssh-git-provider-status.test.ts
+      - src/main/pwsh.test.ts
+      - src/main/runtime/rpc/methods/host-capabilities.test.ts
+      - src/main/startup/windows-user-data-acl-no-username.test.ts
+      - src/main/win32-utils-async-acl.test.ts
+      - src/main/wsl-availability-missing-kernel.test.ts
+      - src/main/wsl-distro-list-single-flight.test.ts
+      - src/main/wsl-running-distros.test.ts
+      - src/main/wsl.test.ts
+    notes: async repo detection, runner script and provider contract; wsl, whoami and icacls probes through runProcess; startup grant resolves its identity asynchronously (ported by hand from upstream PR 20498, issue 20497)
