@@ -57,6 +57,7 @@ import {
 import { setAppEnvironment } from '../../shared/app-environment'
 import { ElectronAppEnvironment } from '../host/electron-app-environment'
 import { installMainProcessTreeKillGate } from '../own-chromium-tree-kill-guard'
+import { installRunProcessWorkerRoute } from '../git/command-runner/git-spawn-worker-access'
 import { setSecretStore } from '../../shared/secret-store'
 import { ElectronSecretStore } from '../host/electron-secret-store'
 import { selectLinuxKeyringBackend } from './select-linux-keyring-backend'
@@ -198,6 +199,8 @@ function initializeMainProcessPreflight(options: MainProcessPreflightOptions): b
   // Why before any spawn: `signalProcessTree` is shared with the CLI and relay, so
   // it can only reach the main-process guard and breadcrumb store once this is registered.
   installMainProcessTreeKillGate()
+  // Why: libuv runs CreateProcess on the calling thread, so runProcess captures go to the spawn worker (#1091).
+  installRunProcessWorkerRoute()
   const isDev = is.dev
   configureDevUserDataPath(isDev)
   configureOrcaUserDataPathEnv()

@@ -13,7 +13,7 @@ if (!parentPort) {
 }
 const port = parentPort
 
-installSpawnWorkerTreeKillGate()
+installSpawnWorkerTreeKillGate((kill) => port.postMessage({ type: 'tree-kill', ...kill }))
 const handler = createGitSpawnWorkerHandler({
   postMessage: (message, transfer) => {
     if (transfer) {

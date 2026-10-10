@@ -1,5 +1,8 @@
 import type { ChildProcess } from 'node:child_process'
-import { setProcessTreeKillGate } from '../../../shared/child-process/process-tree-kill-gate'
+import {
+  setProcessTreeKillGate,
+  type ProcessTreeKill
+} from '../../../shared/child-process/process-tree-kill-gate'
 import { killSpawnedCommandTree } from './spawned-command-tree-kill'
 import {
   KILL_VERDICT_WAIT_MS,
@@ -14,9 +17,19 @@ import {
 const treeKillVerdicts = new Map<number, boolean>()
 const verdictWaiters = new Map<number, (admit: boolean) => void>()
 
-/** Worker-side tree-kill gate: admits a pid-addressed walk only when main said so. */
-export function installSpawnWorkerTreeKillGate(): void {
-  setProcessTreeKillGate(({ pid }) => treeKillVerdicts.get(pid) === true)
+/**
+ * Worker-side tree-kill gate. A git kill walks a pid only when main said so. A runProcess kill
+ * reaches here only for a root its own handle still reports alive, so it is admitted, and
+ * `onRunKill` tells main to put it on the record.
+ */
+export function installSpawnWorkerTreeKillGate(onRunKill?: (kill: ProcessTreeKill) => void): void {
+  setProcessTreeKillGate((kill) => {
+    if (kill.site === 'run-process-tree') {
+      onRunKill?.(kill)
+      return true
+    }
+    return treeKillVerdicts.get(kill.pid) === true
+  })
 }
 
 export function deliverKillVerdict(id: number, admit: boolean): void {
