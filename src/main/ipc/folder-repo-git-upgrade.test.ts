@@ -10,14 +10,16 @@ import type { Repo } from '../../shared/repo-types'
 
 // Why: the watch must stay one stat per folder project per tick — counting the real
 // calls is what keeps a directory-listing fan-out from creeping back in.
-const { statCalls, readdirSpy, gitProbes, gitInFlight } = vi.hoisted(() => ({
+const { statCalls, readdirSpy, gitProbes, gitInFlight, probeGate } = vi.hoisted(() => ({
   statCalls: [] as string[],
   readdirSpy: vi.fn(),
   // Why: the rejected-marker cache exists to stop git respawning every tick; counting the
   // real probes is the only way that guarantee stays true.
   gitProbes: new Array<string>(),
   // Detection spawns git asynchronously now, so a tick is only settled once these have returned.
-  gitInFlight: { count: 0 }
+  gitInFlight: { count: 0 },
+  // When set, isGitRepo waits for it, so a test can change the world while a probe is out.
+  probeGate: { hold: Promise.resolve() }
 }))
 
 function trackInFlight<T>(probe: Promise<T>): Promise<T> {
@@ -33,7 +35,12 @@ vi.mock('../git/repo', async (importOriginal) => {
     ...actual,
     isGitRepo: (path: string) => {
       gitProbes.push(path)
-      return trackInFlight(actual.isGitRepo(path))
+      return trackInFlight(
+        (async () => {
+          await probeGate.hold
+          return actual.isGitRepo(path)
+        })()
+      )
     },
     getGitRepoRoot: (path: string) => trackInFlight(actual.getGitRepoRoot(path))
   }
@@ -157,6 +164,7 @@ describe('folder repo git upgrade watch', () => {
     statCalls.length = 0
     gitProbes.length = 0
     gitInFlight.count = 0
+    probeGate.hold = Promise.resolve()
   })
 
   afterEach(async () => {
@@ -380,6 +388,30 @@ describe('folder repo git upgrade watch', () => {
       'repo-a',
       expect.objectContaining({ kind: 'git' })
     )
+  })
+
+  it('does not flip a project whose folder workspace was added while the probe was out', async () => {
+    const repoPath = join(root, 'my-project')
+    await mkdir(repoPath)
+    gitInit(repoPath)
+    const worktreeMeta: Record<string, unknown> = {}
+    const store = makeStore([makeRepo({ id: 'folder-repo', path: repoPath })], worktreeMeta)
+    const gate = Promise.withResolvers<void>()
+    probeGate.hold = gate.promise
+
+    startFolderRepoGitUpgradeWatch(store as never, makeWindow() as never, {
+      pollIntervalMs: POLL_MS,
+      idlePollIntervalMs: IDLE_POLL_MS
+    })
+    await vi.waitFor(() => expect(gitProbes.length).toBeGreaterThan(0), { timeout: 15_000 })
+    // The user adds a folder workspace while git is still being asked.
+    worktreeMeta[`folder-repo::${repoPath}::workspace:11111111-1111-1111-1111-111111111111`] = {
+      displayName: 'draft'
+    }
+    gate.resolve()
+    await tick(2)
+
+    expect(store.updateRepo).not.toHaveBeenCalled()
   })
 
   it('never upgrades again once the repo is already git', async () => {

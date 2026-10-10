@@ -131,6 +131,18 @@ async function upgradeFolderRepo(watch: UpgradeWatch, repoId: string): Promise<U
   if (!updates) {
     return 'rejected'
   }
+  // Why re-check: the probes above await up to 15 s each, during which a workspace can be added
+  // (the flip would delete its lineage), the repo moved or removed, or the watch disposed.
+  const latest = watch.store.getRepo(repoId)
+  if (
+    watch.disposed ||
+    !latest ||
+    latest.path !== current.path ||
+    !isUpgradeCandidate(latest) ||
+    hasExtraFolderWorkspaces(watch.store, latest)
+  ) {
+    return 'blocked'
+  }
   const upgraded = watch.store.updateRepo(repoId, { kind: 'git', ...updates })
   if (!upgraded) {
     return 'upgraded'
