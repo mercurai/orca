@@ -4,7 +4,9 @@ import { setSpawnObserver } from '../../../shared/child-process/spawn-observer'
 import { RunProcessTable, runProcessOnWorker } from './git-spawn-worker-client-runprocess'
 import type { SpawnWorkerRequest } from './git-spawn-worker-protocol'
 
-vi.mock('../../own-chromium-tree-kill-guard', () => ({ admitSelfInitiatedTreeKill: vi.fn() }))
+vi.mock('../../crash-reporting/self-initiated-tree-kill-log', () => ({
+  recordSelfInitiatedTreeKill: vi.fn()
+}))
 
 const LOCAL_RESULT: ProcessResult = {
   code: 0,
@@ -22,6 +24,10 @@ function createTable(accept = true): { table: RunProcessTable; sent: SpawnWorker
     send: (request) => {
       sent.push(request)
       return accept
+    },
+    post: (request) => {
+      sent.push(request)
+      return true
     },
     onBusy: () => {},
     onIdle: () => {}
@@ -168,5 +174,34 @@ describe('runProcessOnWorker', () => {
     await expect(pending).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
     expect(inProcess).not.toHaveBeenCalled()
     expect(onChildTerminated).toHaveBeenCalledOnce()
+  })
+
+  it('keeps a settled run until its child is reported terminated, even when that comes last', async () => {
+    const { table } = createTable()
+    const onChildTerminated = vi.fn()
+    const pending = runProcessOnWorker(table, { program: 'x', onChildTerminated }, 'head', () =>
+      Promise.resolve(LOCAL_RESULT)
+    )
+    table.handle({ type: 'run-spawned', id: 1, pid: undefined })
+    table.handle({ type: 'run-result', id: 1, error: null, result: LOCAL_RESULT })
+    await pending
+    expect(table.size).toBe(1)
+    expect(onChildTerminated).not.toHaveBeenCalled()
+    table.handle({ type: 'run-terminated', id: 1 })
+    expect(onChildTerminated).toHaveBeenCalledOnce()
+    expect(table.size).toBe(0)
+  })
+
+  it('reports a settled run terminated when the worker dies before its child is gone', async () => {
+    const { table } = createTable()
+    const onChildTerminated = vi.fn()
+    const pending = runProcessOnWorker(table, { program: 'x', onChildTerminated }, 'head', () =>
+      Promise.resolve(LOCAL_RESULT)
+    )
+    table.handle({ type: 'run-result', id: 1, error: null, result: LOCAL_RESULT })
+    await pending
+    table.failAll(new Error('worker exited'))
+    expect(onChildTerminated).toHaveBeenCalledOnce()
+    expect(table.size).toBe(0)
   })
 })

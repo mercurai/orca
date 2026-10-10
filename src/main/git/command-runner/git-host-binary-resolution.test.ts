@@ -31,11 +31,20 @@ describe('resolveHostBinaryOnce', () => {
   }
 
   it('returns one absolute path per PATH generation without searching again', () => {
+    const later = installBinary('later', 'git.exe')
+    const env = { PATH: `${path.join(root, 'earlier')};${path.dirname(later)}` }
+    expect(resolveHostBinaryOnce('git', env)).toBe(later)
+    // Why: a binary that appears earlier on the same PATH is not seen until the PATH changes.
+    installBinary('earlier', 'git.exe')
+    expect(resolveHostBinaryOnce('git', env)).toBe(later)
+  })
+
+  it('searches again when the cached binary has disappeared', () => {
     const git = installBinary('first', 'git.exe')
-    const env = { PATH: `${path.join(root, 'missing')};${path.dirname(git)}` }
+    const env = { PATH: path.dirname(git) }
     expect(resolveHostBinaryOnce('git', env)).toBe(git)
     rmSync(git)
-    expect(resolveHostBinaryOnce('git', env)).toBe(git)
+    expect(resolveHostBinaryOnce('git', env)).toBe('git')
   })
 
   it('searches again after the PATH changes', () => {
