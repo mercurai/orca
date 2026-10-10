@@ -1,6 +1,7 @@
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { endSubprocessStdin } from '../../../shared/subprocess-stdin-write'
 import { isExecFileResultObject } from './exec-file-result'
+import { createRunProcessHost } from './git-spawn-worker-run'
 import {
   deliverKillVerdict,
   killChildWithMainVerdict,
@@ -42,6 +43,7 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
   killAll: () => void
 } {
   const active = new Map<number, Entry>()
+  const runs = createRunProcessHost(port)
 
   function newEntry(id: number, kind: Entry['kind']): Entry {
     const entry: Entry = {
@@ -234,6 +236,13 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
   }
 
   function handle(request: SpawnWorkerRequest): void {
+    if (request.type === 'run') {
+      runs.start(request)
+      return
+    }
+    if (request.type === 'terminate' && runs.abort(request.id)) {
+      return
+    }
     if (request.type === 'capture') {
       startCapture(request)
       return
@@ -261,6 +270,7 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
 
   // Why: runs when the worker thread exits, so it cannot await; reap each tree synchronously.
   function killAll(): void {
+    runs.killAll()
     for (const entry of active.values()) {
       killTreeAtShutdown(entry.child)
     }

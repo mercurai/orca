@@ -10,6 +10,7 @@ import { forceTerminateProcessTree, signalProcessTree } from './process-tree-ter
 import { hasSpawnObserver, notifySpawnObserver } from './spawn-observer'
 import { createOutputSink } from './bounded-output-sink'
 import { createChildTerminationReporter } from './child-termination-reporter'
+import { routeRunProcess } from './run-process-worker-route'
 
 export type {
   ChildProcessHandle,
@@ -81,6 +82,16 @@ export function runProcess(
     spec.onChildTerminated?.()
     return Promise.resolve({ code: null, signal: null, stdout: '', stderr: '', timedOut: false })
   }
+  // Why: libuv runs CreateProcess on the calling thread, so main hands the spawn to the worker.
+  const inProcess = (): Promise<ProcessResult> => runProcessInProcess(spec, outputCapture)
+  return routeRunProcess(spec, outputCapture, inProcess) ?? inProcess()
+}
+
+/** runProcess without the worker route: what the spawn worker itself runs, and main's fallback. */
+export function runProcessInProcess(
+  spec: ProcessSpec,
+  outputCapture: 'head' | 'tail'
+): Promise<ProcessResult> {
   const maxOutputBytes = spec.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
 
   return new Promise<ProcessResult>((resolve, reject) => {
@@ -93,6 +104,7 @@ export function runProcess(
       reject(error)
       return
     }
+    spec.onSpawn?.(child)
 
     const stdout = createOutputSink(maxOutputBytes, outputCapture)
     const stderr = createOutputSink(maxOutputBytes, outputCapture)
