@@ -29,7 +29,7 @@ export type ReposIpcMocks = {
     ReposIpcSpy
   > & { updateRepo: Mock<(repoId: string, updates: Record<string, unknown>) => unknown> }
   mockGitProvider: Record<
-    'isGitRepo' | 'isGitRepoAsync' | 'clone' | 'listWorktrees' | 'getHostPlatform',
+    'isGitRepoAsync' | 'clone' | 'listWorktrees' | 'getHostPlatform',
     ReposIpcSpy
   > & { exec: ReposGitArgvSpy }
   mockFilesystemProvider: Record<
@@ -65,7 +65,6 @@ export function createReposIpcMocks(): ReposIpcMocks {
       getSshTarget: vi.fn()
     },
     mockGitProvider: {
-      isGitRepo: vi.fn().mockReturnValue(true),
       isGitRepoAsync: vi.fn().mockResolvedValue({ isRepo: true, rootPath: null }),
       exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
       clone: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),

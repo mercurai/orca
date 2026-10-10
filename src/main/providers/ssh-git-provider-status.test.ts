@@ -211,8 +211,4 @@ describe('SshGitProvider', () => {
     })
     expect(result).toEqual(compareResult)
   })
-
-  it('isGitRepo always returns true for remote paths', async () => {
-    expect(await provider.isGitRepo('/any/path')).toBe(true)
-  })
 })

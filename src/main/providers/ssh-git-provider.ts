@@ -150,11 +150,6 @@ export class SshGitProvider extends SshGitWorktreeProvider implements IGitProvid
     }
   }
 
-  // Remote paths are validated asynchronously by the relay before registration.
-  async isGitRepo(_path: string): Promise<boolean> {
-    return true
-  }
-
   private async readOriginRemoteUrl(worktreePath: string): Promise<string | null> {
     try {
       const result = await this.exec(['remote', 'get-url', 'origin'], worktreePath)
