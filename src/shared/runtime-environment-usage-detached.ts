@@ -1,8 +1,5 @@
-import {
-  getEnvironmentStorePath,
-  planEnvironmentUsedUpdate,
-  writeEnvironmentStoreAsync
-} from './runtime-environment-store'
+import { getEnvironmentStorePath, writeEnvironmentStoreAsync } from './runtime-environment-store'
+import { planEnvironmentUsedUpdate } from './runtime-environment-usage'
 
 // Why: the environment store is rewritten (two icacls spawns on Windows) at most once per minute per
 // environment, but the write is now async, so responses arriving while it is in flight would each

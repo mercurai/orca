@@ -2,13 +2,13 @@ import {
   addEnvironmentFromPairingCode as addEnvironmentFromPairingCodeInStore,
   getEnvironmentStorePath,
   listEnvironments,
-  markEnvironmentUsed as markEnvironmentUsedInStore,
   removeEnvironment as removeEnvironmentFromStore,
   resolveEnvironment as resolveEnvironmentFromStore,
   resolveEnvironmentPairingOffer as resolveEnvironmentPairingOfferFromStore,
   RuntimeEnvironmentStoreError,
   type RuntimeEnvironmentStoreErrorCode
 } from '../../shared/runtime-environment-store'
+import { markEnvironmentUsed as markEnvironmentUsedInStore } from '../../shared/runtime-environment-usage'
 import type {
   KnownRuntimeEnvironment,
   PublicKnownRuntimeEnvironment
