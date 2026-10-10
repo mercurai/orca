@@ -22,7 +22,7 @@ let wslAvailabilityProbeInFlight: Promise<boolean> | null = null
 let wslAvailabilityCacheGeneration = 0
 
 const WSL_AVAILABILITY_PROBE_TIMEOUT_MS = 5000
-// Why: availability is a separate, blocking probe. Deliberately not a multiple of the
+// Why: availability is a separate, slow probe. Deliberately not a multiple of the
 // renderer's 30s capability TTL, so repeated refreshes don't land on this boundary and
 // re-probe every cycle.
 const WSL_AVAILABILITY_NEGATIVE_CACHE_TTL_MS = 45_000
@@ -52,7 +52,7 @@ function wslAvailabilityRetryDelayMs(cache: { retryable: boolean; failures: numb
 // Why: a non-zero exit (wsl.exe ran and said no) or ENOENT (not installed) is answer-shaped,
 // so it earns a long window rather than the short one a timeout gets. `wslStatusProbeFailure`
 // reports the exit code as `status`, a failed spawn arrives with a string `code`; both must
-// count as definitive or one twin poisons the shared cache with the short retryable window.
+// count as definitive or the cache gets the short retryable window.
 // Same numeric-status rule as `wslUncDirectoryExists`; neither latches forever.
 function isRetryableWslProbeFailure(error: unknown): boolean {
   const failure = error as { status?: unknown; code?: unknown } | null
