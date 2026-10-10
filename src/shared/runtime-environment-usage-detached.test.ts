@@ -42,3 +42,20 @@ it('persists the runtime id without blocking, once, and throws for an unknown en
     'Unknown environment'
   )
 })
+
+it('turns ten usage stamps in one minute into one write', async () => {
+  const { userDataPath, id } = seededStore()
+
+  for (let call = 0; call < 10; call += 1) {
+    markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
+  }
+  await settlePathWritesForTests()
+  const stamped = listEnvironments(userDataPath)[0]!.lastUsedAt
+  for (let call = 0; call < 10; call += 1) {
+    markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
+  }
+  await settlePathWritesForTests()
+
+  expect(stamped).toBeTypeOf('number')
+  expect(listEnvironments(userDataPath)[0]!.lastUsedAt).toBe(stamped)
+})

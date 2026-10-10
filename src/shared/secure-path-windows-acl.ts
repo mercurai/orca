@@ -271,6 +271,14 @@ export async function restrictNewFileAsync(targetPath: string): Promise<boolean>
       return false
     }
   }
+  // Diagnostics only: the read-back this lane skips, for chasing a suspected bad DACL.
+  if (process.env.ORCA_SECURE_FILE_VERIFY === '1') {
+    const invalid = await verifyAsync(plan)
+    if (invalid) {
+      report(targetPath, 'verify', invalid)
+      return false
+    }
+  }
   return true
 }
 
