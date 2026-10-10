@@ -78,7 +78,7 @@ jobs:
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           git ls-remote --tags origin | awk '{print $2}' | grep -v '\^{}$' | sort > /tmp/tags-before
           git fetch --no-tags upstream main
-          git fetch upstream --tags
+          git fetch upstream --tags --force
           git tag -l | sed 's#^#refs/tags/#' | sort > /tmp/tags-after
           comm -13 /tmp/tags-before /tmp/tags-after | sed 's#^refs/tags/##' > /tmp/tags-new
           # Stable tags win over release candidates; one dispatch per run, the newest tag of the better kind.
@@ -97,7 +97,7 @@ jobs:
       - name: Mirror tags
         if: ${{ steps.mode.outputs.push == 'true' }}
         # A tag that upstream moved is rejected rather than forced; the job fails and a human decides.
-        run: git push origin --tags
+        run: git push --force origin --tags
 
       - name: Hand the newest release tag to fork-rebase-patches
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.

@@ -79,7 +79,7 @@ jobs:
           git config rerere.enabled true
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
           git fetch --no-tags upstream main
-          git fetch upstream --tags
+          git fetch upstream --tags --force
           git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*'
           if [ -n "$TARGET" ]; then git rev-parse --verify "refs/tags/$TARGET^{commit}" >/dev/null; fi
 
