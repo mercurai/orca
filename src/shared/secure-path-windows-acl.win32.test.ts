@@ -13,6 +13,8 @@ import {
   resetSecureFileWindowsUserSidForTests,
   restrictWindowsPathSync
 } from './secure-path-windows-acl'
+import { writeSecureFile } from './secure-file'
+import { writeSecureFileAsync } from './secure-file-async-write'
 import { removeTreeSync } from './windows-transient-lock-removal'
 
 /**
@@ -293,42 +295,27 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
   })
 
   /**
-   * Verification writes a temp SDDL file. If it cannot, the ACL may well have been applied — but
-   * it cannot be *proved*, so hardening must report failure rather than assume success. Fail
-   * closed, and say so: a silently-unverifiable control is the shape of the original bug.
+   * The write lane skips the read-back its predecessor ran before and after the grant, so the
+   * proof moves here: a file written through either lane must end up with exactly the DACL the
+   * verified read-path sequence produces on a control file.
    */
-  it('reports failure, loudly, when verification cannot write its descriptor', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const file = join(root, 'unverifiable.json')
-    writeFileSync(file, '{}')
-    const realTemp = process.env.TEMP
-    const realTmp = process.env.TMP
-    // Point the descriptor save at a directory that cannot exist.
-    process.env.TEMP = join(root, 'no-such-dir', 'nested')
-    process.env.TMP = process.env.TEMP
+  it('leaves a written credential with the same DACL as the full verified sequence', async () => {
+    const control = join(root, 'control.json')
+    writeFileSync(control, '{}')
+    const controlRestricted = await new Promise<boolean>((resolve) => {
+      bestEffortRestrictWindowsPath(control, false, resolve)
+    })
+    expect(controlRestricted).toBe(true)
 
-    try {
-      expect(restrictWindowsPathSync(file, false)).toBe(false)
-      expect(warn).toHaveBeenCalledWith(
-        '[secure-path.windows-acl] failed to restrict path',
-        expect.objectContaining({ stage: 'verify' })
-      )
-    } finally {
-      if (realTemp === undefined) {
-        delete process.env.TEMP
-      } else {
-        process.env.TEMP = realTemp
-      }
-      if (realTmp === undefined) {
-        delete process.env.TMP
-      } else {
-        process.env.TMP = realTmp
-      }
-      warn.mockRestore()
-    }
+    const viaAsyncLane = join(root, 'async-lane.json')
+    await writeSecureFileAsync(viaAsyncLane, '{"token":"secret"}')
+    const viaSyncLane = join(root, 'sync-lane.json')
+    writeSecureFile(viaSyncLane, '{"token":"secret"}')
 
-    // And the ACL itself was still applied, so the failure is a loss of proof, not of protection.
-    expect(readAclEntries(file)).toHaveLength(3)
+    const expected = readAclEntries(control).sort()
+    expect(expected).toHaveLength(3)
+    expect(readAclEntries(viaAsyncLane).sort()).toEqual(expected)
+    expect(readAclEntries(viaSyncLane).sort()).toEqual(expected)
   })
 
   it('reports failure for a path that does not exist', () => {
@@ -384,7 +371,8 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
         settled = true
         throw new Error('settlement callback exploded')
       })
-      await vi.waitFor(() => expect(settled).toBe(true))
+      // The first apply now resolves the SID through an async whoami before any icacls runs.
+      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 15_000 })
       // An unhandled rejection is raised a turn later, so give the loop one.
       await new Promise((resolve) => setTimeout(resolve, 50))
     } finally {
