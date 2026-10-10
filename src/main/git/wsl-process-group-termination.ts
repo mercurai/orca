@@ -12,8 +12,11 @@ export type WslProcessGroupTermination = ProcessTerminationBarrier & {
   stripControlOutput: (stderr: string) => string
 }
 
-export function createWslProcessGroupTermination(distro: string): WslProcessGroupTermination {
-  const marker = `__ORCA_WSL_PROCESS_GROUP_${randomUUID()}__=`
+/** `marker` is only passed by the spawn worker, which rebuilds the barrier main created. */
+export function createWslProcessGroupTermination(
+  distro: string,
+  marker = `__ORCA_WSL_PROCESS_GROUP_${randomUUID()}__=`
+): WslProcessGroupTermination {
   let processGroupId: number | null = null
   let stderrTail = ''
 
@@ -55,6 +58,7 @@ export function createWslProcessGroupTermination(distro: string): WslProcessGrou
   }
 
   return {
+    worker: { kind: 'wsl-process-group', distro, marker },
     observeStderr,
     signal: () => terminate('TERM'),
     force: () => terminate('KILL'),
