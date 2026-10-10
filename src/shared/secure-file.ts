@@ -39,7 +39,7 @@ type HardenedPathCacheEntry = {
   birthtimeMs: number
 }
 
-const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'])
+export const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'])
 
 // Why: hardening spawns icacls synchronously (once when the DACL already verifies, four times when it must be rewritten), so cache idempotent re-hardens per process.
 let hardenedPathsThisProcess = new SecurePathHardeningCache<HardenedPathCacheEntry>(
@@ -66,7 +66,8 @@ function hardenSecureDirectoryOnce(dirPath: string): void {
   })
 }
 
-function hardenSecurePathOnce(targetPath: string, isDirectory: boolean): boolean {
+/** Exported for `secure-file-async-write`, the async twin of the write path below. */
+export function hardenSecurePathOnce(targetPath: string, isDirectory: boolean): boolean {
   if (isDirectory && process.platform === 'win32') {
     hardenSecureDirectoryOnce(targetPath)
     return true
@@ -119,6 +120,11 @@ export function writeDurableSecureJsonFile(targetPath: string, value: unknown): 
  * The return value covers the *file* only. The parent directory is hardened fire-and-forget — on
  * Windows that lane is async and answers `pending` regardless — so a `true` here says nothing
  * about the directory's ACL.
+ *
+ * Blocking twin of `writeSecureFileAsync`, kept for the stores that are synchronous by construction
+ * and have no await to give (`device-registry`, `plugin-*-store`, `artifact-share-record-store`,
+ * `profile-cloud-*`, `runtime-environment-store`). It also bypasses that lane's per-path
+ * serialization, so a given file must be written through one lane or the other, not both.
  */
 export function writeSecureFile(
   targetPath: string,
@@ -143,17 +149,19 @@ export function writeSecureFile(
     }
     // Why: writeFileSync mode is a no-op on Windows, so restrict the credential's ACL synchronously before the rename publishes it under inherited ACLs.
     const stagedOutcome = applySecurePathRestriction(tmpFile, false, process.platform, true)
+    if (stagedOutcome === 'applied') {
+      recordHardeningOutcome(targetPath, true)
+    }
     renameSync(tmpFile, targetPath)
-    // Why: these hold auth credentials, so the published path must stay current-user only; cache only on confirmed success so failures retry.
-    // The staged file's protected DACL survives the rename, so this pass usually just verifies it.
-    const publishedOutcome = applySecurePathRestriction(targetPath, false, process.platform, true)
-    if (publishedOutcome === 'applied') {
+    // The staged file's protected DACL travels with the rename (same volume), so the published path
+    // needs no second pass; cache only on confirmed success so failures retry.
+    if (stagedOutcome === 'applied') {
       rememberHardenedPath(targetPath, false)
     }
     if (options.durable) {
       bestEffortFsyncDirectorySync(dir)
     }
-    return stagedOutcome === 'applied' && publishedOutcome === 'applied'
+    return stagedOutcome === 'applied'
   } catch (error) {
     rmSync(tmpFile, { force: true })
     throw error
@@ -251,7 +259,7 @@ export function hardenSecurePath(
  * reporting it as `applied` is what let a dead ACL look like a working one. The real outcome
  * arrives through `onAsyncSettled`.
  */
-type HardeningOutcome = 'applied' | 'pending' | 'failed'
+export type HardeningOutcome = 'applied' | 'pending' | 'failed'
 
 function applySecurePathRestriction(
   targetPath: string,
@@ -291,7 +299,7 @@ function applySecurePathRestriction(
 }
 
 /** Caches the current metadata snapshot for a just-hardened path, or clears it if the path is gone. */
-function rememberHardenedPath(targetPath: string, isDirectory: boolean): void {
+export function rememberHardenedPath(targetPath: string, isDirectory: boolean): void {
   const entry = getHardenedPathCacheEntry(targetPath, isDirectory)
   if (entry) {
     hardenedPathsThisProcess.set(targetPath, entry)

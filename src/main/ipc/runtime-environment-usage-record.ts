@@ -1,4 +1,4 @@
-import { markEnvironmentUsed } from '../../shared/runtime-environment-store'
+import { markEnvironmentUsedDetached } from '../../shared/runtime-environment-usage-detached'
 
 /**
  * Records `lastUsedAt` for callers that cannot report a failure to anyone.
@@ -16,7 +16,7 @@ export function recordRuntimeEnvironmentUsage(
   args: { runtimeId?: string | null; pairedDeviceId?: string } = {}
 ): void {
   try {
-    markEnvironmentUsed(userDataPath, selector, args)
+    markEnvironmentUsedDetached(userDataPath, selector, args)
   } catch (error) {
     console.warn(
       `Skipped last-used bookkeeping for runtime environment ${selector}:`,

@@ -71,6 +71,11 @@ export class RuntimeMobileNotificationController {
     this.dismissalStore = new MobileNotificationDismissalStore(userDataPath)
   }
 
+  /** Writes the debounced dismissal history now (shutdown, and tests that restart from disk). */
+  async flushDismissals(): Promise<void> {
+    await this.dismissalStore?.flush()
+  }
+
   reconcileDismissedPushes(
     delivered: readonly DeliveredNotificationIdentity[]
   ): DeliveredNotificationIdentity[] {
@@ -125,15 +130,18 @@ export class RuntimeMobileNotificationController {
       }
     }
     const seq = this.replay.record(event)
-    try {
-      this.dismissalStore?.record({
-        ...event,
-        notificationSeq: seq,
-        notificationEpoch: this.replay.epoch
+    // `dispatch` is synchronous; the store commits the entry in memory before it awaits the write,
+    // so `reconcile` is already correct by the time this returns.
+    // Nothing paired and no push service means no phone can hold a delivery to dismiss later.
+    const hasRecipients = this.pushRegistrar !== null || this.listeners.size > 0
+    void this.dismissalStore
+      ?.record(
+        { ...event, notificationSeq: seq, notificationEpoch: this.replay.epoch },
+        { persist: hasRecipients }
+      )
+      .catch(() => {
+        console.warn('[notifications] Could not persist dismissal recovery state')
       })
-    } catch {
-      console.warn('[notifications] Could not persist dismissal recovery state')
-    }
     notifyRuntimeListeners(
       this.listeners,
       (listener) =>
