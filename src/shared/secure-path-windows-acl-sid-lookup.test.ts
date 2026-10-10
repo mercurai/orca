@@ -79,7 +79,7 @@ describe('the SID lookup failure backoff', () => {
     runProcessMock.mockResolvedValueOnce(exited('', 1))
     runProcessMock.mockResolvedValue(exited(`"DOMAIN\\alice","${SID}"\r\n`))
     vi.resetModules()
-    const { getCurrentWindowsUserSidAsync } = await import('./windows-current-user-sid')
+    const { getCurrentWindowsUserSidAsync } = await import('./windows-current-user-sid.js')
 
     expect(await getCurrentWindowsUserSidAsync()).toBeNull()
     now.mockReturnValue(59_000)
