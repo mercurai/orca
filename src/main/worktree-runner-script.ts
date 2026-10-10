@@ -26,6 +26,8 @@ async function getGitPath(
 ): Promise<string> {
   const { stdout } = await gitExecFileAsync(['rev-parse', '--git-path', relativePath], {
     cwd,
+    // Why: the synchronous call this replaced gave up after 15 s; the async default is about 120 s.
+    timeout: 15_000,
     ...(runtimeTarget?.wslDistro ? { wslDistro: runtimeTarget.wslDistro } : {})
   })
   return stdout.trim()
