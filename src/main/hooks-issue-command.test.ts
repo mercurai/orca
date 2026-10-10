@@ -173,7 +173,7 @@ describe('createIssueCommandRunnerScript', () => {
 
       expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/issue-command-runner.sh'],
-        { cwd: 'C:\\repo-worktree' }
+        { cwd: 'C:\\repo-worktree', timeout: 15_000 }
       )
       expect(writeFileSyncMock).toHaveBeenCalledWith(
         'C:\\repo\\.git\\orca\\issue-command-runner.sh',
@@ -207,7 +207,7 @@ describe('createIssueCommandRunnerScript', () => {
 
       expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/issue-command-runner.cmd'],
-        { cwd: 'C:\\repo-worktree' }
+        { cwd: 'C:\\repo-worktree', timeout: 15_000 }
       )
       // Why: the runner file is batch (.cmd) while the pane that launches it is still Git Bash.
       expect(result.shell).toEqual({ family: 'posix' })
@@ -235,7 +235,7 @@ describe('createIssueCommandRunnerScript', () => {
 
       expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
         ['rev-parse', '--git-path', 'orca/issue-command-runner.cmd'],
-        { cwd: 'C:\\repo-worktree' }
+        { cwd: 'C:\\repo-worktree', timeout: 15_000 }
       )
       expect(result.shell).toEqual({ family: 'cmd' })
     } finally {
