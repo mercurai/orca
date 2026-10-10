@@ -99,6 +99,7 @@ export class GitSpawnWorkerClient {
     this.runs = new RunProcessTable({
       allocateId: () => ++this.nextId,
       send: (request) => Boolean(this.host.ensure()) && this.post(request),
+      post: (request) => this.post(request),
       onBusy: () => this.host.clearIdleTimer(),
       onIdle: () => this.active.size === 0 && this.host.scheduleIdleTeardown()
     })
@@ -197,6 +198,9 @@ export class GitSpawnWorkerClient {
       return
     }
     if (isRunMessage(message)) {
+      if (message.type === 'run-result') {
+        this.consecutiveDeaths = 0
+      }
       this.runs.handle(message)
       return
     }
