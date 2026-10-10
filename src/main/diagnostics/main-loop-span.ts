@@ -1,6 +1,7 @@
 import { recordCoalescedDurableCrashBreadcrumb } from '../crash-reporting/durable-crash-breadcrumb'
 import { drainGitExecWindow } from '../observability/git-exec-window-aggregate'
 import { startSpan } from '../observability/tracer'
+import { terminalInputLatency } from './terminal-input-latency'
 import type { SubprocessSpawnStats } from './main-thread-churn-probe'
 
 export const MAIN_LOOP_WINDOW_MS = 60_000
@@ -84,6 +85,9 @@ export function emitMainLoopSpan(
   for (const [key, stats] of top) {
     // "git status" -> spawns.git.status
     span.setAttribute(`spawns.${key.replace(/ /g, '.')}`, stats.count)
+  }
+  for (const [key, value] of Object.entries(terminalInputLatency.drain())) {
+    span.setAttribute(`terminalInput.${key}`, value)
   }
   for (const [subcommand, stats] of Object.entries(drainGitExecWindow())) {
     span.setAttribute(`git.${subcommand}.count`, stats.count)
