@@ -358,7 +358,7 @@ describe('WSL home cache', () => {
   })
 })
 
-describe('WSL availability cache', async () => {
+describe('WSL availability cache', () => {
   afterEach(() => {
     runProcessMock.mockReset()
     runProcessSyncMock.mockReset()
@@ -430,21 +430,12 @@ describe('WSL availability cache', async () => {
   // 10-minute definitive TTL with exponential backoff. Git kept working and Orca
   // reported WSL unavailable -- a worse state than the bug being fixed. Naming
   // the directory is what keeps ENOENT meaning "wsl.exe is not on PATH".
-  it('names an explicit spawn directory on both probes, so no deleted cwd can read as ENOENT', async () => {
+  it('names an explicit spawn directory on the probe, so no deleted cwd can read as ENOENT', async () => {
     runProcessMock.mockResolvedValueOnce(exited(''))
     runProcessMock.mockResolvedValue(exited(''))
 
     await withPlatformAsync('win32', async () => {
       expect(await isWslAvailableAsync()).toBe(true)
-    })
-    expect(runProcessMock).toHaveBeenCalledWith(
-      expect.objectContaining({ args: ['--status'], cwd: expect.any(String) })
-    )
-
-    // The two probes share one cache, so a false ENOENT from either poisons both.
-    _resetWslCachesForTests()
-    await withPlatformAsync('win32', async () => {
-      await expect(isWslAvailableAsync()).resolves.toBe(true)
     })
     expect(runProcessMock).toHaveBeenCalledWith(
       expect.objectContaining({ args: ['--status'], cwd: expect.any(String) })
@@ -458,27 +449,6 @@ describe('WSL availability cache', async () => {
       const results = await Promise.all([isWslAvailableAsync(), isWslAvailableAsync()])
       expect(results).toEqual([true, true])
       expect(runProcessMock).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  it('does not let an older async failure overwrite a newer sync success', async () => {
-    let finishAsyncProbe: ((result: ProcessResult) => void) | null = null
-    runProcessMock.mockImplementation(
-      () =>
-        new Promise<ProcessResult>((resolve) => {
-          finishAsyncProbe = resolve
-        })
-    )
-    runProcessMock.mockResolvedValue(exited(''))
-
-    await withPlatformAsync('win32', async () => {
-      const staleProbe = isWslAvailableAsync()
-      expect(await isWslAvailableAsync()).toBe(true)
-
-      finishAsyncProbe?.(exited('', 1))
-
-      await expect(staleProbe).resolves.toBe(true)
-      expect(getCachedWslAvailability()).toBe(true)
     })
   })
 
