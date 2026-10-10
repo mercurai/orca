@@ -9,9 +9,9 @@ import {
   getEnvironmentStorePath,
   listEnvironments,
   MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
-  markEnvironmentUsed,
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
+import { markEnvironmentUsed } from './runtime-environment-usage'
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768', pairedDeviceId?: string): string {
   return encodePairingOffer({
