@@ -1,6 +1,6 @@
-import { execFile, execFileSync, type ExecFileOptionsWithStringEncoding } from 'node:child_process'
 import { delimiter, join, win32 } from 'node:path'
 import { existsSync } from 'node:fs'
+import { runProcess, runProcessSync, type ProcessResult } from '../shared/child-process/run-process'
 
 export {
   getCmdExePath,
@@ -13,20 +13,12 @@ export {
   type GetSpawnArgsForWindowsOptions
 } from '../shared/windows-batch-spawn'
 
-function execFileWithoutBlocking(
-  command: string,
-  args: string[],
-  options: ExecFileOptionsWithStringEncoding
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(command, args, options, (error, stdout) => {
-      if (error) {
-        reject(error)
-        return
-      }
-      resolve(stdout)
-    })
-  })
+/** execFile(Sync) turned a non-zero exit into a throw; runProcess returns it as data. */
+function assertExitZero(program: string, result: ProcessResult): void {
+  if (result.code !== 0) {
+    const status = result.code ?? result.signal ?? 'no status'
+    throw new Error(`${program} exited ${status}: ${result.stderr.trim()}`)
+  }
 }
 
 /**
@@ -104,14 +96,17 @@ function cachedOrEnvironmentIdentity(): string | undefined {
   return undefined
 }
 
+const WHOAMI_SID_ARGS = ['/user', '/fo', 'csv', '/nh'] as const
+const WHOAMI_TIMEOUT_MS = 5000
+
 function identityFromWhoamiOutput(output: string): string | null {
   // CSV columns: "DOMAIN\\user","S-1-5-21-..."
   const sidMatch = /"(S-[\d-]+)"\s*$/.exec(output.trim())
   return sidMatch ? `*${sidMatch[1]}` : null
 }
 
-export function resolveCurrentWindowsIdentity(): string | null {
-  return resolveCurrentIdentity()
+export function resolveCurrentWindowsIdentityAsync(): Promise<string | null> {
+  return resolveCurrentIdentityAsync()
 }
 
 function resolveCurrentIdentity(): string | null {
@@ -119,21 +114,11 @@ function resolveCurrentIdentity(): string | null {
   if (knownIdentity !== undefined) {
     return knownIdentity
   }
-  try {
-    const output = execFileSync(getWhoamiExePath(), ['/user', '/fo', 'csv', '/nh'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      windowsHide: true,
-      timeout: 5000
-    })
-    const resolvedIdentity = identityFromWhoamiOutput(output)
-    if (resolvedIdentity) {
-      cachedIdentity = resolvedIdentity
-    }
-    return resolvedIdentity
-  } catch {
-    return null
-  }
+  // Why no sync whoami: grantDirAcl's EACCES/EPERM recovery is the only synchronous caller, and a
+  // blocking spawn there is not worth a rare environment (no USERNAME). Start the async lookup so
+  // the next recovery finds the cache warm; the startup grant awaits the async resolver itself.
+  void resolveCurrentIdentityAsync()
+  return null
 }
 
 async function resolveCurrentIdentityAsync(): Promise<string | null> {
@@ -141,21 +126,16 @@ async function resolveCurrentIdentityAsync(): Promise<string | null> {
   if (knownIdentity !== undefined) {
     return knownIdentity
   }
+  // Single-flight: concurrent IPC handlers share one whoami spawn instead of queueing one each.
   if (!pendingIdentityResolution) {
     pendingIdentityResolution = (async () => {
       try {
-        const stdout = await execFileWithoutBlocking(
-          getWhoamiExePath(),
-          ['/user', '/fo', 'csv', '/nh'],
-          {
-            encoding: 'utf-8',
-            windowsHide: true,
-            timeout: 5000
-          }
-        )
-        // Why: a synchronous caller may resolve identity while async whoami
-        // is in flight; its authoritative cached result must win the race.
-        const resolvedIdentity = identityFromWhoamiOutput(stdout)
+        const result = await runProcess({
+          program: getWhoamiExePath(),
+          args: WHOAMI_SID_ARGS,
+          timeoutMs: WHOAMI_TIMEOUT_MS
+        })
+        const resolvedIdentity = result.code === 0 ? identityFromWhoamiOutput(result.stdout) : null
         if (cachedIdentity === undefined && resolvedIdentity) {
           cachedIdentity = resolvedIdentity
         }
@@ -187,7 +167,9 @@ export function grantDirAcl(dirPath: string, options?: { recursive?: boolean }):
   if (!identity) {
     return
   }
-  const args = [dirPath, '/grant:r', `${identity}:(OI)(CI)(F)`]
+  // Why /q: without it a recursive grant prints one line per file, which the captured-output cap of
+  // the synchronous runner turns into an ENOBUFS kill mid-walk on a large userData tree.
+  const args = [dirPath, '/grant:r', `${identity}:(OI)(CI)(F)`, '/q']
   if (options?.recursive) {
     args.push('/T', '/C')
   }
@@ -195,11 +177,13 @@ export function grantDirAcl(dirPath: string, options?: { recursive?: boolean }):
   // dirs (tens of thousands of cached chromium files), making the startup
   // grant silently fail. Give recursive calls a generous budget.
   const timeout = options?.recursive ? 60_000 : 10_000
-  execFileSync(getIcaclsExePath(), args, {
-    stdio: 'ignore',
-    windowsHide: true,
-    timeout
-  })
+  // Why sync: every caller is an EACCES/EPERM recovery inside a synchronous atomic write
+  // (codex-accounts/fs-utils, browser-route-partition-binding-store, agent-hooks/installer-utils),
+  // which must not publish the file before the grant lands. Async callers use grantDirAclAsync.
+  assertExitZero(
+    getIcaclsExePath(),
+    runProcessSync({ program: getIcaclsExePath(), args, timeoutMs: timeout })
+  )
 }
 
 export async function grantDirAclAsync(dirPath: string): Promise<void> {
@@ -209,13 +193,12 @@ export async function grantDirAclAsync(dirPath: string): Promise<void> {
   }
   // Why: crash recovery runs on Electron's main thread; an asynchronous
   // icacls child keeps its worst-case timeout from freezing every window.
-  await execFileWithoutBlocking(
+  assertExitZero(
     getIcaclsExePath(),
-    [dirPath, '/grant:r', `${identity}:(OI)(CI)(F)`],
-    {
-      encoding: 'utf-8',
-      windowsHide: true,
-      timeout: 10_000
-    }
+    await runProcess({
+      program: getIcaclsExePath(),
+      args: [dirPath, '/grant:r', `${identity}:(OI)(CI)(F)`],
+      timeoutMs: 10_000
+    })
   )
 }
