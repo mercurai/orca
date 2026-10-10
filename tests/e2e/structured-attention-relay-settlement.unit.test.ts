@@ -34,8 +34,6 @@ async function mountRemoteRelay(options?: { promptStatus?: false; raise?: false 
   const relayDirectory = join(fixture.directory, 'relay')
   const relay = new RuntimeMobileNotificationController()
   relay.configureDismissalStore(relayDirectory)
-  // A paired phone is listening; without a recipient the controller keeps dismissals in memory only.
-  relay.onDispatched(() => {})
   const delivery = createNotificationDeliveryService({
     readNotificationSettings: () => NOTIFICATION_SETTINGS,
     findActiveWindow: () => null,
@@ -108,6 +106,7 @@ async function mountRemoteRelay(options?: { promptStatus?: false; raise?: false 
   await waitFor(() => expect(fixture.completion).toBeTypeOf('function'))
   await waitFor(() => expect(fixture.status).toBeTypeOf('function'))
   act(() => publishStatus())
+  // The 15 s ceilings below: each poll waits on a real async secure write, which takes seconds on a Windows dev host.
   const live = async (kind: 'prompt' | 'completion') => {
     // Dispatch persists without awaiting; let the write land before reading the file back.
     await relay.flushDismissals()
