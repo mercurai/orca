@@ -130,6 +130,8 @@ export class RunProcessTable {
       this.reportTerminated(entry)
     } else {
       entry.settled = true
+      // Why: the root is gone by now, so a later reap must not kill its possibly recycled pid.
+      entry.pid = undefined
       entry.settle(settledOutcome(message))
     }
     // Why both: a descendant can hold the pipes, so the child is reported gone after the result.
