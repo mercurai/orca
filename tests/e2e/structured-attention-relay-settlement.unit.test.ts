@@ -34,6 +34,8 @@ async function mountRemoteRelay(options?: { promptStatus?: false; raise?: false 
   const relayDirectory = join(fixture.directory, 'relay')
   const relay = new RuntimeMobileNotificationController()
   relay.configureDismissalStore(relayDirectory)
+  // A paired phone is listening; without a recipient the controller keeps dismissals in memory only.
+  relay.onDispatched(() => {})
   const delivery = createNotificationDeliveryService({
     readNotificationSettings: () => NOTIFICATION_SETTINGS,
     findActiveWindow: () => null,
