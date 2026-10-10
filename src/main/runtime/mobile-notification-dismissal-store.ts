@@ -1,10 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  writeSecureJsonFile,
-  hardenExistingSecureFile,
-  isUnreadableError
-} from '../../shared/secure-file'
+import { hardenExistingSecureFile, isUnreadableError } from '../../shared/secure-file'
+import { writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 import { removeStaleDurableWriteTempFiles } from '../durable-file-write'
 import type { MobileNotificationEvent } from './runtime-mobile-notification-controller'
 import type { DeliveredNotificationIdentity } from '../../shared/mobile-notification-identity'
@@ -21,12 +18,22 @@ type RecordEntry = DeliveredNotificationRecord & { dismissedThrough: number; exp
 const LIMIT = 4096
 const RETENTION_MS = 7 * 86400_000
 const STALE_WRITE_TEMP_AGE_MS = 86400_000
+// Why: every dispatch used to rewrite the whole file (two icacls spawns on Windows); bursts coalesce into one write of the latest snapshot.
+const DEFAULT_PERSIST_DELAY_MS = 5_000
+
+type PersistWaiter = { resolve: () => void; reject: (error: unknown) => void }
 
 export class MobileNotificationDismissalStore {
   private readonly path: string
   private entries: RecordEntry[] = []
   private unreadable = false
-  constructor(userDataPath: string) {
+  private readonly persistDelayMs: number
+  private persistTimer: NodeJS.Timeout | null = null
+  private persistWaiters: PersistWaiter[] = []
+  private writing: Promise<void> | null = null
+  // Sync by necessity: a constructor has no await. Runs once per process at startup, not per IPC call.
+  constructor(userDataPath: string, options: { persistDelayMs?: number } = {}) {
+    this.persistDelayMs = options.persistDelayMs ?? DEFAULT_PERSIST_DELAY_MS
     this.path = join(userDataPath, 'mobile-notification-dismissals.json')
     // Why: a write killed between writeFile and rename (e.g. a hung icacls, #20497) orphans its temp forever.
     void removeStaleDurableWriteTempFiles(this.path, { minimumAgeMs: STALE_WRITE_TEMP_AGE_MS })
@@ -42,9 +49,14 @@ export class MobileNotificationDismissalStore {
     }
   }
 
-  record(
-    event: MobileNotificationEvent & { notificationEpoch: string; notificationSeq: number }
-  ): void {
+  /**
+   * Updates the in-memory history at once and resolves when a snapshot that includes this event is
+   * on disk. `persist: false` keeps the event in memory only (nothing paired could have received it).
+   */
+  async record(
+    event: MobileNotificationEvent & { notificationEpoch: string; notificationSeq: number },
+    options: { persist?: boolean } = {}
+  ): Promise<void> {
     if (!event.notificationId) {
       return
     }
@@ -95,10 +107,45 @@ export class MobileNotificationDismissalStore {
       })
     }
     next = next.slice(-LIMIT)
+    // Commit in memory before awaiting: two records that interleave across the persist would
+    // otherwise both derive `next` from the same stale entries and lose one of them.
     this.entries = next
-    if (!this.unreadable) {
-      writeSecureJsonFile(this.path, next)
+    if (!this.unreadable && options.persist !== false) {
+      await this.schedulePersist()
     }
+  }
+
+  /** Writes any pending snapshot now; resolves once it is durable. */
+  async flush(): Promise<void> {
+    if (this.persistTimer) {
+      await this.persistNow()
+    }
+    await this.writing
+  }
+
+  private schedulePersist(): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.persistWaiters.push({ resolve, reject })
+      if (!this.persistTimer) {
+        this.persistTimer = setTimeout(() => void this.persistNow(), this.persistDelayMs)
+        this.persistTimer.unref()
+      }
+    })
+  }
+
+  private async persistNow(): Promise<void> {
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer)
+      this.persistTimer = null
+    }
+    const waiters = this.persistWaiters
+    this.persistWaiters = []
+    const write = writeSecureJsonFileAsync(this.path, this.entries).then(
+      () => waiters.forEach((waiter) => waiter.resolve()),
+      (error: unknown) => waiters.forEach((waiter) => waiter.reject(error))
+    )
+    this.writing = write
+    await write
   }
 
   liveDeliveries(prefix = ''): DeliveredNotificationRecord[] {

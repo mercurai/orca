@@ -1,3 +1,4 @@
+import { settlePathWritesForTests } from '../../shared/path-write-serializer'
 import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-request-connections'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -167,6 +168,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       expect.objectContaining({ endpoint: 'ws://127.0.0.1:6768' })
     )
 
+    // The last-used bookkeeping is persisted off the IPC thread; let it land before reading it back.
+    await settlePathWritesForTests()
     const resolve = handler<{ selector: string }, { id: string; runtimeId: string | null }>(
       'runtimeEnvironments:resolve'
     )
