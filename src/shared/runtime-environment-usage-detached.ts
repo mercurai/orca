@@ -1,5 +1,6 @@
 import {
   getEnvironmentStorePath,
+  bumpEnvironmentWriteGeneration,
   getEnvironmentWriteGeneration,
   writeEnvironmentStoreAsync
 } from './runtime-environment-store'
@@ -34,7 +35,14 @@ async function persistStamp(
     }
     try {
       await writeEnvironmentStoreAsync(userDataPath, plan.store, {
-        shouldPublish: () => getEnvironmentWriteGeneration() === generation
+        // Our own publish counts as a write, so a concurrent stamp for another environment re-reads.
+        shouldPublish: () => {
+          if (getEnvironmentWriteGeneration() !== generation) {
+            return false
+          }
+          bumpEnvironmentWriteGeneration()
+          return true
+        }
       })
       return
     } catch (error) {

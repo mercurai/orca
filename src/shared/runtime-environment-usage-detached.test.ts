@@ -133,3 +133,19 @@ it('keeps a re-pair made while the stamp was writing, and the stamp lands on the
   expect(stored!.lastUsedAt).toBeTypeOf('number')
   expect(writes).toHaveLength(2)
 })
+
+it('does not let two concurrent stamps for different environments roll each other back', async () => {
+  const { userDataPath, id } = seededStore()
+  const other = addEnvironmentFromPairingCode(userDataPath, {
+    name: 'second box',
+    pairingCode: pairingCode('ws://127.0.0.1:6769')
+  })
+
+  markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-a' })
+  markEnvironmentUsedDetached(userDataPath, other.id, { runtimeId: 'runtime-b' })
+  await idle()
+
+  const stored = listEnvironments(userDataPath)
+  expect(stored.find((env) => env.id === id)?.runtimeId).toBe('runtime-a')
+  expect(stored.find((env) => env.id === other.id)?.runtimeId).toBe('runtime-b')
+})

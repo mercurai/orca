@@ -238,6 +238,10 @@ function translateStoreWriteError(path: string, error: unknown): unknown {
 // Bumped by every synchronous write: an async read-modify-write compares it before publishing.
 let environmentWriteGeneration = 0
 
+export function bumpEnvironmentWriteGeneration(): void {
+  environmentWriteGeneration += 1
+}
+
 export function getEnvironmentWriteGeneration(): number {
   return environmentWriteGeneration
 }
