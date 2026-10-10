@@ -8,6 +8,7 @@ import { createAbortError } from './abort-error'
 import { killSpawnedCommandTree } from './spawned-command-tree-kill'
 import { execFileCaptureOnWorker } from './exec-file-capture-worker'
 import { isExecFileResultObject } from './exec-file-result'
+import { resolveHostBinaryOnce } from './git-command-resolution'
 import { DEFAULT_GIT_MAX_BUFFER } from './git-exec-options'
 import type { GitAdmissionTier } from './git-exec-options'
 
@@ -35,10 +36,13 @@ export async function execFileCaptureToTermination(
   // Spawn cost is reported by spawnProcess's observer, which runProcess goes
   // through; recording it again here would double-count every capture.
   const pending = runProcess({
-    program: resolveSelectedLocalCommand(command, {
-      env: options.env,
-      cwd: typeof options.cwd === 'string' ? options.cwd : undefined
-    }),
+    program: resolveHostBinaryOnce(
+      resolveSelectedLocalCommand(command, {
+        env: options.env,
+        cwd: typeof options.cwd === 'string' ? options.cwd : undefined
+      }),
+      options.env
+    ),
     args,
     cwd: typeof options.cwd === 'string' ? options.cwd : undefined,
     env: options.env,
@@ -103,10 +107,11 @@ export function execFileCapture(
   }
   // Why (#1085): libuv runs CreateProcess on the calling loop, so the worker thread takes
   // the spawn off CrBrowserMain; null means no worker is usable and we spawn here.
+  const program = resolveHostBinaryOnce(command, options.env)
   return (
-    execFileCaptureOnWorker(command, args, options, () =>
-      execFileCaptureInProcess(command, args, options)
-    ) ?? execFileCaptureInProcess(command, args, options)
+    execFileCaptureOnWorker(program, args, options, () =>
+      execFileCaptureInProcess(program, args, options)
+    ) ?? execFileCaptureInProcess(program, args, options)
   )
 }
 
