@@ -53,6 +53,20 @@ function buildAclPlan(targetPath: string, currentUserSid: string, isDirectory: b
   }
 }
 
+/** Why an icacls run failed: its stderr, else a timeout, else its exit code. */
+function describeIcaclsFailure(result: {
+  code: number | null
+  stderr: string
+  timedOut: boolean
+}): string {
+  if (result.stderr) {
+    return result.stderr
+  }
+  return result.timedOut
+    ? `icacls timed out after ${ACL_TIMEOUT_MS / 1000} s`
+    : `icacls exited ${result.code}`
+}
+
 function verifyArgs(plan: AclPlan, savePath: string): string[] {
   return [plan.icaclsPath, '/save', savePath, '/q']
 }
@@ -208,7 +222,7 @@ async function restrictAsync(targetPath: string, isDirectory: boolean): Promise<
     try {
       const result = await runProcess({ program: plan.program, args, timeoutMs: ACL_TIMEOUT_MS })
       if (result.code !== 0) {
-        report(targetPath, stage, result.stderr || `icacls exited ${result.code}`)
+        report(targetPath, stage, describeIcaclsFailure(result))
         return false
       }
     } catch (error) {
@@ -263,7 +277,7 @@ export async function restrictNewFileAsync(targetPath: string): Promise<boolean>
     try {
       const result = await runProcess({ program: plan.program, args, timeoutMs: ACL_TIMEOUT_MS })
       if (result.code !== 0) {
-        report(targetPath, stage, result.stderr || `icacls exited ${result.code}`)
+        report(targetPath, stage, describeIcaclsFailure(result))
         return false
       }
     } catch (error) {
@@ -296,7 +310,7 @@ export function restrictWindowsPathSync(targetPath: string, isDirectory: boolean
     try {
       const result = runProcessSync({ program: plan.program, args, timeoutMs: ACL_TIMEOUT_MS })
       if (result.code !== 0) {
-        report(targetPath, stage, result.stderr || `icacls exited ${result.code}`)
+        report(targetPath, stage, describeIcaclsFailure(result))
         return false
       }
     } catch (error) {
