@@ -1,4 +1,5 @@
 import { redactPtyIdForDiagnostics } from '../../../../shared/pty-delivery-diagnostics'
+import { terminalInputLatency } from '../../../diagnostics/terminal-input-latency'
 import type { PtyModelRestoreReason } from '../../../../shared/pty-model-restore-marker'
 import { mainDeliveryBreadcrumbs } from './debug'
 import { recordPtyRendererDeliveryPressure } from './accounting'
@@ -85,6 +86,7 @@ export function sendPtyDataToRenderer(
   recordPtyRendererDeliveryPressure(session, id)
   try {
     session.mainWindow.webContents.send('pty:data', payload)
+    terminalInputLatency.noteOutput(id)
   } catch (error) {
     const current = session.rendererDeliveryAccountingByPty.get(id)
     if (current) {

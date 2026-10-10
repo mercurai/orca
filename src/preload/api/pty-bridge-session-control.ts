@@ -80,7 +80,7 @@ export const ptySessionControlApi = {
     shellReadyArmed?: boolean
   }> => ipcRenderer.invoke('pty:spawn', opts),
   write: (id: string, data: string, inputKind: TerminalInputKind): void => {
-    ipcRenderer.send('pty:write', { id, data, inputKind })
+    ipcRenderer.send('pty:write', { id, data, inputKind, sentAt: Date.now() })
   },
   writeAccepted: (
     id: string,
