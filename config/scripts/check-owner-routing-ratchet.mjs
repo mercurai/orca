@@ -18,7 +18,14 @@ const IMPORT_EXPORT_LIST = /\b(?:import|export)\s+(?:type\s+)?\{[^}]*\}/g
 // Calls and value uses (`.map(helper)`); definitions and type queries are not routing.
 const FOCUS_ROUTING_USE = new RegExp(`(?<!(?:function|typeof)\\s+)\\b${HELPERS}\\b`, 'g')
 // Seed readers; every function that reads the setting or calls a reader joins them by discovery.
-const SEED_FOCUS_READERS = [...HELPER_NAMES.split('|'), 'defaultCreationHost']
+// The sanctioned readers are seeds too: their bodies reach the setting through a private helper.
+const SEED_FOCUS_READERS = [
+  ...HELPER_NAMES.split('|'),
+  'defaultCreationHost',
+  'defaultScopeHost',
+  'defaultScopeSource',
+  'rowLessSourceTarget'
+]
 const FOCUS_SCAN_ROOTS = [SCAN_ROOT, 'src/shared']
 
 /** Imports and re-exports are not uses; an aliased one is reported by {@link hasFocusRoutingAlias}. */
@@ -77,9 +84,9 @@ export function topLevelDeclarations(sourceText) {
 // skipped: slice creators and hooks return bags of actions, which pulls in the whole store.
 const VALUE_STATEMENT_START = /\breturn\s+(?!\(?\s*\{)|=>\s*(?!\(?\s*\{)/g
 
-function valueStatements(body) {
+function statementsFrom(body, start) {
   const statements = []
-  for (const match of body.matchAll(VALUE_STATEMENT_START)) {
+  for (const match of body.matchAll(start)) {
     let depth = 0
     let end = match.index + match[0].length
     for (; end < body.length; end += 1) {
@@ -95,9 +102,21 @@ function valueStatements(body) {
         break
       }
     }
-    statements.push(body.slice(match.index, end))
+    statements.push({ name: match[1], text: body.slice(match.index, end) })
   }
-  return statements.join('\n')
+  return statements
+}
+
+// `const id = reader(…)` counts only when `id` is then returned (assign-then-return).
+const LOCAL_ASSIGNMENT_START = /\b(?:const|let)\s+([\w$]+)\s*(?::[^=\n]*)?=(?![=>])/g
+
+function valueStatements(body) {
+  const returned = statementsFrom(body, VALUE_STATEMENT_START).map(({ text }) => text)
+  const returnedIds = new Set(returned.join('\n').match(/[\w$]+/g))
+  const assigned = statementsFrom(body, LOCAL_ASSIGNMENT_START)
+    .filter(({ name }) => returnedIds.has(name))
+    .map(({ text }) => text)
+  return [...returned, ...assigned].join('\n')
 }
 
 const IMPORT_STATEMENT =

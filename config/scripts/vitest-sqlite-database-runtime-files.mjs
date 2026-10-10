@@ -147,7 +147,6 @@ export const SQLITE_DATABASE_RUNTIME_INCLUDE = [
   'src/main/runtime/rpc/methods/orchestration/worker/agent-status-producer-census.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/manual-dispatch-observation.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/manual-dispatch-release.test.ts',
-  'src/main/runtime/rpc/methods/orchestration/worker/worker-abandon-caller.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/worker-interactive-wait.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/worker-list-pagination.test.ts',
   'src/main/runtime/rpc/methods/orchestration/worker/worker-release-recovery.test.ts',

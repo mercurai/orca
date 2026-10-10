@@ -183,6 +183,39 @@ describe('countFocusSettingReads', () => {
     }
   })
 
+  it('discovers a reader assigned to a local that is then returned', () => {
+    const readers = discoverFocusReaders(
+      new Map([
+        [
+          'src/renderer/src/focus.ts',
+          'export function focusedId(s) {\n  return s.activeRuntimeEnvironmentId\n}\n'
+        ],
+        [
+          'src/renderer/src/hook.ts',
+          [
+            "import { focusedId } from './focus'",
+            'export function useTarget(s) {',
+            '  const id = focusedId(s)',
+            '  const unrelated = focusedId(s)',
+            '  return id ? { id } : null',
+            '}',
+            'export function sideEffectOnly(s) {',
+            '  const id = focusedId(s)',
+            '  log(id)',
+            '  return null',
+            '}'
+          ].join('\n')
+        ]
+      ])
+    )
+    expect(readers.namesFor('src/renderer/src/hook.ts').has('useTarget')).toBe(true)
+    expect(readers.namesFor('src/renderer/src/hook.ts').has('sideEffectOnly')).toBe(false)
+  })
+
+  it('counts the default scope source as a read', () => {
+    expect(countFocusSettingReads('linearConnect(defaultScopeSource(get().settings), key)')).toBe(1)
+  })
+
   it('counts destructuring reads', () => {
     expect(countFocusSettingReads('const { activeRuntimeEnvironmentId } = s')).toBe(1)
     expect(
