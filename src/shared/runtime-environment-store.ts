@@ -5,7 +5,10 @@ import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
 import { parsePairingCode, type PairingOffer } from './pairing'
 import { classifyRemotePairingHostname } from './remote-pairing-address'
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import {
+  writeSecureJsonFileWithinLimit,
+  writeSecureJsonFileWithinLimitAsync
+} from './bounded-secure-json-file'
 import { hardenExistingSecureFile } from './secure-file'
 import {
   createEnvironmentFromPairingOffer,
@@ -171,9 +174,7 @@ export function resolveEnvironmentPairingOffer(
   return getPreferredPairingOffer(resolveEnvironment(userDataPath, selector))
 }
 
-// Why: markEnvironmentUsed runs on every runtime round-trip; persisting lastUsedAt each
-// time forces a secure-file rewrite (ACL hardening), which blocks the main thread on
-// Windows. lastUsedAt only needs coarse freshness, so skip writes within this window.
+// Why: markEnvironmentUsed runs on every runtime round-trip; lastUsedAt only needs coarse freshness.
 const LAST_USED_PERSIST_INTERVAL_MS = 60_000
 
 export function markEnvironmentUsed(
@@ -187,11 +188,7 @@ export function markEnvironmentUsed(
   }
 }
 
-/**
- * The store `markEnvironmentUsed` would write, or null when the persisted `lastUsedAt` is still
- * fresh. Reads synchronously and throws exactly as `markEnvironmentUsed` does for an unknown
- * environment; only the write differs between the blocking and the detached caller.
- */
+// The store `markEnvironmentUsed` would write, or null while `lastUsedAt` is fresh; throws for an unknown environment.
 export function planEnvironmentUsedUpdate(
   userDataPath: string,
   selector: string,
@@ -276,24 +273,38 @@ function readEnvironmentStore(
   }
 }
 
-export function translateStoreWriteError(userDataPath: string, error: unknown): unknown {
-  if (error instanceof JsonStringifyByteLimitError) {
-    return new RuntimeEnvironmentStoreError(
-      'runtime_error',
-      `Could not write Orca environments at ${getEnvironmentStorePath(userDataPath)}; the store exceeds its durable capacity.`
-    )
-  }
-  return error
+function translateStoreWriteError(path: string, error: unknown): unknown {
+  return error instanceof JsonStringifyByteLimitError
+    ? new RuntimeEnvironmentStoreError(
+        'runtime_error',
+        `Could not write Orca environments at ${path}; the store exceeds its durable capacity.`
+      )
+    : error
 }
 
-function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
+export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
+  const path = getEnvironmentStorePath(userDataPath)
   try {
-    writeSecureJsonFileWithinLimit(
-      getEnvironmentStorePath(userDataPath),
-      RuntimeEnvironmentStoreSchema.parse(store),
+    const parsed = RuntimeEnvironmentStoreSchema.parse(store)
+    writeSecureJsonFileWithinLimit(path, parsed, MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES)
+  } catch (error) {
+    throw translateStoreWriteError(path, error)
+  }
+}
+
+export async function writeEnvironmentStoreAsync(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore
+): Promise<void> {
+  const path = getEnvironmentStorePath(userDataPath)
+  try {
+    const parsed = RuntimeEnvironmentStoreSchema.parse(store)
+    await writeSecureJsonFileWithinLimitAsync(
+      path,
+      parsed,
       MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES
     )
   } catch (error) {
-    throw translateStoreWriteError(userDataPath, error)
+    throw translateStoreWriteError(path, error)
   }
 }
