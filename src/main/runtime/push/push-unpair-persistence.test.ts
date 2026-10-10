@@ -14,8 +14,8 @@ describe('mobile revoke when the registry write fails', () => {
     const runtime = new OrcaRuntimeService()
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('phone', 'mobile')
-    registry.setPushRegistration(device.deviceId, {
+    const device = await registry.addDevice('phone', 'mobile')
+    await registry.setPushRegistration(device.deviceId, {
       registrationId: 'reg-live',
       filter: {},
       expiresAt: Date.now() + 60_000
@@ -39,8 +39,8 @@ describe('mobile revoke when the registry write fails', () => {
       client: client as never
     })!
     service.start()
-    const save = registry['save'].bind(registry)
-    registry['save'] = vi.fn(() => {
+    const commit = registry['commit'].bind(registry)
+    registry['commit'] = vi.fn(async () => {
       throw new Error('disk full')
     })
 
@@ -54,7 +54,7 @@ describe('mobile revoke when the registry write fails', () => {
     service.start()
     await service.flushUnregisterOutbox()
     expect(deleted).toEqual([])
-    registry['save'] = save
+    registry['commit'] = commit
     expect(await server.revokeMobileDevice(device.deviceId)).toBe(true)
     await service.flushUnregisterOutbox()
     expect(deleted).toEqual(['reg-live'])

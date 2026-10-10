@@ -63,9 +63,9 @@ export async function verifyAndAddRuntimeEnvironmentFromPairingCode(
   }
 
   const usesSshTunnel = parsed.value.endpointKind === 'loopback' && args.allowLoopback === true
-  let environment: ReturnType<typeof addEnvironmentFromPairingCode>
+  let environment: Awaited<ReturnType<typeof addEnvironmentFromPairingCode>>
   try {
-    environment = addEnvironmentFromPairingCode(userDataPath, {
+    environment = await addEnvironmentFromPairingCode(userDataPath, {
       ...args,
       ...(usesSshTunnel ? { connectionDependency: 'ssh-tunnel' as const } : {})
     })

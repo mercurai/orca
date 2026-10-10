@@ -1,6 +1,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { isUnreadableError, writeSecureFile } from '../../shared/secure-file'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { isUnreadableError } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import { isQualifiedPluginKey } from '../../shared/plugins/plugin-manifest'
 import {
   PLUGIN_STORAGE_KEY_LIMIT,
@@ -74,7 +76,20 @@ export class PluginKvStore {
     return Object.keys(this.read() ?? {})
   }
 
-  set(key: string, value: unknown): PluginKvWriteResult {
+  // Why: read-modify-write spans an await, so two writers must not both read the same snapshot.
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
+    return serializePathWrite(`${this.filePath}#read-modify-write`, task)
+  }
+
+  set(key: string, value: unknown): Promise<PluginKvWriteResult> {
+    return this.serialized(() => this.setUnserialized(key, value))
+  }
+
+  delete(key: string): Promise<void> {
+    return this.serialized(() => this.deleteUnserialized(key))
+  }
+
+  private async setUnserialized(key: string, value: unknown): Promise<PluginKvWriteResult> {
     let serialized: string
     try {
       serialized = JSON.stringify(value)
@@ -99,11 +114,11 @@ export class PluginKvStore {
     if (Buffer.byteLength(nextFile, 'utf8') > PLUGIN_STORAGE_TOTAL_MAX_BYTES) {
       return { ok: false, error: `storage exceeds ${PLUGIN_STORAGE_TOTAL_MAX_BYTES} bytes` }
     }
-    writeSecureFile(this.filePath, nextFile)
+    await writeSecureFileAsync(this.filePath, nextFile)
     return { ok: true }
   }
 
-  delete(key: string): void {
+  private async deleteUnserialized(key: string): Promise<void> {
     const settings = this.read()
     if (!settings) {
       // Rewriting what we could not read would drop every other key in the store.
@@ -111,7 +126,7 @@ export class PluginKvStore {
     }
     if (Object.hasOwn(settings, key)) {
       delete settings[key]
-      writeSecureFile(this.filePath, JSON.stringify(settings, null, 2))
+      await writeSecureFileAsync(this.filePath, JSON.stringify(settings, null, 2))
     }
   }
 }

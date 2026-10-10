@@ -196,7 +196,7 @@ export function registerOrcaProfileHandlers(
       if (activeProfile?.cloud) {
         // Why: profile selection changes the expected identity synchronously;
         // stale refresh saves must fail even before relaunch teardown finishes.
-        recordCloudSessionIdentityMutation(
+        await recordCloudSessionIdentityMutation(
           cloudSessionIdentity(activeProfile.id, activeProfile.cloud),
           getProfileUserDataPath()
         )

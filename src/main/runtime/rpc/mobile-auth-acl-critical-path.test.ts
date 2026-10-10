@@ -1,6 +1,6 @@
-// Why: the E2EE auth handshake used to persist `lastSeenAt` inline, and on Windows every secure-file
-// write blocks the main thread on synchronous icacls ACL spawns (~1-1.5s cold each). These tests
-// pin the spawn count on the auth critical path, not wall-clock, so they are deterministic under load.
+// Why: the E2EE auth handshake must never wait on a secure-file write. Every registry write runs on
+// the async lane (no synchronous icacls spawn on the main thread), and the deferred lastSeen refresh
+// is coalesced. These tests pin spawn counts and ordering, not wall-clock, so they are deterministic.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WebSocket } from 'ws'
 import type { ProcessResult, ProcessSpec } from '../../../shared/child-process/run-process'
 import { runProcess, runProcessSync } from '../../../shared/child-process/run-process'
+import { settlePathWritesForTests } from '../../../shared/path-write-serializer'
+import { resetSecureFileWindowsUserSidForTests } from '../../../shared/secure-path-windows-acl'
 import { DEVICE_REGISTRY_FILENAME } from '../mobile-pairing-files'
 import { DeviceRegistry, type DeviceEntry } from '../device-registry'
 import { decrypt, deriveSharedKey, encrypt, generateKeyPair } from './e2ee-crypto'
@@ -21,17 +23,14 @@ vi.mock('../../../shared/child-process/run-process', () => ({
   runProcessSync: vi.fn()
 }))
 
-// Why: stands in for the icacls cold start; long enough that a gated response would be obvious,
-// short enough that the suite stays fast. Assertions use the recorded ordering, never this number.
-const INJECTED_SPAWN_LATENCY_MS = 5
 const USER_SID = 'S-1-5-21-1000'
 const OK: ProcessResult = { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
 /**
- * One secure write hardens two paths: the staged temp file, fresh and still on the inherited DACL,
- * costs the full verify/reset/grant/verify pass; the published file, whose protected DACL came
- * along with the rename, costs only its verify.
+ * One secure write restricts only the staged temp file, fresh and still on the inherited DACL:
+ * a reset and a grant. The published file keeps the protected DACL that came along with the
+ * rename, so it costs nothing.
  */
-const BLOCKING_SPAWNS_PER_WRITE = 5
+const SPAWNS_PER_WRITE = 2
 
 /** Paths the fake icacls has granted a protected DACL, keyed to the ACE flags the grant used. */
 const hardenedByFake = new Map<string, string>()
@@ -110,20 +109,19 @@ describe('mobile auth critical path', () => {
     hardenedByFake.clear()
     vi.mocked(runProcessSync).mockReset()
     vi.mocked(runProcess).mockReset()
-    vi.mocked(runProcessSync).mockImplementation((spec) => {
+    resetSecureFileWindowsUserSidForTests()
+    vi.mocked(runProcess).mockImplementation((spec) => {
       // Matched by suffix, not by the whole path: `windowsSystem32Binary` joins with the host
       // separator, so the literal only matches when the tests happen to run on Windows.
       if (spec.program.endsWith('whoami.exe')) {
-        return { ...OK, stdout: `"USER","${USER_SID}"` }
+        return Promise.resolve({ ...OK, stdout: `"USER","${USER_SID}"` })
       }
-      timeline.push('acl-spawn')
-      // Why: the real spawn blocks the main thread, so the fake must too — and via Atomics, not a
-      // Date.now() spin, which would never terminate under fake timers.
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, INJECTED_SPAWN_LATENCY_MS)
-      return fakeIcacls(spec)
+      // Why: only the staged file's spawns are per-write; the directory harden is a one-time, path-cached cost.
+      if (spec.args?.[0]?.endsWith('.tmp')) {
+        timeline.push('acl-spawn')
+      }
+      return Promise.resolve(fakeIcacls(spec))
     })
-    // The directory harden stays on the async lane, so it never lands on the timeline.
-    vi.mocked(runProcess).mockImplementation((spec) => Promise.resolve(fakeIcacls(spec)))
   })
 
   afterEach(() => {
@@ -187,80 +185,96 @@ describe('mobile auth critical path', () => {
     ) as DeviceEntry[]
   }
 
-  it('emits e2ee_authenticated without spawning a single ACL process', () => {
+  const aclSpawns = (): number => timeline.filter((entry) => entry === 'acl-spawn').length
+
+  it('emits e2ee_authenticated without a synchronous ACL spawn', async () => {
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
+    const device = await registry.addDevice('Phone', 'runtime')
     // Why: a re-connecting device is the measured case; the first sighting is covered below.
-    registry.updateLastSeen(device.deviceId)
+    await registry.updateLastSeen(device.deviceId)
     timeline.length = 0
 
     authenticate(registry, device)
 
     expect(timeline).toEqual(['e2ee_ready', 'e2ee_authenticated'])
-    expect(timeline.indexOf('acl-spawn')).toBe(-1)
+    expect(aclSpawns()).toBe(0)
 
-    registry.flushPendingLastSeen()
-    // Hardening is deferred, never dropped: tmp file + published file, exactly as the inline path did.
-    expect(timeline.filter((entry) => entry === 'acl-spawn')).toHaveLength(
-      BLOCKING_SPAWNS_PER_WRITE
-    )
-    // The blocking work is the ACL tool itself, not some other spawn on the same lane.
-    expect(vi.mocked(runProcessSync).mock.lastCall?.[0].program).toMatch(/icacls\.exe$/)
+    await registry.flushPendingLastSeen()
+    // Hardening is deferred, never dropped: the staged file's reset and grant, as the inline path did.
+    expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
+    expect(runProcessSync).not.toHaveBeenCalled()
     expect(readPersistedDevices()[0]?.lastSeenAt).toBe(
       registry.getDevice(device.deviceId)?.lastSeenAt
     )
   })
 
-  it('still persists the first sighting before authenticating', () => {
+  it('persists the first sighting without holding e2ee_authenticated', async () => {
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
+    const device = await registry.addDevice('Phone', 'runtime')
     timeline.length = 0
 
     authenticate(registry, device)
 
-    // Why: rotatePendingDevice drops entries disk says were never scanned, so this write stays inline.
-    expect(timeline).toEqual([
-      'e2ee_ready',
-      ...Array<TimelineEntry>(BLOCKING_SPAWNS_PER_WRITE).fill('acl-spawn'),
-      'e2ee_authenticated'
-    ])
+    // Why: the first sighting still reaches disk (rotatePendingDevice drops never-scanned entries), but the auth callback is synchronous.
+    expect(timeline).toEqual(['e2ee_ready', 'e2ee_authenticated'])
+    await settlePathWritesForTests()
+    expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
+    expect(runProcessSync).not.toHaveBeenCalled()
     expect(readPersistedDevices()[0]?.lastSeenAt).toBeGreaterThan(0)
   })
 
-  it('coalesces a reconnect burst into one deferred write', () => {
-    vi.useFakeTimers()
+  it('coalesces a reconnect burst into one deferred write', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.addDevice('Phone', 'runtime')
+    await registry.updateLastSeen(device.deviceId)
     timeline.length = 0
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       authenticate(registry, device)
     }
 
-    expect(timeline.filter((entry) => entry === 'acl-spawn')).toHaveLength(0)
-    vi.advanceTimersByTime(250)
-    expect(timeline.filter((entry) => entry === 'acl-spawn')).toHaveLength(
-      BLOCKING_SPAWNS_PER_WRITE
-    )
+    expect(aclSpawns()).toBe(0)
+    await vi.advanceTimersByTimeAsync(250)
+    await settlePathWritesForTests()
+    expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
   })
 
-  it('cancels the deferred rewrite when another registry save persists the timestamp', () => {
-    vi.useFakeTimers()
+  it('cancels the deferred rewrite when another registry save persists the timestamp', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.addDevice('Phone', 'runtime')
+    await registry.updateLastSeen(device.deviceId)
     timeline.length = 0
 
     registry.updateLastSeenDeferred(device.deviceId)
-    registry.addDevice('Other client', 'runtime')
-    expect(timeline.filter((entry) => entry === 'acl-spawn')).toHaveLength(
-      BLOCKING_SPAWNS_PER_WRITE
-    )
+    await registry.addDevice('Other client', 'runtime')
+    expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
 
-    vi.advanceTimersByTime(250)
-    expect(timeline.filter((entry) => entry === 'acl-spawn')).toHaveLength(
-      BLOCKING_SPAWNS_PER_WRITE
-    )
+    await vi.advanceTimersByTimeAsync(250)
+    await settlePathWritesForTests()
+    expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
+  })
+
+  it('keeps a deferred refresh that lands while another save is in flight', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const registry = new DeviceRegistry(userDataPath)
+    const device = await registry.addDevice('Phone', 'runtime')
+    await registry.updateLastSeen(device.deviceId)
+    const refreshedAt = Date.now() + 10_000
+    const now = vi.spyOn(Date, 'now')
+
+    const saving = registry.addDevice('Other client', 'runtime')
+    now.mockReturnValue(refreshedAt)
+    registry.updateLastSeenDeferred(device.deviceId)
+    await saving
+    now.mockRestore()
+
+    expect(registry.getDevice(device.deviceId)?.lastSeenAt).toBe(refreshedAt)
+    await vi.advanceTimersByTimeAsync(250)
+    await settlePathWritesForTests()
+    expect(
+      readPersistedDevices().find((entry) => entry.deviceId === device.deviceId)?.lastSeenAt
+    ).toBe(refreshedAt)
   })
 })

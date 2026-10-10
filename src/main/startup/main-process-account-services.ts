@@ -125,11 +125,16 @@ export function initializeMainProcessAccountServices(): void {
   agentHookServer.setClaudeStatusLineListener((event) => {
     state.rateLimits!.ingestLiveClaudeRateLimits(event)
   })
-  store.migrateLegacyOpenCodeGoApiKey({
-    has: hasOpenCodeGoApiKey,
-    read: readOpenCodeGoApiKey,
-    save: saveOpenCodeGoApiKey
-  })
+  // Why: the key save is an async secure write; the migration is a one-time legacy move, so startup does not wait on it.
+  void store
+    .migrateLegacyOpenCodeGoApiKey({
+      has: hasOpenCodeGoApiKey,
+      read: readOpenCodeGoApiKey,
+      save: saveOpenCodeGoApiKey
+    })
+    .catch((error: unknown) => {
+      console.warn('[opencode-go] Could not migrate the saved API key out of settings.', error)
+    })
   state.rateLimits.setOpenCodeGoConfigResolver(() => {
     const settings = store.getSettings()
     return {

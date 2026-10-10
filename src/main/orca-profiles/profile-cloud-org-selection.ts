@@ -22,7 +22,7 @@ export async function selectCloudOrgWithMutationFence(input: {
   active: ActiveOrcaProfileState
   userDataPath: string
   orgId: string
-}): Promise<ReturnType<typeof linkOrcaProfileToCloud> | null> {
+}): Promise<Awaited<ReturnType<typeof linkOrcaProfileToCloud>> | null> {
   const cloud = input.active.profile.cloud
   const stored = readOrcaCloudSession(input.active.profile.id, input.userDataPath)
   if (!cloud || stored.status !== 'found') {
@@ -35,7 +35,7 @@ export async function selectCloudOrgWithMutationFence(input: {
   }
   // Why: advance the durable identity fence before the first request. An old
   // refresh may finish, but its compare-and-save can no longer publish.
-  const snapshot = recordCloudSessionIdentityMutation(targetIdentity, input.userDataPath)
+  const snapshot = await recordCloudSessionIdentityMutation(targetIdentity, input.userDataPath)
   let workingSession: OrcaCloudSession = stored.session
   try {
     let selected
@@ -74,19 +74,23 @@ export async function selectCloudOrgWithMutationFence(input: {
       capabilities: selected.capabilities
     }
     if (
-      saveOrcaCloudSessionIfCurrent(
+      (await saveOrcaCloudSessionIfCurrent(
         input.active.profile.id,
         input.userDataPath,
         nextSession,
         snapshot
-      ) === null
+      )) === null
     ) {
       throw new Error('stale_cloud_session_mutation')
     }
-    const list = linkOrcaProfileToCloud(input.active.profile.id, selected.cloud, input.userDataPath)
+    const list = await linkOrcaProfileToCloud(
+      input.active.profile.id,
+      selected.cloud,
+      input.userDataPath
+    )
     return list
   } catch (error) {
-    recordCloudSessionIdentityMutationIfCurrent(oldIdentity, input.userDataPath, snapshot)
+    await recordCloudSessionIdentityMutationIfCurrent(oldIdentity, input.userDataPath, snapshot)
     throw error
   }
 }

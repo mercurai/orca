@@ -35,7 +35,7 @@ function removeHandler(): (event: unknown, args: { selector: string }) => unknow
 beforeEach(() => {
   handleMock.mockReset()
   clearStorageMock.mockReset()
-  removeEnvironmentMock.mockReset().mockReturnValue(environment)
+  removeEnvironmentMock.mockReset().mockResolvedValue(environment)
   resolveEnvironmentMock.mockReset().mockReturnValue(environment)
 })
 
@@ -52,7 +52,7 @@ describe('runtime environment removal storage clearing', () => {
       invalidateTransport: () => teardown
     })
 
-    expect(removeHandler()(null, { selector: 'environment-a' })).toMatchObject({
+    expect(await removeHandler()(null, { selector: 'environment-a' })).toMatchObject({
       removed: { id: 'environment-a' }
     })
     await Promise.resolve()
@@ -72,7 +72,7 @@ describe('runtime environment removal storage clearing', () => {
       invalidateTransport: () => Promise.resolve()
     })
 
-    removeHandler()(null, { selector: 'environment-a' })
+    await removeHandler()(null, { selector: 'environment-a' })
 
     await vi.waitFor(() => expect(clearStorageMock).toHaveBeenCalledTimes(2), { timeout: 2_000 })
   })

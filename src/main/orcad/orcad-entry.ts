@@ -146,6 +146,7 @@ async function startOrcadRuntime(
     await import('../runtime/agent-status-observed-pane-identity')
 
   let rpc: InstanceType<typeof OrcaRuntimeRpcServer> | null = null
+  let runtimeForShutdown: { flushNotificationDismissals?: () => Promise<void> } | null = null
   let profileStoreForShutdown:
     | { flushFinalOrThrowAsync(): Promise<void>; freezeWritesAsync(): Promise<void> }
     | undefined
@@ -156,6 +157,8 @@ async function startOrcadRuntime(
     try {
       await rpc?.stop()
     } finally {
+      // Why: the dismissal store debounces its writes by 5 s; flush so SIGTERM does not lose that tail.
+      await runtimeForShutdown?.flushNotificationDismissals?.().catch(() => {})
       try {
         // Stop accepting RPC writes before the final persistence barrier. A SQLite-backed
         // orcad has no JSON mirror to absorb a debounced write after SIGTERM.
@@ -273,6 +276,7 @@ async function startOrcadRuntime(
       }
     }
   })
+  runtimeForShutdown = runtime
 
   const { installOrcadSessionSearchService } = await import('./orcad-session-search')
   sessionSearch = await installOrcadSessionSearchService({
@@ -353,7 +357,7 @@ async function startOrcadRuntime(
         reason: 'disabled_by_operator',
         guidance: 'Restart without --no-pairing to create a client pairing offer.'
       } as const)
-    : rpc.createPairingOffer({
+    : await rpc.createPairingOffer({
         address: options.pairingAddress,
         name: `CLI ${new Date().toLocaleDateString()}`,
         scope: 'runtime'

@@ -2,7 +2,8 @@ import { safeStorage } from 'electron'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { hardenExistingSecureFile, writeSecureFile } from '../../shared/secure-file'
+import { hardenExistingSecureFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 
 const MINIMAX_COOKIE_FILE = 'minimax-session-cookie.enc'
@@ -137,13 +138,13 @@ export function hasMiniMaxSessionCookie(): boolean {
   return true
 }
 
-export function saveMiniMaxSessionCookie(cookie: string): void {
+export async function saveMiniMaxSessionCookie(cookie: string): Promise<void> {
   const trimmed = cookie.trim()
   if (!trimmed) {
     throw new Error('MiniMax session cookie is required')
   }
   if (safeStorage.isEncryptionAvailable()) {
-    writeSecureFile(
+    await writeSecureFileAsync(
       getMiniMaxCookiePath(),
       encodeCookieEnvelope('encrypted', safeStorage.encryptString(trimmed))
     )
@@ -151,7 +152,7 @@ export function saveMiniMaxSessionCookie(cookie: string): void {
     return
   }
   console.warn('[minimax] safeStorage encryption unavailable — storing MiniMax cookie in plaintext')
-  writeSecureFile(
+  await writeSecureFileAsync(
     getMiniMaxCookiePath(),
     encodeCookieEnvelope('plaintext', Buffer.from(trimmed, 'utf8'))
   )

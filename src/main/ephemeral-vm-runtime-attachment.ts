@@ -4,11 +4,11 @@ import {
 } from '../shared/ephemeral-vm-runtime-store'
 import type { EphemeralVmRuntimeRecord } from '../shared/ephemeral-vm-runtimes'
 
-export function attachEphemeralVmRuntimeToWorkspace(args: {
+export async function attachEphemeralVmRuntimeToWorkspace(args: {
   userDataPath: string
   runtimeId: string
   workspaceId: string
-}): EphemeralVmRuntimeRecord {
+}): Promise<EphemeralVmRuntimeRecord> {
   const runtime = listEphemeralVmRuntimes(args.userDataPath).find(
     (entry) => entry.id === args.runtimeId
   )

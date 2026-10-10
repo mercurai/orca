@@ -22,7 +22,7 @@ export async function refreshCurrentOrcaProfileAuth(
     return { status: 'local', auth: auth() }
   }
   if (isOrcaCloudDevAuthEnabled()) {
-    const result = refreshDevOrcaCloudProfile(active, userDataPath)
+    const result = await refreshDevOrcaCloudProfile(active, userDataPath)
     if (result.status !== 'updated') {
       return { status: 'reconnect-required', auth: auth() }
     }
@@ -39,7 +39,7 @@ export async function refreshCurrentOrcaProfileAuth(
   }
   try {
     const identity = cloudSessionIdentity(active.profile.id, active.profile.cloud)
-    let mutationSnapshot = captureCloudSessionMutation(identity, userDataPath)
+    let mutationSnapshot = await captureCloudSessionMutation(identity, userDataPath)
     const operation = await runWithFreshOrcaCloudSession(
       configState.config,
       active,
@@ -59,7 +59,7 @@ export async function refreshCurrentOrcaProfileAuth(
         throw new Error('orca_cloud_identity_changed_during_capability_refresh')
       }
       if (refreshedIdentity.organizationId !== identity.organizationId) {
-        const advanced = recordCloudSessionIdentityMutationIfCurrent(
+        const advanced = await recordCloudSessionIdentityMutationIfCurrent(
           refreshedIdentity,
           userDataPath,
           mutationSnapshot
@@ -75,7 +75,7 @@ export async function refreshCurrentOrcaProfileAuth(
       return { status: 'reconnect-required', auth: auth() }
     }
     if (
-      saveOrcaCloudSessionIfCurrent(
+      (await saveOrcaCloudSessionIfCurrent(
         active.profile.id,
         userDataPath,
         {
@@ -84,12 +84,12 @@ export async function refreshCurrentOrcaProfileAuth(
           capabilities: refresh.capabilities
         },
         mutationSnapshot
-      ) === null
+      )) === null
     ) {
       return { status: 'reconnect-required', auth: auth() }
     }
     const list = refresh.cloud
-      ? linkOrcaProfileToCloud(active.profile.id, refresh.cloud, userDataPath)
+      ? await linkOrcaProfileToCloud(active.profile.id, refresh.cloud, userDataPath)
       : getOrcaProfileListState(userDataPath)
     return {
       status: 'refreshed',

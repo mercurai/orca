@@ -232,6 +232,8 @@ function installWillQuitHandler(): void {
     ]).then(() => {})
     const browserClientHostShutdown = shutdownPairedRuntimeBrowserClientHosts()
     const skillUploadShutdown = state.runtime?.disposeSkillUploadSessions() ?? Promise.resolve()
+    // Why: the dismissal store debounces its writes by 5 s; flush so a quit does not lose that tail.
+    const dismissalFlush = state.runtime?.flushNotificationDismissals?.() ?? Promise.resolve()
     // Why: capture pid/runtimeId synchronously (before any await) so a later teardown path can't null them out mid-chain.
     const ownedPid = process.pid
     const ownedRuntimeId = state.runtime?.getRuntimeId()
@@ -267,6 +269,7 @@ function installWillQuitHandler(): void {
       { name: 'ssh', promise: sshShutdown },
       { name: 'plugin-hosts', promise: pluginHostShutdown },
       { name: 'skill-uploads', promise: skillUploadShutdown },
+      { name: 'mobile-dismissals', promise: dismissalFlush },
       { name: 'grok-hooks', promise: grokHookCleanup },
       { name: 'ref-maintenance', promise: refMaintenanceShutdown },
       { name: 'codex-backfill-recovery', promise: codexBackfillRecoveryShutdown },

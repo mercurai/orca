@@ -21,11 +21,11 @@ const input = {
 }
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
-function harness() {
+async function harness() {
   const path = mkdtempSync(join(tmpdir(), 'push-races-'))
   paths.push(path)
   const registry = new DeviceRegistry(path)
-  const deviceId = registry.addDevice('phone', 'mobile').deviceId
+  const deviceId = (await registry.addDevice('phone', 'mobile')).deviceId
   const outbox = new PushUnregisterOutbox(path)
   const retries: { run: () => void; delayMs: number }[] = []
   let live = false
@@ -76,7 +76,7 @@ function harness() {
 }
 
 it('deletes obsolete gateway state before reporting successful re-enable', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.register({ ...input, deviceId: h.deviceId })
   h.reachable(false)
   await h.service.unregister(h.deviceId)
@@ -95,7 +95,7 @@ it('deletes obsolete gateway state before reporting successful re-enable', async
 })
 
 it('waits for an already-running delete before re-registering', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.register({ ...input, deviceId: h.deviceId })
   let release!: () => void
   const normalDelete = h.client.deleteDevice.getMockImplementation()!
@@ -117,7 +117,7 @@ it('waits for an already-running delete before re-registering', async () => {
 })
 
 it('orders unregister after a register already in flight', async () => {
-  const h = harness()
+  const h = await harness()
   let release!: () => void
   const normalRegister = h.client.registerDevice.getMockImplementation()!
   h.client.registerDevice.mockImplementationOnce(async () => {
@@ -137,7 +137,7 @@ it('orders unregister after a register already in flight', async () => {
 })
 
 it('does not clear a replacement with the same ID and timestamp after a stale dead response', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.register({ ...input, deviceId: h.deviceId })
   let finish!: (value: unknown) => void
   h.client.send.mockImplementation(
@@ -156,29 +156,29 @@ it('does not clear a replacement with the same ID and timestamp after a stale de
     notificationSeq: 1
   })
   const original = h.registry.getDevice(h.deviceId)!.pushRegistration!
-  h.registry.setPushRegistration(h.deviceId, { ...original })
+  await h.registry.setPushRegistration(h.deviceId, { ...original })
   finish({ ok: true, results: [{ registrationId: 'stable-id', status: 'dead' }] })
   await tick()
   expect(h.registry.getDevice(h.deviceId)?.pushRegistration).toEqual(original)
 })
 
 it('drains a cleanup queued as an empty flush is completing', async () => {
-  const h = harness()
+  const h = await harness()
   // Let the startup drain return, but queue cleanup before its promise finalizer runs.
   await Promise.resolve()
-  h.outbox.enqueue({ registrationId: 'orphan', deviceId: h.deviceId })
+  await h.outbox.enqueue({ registrationId: 'orphan', deviceId: h.deviceId })
   await h.service.flushUnregisterOutbox()
   expect(h.client.deleteDevice).toHaveBeenCalledWith('orphan')
   expect(h.outbox.pending()).toEqual([])
 })
 
 it('preserves the live route when clearing local registration fails, then cleans before re-registering', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.register({ ...input, deviceId: h.deviceId })
   await h.service.flushUnregisterOutbox()
-  const persist = vi.spyOn(h.registry, 'setPushRegistration').mockImplementation(() => {
-    throw new Error('disk full')
-  })
+  const persist = vi
+    .spyOn(h.registry, 'setPushRegistration')
+    .mockRejectedValue(new Error('disk full'))
   await expect(h.service.unregister(h.deviceId)).rejects.toThrow('disk full')
   await tick()
   expect(h.client.deleteDevice).not.toHaveBeenCalled()
@@ -196,18 +196,18 @@ it('preserves the live route when clearing local registration fails, then cleans
 })
 
 it('retries an old failure before mid-drain work, then waits for the armed backoff', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.flushUnregisterOutbox()
   const deletes: string[] = []
   h.client.deleteDevice.mockImplementation(async (registrationId) => {
     deletes.push(registrationId)
     if (deletes.length === 1) {
-      h.outbox.enqueue({ registrationId: 'new', deviceId: 'new-phone' })
+      await h.outbox.enqueue({ registrationId: 'new', deviceId: 'new-phone' })
       void h.service.flushUnregisterOutbox()
     }
     return registrationId === 'new'
   })
-  h.outbox.enqueue({ registrationId: 'old', deviceId: h.deviceId })
+  await h.outbox.enqueue({ registrationId: 'old', deviceId: h.deviceId })
   await h.service.flushUnregisterOutbox()
   expect(deletes).toEqual(['old', 'old', 'new'])
   expect(h.outbox.pending().map((item) => item.registrationId)).toEqual(['old'])
@@ -222,7 +222,7 @@ it('retries an old failure before mid-drain work, then waits for the armed backo
 })
 
 it('skips a snapshot delete consumed by same-device registration cleanup', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.flushUnregisterOutbox()
   let release!: () => void
   h.client.deleteDevice.mockImplementationOnce(
@@ -231,8 +231,8 @@ it('skips a snapshot delete consumed by same-device registration cleanup', async
         release = () => resolve(true)
       })
   )
-  h.outbox.enqueue({ registrationId: 'blocker', deviceId: 'other-phone' })
-  h.outbox.enqueue({ registrationId: 'stable-id', deviceId: h.deviceId })
+  await h.outbox.enqueue({ registrationId: 'blocker', deviceId: 'other-phone' })
+  await h.outbox.enqueue({ registrationId: 'stable-id', deviceId: h.deviceId })
   const flush = h.service.flushUnregisterOutbox()
   await tick()
   expect(await h.service.register({ ...input, deviceId: h.deviceId })).toMatchObject({
@@ -248,7 +248,7 @@ it('skips a snapshot delete consumed by same-device registration cleanup', async
 })
 
 it('finishes the current snapshot on stop and leaves later work durable for restart', async () => {
-  const h = harness()
+  const h = await harness()
   await h.service.flushUnregisterOutbox()
   let release!: () => void
   h.client.deleteDevice.mockImplementationOnce(
@@ -257,11 +257,11 @@ it('finishes the current snapshot on stop and leaves later work durable for rest
         release = () => resolve(false)
       })
   )
-  h.outbox.enqueue({ registrationId: 'blocked', deviceId: h.deviceId })
-  h.outbox.enqueue({ registrationId: 'in-snapshot', deviceId: 'other-phone' })
+  await h.outbox.enqueue({ registrationId: 'blocked', deviceId: h.deviceId })
+  await h.outbox.enqueue({ registrationId: 'in-snapshot', deviceId: 'other-phone' })
   const flush = h.service.flushUnregisterOutbox()
   await tick()
-  h.outbox.enqueue({ registrationId: 'late', deviceId: 'late-phone' })
+  await h.outbox.enqueue({ registrationId: 'late', deviceId: 'late-phone' })
   void h.service.flushUnregisterOutbox()
   h.service.stop()
   release()
@@ -279,7 +279,7 @@ it('finishes the current snapshot on stop and leaves later work durable for rest
 })
 
 it('reports shutdown as retryable and allows registration after restart', async () => {
-  const h = harness()
+  const h = await harness()
   h.service.stop()
   expect(await h.service.register({ ...input, deviceId: h.deviceId })).toEqual({
     registered: false,

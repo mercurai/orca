@@ -16,11 +16,9 @@ import {
   artifactContentByteLength,
   artifactWriteRequestByteLength
 } from '../../shared/artifacts'
-import {
-  bestEffortFsyncDirectorySync,
-  fsyncFileSync,
-  hardenSecurePath
-} from '../../shared/secure-file'
+import { bestEffortFsyncDirectorySync, fsyncFileSync } from '../../shared/secure-file'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { hardenSecureDirectoryAsync } from '../../shared/secure-file-async-write'
 import { getOrcaProfileDirectory } from '../orca-profiles/profile-storage-paths'
 import type { ArtifactWriteBody } from './artifact-cloud-request'
 import type { ArtifactShareScope } from './artifact-share-record-store'
@@ -43,15 +41,11 @@ function intentDirectory(profileId: string, userDataPath: string): string {
   return join(getOrcaProfileDirectory(profileId, userDataPath), 'artifact-create-intents')
 }
 
-function ensureIntentDirectory(profileId: string, userDataPath: string): string {
+async function ensureIntentDirectory(profileId: string, userDataPath: string): Promise<string> {
   const directory = intentDirectory(profileId, userDataPath)
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   if (!hardenedIntentDirectories.has(directory)) {
-    hardenSecurePath(directory, {
-      isDirectory: true,
-      platform: process.platform,
-      sync: true
-    })
+    await hardenSecureDirectoryAsync(directory)
     if (hardenedIntentDirectories.size >= MAX_HARDENED_INTENT_DIRECTORIES) {
       const oldest = hardenedIntentDirectories.values().next().value
       if (oldest !== undefined) {
@@ -205,7 +199,22 @@ export function getOrCreateArtifactCreateIntent(
   scope: ArtifactShareScope,
   idempotencyKey: string,
   body: ArtifactWriteBody
-): ArtifactCreateIntent {
+): Promise<ArtifactCreateIntent> {
+  // Why: the directory harden awaits between the existence check and the write; serialize them.
+  return serializePathWrite(
+    `${intentPath(profileId, userDataPath, sourceKey, scope)}#read-modify-write`,
+    () => createIntentUnserialized(profileId, userDataPath, sourceKey, scope, idempotencyKey, body)
+  )
+}
+
+async function createIntentUnserialized(
+  profileId: string,
+  userDataPath: string,
+  sourceKey: string,
+  scope: ArtifactShareScope,
+  idempotencyKey: string,
+  body: ArtifactWriteBody
+): Promise<ArtifactCreateIntent> {
   if (artifactContentByteLength(body.content) > ARTIFACT_MAX_CONTENT_BYTES) {
     throw new Error('Artifact content exceeds the 10 MiB limit.')
   }
@@ -216,7 +225,7 @@ export function getOrCreateArtifactCreateIntent(
   if (existing) {
     return existing
   }
-  const directory = ensureIntentDirectory(profileId, userDataPath)
+  const directory = await ensureIntentDirectory(profileId, userDataPath)
   removeTemporaryIntents(directory)
   const pendingCount = readdirSync(directory).filter((name) => name.endsWith('.json')).length
   if (pendingCount >= MAX_PENDING_ARTIFACT_CREATES) {

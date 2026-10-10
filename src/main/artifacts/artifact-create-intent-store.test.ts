@@ -15,7 +15,7 @@ import {
   getOrCreateArtifactCreateIntent,
   removeArtifactCreateIntent
 } from './artifact-create-intent-store'
-import { runProcessSync } from '../../shared/child-process/run-process'
+import { runProcess, runProcessSync } from '../../shared/child-process/run-process'
 import { __resetSecureFileWindowsUserSidForTests } from '../../shared/secure-file'
 import type { ArtifactShareScope } from './artifact-share-record-store'
 
@@ -48,7 +48,7 @@ describe('artifact create intent store', () => {
   it('retains the first key and exact request until the matching create completes', async () => {
     const userDataPath = await createUserDataPath()
     const sourceKey = String.raw`C:\repo\report.html`
-    const first = getOrCreateArtifactCreateIntent(
+    const first = await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       sourceKey,
@@ -56,7 +56,7 @@ describe('artifact create intent store', () => {
       'key-a',
       body
     )
-    const retry = getOrCreateArtifactCreateIntent(
+    const retry = await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       sourceKey,
@@ -81,7 +81,14 @@ describe('artifact create intent store', () => {
   ])('isolates recovery intent by %s', async (_name, changedScope) => {
     const userDataPath = await createUserDataPath()
     const sourceKey = '/repo/report.html'
-    getOrCreateArtifactCreateIntent('local-profile', userDataPath, sourceKey, scope, 'key-a', body)
+    await getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      sourceKey,
+      scope,
+      'key-a',
+      body
+    )
 
     expect(
       getArtifactCreateIntent('local-profile', userDataPath, sourceKey, {
@@ -94,7 +101,7 @@ describe('artifact create intent store', () => {
   it('bounds unresolved payload storage without dropping an existing intent', async () => {
     const userDataPath = await createUserDataPath()
     for (let index = 0; index < MAX_PENDING_ARTIFACT_CREATES; index += 1) {
-      getOrCreateArtifactCreateIntent(
+      await getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
         `/repo/report-${index}.html`,
@@ -104,7 +111,7 @@ describe('artifact create intent store', () => {
       )
     }
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -113,15 +120,17 @@ describe('artifact create intent store', () => {
         'overflow-key',
         body
       )
-    ).toThrow(/waiting for recovery/)
+    ).rejects.toThrow(/waiting for recovery/)
     expect(
-      getOrCreateArtifactCreateIntent(
-        'local-profile',
-        userDataPath,
-        '/repo/report-0.html',
-        scope,
-        'replacement-key',
-        { ...body, content: 'replacement' }
+      (
+        await getOrCreateArtifactCreateIntent(
+          'local-profile',
+          userDataPath,
+          '/repo/report-0.html',
+          scope,
+          'replacement-key',
+          { ...body, content: 'replacement' }
+        )
       ).idempotencyKey
     ).toBe('key-0')
   })
@@ -129,7 +138,7 @@ describe('artifact create intent store', () => {
   it('clears pending content at the profile lifecycle boundary', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -149,7 +158,7 @@ describe('artifact create intent store', () => {
   it('removes crash-left temporary writes before admitting another intent', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -160,7 +169,7 @@ describe('artifact create intent store', () => {
     removeArtifactCreateIntent('local-profile', userDataPath, '/repo/report.html', scope, 'key-a')
     await writeFile(join(directory, 'crash-left.tmp'), 'partial')
 
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/other.html',
@@ -178,7 +187,7 @@ describe('artifact create intent store', () => {
     const ok = { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
     // Earlier cases in this file already resolved (and cached) the SID against an unstubbed mock.
     __resetSecureFileWindowsUserSidForTests()
-    vi.mocked(runProcessSync).mockImplementation((spec) => {
+    vi.mocked(runProcess).mockImplementation(async (spec) => {
       if (spec.program.endsWith('whoami.exe')) {
         return { ...ok, stdout: '"USER","S-1-5-21-1000"' }
       }
@@ -194,7 +203,7 @@ describe('artifact create intent store', () => {
     })
     try {
       const userDataPath = await createUserDataPath()
-      getOrCreateArtifactCreateIntent(
+      await getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
         '/repo/report.html',
@@ -202,7 +211,7 @@ describe('artifact create intent store', () => {
         'key-a',
         body
       )
-      getOrCreateArtifactCreateIntent(
+      await getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
         '/repo/other.html',
@@ -212,8 +221,9 @@ describe('artifact create intent store', () => {
       )
 
       // One harden across both intents: counted by its /reset pass, which opens each harden.
+      expect(runProcessSync).not.toHaveBeenCalled()
       const aclCalls = vi
-        .mocked(runProcessSync)
+        .mocked(runProcess)
         .mock.calls.map(([spec]) => spec)
         .filter((spec) => spec.program.endsWith('icacls.exe'))
       expect(aclCalls.filter((spec) => spec.args?.includes('/reset'))).toHaveLength(1)
@@ -224,14 +234,14 @@ describe('artifact create intent store', () => {
       if (originalPlatform) {
         Object.defineProperty(process, 'platform', originalPlatform)
       }
-      vi.mocked(runProcessSync).mockReset()
+      vi.mocked(runProcess).mockReset()
     }
   })
 
   it('refuses to overwrite an unreadable matching intent', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -242,7 +252,7 @@ describe('artifact create intent store', () => {
     const [fileName] = await readdir(directory)
     await writeFile(join(directory, fileName), '{broken-json')
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -251,13 +261,13 @@ describe('artifact create intent store', () => {
         'key-b',
         body
       )
-    ).toThrow(/could not be read safely/)
+    ).rejects.toThrow(/could not be read safely/)
   })
 
   it('removes an unreadable intent after its mutation completes', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -277,7 +287,7 @@ describe('artifact create intent store', () => {
   it('rejects a persisted content type outside the artifact allowlist', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -306,7 +316,7 @@ describe('artifact create intent store', () => {
       artifactWriteRequestByteLength({ sourceKey: '/repo/report.html', ...nearLimitBody })
     ).toBeLessThanOrEqual(ARTIFACT_MAX_REQUEST_BYTES)
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -315,7 +325,7 @@ describe('artifact create intent store', () => {
         'key-a',
         nearLimitBody
       )
-    ).not.toThrow()
+    ).resolves.toBeDefined()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
     const [fileName] = await readdir(directory)
     expect((await stat(join(directory, fileName))).size).toBeGreaterThan(ARTIFACT_MAX_CONTENT_BYTES)
@@ -323,7 +333,7 @@ describe('artifact create intent store', () => {
 
   it('rejects oversized artifact content before creating a recovery record', async () => {
     const userDataPath = await createUserDataPath()
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -332,7 +342,7 @@ describe('artifact create intent store', () => {
         'key-a',
         { ...body, content: 'x'.repeat(ARTIFACT_MAX_CONTENT_BYTES + 1) }
       )
-    ).toThrow(/10 MiB limit/)
+    ).rejects.toThrow(/10 MiB limit/)
   })
 
   it('rejects a recovery body whose escaped request exceeds the transport budget', async () => {
@@ -343,7 +353,7 @@ describe('artifact create intent store', () => {
       artifactWriteRequestByteLength({ sourceKey: '/repo/report.html', ...body, content })
     ).toBeGreaterThan(ARTIFACT_MAX_REQUEST_BYTES)
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -352,13 +362,13 @@ describe('artifact create intent store', () => {
         'key-a',
         { ...body, content }
       )
-    ).toThrow(/supported size/)
+    ).rejects.toThrow(/supported size/)
   })
 
   it('rejects an oversized recovery record before reading it', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',

@@ -194,11 +194,14 @@ export class DesktopPushService {
         reason: result.reason === 'unreachable' ? 'gateway_unreachable' : 'gateway_rejected'
       }
     }
-    const failure = this.storeRegistration(input, result.registrationId)
+    const failure = await this.storeRegistration(input, result.registrationId)
     if (failure) {
       // Why: the gateway now holds a token this host will never push to. Queue its
       // delete instead of leaking it until the phone happens to register again.
-      this.outbox.enqueue({ registrationId: result.registrationId, deviceId: input.deviceId })
+      await this.outbox.enqueue({
+        registrationId: result.registrationId,
+        deviceId: input.deviceId
+      })
     }
     void this.flushUnregisterOutbox()
     return failure
@@ -212,15 +215,15 @@ export class DesktopPushService {
     )
   }
 
-  private unregisterCurrent(deviceId: string): { unregistered: boolean } {
+  private async unregisterCurrent(deviceId: string): Promise<{ unregistered: boolean }> {
     const registrationId = this.registry.getDevice(deviceId)?.pushRegistration?.registrationId
     if (!registrationId) {
       return { unregistered: false }
     }
     // Persist cleanup before forgetting its ID; neither write waits on the gateway.
-    this.outbox.enqueue({ registrationId, deviceId })
+    await this.outbox.enqueue({ registrationId, deviceId })
     try {
-      this.registry.setPushRegistration(deviceId, null)
+      await this.registry.setPushRegistration(deviceId, null)
     } finally {
       void this.flushUnregisterOutbox()
     }
@@ -255,12 +258,12 @@ export class DesktopPushService {
   }
 
   /** Returns the refusal reason when a gateway-accepted registration cannot be stored. */
-  private storeRegistration(
+  private async storeRegistration(
     input: MobilePushRegisterInput,
     registrationId: string
-  ): RegisterStorageFailure | null {
+  ): Promise<RegisterStorageFailure | null> {
     try {
-      const stored = this.registry.setPushRegistration(input.deviceId, {
+      const stored = await this.registry.setPushRegistration(input.deviceId, {
         registrationId,
         filter: input.filter,
         expiresAt: Date.now() + 7 * 24 * 60 * 60_000
@@ -314,7 +317,7 @@ export class DesktopPushService {
     if (!deleted) {
       return false
     }
-    this.outbox.remove(reqId)
+    await this.outbox.remove(reqId)
     return true
   }
 

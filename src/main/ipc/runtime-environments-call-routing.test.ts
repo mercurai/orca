@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../shared/protocol-version'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../shared/electron-remote-runtime-client-capabilities'
-import * as environmentStore from '../../shared/runtime-environment-store'
+import { markEnvironmentUsed } from '../../shared/runtime-environment-usage'
 import { RemoteRuntimeClientError } from '../../shared/remote-runtime-client-error'
 import { RuntimeRpcCallQueueOverloadError } from '../../shared/runtime-rpc-call-queue'
 import type { RuntimeRpcResponse } from '../../shared/runtime-rpc-envelope'
@@ -401,7 +401,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { ok: true; result: unknown }
     >('runtimeEnvironments:call')
     await call(null, { selector: 'desk', method: 'repo.list' })
-    environmentStore.markEnvironmentUsed(userDataPath, added.environment.id, {
+    await markEnvironmentUsed(userDataPath, added.environment.id, {
       runtimeId: 'runtime-downgraded'
     })
     await call(null, { selector: 'desk', method: 'repo.list' })
@@ -421,7 +421,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { environment: { id: string; name: string } }
     >('runtimeEnvironments:addFromPairingCode')
     const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
-    environmentStore.markEnvironmentUsed(userDataPath, added.environment.id, {
+    await markEnvironmentUsed(userDataPath, added.environment.id, {
       runtimeId: 'runtime-replacement'
     })
 

@@ -3,7 +3,8 @@ import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { z } from 'zod'
-import { hardenExistingSecureFile, writeSecureJsonFile } from '../../../shared/secure-file'
+import { hardenExistingSecureFile } from '../../../shared/secure-file'
+import { writeSecureJsonFileAsync } from '../../../shared/secure-file-async-write'
 import { fetchRelayRegionCatalog, relayDirectorHost } from './relay-region-catalog-fetch'
 import type { RelayRegionDecision, RelayRegionWindow } from './relay-region-correction-protocol'
 import {
@@ -205,7 +206,7 @@ export class RelayRegionPreferenceResolver {
         ttlMs
       })
     )
-    this.writeCache(
+    await this.writeCache(
       selected
         ? { region: selected.region, latencyMs: selected.latencyMs, ttlMs }
         : { region: null, ttlMs },
@@ -237,12 +238,12 @@ export class RelayRegionPreferenceResolver {
     ;(this.options.logEvent ?? logRelayRegionEvent)(event)
   }
 
-  private writeCache(
+  private async writeCache(
     entry: { region: RelayRegion | null; latencyMs?: number; ttlMs: number },
     now: number
-  ): void {
+  ): Promise<void> {
     try {
-      writeSecureJsonFile(this.cachePath(), {
+      await writeSecureJsonFileAsync(this.cachePath(), {
         v: 2,
         directorUrl: this.options.directorUrl,
         region: entry.region,

@@ -2,13 +2,13 @@ import {
   addEnvironmentFromPairingCode as addEnvironmentFromPairingCodeInStore,
   getEnvironmentStorePath,
   listEnvironments,
-  markEnvironmentUsed as markEnvironmentUsedInStore,
   removeEnvironment as removeEnvironmentFromStore,
   resolveEnvironment as resolveEnvironmentFromStore,
   resolveEnvironmentPairingOffer as resolveEnvironmentPairingOfferFromStore,
   RuntimeEnvironmentStoreError,
   type RuntimeEnvironmentStoreErrorCode
 } from '../../shared/runtime-environment-store'
+import { markEnvironmentUsed as markEnvironmentUsedInStore } from '../../shared/runtime-environment-usage'
 import type {
   KnownRuntimeEnvironment,
   PublicKnownRuntimeEnvironment
@@ -29,12 +29,15 @@ export { getEnvironmentStorePath, listEnvironments }
 export function addEnvironmentFromPairingCode(
   userDataPath: string,
   args: { name: string; pairingCode: string; now?: number }
-): KnownRuntimeEnvironment {
-  return translateStoreError(() => addEnvironmentFromPairingCodeInStore(userDataPath, args))
+): Promise<KnownRuntimeEnvironment> {
+  return translateStoreErrorAsync(() => addEnvironmentFromPairingCodeInStore(userDataPath, args))
 }
 
-export function removeEnvironment(userDataPath: string, selector: string): KnownRuntimeEnvironment {
-  return translateStoreError(() => removeEnvironmentFromStore(userDataPath, selector))
+export function removeEnvironment(
+  userDataPath: string,
+  selector: string
+): Promise<KnownRuntimeEnvironment> {
+  return translateStoreErrorAsync(() => removeEnvironmentFromStore(userDataPath, selector))
 }
 
 export function resolveEnvironment(
@@ -55,18 +58,30 @@ export function markEnvironmentUsed(
   userDataPath: string,
   selector: string,
   args: { runtimeId?: string | null; now?: number } = {}
-): void {
-  translateStoreError(() => markEnvironmentUsedInStore(userDataPath, selector, args))
+): Promise<void> {
+  return translateStoreErrorAsync(() => markEnvironmentUsedInStore(userDataPath, selector, args))
+}
+
+function toRuntimeClientError(error: unknown): unknown {
+  return error instanceof RuntimeEnvironmentStoreError
+    ? new RuntimeClientError(toRuntimeClientErrorCode(error.code), error.message)
+    : error
 }
 
 function translateStoreError<TResult>(fn: () => TResult): TResult {
   try {
     return fn()
   } catch (error) {
-    if (error instanceof RuntimeEnvironmentStoreError) {
-      throw new RuntimeClientError(toRuntimeClientErrorCode(error.code), error.message)
-    }
-    throw error
+    throw toRuntimeClientError(error)
+  }
+}
+
+// Why: the store mutators reject (or throw synchronously) with store errors; both must surface as client errors.
+async function translateStoreErrorAsync<TResult>(fn: () => Promise<TResult>): Promise<TResult> {
+  try {
+    return await fn()
+  } catch (error) {
+    throw toRuntimeClientError(error)
   }
 }
 
