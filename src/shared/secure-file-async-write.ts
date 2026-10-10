@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto'
+import { renameSync } from 'node:fs'
 import { chmod, mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { serializePathWrite } from './path-write-serializer'
@@ -19,14 +20,6 @@ export async function writeSecureJsonFileAsync(
   return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2))
 }
 
-/** Async lane. Use this from anything an IPC handler can await; see `writeSecureFileAsync`. */
-export async function writeDurableSecureJsonFileAsync(
-  targetPath: string,
-  value: unknown
-): Promise<boolean> {
-  return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2), { durable: true })
-}
-
 /**
  * `writeSecureFile` off the event loop, and the lane every IPC-reachable caller should use: the
  * durable variant's fsync costs tens of milliseconds on NTFS behind a filter driver, and it runs on
@@ -42,11 +35,22 @@ export async function writeDurableSecureJsonFileAsync(
  *
  * Serialized per `targetPath`: the tmp/fsync/rename dance is several awaits wide, so two concurrent
  * writers could otherwise interleave and publish a file neither of them wrote.
+ *
+ * `shouldPublish` is a synchronous veto checked immediately before the rename (a sync rename, so
+ * nothing can run between check and publish): a read-modify-write caller whose snapshot went stale
+ * while the ACL spawned gets `SecureWriteSupersededError` and the staged file is discarded.
  */
+export class SecureWriteSupersededError extends Error {
+  constructor(path: string) {
+    super(`Secure write to ${path} was superseded before it published`)
+    this.name = 'SecureWriteSupersededError'
+  }
+}
+
 export async function writeSecureFileAsync(
   targetPath: string,
   contents: string,
-  options: { durable?: boolean } = {}
+  options: { durable?: boolean; shouldPublish?: () => boolean } = {}
 ): Promise<boolean> {
   return await serializePathWrite(targetPath, async () => {
     const dir = dirname(targetPath)
@@ -62,17 +66,27 @@ export async function writeSecureFileAsync(
         await fsyncFile(tmpFile)
       }
       // Why: writeFile mode is a no-op on Windows, so the credential's ACL must land before the rename publishes it under inherited ACLs.
-      const stagedOutcome = await applyWritePathRestriction(tmpFile, targetPath)
-      await rename(tmpFile, targetPath)
-      // The staged file's protected DACL travels with the rename (same volume), so the published
-      // path needs no second pass; cache only on confirmed success so failures retry.
-      if (stagedOutcome === 'applied') {
+      let outcome = await applyWritePathRestriction(tmpFile, targetPath)
+      if (options.shouldPublish) {
+        if (!options.shouldPublish()) {
+          throw new SecureWriteSupersededError(targetPath)
+        }
+        renameSync(tmpFile, targetPath)
+      } else {
+        await rename(tmpFile, targetPath)
+      }
+      // The staged file's protected DACL travels with the rename (same volume), so a successful
+      // staged pass needs no second one; a failed one gets the published path's retry the tag had.
+      if (outcome === 'failed') {
+        outcome = await applyWritePathRestriction(targetPath, targetPath)
+      }
+      if (outcome === 'applied') {
         rememberHardenedPath(targetPath, false)
       }
       if (options.durable) {
         await bestEffortFsyncDirectory(dir)
       }
-      return stagedOutcome === 'applied'
+      return outcome === 'applied'
     } catch (error) {
       await rm(tmpFile, { force: true })
       throw error
@@ -111,12 +125,12 @@ async function fsyncPath(path: string, flags: 'r' | 'r+'): Promise<void> {
   }
 }
 
-export async function fsyncFile(path: string): Promise<void> {
+async function fsyncFile(path: string): Promise<void> {
   // FlushFileBuffers requires a write-capable handle on Windows.
   await fsyncPath(path, process.platform === 'win32' ? 'r+' : 'r')
 }
 
-export async function bestEffortFsyncDirectory(directory: string): Promise<void> {
+async function bestEffortFsyncDirectory(directory: string): Promise<void> {
   if (process.platform === 'win32') {
     return
   }

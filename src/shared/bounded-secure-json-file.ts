@@ -16,7 +16,7 @@ export async function writeSecureJsonFileWithinLimitAsync(
   targetPath: string,
   value: unknown,
   maxBytes: number,
-  options: { durable?: boolean } = {}
+  options: { durable?: boolean; shouldPublish?: () => boolean } = {}
 ): Promise<void> {
   await writeSecureFileAsync(
     targetPath,
