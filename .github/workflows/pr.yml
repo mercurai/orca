@@ -295,6 +295,21 @@ jobs:
             echo "VM runtime persistence is unchanged."
             exit 0
           fi
+          # mercurai fork: the pinned commits can lie outside the depth-50 checkout; fetch or fail.
+          for NAME in BASELINE_COMMIT AFFECTED_MAIN_COMMIT; do
+            SHA="$(sed -n "s/^const $NAME = '\([0-9a-f]\{40\}\)'.*/\1/p" \
+              config/scripts/run-ephemeral-vm-runtime-store-rollback-repro.mjs)"
+            if [ -z "$SHA" ]; then
+              echo "::error::Could not read $NAME from the rollback repro script"
+              exit 1
+            fi
+            if ! git cat-file -e "$SHA^{tree}" 2>/dev/null; then
+              git fetch --no-tags --depth=1 origin "$SHA" || {
+                echo "::error::Could not fetch $NAME $SHA from origin"
+                exit 1
+              }
+            fi
+          done
           node config/scripts/run-ephemeral-vm-runtime-store-rollback-repro.mjs \
             config/scripts/ephemeral-vm-runtime-store-cross-version.test.ts
 
