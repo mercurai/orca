@@ -12,7 +12,7 @@ import {
   removeEnvironment,
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
-import { markEnvironmentUsed } from './runtime-environment-usage'
+import { markEnvironmentUsed } from './runtime-environment-store'
 import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
 
 vi.mock('./child-process/run-process', () => ({ runProcess: vi.fn(), runProcessSync: vi.fn() }))
@@ -214,11 +214,11 @@ describe('runtime environment store', () => {
     tempDirs.push(userDataPath)
 
     await Promise.all([
-      addEnvironmentFromPairingCode(userDataPath, {
+      await addEnvironmentFromPairingCode(userDataPath, {
         name: 'first box',
         pairingCode: pairingCode('ws://127.0.0.1:6768')
       }),
-      addEnvironmentFromPairingCode(userDataPath, {
+      await addEnvironmentFromPairingCode(userDataPath, {
         name: 'second box',
         pairingCode: pairingCode('ws://192.0.2.10:6768')
       })

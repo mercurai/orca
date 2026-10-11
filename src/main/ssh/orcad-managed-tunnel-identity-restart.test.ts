@@ -102,12 +102,12 @@ describe('reopening a managed tunnel after orcad restarted elsewhere', () => {
     const status = await verifyRuntimePairingIdentity(pairing, { runtimeId: null })
     expect(status.verifiedRuntimeId).not.toBe(recorded)
     const desktopProfile = mkdtempSync(join(tmpdir(), 'desktop-a-'))
-    const saved = addEnvironmentFromPairingCode(desktopProfile, {
+    const saved = await addEnvironmentFromPairingCode(desktopProfile, {
       name: 'Box server',
       pairingCode: encodePairingOffer(pairing)
     })
-    markEnvironmentUsed(desktopProfile, saved.id, { runtimeId: recorded })
-    markEnvironmentUsed(desktopProfile, saved.id, {
+    await markEnvironmentUsed(desktopProfile, saved.id, { runtimeId: recorded })
+    await markEnvironmentUsed(desktopProfile, saved.id, {
       runtimeId: status.verifiedRuntimeId,
       pairingDeviceToken: pairing.deviceToken
     })

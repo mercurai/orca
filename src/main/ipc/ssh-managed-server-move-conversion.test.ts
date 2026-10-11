@@ -48,7 +48,7 @@ let userDataPath: string
 let store: Store
 let destination: ReturnType<typeof fakeOrcadMigrationDestination>
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
   userDataPath = mkdtempSync(join(tmpdir(), 'orcad-move-'))
   store = createSqliteTestStore(Store, { dataFile: join(userDataPath, 'orca-data.json') })
@@ -68,7 +68,7 @@ beforeEach(() => {
   mocks.deploy.mockImplementation(async (path: string, args: { name: string }) => {
     const id = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))!
     if (!listEnvironments(path).some((entry) => entry.id === id)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -149,7 +149,7 @@ function openRelayTerminals(count: number): void {
   }
 }
 
-function moveDeps() {
+async function moveDeps() {
   let status: SshManagedServerStatus | undefined
   return {
     getTarget: (targetId: string) => store.getSshTarget(targetId),
@@ -206,7 +206,7 @@ function stagedSession() {
 describe('moving a host whose live relay terminals kept it on the relay', () => {
   it('stops the terminal, converts, and carries its tab to orcad without the relay PTY', async () => {
     openRelayTerminals(1)
-    const deps = moveDeps()
+    const deps = await moveDeps()
 
     await expect(moveSshHostToManagedServer(TARGET.id, deps)).resolves.toMatchObject({
       outcome: 'moved'
@@ -223,7 +223,7 @@ describe('moving a host whose live relay terminals kept it on the relay', () => 
 
   it('moves two terminals whose stop lost its last reply to a relay that hung up (BUG-15)', async () => {
     openRelayTerminals(2)
-    const deps = moveDeps()
+    const deps = await moveDeps()
     // Both shells died and their leases recorded it, but the second reply was lost.
     deps.terminate.mockImplementationOnce(async (targetId: string) => {
       store.markSshRemotePtyLease(targetId, 'pty2:relay:1', 'terminated')
@@ -243,7 +243,7 @@ describe('moving a host whose live relay terminals kept it on the relay', () => 
 
   it('refuses and refreshes the status when a failed stop left a terminal unproven', async () => {
     openRelayTerminals(2)
-    const deps = moveDeps()
+    const deps = await moveDeps()
     deps.terminate.mockImplementationOnce(async (targetId: string) => {
       store.markSshRemotePtyLease(targetId, 'pty2:relay:1', 'terminated')
       throw new Error('Failed to terminate SSH host sessions: pty2:relay:2: Multiplexer disposed')

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
+import { serializePathWrite } from './path-write-serializer'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
 import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import {
@@ -94,11 +95,28 @@ export function readEnvironmentStore(
   }
 }
 
-/** Writes only persisted fields; sidecar state is written by the sidecar module. */
-export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
+/**
+ * Runs one environment mutation alone. Why one lane for both files: a change spans the store and the
+ * sidecar, and the writes are async, so two mutations reading and writing in turn would lose one.
+ * Inside the lane each mutation reads, decides and writes with nothing interleaved; readers outside
+ * see at most the between-files state the sidecar binding already tolerates after a crash.
+ * Never call it from inside a mutation: the lane would wait on itself.
+ */
+export function runEnvironmentStoreMutation<T>(
+  userDataPath: string,
+  mutation: () => Promise<T>
+): Promise<T> {
+  return serializePathWrite(`${getEnvironmentStorePath(userDataPath)}#mutation`, mutation)
+}
+
+/** Writes only persisted fields; sidecar state is written by the sidecar module. Call inside the lane. */
+export async function writeEnvironmentStore(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore
+): Promise<void> {
   const path = getEnvironmentStorePath(userDataPath)
   try {
-    writeSecureJsonFileWithinLimit(
+    await writeSecureJsonFileWithinLimitAsync(
       path,
       RuntimeEnvironmentStoreSchema.parse(store),
       MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES

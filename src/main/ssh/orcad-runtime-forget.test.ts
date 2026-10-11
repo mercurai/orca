@@ -34,16 +34,16 @@ vi.mock('./orcad-managed-tunnel', () => ({
 const { forgetManagedOrcadEnvironment, stopManagedOrcadEnvironment } =
   await import('./orcad-runtime-lifecycle')
 
-let harness: ReturnType<typeof createManagedLifecycleHarness>
+let harness: Awaited<ReturnType<typeof createManagedLifecycleHarness>>
 
 const policy = (isActive = false) => ({
   isActiveEnvironment: () => isActive,
   retireLocalState: mocks.retire
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
-  harness = createManagedLifecycleHarness()
+  harness = await createManagedLifecycleHarness()
   mocks.state.store = harness.targetStore
   // The host was deleted: every connect is refused.
   mocks.connect.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:2841'))
