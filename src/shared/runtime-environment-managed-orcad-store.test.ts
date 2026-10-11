@@ -56,8 +56,8 @@ describe('managed orcad environment store', () => {
       ...overrides
     })
 
-  it('keeps the deployment link out of the file shipped builds rewrite', () => {
-    const environment = add()
+  it('keeps the deployment link out of the file shipped builds rewrite', async () => {
+    const environment = await add()
     expect(environment.orcadDeployment).toEqual(deployment)
     expect(getRuntimeSshAccess(environment)).toEqual(deployment)
     const persisted = readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')
@@ -68,8 +68,8 @@ describe('managed orcad environment store', () => {
     )
   })
 
-  it('survives a downgraded build rewriting orca-environments.json', () => {
-    add()
+  it('survives a downgraded build rewriting orca-environments.json', async () => {
+    await add()
     shippedBuildRewrite(userDataPath, (environments) => {
       environments[0]!.lastUsedAt = 500
     })
@@ -78,30 +78,30 @@ describe('managed orcad environment store', () => {
     expect(restored?.lastUsedAt).toBe(500)
   })
 
-  it('drops the link when a downgraded build re-pairs the server elsewhere', () => {
-    add()
+  it('drops the link when a downgraded build re-pairs the server elsewhere', async () => {
+    await add()
     shippedBuildRewrite(userDataPath, (environments) => {
       environments[0]!.pairingRevision = 200
     })
     expect(listEnvironments(userDataPath)[0]?.orcadDeployment).toBeUndefined()
   })
 
-  it('refuses a pairing that does not point at the deployment tunnel', () => {
-    expect(() => add({ pairingCode: pairingCode('ws://127.0.0.1:1234') })).toThrow(
+  it('refuses a pairing that does not point at the deployment tunnel', async () => {
+    await expect(add({ pairingCode: pairingCode('ws://127.0.0.1:1234') })).rejects.toThrow(
       'does not point at its SSH tunnel'
     )
-    expect(() => add({ pairingCode: pairingCode('wss://server.example') })).toThrow()
+    await expect(add({ pairingCode: pairingCode('wss://server.example') })).rejects.toThrow()
     expect(listEnvironments(userDataPath)).toEqual([])
   })
 
-  it('refuses duplicate ids and names', () => {
-    add()
-    expect(() => add({ name: 'Other' })).toThrow('already exists')
-    expect(() => add({ id: 'environment-2' })).toThrow('already exists')
+  it('refuses duplicate ids and names', async () => {
+    await add()
+    await expect(add({ name: 'Other' })).rejects.toThrow('already exists')
+    await expect(add({ id: 'environment-2' })).rejects.toThrow('already exists')
   })
 
   it('keeps a managed server from being removed or re-paired outside its lifecycle', async () => {
-    add()
+    await add()
     await expect(removeEnvironment(userDataPath, 'Managed')).rejects.toThrow(
       'managed by Orca over SSH'
     )
@@ -112,7 +112,7 @@ describe('managed orcad environment store', () => {
   })
 
   it('removes the server and its deployment record together once it is unlinked', async () => {
-    add()
+    await add()
     await removeManagedOrcadEnvironment(userDataPath, 'environment-1')
     expect(listEnvironments(userDataPath)).toEqual([])
     expect(readFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), 'utf8')).not.toContain(
@@ -121,7 +121,7 @@ describe('managed orcad environment store', () => {
   })
 
   it('leaves an unchanged pairing alone and re-binds the link when the offer rotates', async () => {
-    const environment = add()
+    const environment = await add()
     expect(await refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode())).toEqual(
       environment
     )
@@ -141,7 +141,7 @@ describe('managed orcad environment store', () => {
   })
 
   it('keeps the deployment link when a re-pair stops between its sidecar and store writes', async () => {
-    add()
+    await add()
     const store = readPersistedEnvironmentStore(userDataPath)
     const existing = store.environments[0]!
     const entry = readCurrentRuntimeEnvironmentSidecarEntry(userDataPath, existing)!
@@ -169,7 +169,7 @@ describe('managed orcad environment store', () => {
         publicKeyB64: Buffer.alloc(32, 1).toString('base64'),
         pairedDeviceId
       })
-    add({ pairingCode: offer('token-old', 'device-old') })
+    await add({ pairingCode: offer('token-old', 'device-old') })
     const repaired = await refreshManagedOrcadPairing(
       userDataPath,
       'environment-1',
@@ -191,7 +191,7 @@ describe('managed orcad environment store', () => {
   })
 
   it('keeps the latest migration mark and never moves it back, across a downgrade rewrite and a re-pair', async () => {
-    add()
+    await add()
     await recordManagedOrcadMigration(userDataPath, 'environment-1', '2026-02-01T00:00:00.000Z')
     await recordManagedOrcadMigration(userDataPath, 'environment-1', '2026-03-01T00:00:00.000Z')
     await recordManagedOrcadMigration(userDataPath, 'environment-1', '2026-02-15T00:00:00.000Z')
