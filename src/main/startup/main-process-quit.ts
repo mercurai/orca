@@ -231,8 +231,6 @@ function installWillQuitHandler(): void {
       state.openCodeUsage?.flush(),
       state.museUsage?.flush()
     ]).then(() => {})
-    // Why: the store writes went async; the sync baseline never lost one to a quit, so wait (bounded).
-    const pathWriteDrain = drainPathWritesForQuit()
     const browserClientHostShutdown = shutdownPairedRuntimeBrowserClientHosts()
     const skillUploadShutdown = state.runtime?.disposeSkillUploadSessions() ?? Promise.resolve()
     // Why: the dismissal store debounces its writes by 5 s; flush so a quit does not lose that tail.
@@ -252,6 +250,13 @@ function installWillQuitHandler(): void {
           })
           .catch((error) => console.error('[runtime] Failed to stop local RPC transport:', error))
       : Promise.resolve()
+    // Why: the store writes went async; the sync baseline never lost one to a quit, so wait (bounded).
+    // Why after these members: plugin dispose, dismissal flush and state flush can queue secure writes.
+    const pathWriteDrain = Promise.allSettled([
+      pluginHostShutdown,
+      dismissalFlush,
+      storeFlush
+    ]).then(() => drainPathWritesForQuit())
     // Why: allSettled (not all) keeps fail-open — a daemon-disconnect rejection still quits instead of hanging.
     // Why: telemetry flush folds in before app.quit() (bounded 2s); catch defensively so a flush failure can't cancel the quit chain.
     // Why: normal quits keep the detached daemon for warm reattach, but a dead dev parent leaves the temp/dev profile ownerless.
