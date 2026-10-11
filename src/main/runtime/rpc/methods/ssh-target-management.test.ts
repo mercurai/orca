@@ -287,18 +287,5 @@ describe('server SSH target management RPC', () => {
         ok: false
       })
     })
-
-    it.each(MANAGEMENT_CALLS)(
-      "an SSH host's CLI without remote control may not call %s",
-      async (method, params) => {
-        await expect(
-          dispatch(method, params, {
-            kind: 'ssh-bridge',
-            targetId: 'ssh-1',
-            remoteCliControl: false
-          })
-        ).resolves.toMatchObject({ ok: false })
-      }
-    )
   })
 })

@@ -11,6 +11,7 @@
  * Chromium proves available at startup.
  */
 import process from 'node:process'
+import { describeOrcadSecretProtectionGap } from './orcad-secret-protection-gap'
 import {
   getAppEnvironment,
   setAppEnvironment,
@@ -94,8 +95,7 @@ function createNodeSecretStore(): SecretStore {
     decryptString: () => {
       throw new Error('orcad_secret_sealing_unavailable')
     },
-    describeProtectionGap: () =>
-      'This host has no OS keyring, so credentials are stored unencrypted. Pair from a desktop to manage secrets, or install and unlock a keyring.'
+    describeProtectionGap: () => describeOrcadSecretProtectionGap(process.platform)
   }
 }
 

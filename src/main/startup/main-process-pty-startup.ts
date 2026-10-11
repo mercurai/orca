@@ -138,7 +138,9 @@ export function startTerminalRuntimeStartupServices(): WindowsDesktopStartupServ
       // Why: only GUI-spawned macOS daemons watch for login-session death; a headless
       // serve daemon must survive its spawning session ending (SSH disconnect).
       await initDaemonPtyProvider(signal, {
-        macosLoginSessionWatch: process.platform === 'darwin' && !state.isServeMode
+        macosLoginSessionWatch: process.platform === 'darwin' && !state.isServeMode,
+        // Why: desktop observes for one release; headless hosts pace automatic restores now.
+        spawnAdmission: state.isServeMode ? 'enforce' : 'observe'
       })
       // Why: a retained shell keeps its launch-time Codex home even when the current routing lane changes.
       const hasRetainedManagedHostPane = hasRecordedManagedHostCodexPane()

@@ -1,17 +1,14 @@
 /**
  * The two things a supervisor reads off a launch: what the arguments mean, and what an exit
- * code means. Both are part of the ops contract in docs/reference/orcad-operations.md.
+ * code means. Both are part of the supervisor ops contract.
  */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { parseArgs } from './orcad-entry'
-import {
-  ORCAD_EXIT_CONFIGURATION,
-  ORCAD_EXIT_FAILED,
-  resolveOrcadExitCode
-} from './orcad-exit-code'
+import { ORCAD_EXIT_CONFIGURATION } from './orcad-configuration-exit'
+import { ORCAD_EXIT_FAILED, resolveOrcadExitCode } from './orcad-exit-code'
 import { startOrcadWithLifecycle } from './orcad-lifecycle'
 import {
   beginAgentSessionRuntimeRecord,

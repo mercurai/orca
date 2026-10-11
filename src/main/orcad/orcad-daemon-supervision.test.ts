@@ -52,7 +52,8 @@ describe('startOrcadDaemon', () => {
     // daemon must survive its SSH session ending — arming it would kill every terminal the
     // moment the operator logged out, which is the opposite of the property being bought.
     expect(initDaemonPtyProviderMock).toHaveBeenCalledWith(undefined, {
-      macosLoginSessionWatch: false
+      macosLoginSessionWatch: false,
+      spawnAdmission: 'enforce'
     })
   })
 
@@ -60,6 +61,7 @@ describe('startOrcadDaemon', () => {
     await startOrcadDaemon('win32')
     expect(initDaemonPtyProviderMock).toHaveBeenCalledWith(undefined, {
       macosLoginSessionWatch: false,
+      spawnAdmission: 'enforce',
       startupTimeoutMs: 30_000
     })
   })
