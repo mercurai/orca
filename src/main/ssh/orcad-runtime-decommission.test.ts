@@ -57,7 +57,7 @@ const { cancelManagedOrcadStop, stopManagedOrcadEnvironment } =
   await import('./orcad-runtime-lifecycle')
 
 const idle = { liveSessions: 0, startedSinceActivation: 0, daemonProtocolVersion: 7 }
-let harness: ReturnType<typeof createManagedLifecycleHarness>
+let harness: Awaited<ReturnType<typeof createManagedLifecycleHarness>>
 
 const stop = (isActive = false) =>
   stopManagedOrcadEnvironment(
@@ -73,9 +73,9 @@ function expectStillLinked(): void {
   expect(mocks.closeTunnel).not.toHaveBeenCalled()
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
-  harness = createManagedLifecycleHarness()
+  harness = await createManagedLifecycleHarness()
   mocks.state.store = harness.targetStore
   mocks.state.transaction = null
   mocks.resolveContext.mockImplementation(async () => harness.context())
@@ -86,7 +86,7 @@ afterEach(() => rmSync(harness.userDataPath, { recursive: true, force: true }))
 
 describe('stopManagedOrcadEnvironment', () => {
   it('unlinks the server only after the host proves orcad exited', async () => {
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('migration-1', 'ssh-1', { environmentId: 'environment-1' }),
       phase: 'destination-committed',
       sourceRetainedAt: '2026-10-01T00:00:00.000Z'
@@ -168,7 +168,7 @@ describe('stopManagedOrcadEnvironment', () => {
     await expect(stop()).resolves.toMatchObject({ outcome: 'unlinked', verdict: 'exited' })
 
     rmSync(harness.userDataPath, { recursive: true, force: true })
-    harness = createManagedLifecycleHarness()
+    harness = await createManagedLifecycleHarness()
     mocks.state.store = harness.targetStore
     mocks.state.transaction = { operation: 'decommission', activeVersion: MANAGED_VERSION }
     mocks.recover.mockResolvedValue({ outcome: 'none' })

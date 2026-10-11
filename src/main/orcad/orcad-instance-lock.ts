@@ -97,8 +97,34 @@ export function parseOrcadInstanceLockRecord(content: string): OrcadLockRecord |
   }
 }
 
+function createOrcadDataRoot(dataRoot: string): void {
+  try {
+    mkdirSync(dataRoot, { recursive: true, mode: 0o700 })
+  } catch (error) {
+    throw new OrcadInstanceLockError(
+      'orcad_data_root_unusable',
+      `Cannot create the orcad data root ${dataRoot}: ${error instanceof Error ? error.message : String(error)}`
+    )
+  }
+}
+
 /**
- * Take the lock, or throw an `OrcadInstanceLockError` naming why.
+ * orcad only, before `acquireOrcadInstanceLock`: creates the data root and makes it private, so a
+ * refusal comes before any lock record is published. The desktop's profile keeps the permissions it
+ * was created with and never calls this. Why separate and async: on Windows the ACL restrict spawns
+ * icacls, which must not block a loop thread; the desktop's lock path stays synchronous.
+ */
+export async function prepareOrcadDataRoot(
+  dataRoot: string,
+  hooks: OrcadDataRootPrivacyHooks = {}
+): Promise<void> {
+  createOrcadDataRoot(dataRoot)
+  await assertOrcadDataRootIsPrivate(dataRoot, hooks)
+}
+
+/**
+ * Take the lock, or throw an `OrcadInstanceLockError` naming why. orcad awaits
+ * `prepareOrcadDataRoot` first.
  *
  * A dead holder's record is reclaimed; a live one, or one belonging to a different identity,
  * is never touched.
@@ -112,18 +138,7 @@ export function acquireOrcadInstanceLock(
   const readStartedAt = hooks.startedAtMs ?? readOrcadProcessStartedAtMs
   const matchesStartTime = hooks.startTimeMatches ?? orcadProcessStartTimeMatches
 
-  try {
-    mkdirSync(dataRoot, { recursive: true, mode: 0o700 })
-  } catch (error) {
-    throw new OrcadInstanceLockError(
-      'orcad_data_root_unusable',
-      `Cannot create the orcad data root ${dataRoot}: ${error instanceof Error ? error.message : String(error)}`
-    )
-  }
-  // The desktop's profile keeps the permissions it was created with; orcad tightens its own.
-  if ((hooks.role ?? 'orcad') === 'orcad') {
-    assertOrcadDataRootIsPrivate(dataRoot, hooks)
-  }
+  createOrcadDataRoot(dataRoot)
 
   const lockPath = join(dataRoot, ORCAD_LOCK_FILE_NAME)
   const record: OrcadLockRecord = {

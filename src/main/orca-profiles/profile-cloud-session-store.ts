@@ -1,7 +1,12 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { safeStorage } from 'electron'
-import { isUnreadableError, writeSecureJsonFile } from '../../shared/secure-file'
+import { isUnreadableError } from '../../shared/secure-file'
+import {
+  removeSecureFile,
+  SecureWriteDiscardedError,
+  writeSecureJsonFileAsync
+} from '../../shared/secure-file-async-write'
 import type {
   OrcaCloudCapabilities,
   OrcaCloudOrgSummary,
@@ -14,6 +19,7 @@ import {
   cloudSessionIdentity,
   isCloudSessionMutationCurrent,
   recordSuccessfulCloudSessionLogin,
+  withCloudSessionMutationLock,
   type CloudSessionMutationSnapshot
 } from './profile-cloud-session-mutation'
 
@@ -118,11 +124,11 @@ export function getOrcaCloudSessionPath(profileId: string, userDataPath: string)
   return join(getOrcaProfileDirectory(profileId, userDataPath), 'account-session.json.enc')
 }
 
-export function saveOrcaCloudSession(
+export async function saveOrcaCloudSession(
   profileId: string,
   userDataPath: string,
   session: OrcaCloudSession
-): OrcaCloudSessionPersistence {
+): Promise<OrcaCloudSessionPersistence> {
   const cacheKey = sessionCacheKey(profileId, userDataPath)
   if (safeStorage.isEncryptionAvailable()) {
     const encrypted: PersistedEncryptedSession = {
@@ -131,7 +137,7 @@ export function saveOrcaCloudSession(
       savedAt: Date.now(),
       ciphertext: safeStorage.encryptString(JSON.stringify(session)).toString('base64')
     }
-    writeSecureJsonFile(getOrcaCloudSessionPath(profileId, userDataPath), encrypted)
+    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), encrypted)
     rememberMemorySession(cacheKey, { session, persistence: 'encrypted' })
     return 'encrypted'
   }
@@ -143,7 +149,7 @@ export function saveOrcaCloudSession(
       savedAt: Date.now(),
       session
     }
-    writeSecureJsonFile(getOrcaCloudSessionPath(profileId, userDataPath), plaintext)
+    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), plaintext)
     rememberMemorySession(cacheKey, { session, persistence: 'dev-plaintext' })
     return 'dev-plaintext'
   }
@@ -154,19 +160,30 @@ export function saveOrcaCloudSession(
   return 'memory-only'
 }
 
-export function saveOrcaCloudSessionExchange(
+export async function saveOrcaCloudSessionExchange(
   profileId: string,
   userDataPath: string,
   exchange: OrcaCloudSessionExchangeResponse
-): OrcaCloudSessionPersistence {
-  recordSuccessfulCloudSessionLogin(cloudSessionIdentity(profileId, exchange.cloud), userDataPath)
-  return saveOrcaCloudSession(profileId, userDataPath, {
-    accessToken: exchange.accessToken,
-    refreshToken: exchange.refreshToken,
-    expiresAt: exchange.expiresAt,
-    organizations: exchange.organizations,
-    capabilities: exchange.capabilities
-  })
+): Promise<OrcaCloudSessionPersistence> {
+  await recordSuccessfulCloudSessionLogin(
+    cloudSessionIdentity(profileId, exchange.cloud),
+    userDataPath
+  )
+  try {
+    return await saveOrcaCloudSession(profileId, userDataPath, {
+      accessToken: exchange.accessToken,
+      refreshToken: exchange.refreshToken,
+      expiresAt: exchange.expiresAt,
+      organizations: exchange.organizations,
+      capabilities: exchange.capabilities
+    })
+  } catch (error) {
+    if (error instanceof SecureWriteDiscardedError) {
+      console.warn('[orca-cloud] sign-out discarded the session write', error.targetPath)
+      throw new Error('Signed out while signing in.')
+    }
+    throw error
+  }
 }
 
 export function saveOrcaCloudSessionIfCurrent(
@@ -174,13 +191,15 @@ export function saveOrcaCloudSessionIfCurrent(
   userDataPath: string,
   session: OrcaCloudSession,
   snapshot: CloudSessionMutationSnapshot
-): OrcaCloudSessionPersistence | null {
-  // Why: the check and sync save share one main-process turn, so an async
+): Promise<OrcaCloudSessionPersistence | null> {
+  // Why: the mutation lock makes the check and save one unit, so an async
   // refresh captured before sign-out/org-switch cannot resurrect the session.
-  if (!isCloudSessionMutationCurrent(profileId, userDataPath, snapshot)) {
-    return null
-  }
-  return saveOrcaCloudSession(profileId, userDataPath, session)
+  return withCloudSessionMutationLock(profileId, userDataPath, async () => {
+    if (!isCloudSessionMutationCurrent(profileId, userDataPath, snapshot)) {
+      return null
+    }
+    return saveOrcaCloudSession(profileId, userDataPath, session)
+  })
 }
 
 export function readOrcaCloudSession(
@@ -253,7 +272,7 @@ export function readOrcaCloudSession(
 
 export function clearOrcaCloudSession(profileId: string, userDataPath: string): void {
   memorySessions.delete(sessionCacheKey(profileId, userDataPath))
-  rmSync(getOrcaCloudSessionPath(profileId, userDataPath), { force: true })
+  removeSecureFile(getOrcaCloudSessionPath(profileId, userDataPath))
 }
 
 export function getOrcaCloudMemorySessionCountForTests(): number {

@@ -64,7 +64,7 @@ function repo(id: string, path: string): Repo {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
   userDataPath = mkdtempSync(join(tmpdir(), 'orcad-delta-'))
   store = createSqliteTestStore(Store, { dataFile: join(userDataPath, 'orca-data.json') })
@@ -78,7 +78,7 @@ beforeEach(() => {
   mocks.deploy.mockImplementation(async (path: string, args: { name: string }) => {
     const id = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))!
     if (!listEnvironments(path).some((entry) => entry.id === id)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -495,12 +495,12 @@ async function connectAgain(): Promise<void> {
   await resolveHostServerOnConnect(target, {
     ...hostServerDepsStub(),
     managedEnvironmentId: () => environmentId,
-    retainCommittedSource: (host) => {
+    retainCommittedSource: async (host) => {
       const head = listOrcadMigrationSourceCutovers(userDataPath).find(
         (journal) => journal.sshTargetId === host.id && !journal.sourceRetainedAt
       )
       if (head?.phase === 'destination-committed') {
-        retainOrcadMigrationSource(userDataPath, head.migrationId, now)
+        await retainOrcadMigrationSource(userDataPath, head.migrationId, now)
       }
     }
   })

@@ -37,7 +37,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
     await server.start()
 
-    const offer = server.createPairingOffer({ address: '100.64.1.20', name: 'CLI test' })
+    const offer = await server.createPairingOffer({ address: '100.64.1.20', name: 'CLI test' })
     expect(offer.available).toBe(true)
     if (offer.available) {
       expect(offer.endpoint).toContain('100.64.1.20')
@@ -52,7 +52,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.stop()
   })
 
-  it('reports why pairing is unavailable before the WebSocket listener is ready', () => {
+  it('reports why pairing is unavailable before the WebSocket listener is ready', async () => {
     const server = new OrcaRuntimeRpcServer({
       runtime: new OrcaRuntimeService(),
       userDataPath: mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-')),
@@ -60,7 +60,7 @@ describe('OrcaRuntimeRpcServer', () => {
       wsPort: 0
     })
 
-    expect(server.createPairingOffer({ name: 'Early test' })).toMatchObject({
+    expect(await server.createPairingOffer({ name: 'Early test' })).toMatchObject({
       available: false,
       reason: 'websocket_unavailable',
       guidance: expect.any(String)
@@ -80,7 +80,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
     try {
       await server.start()
-      expect(server.createPairingOffer({ name: 'E2EE failure test' })).toMatchObject({
+      expect(await server.createPairingOffer({ name: 'E2EE failure test' })).toMatchObject({
         available: false,
         reason: 'e2ee_key_unavailable',
         guidance: expect.any(String)
@@ -104,7 +104,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     try {
-      expect(server.createPairingOffer({ name: 'Registry failure test' })).toMatchObject({
+      expect(await server.createPairingOffer({ name: 'Registry failure test' })).toMatchObject({
         available: false,
         reason: 'device_registry_unavailable',
         guidance: expect.any(String)
@@ -128,13 +128,13 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
     try {
       expect(server.getDeviceRegistry()?.listDevices()).toHaveLength(0)
-      expect(server.createPairingOffer({ address: '0.0.0.0', name: 'Invalid test' })).toMatchObject(
-        {
-          available: false,
-          reason: 'invalid_advertised_endpoint',
-          guidance: expect.any(String)
-        }
-      )
+      expect(
+        await server.createPairingOffer({ address: '0.0.0.0', name: 'Invalid test' })
+      ).toMatchObject({
+        available: false,
+        reason: 'invalid_advertised_endpoint',
+        guidance: expect.any(String)
+      })
       expect(server.getDeviceRegistry()?.listDevices()).toHaveLength(0)
     } finally {
       await server.stop()
@@ -155,7 +155,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({ address: '100.64.1.20', name: 'Web test' })
+      const offer = await server.createPairingOffer({ address: '100.64.1.20', name: 'Web test' })
       expect(offer.available).toBe(true)
       if (offer.available) {
         expect(offer.webClientUrl).toBeTruthy()
@@ -185,7 +185,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: 'wss://runtime.example.com/orca',
         name: 'Proxy test'
       })
@@ -212,14 +212,14 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const ipv6 = server.createPairingOffer({ address: '::1', name: 'IPv6 test' })
+      const ipv6 = await server.createPairingOffer({ address: '::1', name: 'IPv6 test' })
       expect(ipv6.available).toBe(true)
       if (ipv6.available) {
         expect(ipv6.endpoint).toMatch(/^ws:\/\/\[::1\]:\d+$/)
         expect(parsePairingCode(ipv6.pairingUrl)?.endpoint).toBe(ipv6.endpoint)
       }
 
-      const tunnel = server.createPairingOffer({
+      const tunnel = await server.createPairingOffer({
         address: 'tunnel.example.com:443',
         name: 'Tunnel test'
       })
@@ -228,7 +228,7 @@ describe('OrcaRuntimeRpcServer', () => {
         expect(tunnel.endpoint).toBe('ws://tunnel.example.com:443')
       }
 
-      const fullUrl = server.createPairingOffer({
+      const fullUrl = await server.createPairingOffer({
         address: 'wss://runtime.example.com/orca',
         name: 'Full URL test'
       })
@@ -255,7 +255,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '100.64.1.20',
         name: 'Mobile test',
         scope: 'mobile'

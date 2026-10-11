@@ -48,13 +48,13 @@ export async function cleanupFailedEphemeralVmStart(
     recipeResult: start.recipeResult
   }
   try {
-    upsertEphemeralVmRuntime(args.userDataPath, recovery)
+    await upsertEphemeralVmRuntime(args.userDataPath, recovery)
   } catch (error) {
     if (!args.recipe.checkoutMode) {
       throw error
     }
     // Why: cleanup retry metadata must survive even when its feature companion is unreadable.
-    upsertEphemeralVmRuntimeRollbackRecovery(args.userDataPath, recovery)
+    await upsertEphemeralVmRuntimeRollbackRecovery(args.userDataPath, recovery)
   }
   return false
 }

@@ -287,7 +287,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     const remove = handler<{ selector: string }, { removed: { id: string; name: string } }>(
       'runtimeEnvironments:remove'
     )
-    remove(null, { selector: first.environment.id })
+    await remove(null, { selector: first.environment.id })
     await add(null, { name: 'desk', pairingCode: pairingCode() })
     await call(null, { selector: 'desk', method: 'repo.list' })
 

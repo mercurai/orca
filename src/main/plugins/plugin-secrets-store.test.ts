@@ -23,7 +23,18 @@ vi.mock('electron', () => ({
   }
 }))
 
+vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
+  const actual = await importOriginal<typeof runProcessModule>()
+  return {
+    ...actual,
+    runProcess: vi.fn(actual.runProcess),
+    runProcessSync: vi.fn(actual.runProcessSync)
+  }
+})
+
+import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
 import { PluginSecretsStore } from './plugin-secrets-store'
+import type * as runProcessModule from '../../shared/child-process/run-process'
 
 const roots: string[] = []
 
@@ -57,7 +68,7 @@ describe('PluginSecretsStore', () => {
     const first = new PluginSecretsStore(root, 'acme.first')
     const second = new PluginSecretsStore(root, 'acme.second')
 
-    expect(first.set('token', 'top-secret')).toEqual({ ok: true, value: true })
+    expect(await first.set('token', 'top-secret')).toEqual({ ok: true, value: true })
     expect(first.get('token')).toEqual({ ok: true, value: 'top-secret' })
     expect(second.get('token')).toEqual({ ok: true, value: null })
     const persisted = await readFile(join(root, 'acme.first', 'secrets.json.enc'), 'utf8')
@@ -66,7 +77,7 @@ describe('PluginSecretsStore', () => {
       expect((await stat(join(root, 'acme.first', 'secrets.json.enc'))).mode & 0o077).toBe(0)
     }
 
-    first.delete('token')
+    await first.delete('token')
     expect(first.get('token')).toEqual({ ok: true, value: null })
   })
 
@@ -75,7 +86,7 @@ describe('PluginSecretsStore', () => {
     storageMocks.available = false
     const store = new PluginSecretsStore(root, 'acme.demo')
 
-    expect(store.set('token', 'plaintext')).toMatchObject({ ok: false })
+    expect(await store.set('token', 'plaintext')).toMatchObject({ ok: false })
     expect(store.get('token')).toMatchObject({ ok: true, value: null })
     await expect(readFile(join(root, 'acme.demo', 'secrets.json.enc'))).rejects.toMatchObject({
       code: 'ENOENT'
@@ -104,7 +115,7 @@ describe('PluginSecretsStore', () => {
     storageMocks.encryptString.mockReturnValue(Buffer.alloc(6 * 1024 * 1024))
     const store = new PluginSecretsStore(root, 'acme.demo')
 
-    expect(store.set('token', 'small-input')).toMatchObject({ ok: false })
+    expect(await store.set('token', 'small-input')).toMatchObject({ ok: false })
     await expect(readFile(join(root, 'acme.demo', 'secrets.json.enc'))).rejects.toMatchObject({
       code: 'ENOENT'
     })
@@ -113,5 +124,14 @@ describe('PluginSecretsStore', () => {
   it('rejects unsafe plugin namespaces', async () => {
     const root = await tempRoot()
     expect(() => new PluginSecretsStore(root, 'constructor.demo')).toThrow('unsafe plugin key')
+  })
+
+  it('persists a secret on win32 with no synchronous spawn', async () => {
+    const root = await tempRoot()
+    const store = new PluginSecretsStore(root, 'acme.win')
+    await expectNoSyncSpawnOnWin32(async () => {
+      expect(await store.set('token', 'top-secret')).toEqual({ ok: true, value: true })
+      await store.delete('token')
+    })
   })
 })

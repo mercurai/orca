@@ -2,7 +2,7 @@ import { setRuntimeBrowserCommandsFactory } from '../runtime/runtime-browser-com
 import { startOrcadBrowserProvider } from './orcad-browser-startup'
 import { OrcadRuntimeLifetime, type OrcadRuntimeCleanup } from './orcad-runtime-lifetime'
 import type { OrcadManagedStopInstance } from '../../shared/orcad-stop-request'
-import { acquireOrcadInstanceLock } from './orcad-instance-lock'
+import { acquireOrcadInstanceLock, prepareOrcadDataRoot } from './orcad-instance-lock'
 import { ORCAD_BUNDLED_LAUNCHER_ENV } from './orcad-bundled-runtime'
 import { resolveOrcadExitCode } from './orcad-exit-code'
 import { recordAgentSessionRuntimeEnd } from '../runtime/agent-session-runtime-end-record'
@@ -11,6 +11,7 @@ import {
   acquireProfileStateRuntimeAdmission,
   type ProfileStateRuntimeAdmission
 } from '../persistence/profile-state/profile-state-access'
+import { drainPathWritesForQuit } from '../startup/path-write-quit-drain'
 
 const bundledLauncherChannel = process.env[ORCAD_BUNDLED_LAUNCHER_ENV] === '1'
 delete process.env[ORCAD_BUNDLED_LAUNCHER_ENV]
@@ -109,6 +110,7 @@ export async function startOrcadWithHost<T extends object>(
   start: (registerCleanup: (cleanup: OrcadRuntimeCleanup) => void) => Promise<T>,
   runQuitHandlers: () => void
 ): Promise<T & { stop(): Promise<void>; instance: OrcadManagedStopInstance }> {
+  await prepareOrcadDataRoot(userDataPath)
   const instanceLock = acquireOrcadInstanceLock(userDataPath)
   const { pid, startedAtMs, nonce } = instanceLock.record
   const instance = { pid, startedAtMs, nonce, lockPath: instanceLock.path }
@@ -122,23 +124,47 @@ export async function startOrcadWithHost<T extends object>(
       return { ...(await start(registerCleanup)), instance }
     },
     async (runtimeCleanupSucceeded) => {
-      // Failed teardown keeps both fences until the process actually exits.
-      const host = new OrcadRuntimeLifetime(() => {
-        if (runtimeCleanupSucceeded) {
-          instanceLock.release()
+      await createOrcadHostLifetime({
+        runtimeCleanupSucceeded,
+        releaseInstanceLock: () => instanceLock.release(),
+        releaseAdmission: () => admission?.release(),
+        runQuitHandlers,
+        clearBrowserCommands: () => setRuntimeBrowserCommandsFactory(null),
+        stopBrowserProvider: async () => {
+          await browserProvider?.stop()
         }
-      })
-      host.add(({ failed }) => {
-        if (runtimeCleanupSucceeded && !failed) {
-          admission?.release()
-        }
-      })
-      host.add(() => runQuitHandlers())
-      host.add(() => setRuntimeBrowserCommandsFactory(null))
-      host.add(() => browserProvider?.stop())
-      await host.stop()
+      }).stop()
     }
   )
+}
+
+/** The host's teardown; steps run in reverse of registration, so the lock goes last. */
+export function createOrcadHostLifetime(steps: {
+  runtimeCleanupSucceeded: boolean
+  releaseInstanceLock: () => void
+  releaseAdmission: () => void
+  runQuitHandlers: () => void
+  clearBrowserCommands: () => void
+  stopBrowserProvider: () => Promise<void>
+}): OrcadRuntimeLifetime {
+  // Failed teardown keeps both fences until the process actually exits.
+  const host = new OrcadRuntimeLifetime(() => {
+    if (steps.runtimeCleanupSucceeded) {
+      steps.releaseInstanceLock()
+    }
+  })
+  host.add(({ failed }) => {
+    if (steps.runtimeCleanupSucceeded && !failed) {
+      steps.releaseAdmission()
+    }
+  })
+  // Why here, run after the quit handlers (push, relay) and before the fences drop: secure-file
+  // writes are async now, and the synchronous ones always finished before exit (bounded drain).
+  host.add(() => drainPathWritesForQuit())
+  host.add(() => steps.runQuitHandlers())
+  host.add(() => steps.clearBrowserCommands())
+  host.add(() => steps.stopBrowserProvider())
+  return host
 }
 
 export async function flushOrcadProfileStoreForShutdown(store: {

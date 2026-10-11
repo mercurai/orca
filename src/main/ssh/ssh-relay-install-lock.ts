@@ -180,7 +180,7 @@ export async function acquireInstallLock(
             ? 'exited-owner'
             : 'stale'
         if (exitedOwner && reason === 'exited-owner') {
-          options?.exitedOwner?.reclaimed(exitedOwner.token)
+          await options?.exitedOwner?.reclaimed(exitedOwner.token)
         }
         console.warn(`[ssh-relay] Stealing ${reason} install lock at ${lockDir}`)
         if (await keptAfterGcRecheck()) {
@@ -205,7 +205,7 @@ export async function acquireInstallLock(
 export type InstallLockExitedOwnerProof = {
   /** The token a provably exited holder wrote into `lockDir`, or null when none is proven. */
   find(lockDir: string): Promise<string | null>
-  reclaimed(token: string): void
+  reclaimed(token: string): Promise<void>
   quietSeconds: number
   /** Held by the steal across the takeover, so no mutation is admitted under the old owner. */
   mutationLock?: string

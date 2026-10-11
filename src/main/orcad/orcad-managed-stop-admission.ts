@@ -26,7 +26,7 @@ export async function prepareOrcadManagedStop(
     reason: `Retirement failed: ${error instanceof Error ? error.message : String(error)}`
   }))
   try {
-    persistOrcadDaemonRetirementRecord(request, outcome)
+    await persistOrcadDaemonRetirementRecord(request, outcome)
   } catch (error) {
     // The completion command reads a missing record as `unverifiable`.
     console.error('[orcad] could not record daemon retirement:', error)

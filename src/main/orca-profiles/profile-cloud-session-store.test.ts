@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +12,11 @@ const safeStorageMock = vi.hoisted(() => ({
 }))
 
 let userDataPath = ''
+
+vi.mock('../../shared/child-process/run-process', () => ({
+  runProcess: vi.fn(),
+  runProcessSync: vi.fn()
+}))
 
 vi.mock('electron', () => ({
   app: {
@@ -78,7 +84,7 @@ describe('Orca cloud session store', () => {
     const store = await loadSessionStore()
     const session = makeSession()
 
-    expect(store.saveOrcaCloudSession('profile-1', userDataPath, session)).toBe('encrypted')
+    expect(await store.saveOrcaCloudSession('profile-1', userDataPath, session)).toBe('encrypted')
     expect(store.readOrcaCloudSession('profile-1', userDataPath)).toEqual({
       status: 'found',
       session,
@@ -98,7 +104,7 @@ describe('Orca cloud session store', () => {
     const store = await loadSessionStore()
     const session = makeSession()
 
-    expect(store.saveOrcaCloudSession('profile-1', userDataPath, session)).toBe('memory-only')
+    expect(await store.saveOrcaCloudSession('profile-1', userDataPath, session)).toBe('memory-only')
     expect(store.readOrcaCloudSession('profile-1', userDataPath)).toEqual({
       status: 'found',
       session,
@@ -120,8 +126,8 @@ describe('Orca cloud session store', () => {
     const otherSession = { ...session, accessToken: 'other-access-token' }
 
     try {
-      store.saveOrcaCloudSession('local-default', userDataPath, session)
-      store.saveOrcaCloudSession('local-default', otherUserDataPath, otherSession)
+      await store.saveOrcaCloudSession('local-default', userDataPath, session)
+      await store.saveOrcaCloudSession('local-default', otherUserDataPath, otherSession)
 
       expect(store.readOrcaCloudSession('local-default', userDataPath)).toMatchObject({
         status: 'found',
@@ -141,7 +147,7 @@ describe('Orca cloud session store', () => {
     const session = makeSession()
 
     for (let index = 0; index < store.MAX_MEMORY_CLOUD_SESSIONS + 4; index += 1) {
-      store.saveOrcaCloudSession(`profile-${index}`, userDataPath, session)
+      await store.saveOrcaCloudSession(`profile-${index}`, userDataPath, session)
     }
 
     expect(store.getOrcaCloudMemorySessionCountForTests()).toBe(store.MAX_MEMORY_CLOUD_SESSIONS)
@@ -154,7 +160,9 @@ describe('Orca cloud session store', () => {
     const store = await loadSessionStore()
     const session = makeSession()
 
-    expect(store.saveOrcaCloudSession('profile-1', userDataPath, session)).toBe('dev-plaintext')
+    expect(await store.saveOrcaCloudSession('profile-1', userDataPath, session)).toBe(
+      'dev-plaintext'
+    )
 
     const saved = JSON.parse(
       readFileSync(store.getOrcaCloudSessionPath('profile-1', userDataPath), 'utf-8')
@@ -178,6 +186,13 @@ describe('Orca cloud session store', () => {
       status: 'decrypt-failed',
       persistence: 'none',
       error: 'Unsafe session format.'
+    })
+  })
+
+  it('persists a session on win32 with no synchronous spawn', async () => {
+    const store = await loadSessionStore()
+    await expectNoSyncSpawnOnWin32(async () => {
+      await store.saveOrcaCloudSession('profile-1', userDataPath, makeSession())
     })
   })
 })

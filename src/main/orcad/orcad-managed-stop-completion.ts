@@ -7,7 +7,6 @@
  * belongs to another process. Anything the host cannot answer is `unverifiable`, never exit.
  */
 import { setTimeout as delay } from 'node:timers/promises'
-import { writeDurableSecureJsonFile } from '../../shared/secure-file'
 import {
   OrcadManagedStopRequestSchema,
   type OrcadManagedStopInstance,
@@ -20,7 +19,10 @@ import {
 } from '../daemon/daemon-process-start-time'
 import { readOrcadProcessStartedAtMs } from './orcad-process-start-time'
 import { hasErrorCode, inspectProcessSignal } from '../daemon/daemon-process-inspection'
-import { persistOrcadCompletedStopReceipt } from './orcad-completed-stop-receipt'
+import {
+  persistOrcadCompletedStopReceipt,
+  writeOrcadStopRecordFile
+} from './orcad-completed-stop-receipt'
 import { readOrcadManagedStopDecision } from './orcad-managed-stop-decision'
 import { withdrawOrcadManagedStopRequest } from './orcad-managed-stop-cancellation'
 import {
@@ -80,13 +82,13 @@ export async function completeOrcadManagedStop(
   if (!Number.isSafeInteger(attempts) || attempts < 1 || attempts > 240) {
     throw new Error('orcad_managed_stop_invalid_attempts')
   }
-  const completed = (): 'exited' => {
-    persistOrcadCompletedStopReceipt(request, (options.now ?? (() => new Date()))())
+  const completed = async (): Promise<'exited'> => {
+    await persistOrcadCompletedStopReceipt(request, (options.now ?? (() => new Date()))())
     return 'exited'
   }
   let verdict = observeInstance(request.instance, options)
   if (verdict !== 'live') {
-    return verdict === 'exited' ? completed() : verdict
+    return verdict === 'exited' ? await completed() : verdict
   }
   if (!lockStillNamesInstance(request.instance)) {
     // The process lives but no longer owns the lock it published: it is not ours to address.
@@ -100,7 +102,7 @@ export async function completeOrcadManagedStop(
   if (!existingRequestMatches(requestPath, request)) {
     return 'unverifiable'
   }
-  if (!writeDurableSecureJsonFile(requestPath, request)) {
+  if (!(await writeOrcadStopRecordFile(requestPath, request))) {
     throw new Error('orcad_managed_stop_request_permissions_unconfirmed')
   }
   // A cancel that won between the check above and this write found no file to remove.
@@ -112,7 +114,7 @@ export async function completeOrcadManagedStop(
     await (options.sleep ?? (() => delay(ORCAD_STOP_COMPLETION_POLL_MS)))()
     verdict = observeInstance(request.instance, options)
     if (verdict !== 'live') {
-      return verdict === 'exited' ? completed() : verdict
+      return verdict === 'exited' ? await completed() : verdict
     }
   }
   return 'live'

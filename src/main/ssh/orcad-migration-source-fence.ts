@@ -152,7 +152,7 @@ export async function fenceOrcadMigrationSource(args: {
     // Taken with the export, before any commit is possible: the only proof of what the server holds.
     manifest
   }
-  writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
+  await writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
   args.claims.fenceForMigration(target.id, args.destinationEnvironmentId, generation)
   await args.claims.flush(args.signal)
   // Why again: a terminal may have started between the proof and the fence.

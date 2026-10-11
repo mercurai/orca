@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
 import { RuntimeEnvironmentReconciliationRecordSchema } from './runtime-environment-reconciliation-record'
 import {
@@ -155,15 +155,16 @@ export function overlayRuntimeEnvironmentSidecar(
 
 /**
  * Replaces one environment's sidecar entry and drops entries whose environment no longer exists.
- * `pendingEnvironment` also binds the entry to the store state about to be written.
+ * `pendingEnvironment` also binds the entry to the store state about to be written. Call it inside
+ * `runEnvironmentStoreMutation`: it reads the sidecar, so a concurrent writer would be overwritten.
  */
-export function writeRuntimeEnvironmentSidecarEntry(
+export async function writeRuntimeEnvironmentSidecarEntry(
   userDataPath: string,
   environments: readonly PersistedRuntimeEnvironment[],
   environment: PersistedRuntimeEnvironment,
   entry: Omit<RuntimeEnvironmentSidecarEntry, 'binding'> | null,
   pendingEnvironment?: PersistedRuntimeEnvironment
-): void {
+): Promise<void> {
   const current = readRuntimeEnvironmentSidecar(userDataPath)
   const live = new Map(environments.map((candidate) => [candidate.id, candidate]))
   const entries: Record<string, RuntimeEnvironmentSidecarEntry> = {}
@@ -193,7 +194,7 @@ export function writeRuntimeEnvironmentSidecarEntry(
         : {})
     })
   }
-  writeSecureJsonFileWithinLimit(
+  await writeSecureJsonFileWithinLimitAsync(
     getRuntimeEnvironmentSidecarPath(userDataPath),
     SidecarSchema.parse({ version: 1, entries }),
     MAX_SIDECAR_FILE_BYTES,
