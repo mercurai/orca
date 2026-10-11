@@ -13,7 +13,9 @@ import { createRestartSession } from './orca-restart'
 import { bootstrapRestoredLaunch } from './terminal-restart-persistence'
 import { waitForPaneCount } from './terminal'
 import { LayoutOracle, type OracleFinding } from './workspace-layout-oracle'
-import { readRuntimePartitions } from './workspace-layout-oracle-views'
+import { LiveLayoutFeed } from './workspace-layout-oracle-feed'
+import { subscribeWindowLayout } from './workspace-layout-oracle-stream'
+import { readSavedPartitions } from './workspace-layout-oracle-views'
 import { summarizeEventLoopDelay, type EventLoopDelaySummary } from './event-loop-delay-report'
 
 export const ORACLE_REPORT_DIR_ENV = 'ORCA_LAYOUT_ORACLE_REPORT_DIR'
@@ -77,10 +79,16 @@ export async function runOracleScenario(
   try {
     const first = await session.launch()
     app = first.app
+    const feed = new LiveLayoutFeed((current) => run.oracle.checkFrame(current))
     const target = (page: Page, client: RuntimeClient) => ({
       page,
       client,
-      readPartitions: () => readRuntimePartitions(page),
+      feed,
+      readSavedPartitions: async () => {
+        // Main debounces saves by up to 5 s; flushing makes the read the state main holds now.
+        await page.evaluate(() => window.api.session.flush())
+        return readSavedPartitions(session.userDataDir)
+      },
       worktreeIds: () => worktreeIds
     })
     const client = new RuntimeClient(session.userDataDir, 30_000)
@@ -88,11 +96,12 @@ export async function runOracleScenario(
       page: first.page,
       userDataDir: session.userDataDir,
       client,
-      oracle: new LayoutOracle(target(first.page, client)),
+      oracle: new LayoutOracle(target(first.page, client), scenarioId),
       worktreeIds,
       reloadWindow: async () => {
         await run.page.reload()
         await run.page.waitForFunction(() => Boolean(window.__store), null, { timeout: 30_000 })
+        await subscribeWindowLayout(run.page, feed)
         await run.oracle.retarget(target(run.page, run.client))
       },
       relaunch: async (options) => {
@@ -111,6 +120,7 @@ export async function runOracleScenario(
         app = next.app
         run.page = next.page
         run.client = new RuntimeClient(session.userDataDir, 30_000)
+        await subscribeWindowLayout(next.page, feed)
         await run.oracle.retarget(target(next.page, run.client))
         await (reopen ?? bootstrapRestoredLaunch)(next.page, worktreeId)
         await waitForPaneCount(next.page, paneCount, 30_000).catch(() => {})
@@ -127,12 +137,9 @@ export async function runOracleScenario(
         }
       }
     }
+    await subscribeWindowLayout(first.page, feed)
     await run.oracle.start()
-    try {
-      await body(run)
-    } finally {
-      await run.oracle.stop()
-    }
+    await body(run)
     writeReport(testInfo, scenarioId, {
       findings: run.oracle.findings,
       viewCreations: run.oracle.viewCreations.at(-1) ?? {},

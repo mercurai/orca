@@ -1,8 +1,9 @@
 /**
  * Layout oracle scenarios on a headless `orca serve` (orcad and Electron serve), driven only through
- * runtime RPC from paired clients and the local CLI. After every step the runtime's layout (its
- * saved session) is checked against the structural rules, what each client is told, the expected
- * panes per tab and, across restarts, the layout from before. #12723 needs SSH and is not covered.
+ * runtime RPC from paired clients and the local CLI. After every step the runtime's live layout
+ * (its `layout.subscribe` stream) is checked against the model rules, what each client is told,
+ * the expected panes per tab and, across restarts, the layout from before; its saved profile
+ * against the disk-format rules and the round trip. #12723 needs SSH and is not covered.
  *
  * `ORCA_LAYOUT_ORACLE_RECORD=1` records without failing; `ORCA_LAYOUT_ORACLE_REPEAT=<n>` repeats;
  * `ORCA_LAYOUT_ORACLE_HEADLESS_HOSTS=orcad,electron` picks the hosts (both by default).
@@ -29,13 +30,15 @@ import {
   cliClient,
   orcadNodeExecutable,
   pairedClient,
-  readHeadlessPartitions,
   startHeadlessOracleHost,
   type HeadlessHostKind,
   type HeadlessOracleHost
 } from './helpers/headless-layout-oracle-hosts'
 import { LayoutOracle, type OracleFinding } from './helpers/workspace-layout-oracle'
 import type { OracleLayout } from './helpers/workspace-layout-oracle-model'
+import { LiveLayoutFeed } from './helpers/workspace-layout-oracle-feed'
+import { subscribeHeadlessLayout } from './helpers/workspace-layout-oracle-stream'
+import { readSavedPartitions } from './helpers/workspace-layout-oracle-views'
 import { ORACLE_REPORT_DIR_ENV } from './helpers/workspace-layout-oracle-session'
 import {
   summarizeEventLoopDelay,
@@ -261,7 +264,7 @@ const SCENARIOS: Scenario[] = [
       )
       await run.check('CLI closes second', [1], undefined, 1)
       await run.restart('warm restart', [1])
-      const left = readHeadlessPartitions(run.host.userDataDir)
+      const left = readSavedPartitions(run.host.userDataDir)
         .flatMap(({ session }) => session.tabsByWorktree?.[run.worktreeId] ?? [])
         .map((tab) => tab.id)
       run.expectNone(
@@ -411,16 +414,19 @@ async function runHeadlessScenario(
   const host = await startHeadlessOracleHost(kind)
   const started = Date.now()
   let findings: OracleFinding[] = []
+  let stream: { close: () => void } | null = null
   try {
     const a = pairedClient(host, 'a')
     const cli = cliClient(host)
     const worktreeId = await addRepoWorktree(host, cli)
+    const feed = new LiveLayoutFeed((current) => oracle.checkFrame(current))
     const target = (client: RuntimeClient) => ({
       client,
-      readPartitions: async () => readHeadlessPartitions(host.userDataDir),
+      feed,
+      readSavedPartitions: async () => readSavedPartitions(host.userDataDir),
       worktreeIds: () => [worktreeId]
     })
-    const oracle = new LayoutOracle(target(a))
+    const oracle = new LayoutOracle(target(a), `headless-${kind}-${scenario.id}`)
     findings = oracle.findings
     // A cold restart gives every pane a new terminal.
     let restarting = false
@@ -455,7 +461,9 @@ async function runHeadlessScenario(
       check,
       restart: async (label, panesPerTab, cold) => {
         oracle.rememberForRestart(await check(`before ${label}`, panesPerTab))
+        stream?.close()
         await host.restart({ cold })
+        stream = await subscribeHeadlessLayout(host.pairingUrl, feed)
         restarting = cold === true
         const after = await check(`after ${label}`, panesPerTab)
         restarting = false
@@ -467,15 +475,13 @@ async function runHeadlessScenario(
         }
       }
     }
+    stream = await subscribeHeadlessLayout(host.pairingUrl, feed)
     await oracle.start()
-    try {
-      await run.check('start', [])
-      await scenario.journey(run)
-    } finally {
-      await oracle.stop()
-    }
+    await run.check('start', [])
+    await scenario.journey(run)
     return findings
   } finally {
+    stream?.close()
     const ended = Date.now()
     writeReport(testInfo, `${kind}-${scenario.id}`, {
       durationMs: ended - started,

@@ -499,14 +499,43 @@ export function needsMobileDependencies(changedFiles) {
   return changedFiles.length === 0 || changedFiles.some((file) => file.startsWith('mobile/'))
 }
 
-export function classifyPrJobs(changedFiles, { allowMobileCiTools = false } = {}) {
+export const DAEMON_INIT_TEST_SUPPORT = 'src/main/daemon/daemon-init-dependency-mocks.ts'
+
+const DAEMON_INIT_TEST_SCOPE = new Set([
+  DAEMON_INIT_TEST_SUPPORT,
+  'src/main/native-chat/agent-session-wire/structured-agent-session-claude-queued-stop.test.ts',
+  'config/scripts/process-host-build-dist.test.mjs',
+  'src/main/codex/codex-app-server-connection.test.ts'
+])
+
+export function isDaemonInitTestSupportChange(files, modifiedOnly = false) {
+  return (
+    modifiedOnly &&
+    files.includes(DAEMON_INIT_TEST_SUPPORT) &&
+    new Set(files).size === files.length &&
+    files.every((file) => DAEMON_INIT_TEST_SCOPE.has(file))
+  )
+}
+
+export function classifyPrJobs(
+  changedFiles,
+  { allowMobileCiTools = false, allowDaemonInitTestSupport = false } = {}
+) {
   const emptyDiff = changedFiles.length === 0
   const shouldRun = shouldRunPrChecks(changedFiles)
   const forceAll = emptyDiff || changedFiles.some(isGlobalForcePath)
+  const bundleFiles = isDaemonInitTestSupportChange(changedFiles, allowDaemonInitTestSupport)
+    ? changedFiles.filter((file) => file !== DAEMON_INIT_TEST_SUPPORT)
+    : changedFiles
   const jobs = Object.fromEntries(
     PR_CHECK_JOBS.map((job) => [
       job,
-      shouldRun && (forceAll || ALWAYS_ON_CODE_JOBS.has(job) || jobDetector(job)(changedFiles))
+      shouldRun &&
+        (forceAll ||
+          ALWAYS_ON_CODE_JOBS.has(job) ||
+          jobDetector(job)(
+            ['package', 'package_windows'].includes(job) ? bundleFiles : changedFiles
+          ))
     ])
   )
   // Why outside should_run: a mobile-only diff is desktop-irrelevant and skips every job above,
@@ -634,7 +663,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   }
   const files = input.split(/\r?\n/).filter(Boolean)
   const classification = classifyPrJobs(files, {
-    allowMobileCiTools: process.argv.includes('--mobile-ci-tools')
+    allowMobileCiTools: process.argv.includes('--mobile-ci-tools'),
+    allowDaemonInitTestSupport: process.argv.includes('--daemon-init-test-support')
   })
   for (const [name, value] of Object.entries(classification)) {
     process.stdout.write(`${name}=${value ? 'true' : 'false'}\n`)

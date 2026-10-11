@@ -1,6 +1,10 @@
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
-import { isUnitTestSupportSource } from './pr-code-change-scope.mjs'
+import {
+  DAEMON_INIT_TEST_SUPPORT,
+  isDaemonInitTestSupportChange,
+  isUnitTestSupportSource
+} from './pr-code-change-scope.mjs'
 
 const isProductSource = (file) => !/\.test\.tsx?$/.test(file) && !isUnitTestSupportSource(file)
 const isLayoutOracleSource = (file) =>
@@ -408,10 +412,17 @@ export const PR_E2E_SOURCE_ROUTES = [
   }
 ]
 
-export function selectPrE2eSpecs(changedPaths, reportRoute = () => undefined) {
+export function selectPrE2eSpecs(
+  changedPaths,
+  reportRoute = () => undefined,
+  { allowDaemonInitTestSupport = false } = {}
+) {
+  const routePaths = isDaemonInitTestSupportChange(changedPaths, allowDaemonInitTestSupport)
+    ? changedPaths.filter((file) => file !== DAEMON_INIT_TEST_SUPPORT)
+    : changedPaths
   const specs = new Set(changedPaths.filter((file) => /^tests\/e2e\/.*\.spec\.ts$/.test(file)))
   for (const route of PR_E2E_SOURCE_ROUTES) {
-    const matchedFiles = changedPaths.filter(route.matches)
+    const matchedFiles = routePaths.filter(route.matches)
     if (matchedFiles.length === 0) {
       continue
     }
@@ -432,9 +443,9 @@ export function hasNativeImeSourceChange(changedPaths) {
   ).some((route) => changedPaths.some(route.matches))
 }
 
-export function shouldRunReusablePrE2e(changedPaths) {
+export function shouldRunReusablePrE2e(changedPaths, options = {}) {
   // Native IME has its own workflow.
-  return selectPrE2eSpecs(changedPaths).some(
+  return selectPrE2eSpecs(changedPaths, undefined, options).some(
     (spec) => spec !== 'tests/e2e/terminal-ibus-hangul-native.spec.ts'
   )
 }
@@ -453,14 +464,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     input += chunk
   }
   const changedPaths = input.split(/\r?\n/).filter(Boolean)
+  const options = {
+    allowDaemonInitTestSupport: process.argv.includes('--daemon-init-test-support')
+  }
   if (process.argv.includes('--reusable-workflow')) {
-    process.stdout.write(`${shouldRunReusablePrE2e(changedPaths)}\n`)
+    process.stdout.write(`${shouldRunReusablePrE2e(changedPaths, options)}\n`)
   } else if (process.argv.includes('--wsl-source')) {
     process.stdout.write(`${hasWslSourceChange(changedPaths)}\n`)
   } else if (process.argv.includes('--native-ime-source')) {
     process.stdout.write(`${hasNativeImeSourceChange(changedPaths)}\n`)
   } else {
-    const specs = selectPrE2eSpecs(changedPaths, (message) => console.error(message))
+    const specs = selectPrE2eSpecs(changedPaths, (message) => console.error(message), options)
     process.stdout.write(`${JSON.stringify(specs)}\n`)
   }
 }

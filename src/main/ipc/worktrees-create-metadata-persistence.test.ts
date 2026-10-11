@@ -36,7 +36,6 @@ const WORKTREE_HANDLER_CHANNELS = [
   'worktrees:forceDeletePreservedBranch',
   'worktrees:updateMeta',
   'worktrees:listLineage',
-  'worktrees:listLineageForHost',
   'worktrees:updateLineage',
   'worktrees:persistSortOrder',
   'worktrees:getBranchRenameFailureOutput',
