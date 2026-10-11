@@ -104,7 +104,9 @@ jobs:
         if: ${{ steps.mode.outputs.push == 'true' && steps.fetch.outputs.rebase_tag != '' }}
         run: |
           echo "dispatching rebase onto ${{ steps.fetch.outputs.rebase_tag }}"
-          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=${{ steps.fetch.outputs.rebase_tag }}"
+          tag="${{ steps.fetch.outputs.rebase_tag }}"
+          # Hand over the commit this run saw: a tag upstream re-cuts in between fails the rebase instead of moving it.
+          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$(git rev-parse "refs/tags/$tag^{commit}")"
 
       - name: Mirror upstream branches under upstream/*
         if: ${{ steps.mode.outputs.push == 'true' && inputs.mirror_branches == true }}

@@ -1,8 +1,8 @@
 # mercurai fork: keep every active patch branch in config/mercurai/patches.yaml rebased.
 # With a `tag` input (dispatched by fork-sync-upstream for the newest release tag): rebase each
-# active branch from its recorded base onto the tag, run the patch's tests, push with
-# --force-with-lease, and when every patch rebased, record the base in the manifest and mark
-# patches the tag already carries. On the daily schedule, with no tag, it dry-rebases onto
+# active branch from its recorded base onto the tag in local refs and run the patch's tests; only
+# when every patch rebased, push all patch branches (each leased on its pre-rebase sha) and the
+# manifest base in one atomic push, so a conflict leaves the whole series on its old base. On the daily schedule, with no tag, it dry-rebases onto
 # upstream/main and only reports, so a conflict shows days before the tag that would carry it.
 # Dispatched from a non-default branch it only reports. Lives in the fork only.
 name: fork-rebase-patches
@@ -12,6 +12,10 @@ on:
     inputs:
       tag:
         description: Upstream release tag to rebase the series onto (empty = dry run against upstream/main)
+        type: string
+        default: ''
+      tag_sha:
+        description: Commit the tag pointed at when fork-sync-upstream saw it; the run fails if the tag moved since
         type: string
         default: ''
   schedule:
@@ -72,6 +76,9 @@ jobs:
           fi
 
       - name: Fetch upstream, the tag and the patch branches
+        id: fetch
+        env:
+          TAG_SHA: ${{ inputs.tag_sha }}
         run: |
           set -euo pipefail
           git config user.name 'mercurai-fork-bot'
@@ -81,7 +88,15 @@ jobs:
           git fetch --no-tags upstream main
           git fetch upstream --tags --force
           git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*'
-          if [ -n "$TARGET" ]; then git rev-parse --verify "refs/tags/$TARGET^{commit}" >/dev/null; fi
+          if [ -n "$TARGET" ]; then
+            # Pin the target once: upstream re-cut v1.4.224, so one tag name can mean two commits in a day.
+            target_sha=$(git rev-parse --verify "refs/tags/$TARGET^{commit}")
+            if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$target_sha" ]; then
+              echo "::error::$TARGET now points at $target_sha, not $TAG_SHA as fork-sync-upstream saw it; a human decides"
+              exit 1
+            fi
+            echo "base_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Active patches
         id: patches
@@ -89,13 +104,15 @@ jobs:
           set -euo pipefail
           # Patch branches and tags do not carry config/mercurai/, so every later read and edit uses this copy.
           cp "$MANIFEST" "$MANIFEST_WORK"
+          cp "$MANIFEST" /tmp/manifest-original.yaml
+          cp -r config/mercurai/scripts /tmp/fork-scripts
           yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > /tmp/active
           echo "count=$(wc -l < /tmp/active)" >> "$GITHUB_OUTPUT"
           echo "active patches: $(tr '\n' ' ' < /tmp/active)"
 
       - name: Check out the base so the installed dependencies match the code under test
         if: ${{ steps.patches.outputs.count != '0' }}
-        run: git checkout -q --detach "${{ steps.mode.outputs.base }}"
+        run: git checkout -q --detach "${{ steps.fetch.outputs.base_sha || steps.mode.outputs.base }}"
       - uses: ./.github/actions/install-node-dependencies
         if: ${{ steps.patches.outputs.count != '0' }}
 
@@ -104,11 +121,12 @@ jobs:
         id: rebase
         env:
           MODE: ${{ steps.mode.outputs.mode }}
-          BASE: ${{ steps.mode.outputs.base }}
+          BASE: ${{ steps.fetch.outputs.base_sha || steps.mode.outputs.base }}
         run: |
           set -euo pipefail
           failed=0
           : > /tmp/merged
+          : > /tmp/rebased
           while read -r branch; do
             [ -z "$branch" ] && continue
             old=$(yq -r ".patches[] | select(.branch == \"$branch\") | .base // \"\"" "$MANIFEST_WORK")
@@ -150,8 +168,9 @@ jobs:
               continue
             fi
             if [ "$MODE" = real ]; then
+              # Pushed later, all together, and only if every patch rebased.
               if [ "$(git rev-parse HEAD)" != "$before" ]; then
-                git push --force-with-lease="refs/heads/$branch:$before" origin "$branch"
+                echo "$branch $before $(git rev-parse HEAD)" >> /tmp/rebased
               fi
               yq -i "(.patches[] | select(.branch == \"$branch\") | .base) = \"$TARGET\"" "$MANIFEST_WORK"
             else
@@ -167,13 +186,13 @@ jobs:
         if: ${{ steps.mode.outputs.mode == 'real' }}
         run: |
           set -euo pipefail
-          if git ls-remote --exit-code --heads origin "ci-base/$TARGET" >/dev/null 2>&1; then
-            echo "ci-base/$TARGET exists"; exit 0
-          fi
-          git push origin "$(git rev-parse "refs/tags/$TARGET^{commit}"):refs/heads/ci-base/$TARGET"
+          # Carry the fork-CI commits of the old ci-base instead of publishing the bare tag (#1107).
+          old_base=$(yq -r '.base' /tmp/manifest-original.yaml)
+          bash /tmp/fork-scripts/carry-ci-base.sh "$old_base" "$TARGET" "${{ steps.fetch.outputs.base_sha }}"
+          git checkout -q "$FORK_BRANCH"
 
-      - name: Record the base and the merged patches
-        # Only when every patch rebased: a partly rebased series must not look assembled.
+      - name: Record the base and the merged patches, then push the series atomically
+        # Only when every patch rebased: a partly rebased series must not look assembled, and nothing is pushed.
         if: ${{ steps.mode.outputs.mode == 'real' && steps.patches.outputs.count != '0' && steps.rebase.outputs.failed == '0' }}
         run: |
           set -euo pipefail
@@ -183,18 +202,14 @@ jobs:
           done < /tmp/merged
           yq -i ".base = \"$TARGET\"" "$MANIFEST_WORK"
           cp "$MANIFEST_WORK" "$MANIFEST"
-          if git diff --quiet -- "$MANIFEST"; then echo "manifest unchanged"; exit 0; fi
-          git add "$MANIFEST"
-          git commit -m "chore(fork): patch series rebased onto $TARGET"
-          # fork-sync-upstream may push a merge-forward at the same time; retry on top of it.
-          for attempt in 1 2 3; do
-            git fetch origin "$FORK_BRANCH"
-            # One linear manifest commit replays cleanly; a failed replay must not leave a rebase in progress.
-            if git rebase "origin/$FORK_BRANCH" && git push origin "$FORK_BRANCH"; then break; fi
-            git rebase --abort 2>/dev/null || true
-            [ "$attempt" = 3 ] && exit 1
-            sleep 15
-          done
+          manifest_commit=''
+          if git diff --quiet -- "$MANIFEST"; then echo "manifest unchanged"; else
+            git add "$MANIFEST"
+            git commit -m "chore(fork): patch series rebased onto $TARGET"
+            manifest_commit=$(git rev-parse HEAD)
+          fi
+          # Every patch branch and the manifest move in one atomic push, or none of them does.
+          bash /tmp/fork-scripts/push-rebased-series.sh /tmp/rebased "$FORK_BRANCH" "$manifest_commit"
 
       - name: Fail the run when any patch failed
         if: ${{ steps.rebase.outputs.failed == '1' }}
