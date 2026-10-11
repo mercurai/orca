@@ -40,7 +40,7 @@ describe('removed synchronous secure-file writers', () => {
     const offenders = SCANNED_ROOTS.flatMap((root) =>
       scanSourceTree(root).flatMap(({ relativePath, source }) =>
         findRemovedSyncWriters(source).map(
-          (line) => `${root.split(/[\/]/).pop()}/${relativePath}:${line}`
+          (line) => `${root.split(/[/]/).pop()}/${relativePath}:${line}`
         )
       )
     )
