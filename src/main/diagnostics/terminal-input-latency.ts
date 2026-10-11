@@ -71,11 +71,12 @@ export function createTerminalInputLatencyProbe(clock: Clock = defaultClock): {
 
   const noteOutput = (ptyId: string): void => {
     const now = clock.monoNow()
-    lastOutputAt.set(ptyId, now)
     const startedAt = pendingEcho.get(ptyId)
     if (startedAt === undefined) {
+      lastOutputAt.set(ptyId, now)
       return
     }
+    // Why: the echo itself is not streaming; stamping it would mark every fast keystroke busy.
     pendingEcho.delete(ptyId)
     if (now - startedAt <= ECHO_PENDING_EXPIRY_MS && echoes.length < MAX_SAMPLES_PER_WINDOW) {
       echoes.push(now - startedAt)
