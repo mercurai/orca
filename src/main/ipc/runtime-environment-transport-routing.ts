@@ -1,8 +1,9 @@
 import { getRuntimeEnvironmentStatus } from './runtime-environment-status-probe'
 import { getPreferredPairingOffer } from '../../shared/runtime-environments'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../shared/electron-remote-runtime-client-capabilities'
-import { resolveEnvironment, markEnvironmentUsed } from '../../shared/runtime-environment-store'
+import { resolveEnvironment } from '../../shared/runtime-environment-store'
 import { resolveManagedRuntimeEnvironment } from './runtime-environment-managed-tunnel'
+import { markEnvironmentUsedDetached } from '../../shared/runtime-environment-usage-detached'
 import { recordRuntimeEnvironmentUsage } from './runtime-environment-usage-record'
 import type {
   RuntimeOrchestrationEnvelope,
@@ -230,7 +231,9 @@ function markEnvironmentUsedFromResponse(
   response: RuntimeRpcResponse<unknown>
 ): void {
   if (response.ok === true) {
-    markEnvironmentUsed(userDataPath, environmentId, { runtimeId: response._meta.runtimeId })
+    markEnvironmentUsedDetached(userDataPath, environmentId, {
+      runtimeId: response._meta.runtimeId
+    })
   }
 }
 

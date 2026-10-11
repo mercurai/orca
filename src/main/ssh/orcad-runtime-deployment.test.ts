@@ -405,7 +405,7 @@ describe('createManagedOrcadEnvironment', () => {
 describe('createManagedOrcadEnvironment for a migration', () => {
   it('deploys into its own journaled fence without leaving a provisioning intent', async () => {
     target = { ...target, orcadFence: { environmentId: 'env-m' }, generation: 9 }
-    writeOrcadMigrationSourceCutover(
+    await writeOrcadMigrationSourceCutover(
       userDataPath,
       orcadMigrationCutoverFixture('m-1', 'ssh-1', { generation: 9, environmentId: 'env-m' })
     )
@@ -486,7 +486,7 @@ describe('getManagedOrcadRuntimeStatus', () => {
   it('reports an unfinished migration into the server', async () => {
     await deploy()
     const [environment] = listEnvironments(userDataPath)
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('m-2', 'ssh-1', {
         generation: 9,
         environmentId: environment!.id

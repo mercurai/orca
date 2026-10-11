@@ -33,7 +33,7 @@ it('publishes real same-socket verification after every authenticated reconnect'
   })
   const profile = mkdtempSync(join(tmpdir(), 'orca-status-socket-'))
   profiles.push(profile)
-  const environment = addEnvironmentFromPairingCode(profile, {
+  const environment = await addEnvironmentFromPairingCode(profile, {
     name: 'host',
     pairingCode: encodePairingOffer(server.pairing)
   })

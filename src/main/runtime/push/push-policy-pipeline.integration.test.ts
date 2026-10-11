@@ -28,7 +28,7 @@ async function pipeline() {
   const path = mkdtempSync(join(tmpdir(), 'orca-push-policy-'))
   paths.push(path)
   const registry = new DeviceRegistry(path)
-  const device = registry.addDevice('policy-phone', 'mobile')
+  const device = await registry.addDevice('policy-phone', 'mobile')
   const controller = new RuntimeMobileNotificationController()
   const client = {
     registerDevice: vi.fn(async () => ({ ok: true, registrationId: 'policy-registration' })),

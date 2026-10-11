@@ -7,14 +7,17 @@
  */
 import { linkSync, rmSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { writeDurableSecureJsonFile } from '../../shared/secure-file'
 import {
   OrcadManagedStopDecisionSchema,
   OrcadManagedStopRequestSchema,
   type OrcadManagedStopDecision,
   type OrcadManagedStopRequest
 } from '../../shared/orcad-stop-request'
-import { orcadStopReceiptPath, readOrcadStopReceipt } from './orcad-completed-stop-receipt'
+import {
+  orcadStopReceiptPath,
+  readOrcadStopReceipt,
+  writeOrcadStopRecordFile
+} from './orcad-completed-stop-receipt'
 import { hasErrorCode } from '../daemon/daemon-process-inspection'
 
 export type OrcadManagedStopDecisionValue = OrcadManagedStopDecision['decision']
@@ -26,10 +29,10 @@ export function readOrcadManagedStopDecision(
 }
 
 /** Returns the decision that stands: ours if we created it first, otherwise the other side's. */
-export function claimOrcadManagedStopDecision(
+export async function claimOrcadManagedStopDecision(
   input: OrcadManagedStopRequest,
   decision: OrcadManagedStopDecisionValue
-): OrcadManagedStopDecisionValue {
+): Promise<OrcadManagedStopDecisionValue> {
   const request = OrcadManagedStopRequestSchema.parse(input)
   const path = orcadStopReceiptPath(request, 'decision')
   const staged = `${path}.${process.pid}.${randomUUID()}.staged`
@@ -39,7 +42,8 @@ export function claimOrcadManagedStopDecision(
     request,
     decision
   }
-  if (!writeDurableSecureJsonFile(staged, record)) {
+  // Only the staged file is written async; the hard link that decides the race stays atomic.
+  if (!(await writeOrcadStopRecordFile(staged, record))) {
     rmSync(staged, { force: true })
     throw new Error('orcad_managed_stop_decision_permissions_unconfirmed')
   }

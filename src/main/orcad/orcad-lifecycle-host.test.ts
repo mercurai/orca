@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -68,4 +68,20 @@ describe('startOrcadWithHost', () => {
     await expect(handle.stop()).rejects.toThrow('orcad_quit_handlers_failed')
     expect(existsSync(join(root, ORCAD_LOCK_FILE_NAME))).toBe(true)
   })
+
+  // Why here: the lock no longer tightens the root itself, so only this start path can lose it.
+  it.runIf(process.platform !== 'win32')(
+    'makes a group/world-accessible data root private before taking the lock',
+    async () => {
+      const root = dataRoot()
+      chmodSync(root, 0o755)
+      const handle = await startOrcadWithHost(
+        root,
+        async () => ({}),
+        () => {}
+      )
+      expect(statSync(root).mode & 0o777).toBe(0o700)
+      await handle.stop()
+    }
+  )
 })

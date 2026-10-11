@@ -2,7 +2,12 @@ import { safeStorage } from 'electron'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { hardenExistingSecureFile, writeSecureFile } from '../../shared/secure-file'
+import { hardenExistingSecureFile } from '../../shared/secure-file'
+import {
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 
 const ZCODE_PLAN_API_KEY_FILE = 'zcode-plan-api-key.enc'
@@ -84,7 +89,11 @@ export function getZcodePlanApiKeyProtection(): SecretAtRestProtection | null {
   }
 }
 
-export function saveZcodePlanApiKey(key: string): void {
+export async function saveZcodePlanApiKey(key: string): Promise<void> {
+  await ignoreDiscardedSecureWrite(() => saveZcodePlanApiKeyUnlessCleared(key))
+}
+
+async function saveZcodePlanApiKeyUnlessCleared(key: string): Promise<void> {
   const trimmed = key.trim()
   if (!trimmed) {
     throw new Error('GLM Coding Plan API key is required')
@@ -93,7 +102,7 @@ export function saveZcodePlanApiKey(key: string): void {
     throw new Error('GLM Coding Plan API key must be a single line')
   }
   if (safeStorage.isEncryptionAvailable()) {
-    writeSecureFile(
+    await writeSecureFileAsync(
       getZcodePlanApiKeyPath(),
       encodeApiKeyEnvelope('encrypted', safeStorage.encryptString(trimmed))
     )
@@ -104,7 +113,7 @@ export function saveZcodePlanApiKey(key: string): void {
     '[zcode] safeStorage encryption unavailable — storing GLM Coding Plan API key in plaintext'
   )
   const keyPath = getZcodePlanApiKeyPath()
-  // Why: capture the previous envelope — writeSecureFile has already replaced
+  // Why: capture the previous envelope — the write has already replaced
   // the file by the time it reports that restriction failed, and deleting the
   // result must not take the user's previous working key with it.
   let previousEnvelope: Buffer | null = null
@@ -115,7 +124,7 @@ export function saveZcodePlanApiKey(key: string): void {
       previousEnvelope = null
     }
   }
-  const wroteRestricted = writeSecureFile(
+  const wroteRestricted = await writeSecureFileAsync(
     keyPath,
     encodeApiKeyEnvelope('plaintext', Buffer.from(trimmed, 'utf8'))
   )
@@ -125,7 +134,7 @@ export function saveZcodePlanApiKey(key: string): void {
       rmSync(keyPath, { force: true })
     } else {
       try {
-        writeSecureFile(keyPath, previousEnvelope.toString('utf8'))
+        await writeSecureFileAsync(keyPath, previousEnvelope.toString('utf8'))
       } catch {
         // Why: restriction is failing device-wide; the restored bytes keep the
         // previous credential available instead of deleting it, and the thrown
@@ -165,5 +174,5 @@ export function readZcodePlanApiKey(): string | null {
 
 export function clearZcodePlanApiKey(): void {
   cachedZcodePlanApiKey = null
-  rmSync(getZcodePlanApiKeyPath(), { force: true })
+  removeSecureFile(getZcodePlanApiKeyPath())
 }

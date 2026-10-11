@@ -39,19 +39,19 @@ describe('runtime environment sidecar across a downgrade', () => {
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  function linked() {
-    const seeded = addEnvironmentFromPairingCode(userDataPath, {
+  async function linked() {
+    const seeded = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Host',
       pairingCode: encodePairingOffer(pairing),
       now: 100
     })
-    const prepared = prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
+    const prepared = await prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
       expectedEnvironment: seeded,
       requestId: 'link-request',
       ...tunnel,
       targetFingerprint: 'target-fingerprint'
     })
-    return linkVerifiedRuntimeEnvironmentSshAccess(userDataPath, {
+    return await linkVerifiedRuntimeEnvironmentSshAccess(userDataPath, {
       expectedEnvironment: prepared,
       requestId: 'link-request',
       verifiedRuntimeId: 'host-runtime',
@@ -61,8 +61,8 @@ describe('runtime environment sidecar across a downgrade', () => {
     })
   }
 
-  it('keeps SSH access after a shipped build rewrites orca-environments.json', () => {
-    const access = linked()
+  it('keeps SSH access after a shipped build rewrites orca-environments.json', async () => {
+    const access = await linked()
     shippedBuildRewrite(userDataPath, (environments) => {
       environments[0]!.lastUsedAt = 500
       environments[0]!.runtimeId = 'host-runtime'
@@ -73,8 +73,8 @@ describe('runtime environment sidecar across a downgrade', () => {
     expect(restored?.lastUsedAt).toBe(500)
   })
 
-  it('reads a link as stale once a shipped build re-pairs the server, and prunes it on the next write', () => {
-    const access = linked()
+  it('reads a link as stale once a shipped build re-pairs the server, and prunes it on the next write', async () => {
+    const access = await linked()
     shippedBuildRewrite(userDataPath, (environments) => {
       environments[0]!.pairingRevision = 200
     })
@@ -84,50 +84,50 @@ describe('runtime environment sidecar across a downgrade', () => {
     expect(restored?.connectionDependency).toBeUndefined()
 
     const persisted = readPersistedEnvironmentStore(userDataPath).environments
-    writeRuntimeEnvironmentSidecarEntry(userDataPath, persisted, persisted[0]!, null)
+    await writeRuntimeEnvironmentSidecarEntry(userDataPath, persisted, persisted[0]!, null)
     expect(
       JSON.parse(readFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), 'utf8'))
     ).toEqual({ version: 1, entries: {} })
   })
 
-  it('ignores a dangling entry for a server a shipped build removed', () => {
-    linked()
+  it('ignores a dangling entry for a server a shipped build removed', async () => {
+    await linked()
     shippedBuildRewrite(userDataPath, (environments) => {
       environments.splice(0, 1)
     })
     expect(listEnvironments(userDataPath)).toEqual([])
-    const other = addEnvironmentFromPairingCode(userDataPath, {
+    const other = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Other',
       pairingCode: encodePairingOffer(pairing)
     })
     expect(listEnvironments(userDataPath)).toEqual([other])
   })
 
-  it('refuses ordinary removal while linked, and drops the entry when an unlinked server is removed', () => {
-    const access = linked()
-    expect(() => removeEnvironment(userDataPath, access.id)).toThrow('Unlink')
-    const plain = addEnvironmentFromPairingCode(userDataPath, {
+  it('refuses ordinary removal while linked, and drops the entry when an unlinked server is removed', async () => {
+    const access = await linked()
+    await expect(removeEnvironment(userDataPath, access.id)).rejects.toThrow('Unlink')
+    const plain = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Plain',
       pairingCode: encodePairingOffer(pairing)
     })
-    removeEnvironment(userDataPath, plain.id)
+    await removeEnvironment(userDataPath, plain.id)
     expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual([access.id])
   })
 
-  it('fails closed on an unreadable sidecar instead of dropping a pinned host key', () => {
-    linked()
+  it('fails closed on an unreadable sidecar instead of dropping a pinned host key', async () => {
+    await linked()
     writeFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), '{not json')
     expect(() => listEnvironments(userDataPath)).toThrow('Orca environment links')
   })
 
-  it('overlays a reconciliation record so lifecycle changes refuse while it exists', () => {
-    const seeded = addEnvironmentFromPairingCode(userDataPath, {
+  it('overlays a reconciliation record so lifecycle changes refuse while it exists', async () => {
+    const seeded = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Host',
       pairingCode: encodePairingOffer(pairing),
       now: 100
     })
     const persisted = readPersistedEnvironmentStore(userDataPath).environments
-    writeRuntimeEnvironmentSidecarEntry(userDataPath, persisted, persisted[0]!, {
+    await writeRuntimeEnvironmentSidecarEntry(userDataPath, persisted, persisted[0]!, {
       reconciliation: {
         version: 1,
         stage: 'prepared',

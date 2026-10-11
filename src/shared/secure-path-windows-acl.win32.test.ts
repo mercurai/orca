@@ -11,8 +11,9 @@ import {
 import {
   bestEffortRestrictWindowsPath,
   resetSecureFileWindowsUserSidForTests,
-  restrictWindowsPathSync
+  restrictNewFileAsync
 } from './secure-path-windows-acl'
+import { writeSecureFileAsync } from './secure-file-async-write'
 import { removeTreeSync } from './windows-transient-lock-removal'
 
 /**
@@ -120,7 +121,7 @@ function listed(entries: string[]): string {
   return `icacls listed ${entries.length} entries: ${entries.join(' | ')}`
 }
 
-describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
+describeOnWindows('restrictNewFileAsync against a real filesystem', () => {
   const elevated = isElevated()
   let root: string
 
@@ -142,7 +143,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     removeTreeSync(root)
   })
 
-  it('actually applies the ACL to a real file, dropping inherited and foreign ACEs', () => {
+  it('actually applies the ACL to a real file, dropping inherited and foreign ACEs', async () => {
     const file = join(root, 'credential.json')
     writeFileSync(file, '{"token":"secret"}')
     // A planted explicit ACE: /inheritance:r alone does not remove these.
@@ -152,7 +153,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     expect(before.some((entry) => entry.startsWith('Everyone:'))).toBe(true)
     expect(before.some((entry) => entry.includes('(I)'))).toBe(true)
 
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
 
     const after = readAclEntries(file)
     // No inherited ACE survives: the DACL is protected.
@@ -163,11 +164,11 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     expect(after.every((entry) => entry.endsWith(':(F)'))).toBe(true)
   })
 
-  it('gives a real directory inheritable rules so files created inside stay restricted', () => {
+  it('gives a real directory inheritable rules so files created inside stay restricted', async () => {
     const dir = join(root, 'secure-dir')
     mkdirSync(dir)
 
-    expect(restrictWindowsPathSync(dir, true)).toBe(true)
+    expect(await restrictNewFileAsync(dir, true)).toBe(true)
 
     const after = readAclEntries(dir)
     expect(after).toHaveLength(3)
@@ -194,20 +195,20 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     ['comma', 'com,ma'],
     ['parentheses', 'paren(s)'],
     ['caret and percent', 'car^et %PATH%']
-  ])('hardens a path containing %s', (_label, segment) => {
+  ])('hardens a path containing %s', async (_label, segment) => {
     const dir = join(root, segment)
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 'secret.json')
     writeFileSync(file, '{}')
 
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
 
     const after = readAclEntries(file)
     expect(after).toHaveLength(3)
     expect(after.every((entry) => !entry.includes('(I)'))).toBe(true)
   })
 
-  it('hardens a path longer than MAX_PATH', () => {
+  it('hardens a path longer than MAX_PATH', async () => {
     let dir = join(root, 'long')
     while (dir.length < 280) {
       dir = join(dir, 'x'.repeat(40))
@@ -217,7 +218,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     expect(file.length).toBeGreaterThan(260)
     writeFileSync(file, '{}')
 
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
     expect(readAclEntries(file)).toHaveLength(3)
   })
 
@@ -226,7 +227,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
    * exactly three non-inherited full-control rules, and grants Everyone — so it satisfies every
    * check that does not compare SIDs, and hardening would report success and leave it alone.
    */
-  it('repairs a protected three-rule DACL that grants the wrong principal', () => {
+  it('repairs a protected three-rule DACL that grants the wrong principal', async () => {
     const file = join(root, 'substituted.json')
     writeFileSync(file, '{"token":"secret"}')
     plantDacl(file, [`*${EVERYONE_SID}:(F)`, '*S-1-5-18:(F)', '*S-1-5-32-544:(F)'])
@@ -236,7 +237,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     expect(before.every((entry) => !entry.includes('(I)'))).toBe(true)
     expect(before.some((entry) => entry.startsWith('Everyone:'))).toBe(true)
 
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
 
     const after = readAclEntries(file)
     expect(after, listed(after)).toHaveLength(3)
@@ -254,7 +255,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
   it.each([
     ['(OI) without (CI), leaving subdirectories unprotected', '(OI)(F)'],
     ['(OI)(CI)(IO), which grants nobody anything on the directory itself', '(OI)(CI)(IO)(F)']
-  ])('repairs a directory whose rules are %s', (_label, rights) => {
+  ])('repairs a directory whose rules are %s', async (_label, rights) => {
     const dir = join(root, `wrong-flags-${rights.replace(/[^A-Z]/g, '')}`)
     mkdirSync(dir)
     plantDacl(dir, [
@@ -268,7 +269,7 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     expect(before.every((entry) => !entry.includes('(I)'))).toBe(true)
     expect(before.every((entry) => entry.endsWith(rights))).toBe(true)
 
-    expect(restrictWindowsPathSync(dir, true)).toBe(true)
+    expect(await restrictNewFileAsync(dir, true)).toBe(true)
 
     const after = readAclEntries(dir)
     expect(after, listed(after)).toHaveLength(3)
@@ -281,59 +282,41 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
     expect(readAclEntries(child).every((entry) => entry.includes('(I)'))).toBe(true)
   })
 
-  it('is idempotent: a second harden leaves the same DACL', () => {
+  it('is idempotent: a second harden leaves the same DACL', async () => {
     const file = join(root, 'idempotent.json')
     writeFileSync(file, '{}')
 
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
     const first = readAclEntries(file)
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
 
     expect(readAclEntries(file)).toEqual(first)
   })
 
   /**
-   * Verification writes a temp SDDL file. If it cannot, the ACL may well have been applied — but
-   * it cannot be *proved*, so hardening must report failure rather than assume success. Fail
-   * closed, and say so: a silently-unverifiable control is the shape of the original bug.
+   * The write lane skips the read-back its predecessor ran before and after the grant, so the
+   * proof moves here: a file written through the write lane must end up with exactly the DACL the
+   * verified read-path sequence produces on a control file.
    */
-  it('reports failure, loudly, when verification cannot write its descriptor', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const file = join(root, 'unverifiable.json')
-    writeFileSync(file, '{}')
-    const realTemp = process.env.TEMP
-    const realTmp = process.env.TMP
-    // Point the descriptor save at a directory that cannot exist.
-    process.env.TEMP = join(root, 'no-such-dir', 'nested')
-    process.env.TMP = process.env.TEMP
+  it('leaves a written credential with the same DACL as the full verified sequence', async () => {
+    const control = join(root, 'control.json')
+    writeFileSync(control, '{}')
+    const controlRestricted = await new Promise<boolean>((resolve) => {
+      bestEffortRestrictWindowsPath(control, false, resolve)
+    })
+    expect(controlRestricted).toBe(true)
 
-    try {
-      expect(restrictWindowsPathSync(file, false)).toBe(false)
-      expect(warn).toHaveBeenCalledWith(
-        '[secure-path.windows-acl] failed to restrict path',
-        expect.objectContaining({ stage: 'verify' })
-      )
-    } finally {
-      if (realTemp === undefined) {
-        delete process.env.TEMP
-      } else {
-        process.env.TEMP = realTemp
-      }
-      if (realTmp === undefined) {
-        delete process.env.TMP
-      } else {
-        process.env.TMP = realTmp
-      }
-      warn.mockRestore()
-    }
+    const viaAsyncLane = join(root, 'async-lane.json')
+    await writeSecureFileAsync(viaAsyncLane, '{"token":"secret"}')
 
-    // And the ACL itself was still applied, so the failure is a loss of proof, not of protection.
-    expect(readAclEntries(file)).toHaveLength(3)
+    const expected = readAclEntries(control).sort()
+    expect(expected).toHaveLength(3)
+    expect(readAclEntries(viaAsyncLane).sort()).toEqual(expected)
   })
 
-  it('reports failure for a path that does not exist', () => {
+  it('reports failure for a path that does not exist', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    expect(restrictWindowsPathSync(join(root, 'absent.json'), false)).toBe(false)
+    expect(await restrictNewFileAsync(join(root, 'absent.json'), false)).toBe(false)
     expect(warn).toHaveBeenCalledWith(
       '[secure-path.windows-acl] failed to restrict path',
       expect.objectContaining({ stage: 'reset' })
@@ -347,12 +330,12 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
    * ACEs, and `hosts` ships with an explicit `NT AUTHORITY\SYSTEM:(F)`. Ephemeral on a CI runner;
    * permanent for anyone running this lane from an elevated shell. So: assert, or skip.
    */
-  it.skipIf(elevated)('reports failure for a path it has no permission to modify', () => {
+  it.skipIf(elevated)('reports failure for a path it has no permission to modify', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     // Owned by TrustedInstaller; a non-elevated user cannot rewrite its DACL.
     const systemFile = windowsSystem32Binary('drivers\\etc\\hosts')
 
-    expect(restrictWindowsPathSync(systemFile, false)).toBe(false)
+    expect(await restrictNewFileAsync(systemFile, false)).toBe(false)
     expect(warn).toHaveBeenCalledWith(
       '[secure-path.windows-acl] failed to restrict path',
       expect.objectContaining({ detail: expect.stringContaining('denied') })
@@ -384,7 +367,8 @@ describeOnWindows('restrictWindowsPathSync against a real filesystem', () => {
         settled = true
         throw new Error('settlement callback exploded')
       })
-      await vi.waitFor(() => expect(settled).toBe(true))
+      // The first apply now resolves the SID through an async whoami before any icacls runs.
+      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 15_000 })
       // An unhandled rejection is raised a turn later, so give the loop one.
       await new Promise((resolve) => setTimeout(resolve, 50))
     } finally {

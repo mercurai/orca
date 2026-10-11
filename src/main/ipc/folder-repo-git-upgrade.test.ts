@@ -6,17 +6,29 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type * as FsPromises from 'node:fs/promises'
 import type * as GitRepo from '../git/repo'
+import * as runner from '../git/runner'
 import type { Repo } from '../../shared/repo-types'
 
 // Why: the watch must stay one stat per folder project per tick — counting the real
 // calls is what keeps a directory-listing fan-out from creeping back in.
-const { statCalls, readdirSpy, gitProbes } = vi.hoisted(() => ({
+const { statCalls, readdirSpy, gitProbes, gitInFlight, probeGate } = vi.hoisted(() => ({
   statCalls: [] as string[],
   readdirSpy: vi.fn(),
   // Why: the rejected-marker cache exists to stop git respawning every tick; counting the
   // real probes is the only way that guarantee stays true.
-  gitProbes: [] as string[]
+  gitProbes: new Array<string>(),
+  // Detection spawns git asynchronously now, so a tick is only settled once these have returned.
+  gitInFlight: { count: 0 },
+  // When set, isGitRepo waits for it, so a test can change the world while a probe is out.
+  probeGate: { hold: Promise.resolve() }
 }))
+
+function trackInFlight<T>(probe: Promise<T>): Promise<T> {
+  gitInFlight.count++
+  return probe.finally(() => {
+    gitInFlight.count--
+  })
+}
 
 vi.mock('../git/repo', async (importOriginal) => {
   const actual = await importOriginal<typeof GitRepo>()
@@ -24,8 +36,14 @@ vi.mock('../git/repo', async (importOriginal) => {
     ...actual,
     isGitRepo: (path: string) => {
       gitProbes.push(path)
-      return actual.isGitRepo(path)
-    }
+      return trackInFlight(
+        (async () => {
+          await probeGate.hold
+          return actual.isGitRepo(path)
+        })()
+      )
+    },
+    getGitRepoRoot: (path: string) => trackInFlight(actual.getGitRepoRoot(path))
   }
 })
 
@@ -146,17 +164,28 @@ describe('folder repo git upgrade watch', () => {
     await symlink(root, symlinkedRoot, 'dir')
     statCalls.length = 0
     gitProbes.length = 0
+    gitInFlight.count = 0
+    probeGate.hold = Promise.resolve()
   })
 
   afterEach(async () => {
     stopFolderRepoGitUpgradeWatch()
     await rm(symlinkedRoot, { force: true })
-    await rm(root, { recursive: true, force: true })
+    // An in-flight git probe can still hold the folder as its cwd on Windows.
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   })
 
   // Real timers: the tick awaits real filesystem stats, which fake timers cannot flush.
   async function tick(times = 1): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS * times + POLL_MS))
+    const deadline = Date.now() + 5_000
+    while (gitInFlight.count > 0) {
+      if (Date.now() > deadline) {
+        throw new Error('git probes still in flight after 5 s')
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    }
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS))
   }
 
   /** Why: a tick that spawns git can outrun a fixed wait on a loaded machine. */
@@ -168,6 +197,7 @@ describe('folder repo git upgrade watch', () => {
   }
 
   it('upgrades a local folder repo once an external git init creates .git', async () => {
+    const syncGit = vi.spyOn(runner, 'gitExecFileSync')
     const repoPath = join(root, 'my-project')
     await mkdir(repoPath)
     const store = makeStore([makeRepo({ id: 'folder-repo', path: repoPath })])
@@ -192,6 +222,8 @@ describe('folder repo git upgrade watch', () => {
     // Why: the shared notifier is what also reaches paired clients (#11994).
     expect(notifyReposChanged).toHaveBeenCalledWith(window)
     expect(notifyWorktreesChanged).toHaveBeenCalledWith(window, 'folder-repo')
+    // Detection is asynchronous end to end: no synchronous git on the upgrade path.
+    expect(syncGit).not.toHaveBeenCalled()
   })
 
   it("keeps external worktrees visible when the stored path is not git's own root", async () => {
@@ -214,7 +246,7 @@ describe('folder repo git upgrade watch', () => {
           folderUpgradeGitRootPath: join(root, 'symlinked-project').replaceAll('\\', '/')
         })
       },
-      { timeout: 5_000, interval: POLL_MS }
+      { timeout: 15_000, interval: POLL_MS }
     )
   })
 
@@ -360,6 +392,30 @@ describe('folder repo git upgrade watch', () => {
       'repo-a',
       expect.objectContaining({ kind: 'git' })
     )
+  })
+
+  it('does not flip a project whose folder workspace was added while the probe was out', async () => {
+    const repoPath = join(root, 'my-project')
+    await mkdir(repoPath)
+    gitInit(repoPath)
+    const worktreeMeta: Record<string, unknown> = {}
+    const store = makeStore([makeRepo({ id: 'folder-repo', path: repoPath })], worktreeMeta)
+    const gate = Promise.withResolvers<void>()
+    probeGate.hold = gate.promise
+
+    startFolderRepoGitUpgradeWatch(store as never, makeWindow() as never, {
+      pollIntervalMs: POLL_MS,
+      idlePollIntervalMs: IDLE_POLL_MS
+    })
+    await vi.waitFor(() => expect(gitProbes.length).toBeGreaterThan(0), { timeout: 15_000 })
+    // The user adds a folder workspace while git is still being asked.
+    worktreeMeta[`folder-repo::${repoPath}::workspace:11111111-1111-1111-1111-111111111111`] = {
+      displayName: 'draft'
+    }
+    gate.resolve()
+    await tick(2)
+
+    expect(store.updateRepo).not.toHaveBeenCalled()
   })
 
   it('never upgrades again once the repo is already git', async () => {

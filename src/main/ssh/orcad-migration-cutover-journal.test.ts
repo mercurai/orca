@@ -21,8 +21,8 @@ const journalPath = (id: string) =>
   join(orcadMigrationCutoverJournalDirectory(userDataPath), `${id}.json`)
 
 describe('migration cutover journal sidecar', () => {
-  it('round-trips a cutover in an owner-only file', () => {
-    writeOrcadMigrationSourceCutover(userDataPath, cutover())
+  it('round-trips a cutover in an owner-only file', async () => {
+    await writeOrcadMigrationSourceCutover(userDataPath, cutover())
     expect(findOrcadMigrationSourceCutoverForTarget(userDataPath, 'ssh-1')).toEqual(cutover())
     if (process.platform !== 'win32') {
       expect(statSync(journalPath('migration-1')).mode & 0o077).toBe(0)
@@ -48,8 +48,8 @@ describe('migration cutover journal sidecar', () => {
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([cutover()])
   })
 
-  it('serves repeat reads from cache yet sees a file rewritten behind its back', () => {
-    writeOrcadMigrationSourceCutover(userDataPath, cutover())
+  it('serves repeat reads from cache yet sees a file rewritten behind its back', async () => {
+    await writeOrcadMigrationSourceCutover(userDataPath, cutover())
     const first = listOrcadMigrationSourceCutovers(userDataPath)
     expect(listOrcadMigrationSourceCutovers(userDataPath)[0]).toBe(first[0])
     writeFileSync(
@@ -65,24 +65,24 @@ describe('migration cutover journal sidecar', () => {
     expect(() => listOrcadMigrationSourceCutovers(userDataPath)).toThrow('stays fenced')
   })
 
-  it('ignores durable-write temporaries but refuses two journals for one target', () => {
-    writeOrcadMigrationSourceCutover(userDataPath, cutover())
+  it('ignores durable-write temporaries but refuses two journals for one target', async () => {
+    await writeOrcadMigrationSourceCutover(userDataPath, cutover())
     writeFileSync(join(orcadMigrationCutoverJournalDirectory(userDataPath), 'x.json.tmp'), '?')
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toHaveLength(1)
-    writeOrcadMigrationSourceCutover(userDataPath, cutover('migration-2'))
+    await writeOrcadMigrationSourceCutover(userDataPath, cutover('migration-2'))
     expect(() => findOrcadMigrationSourceCutoverForTarget(userDataPath, 'ssh-1')).toThrow(
       'journals name SSH target'
     )
   })
 
-  it('bounds concurrent migrations but rewrites an existing one', () => {
+  it('bounds concurrent migrations but rewrites an existing one', async () => {
     for (const index of [1, 2, 3, 4]) {
-      writeOrcadMigrationSourceCutover(userDataPath, cutover(`m-${index}`, `ssh-${index}`))
+      await writeOrcadMigrationSourceCutover(userDataPath, cutover(`m-${index}`, `ssh-${index}`))
     }
-    expect(() => writeOrcadMigrationSourceCutover(userDataPath, cutover('m-5', 'ssh-5'))).toThrow(
-      'capacity'
-    )
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await expect(
+      writeOrcadMigrationSourceCutover(userDataPath, cutover('m-5', 'ssh-5'))
+    ).rejects.toThrow('capacity')
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...cutover('m-1', 'ssh-1'),
       phase: 'destination-staged'
     })

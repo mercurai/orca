@@ -41,39 +41,39 @@ function running(): OrcadManagedStopRequest {
 }
 
 describe('cancelling a managed stop', () => {
-  it('lets exactly one side decide a transaction', () => {
+  it('lets exactly one side decide a transaction', async () => {
     const request = running()
-    expect(claimOrcadManagedStopDecision(request, 'canceled')).toBe('canceled')
-    expect(claimOrcadManagedStopDecision(request, 'dispatched')).toBe('canceled')
+    expect(await claimOrcadManagedStopDecision(request, 'canceled')).toBe('canceled')
+    expect(await claimOrcadManagedStopDecision(request, 'dispatched')).toBe('canceled')
     expect(readOrcadManagedStopDecision(request)).toBe('canceled')
   })
 
-  it('withdraws a request orcad has not acted on, and removes its file', () => {
+  it('withdraws a request orcad has not acted on, and removes its file', async () => {
     const request = running()
     writeFileSync(orcadManagedStopRequestPath(request.instance), JSON.stringify(request))
-    expect(cancelOrcadManagedStop(request)).toBe('canceled')
+    expect(await cancelOrcadManagedStop(request)).toBe('canceled')
     expect(existsSync(orcadManagedStopRequestPath(request.instance))).toBe(false)
   })
 
-  it('reports dispatched once orcad acted first, and leaves its request in place', () => {
+  it('reports dispatched once orcad acted first, and leaves its request in place', async () => {
     const request = running()
     writeFileSync(orcadManagedStopRequestPath(request.instance), JSON.stringify(request))
-    expect(claimOrcadManagedStopDecision(request, 'dispatched')).toBe('dispatched')
-    expect(cancelOrcadManagedStop(request)).toBe('dispatched')
+    expect(await claimOrcadManagedStopDecision(request, 'dispatched')).toBe('dispatched')
+    expect(await cancelOrcadManagedStop(request)).toBe('dispatched')
     expect(existsSync(orcadManagedStopRequestPath(request.instance))).toBe(true)
   })
 
-  it('never removes another transaction pending for the same instance', () => {
+  it('never removes another transaction pending for the same instance', async () => {
     const request = running()
     const other = { ...request, transactionId: '5a7e1f0c-3b2d-4e6f-9a8b-7c6d5e4f3a2b' }
     writeFileSync(orcadManagedStopRequestPath(request.instance), JSON.stringify(other))
-    expect(cancelOrcadManagedStop(request)).toBe('canceled')
+    expect(await cancelOrcadManagedStop(request)).toBe('canceled')
     expect(existsSync(orcadManagedStopRequestPath(request.instance))).toBe(true)
   })
 
   it('does not reissue a cancelled transaction while orcad keeps running', async () => {
     const request = running()
-    cancelOrcadManagedStop(request)
+    await cancelOrcadManagedStop(request)
     expect(
       await completeOrcadManagedStop(request, {
         probeProcess: () => 'alive',
@@ -86,7 +86,7 @@ describe('cancelling a managed stop', () => {
 
   it('keeps orcad running when its listener meets a cancelled request', async () => {
     const request = running()
-    cancelOrcadManagedStop(request)
+    await cancelOrcadManagedStop(request)
     writeFileSync(orcadManagedStopRequestPath(request.instance), JSON.stringify(request))
     const onRequest = vi.fn()
     const report = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -109,10 +109,10 @@ describe('cancelling a managed stop', () => {
     expect(existsSync(orcadManagedStopRequestPath(request.instance))).toBe(false)
   })
 
-  it('prints one cancellation line through the command', () => {
+  it('prints one cancellation line through the command', async () => {
     const request = running()
     const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
-    const cancellation = runOrcadManagedStopCancelCommand([
+    const cancellation = await runOrcadManagedStopCancelCommand([
       ORCAD_CANCEL_MANAGED_STOP_FLAG,
       JSON.stringify(request)
     ])

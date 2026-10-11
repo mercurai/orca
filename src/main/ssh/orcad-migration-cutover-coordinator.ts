@@ -75,7 +75,7 @@ export async function stageOrcadMigrationDestination(
           () => destination.readState(cutover.manifest),
           (observed) => observed.state !== 'absent'
         )
-  cutover = recordObservedState(context, cutover, state)
+  cutover = await recordObservedState(context, cutover, state)
   if (state.state === 'staged') {
     await transferOrcadMigrationSnapshots({
       source: context.store,
@@ -106,7 +106,7 @@ export async function commitOrcadMigrationDestination(
   if (state.state !== 'committed') {
     throw new Error(`orcad_migration_commit_not_committed:${state.state}`)
   }
-  return recordObservedState(context, staged, state)
+  return await recordObservedState(context, staged, state)
 }
 
 export type OrcadMigrationAbortResult =
@@ -143,7 +143,11 @@ export async function abortOrcadMigrationCutover(
     state = await abortWithRecovery(destination, cutover.manifest)
   }
   if (state.state === 'committed') {
-    recordObservedState(context, cutover, await confirmDurableCommit(destination, cutover.manifest))
+    await recordObservedState(
+      context,
+      cutover,
+      await confirmDurableCommit(destination, cutover.manifest)
+    )
     return committedRefusal()
   }
   if (state.state !== 'absent') {
@@ -177,11 +181,11 @@ function assertSourceUnchanged(
 }
 
 /** Moves the journal to what the destination reported; durable before it returns. */
-function recordObservedState(
+async function recordObservedState(
   context: OrcadMigrationCutoverContext,
   cutover: OrcadMigrationSourceCutover,
   state: OrcadMigrationCatalogState
-): OrcadMigrationSourceCutover {
+): Promise<OrcadMigrationSourceCutover> {
   if (state.state === 'absent') {
     throw new Error('orcad_migration_destination_catalog_absent')
   }
@@ -212,7 +216,7 @@ function recordObservedState(
     phase,
     updatedAt: (context.now ?? (() => new Date()))().toISOString()
   }
-  writeOrcadMigrationSourceCutover(context.userDataPath, next)
+  await writeOrcadMigrationSourceCutover(context.userDataPath, next)
   return next
 }
 
