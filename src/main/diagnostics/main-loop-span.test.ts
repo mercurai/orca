@@ -109,7 +109,10 @@ describe('main.loop span', () => {
 
   it('carries the terminal input latency of the window on the span', () => {
     startMainThreadChurnProbe()
-    terminalInputLatency.noteInput('pty-1', Date.now() - 30, { inputKind: 'driving', isLocalPty: true })
+    terminalInputLatency.noteInput('pty-1', Date.now() - 30, {
+      inputKind: 'driving',
+      isLocalPty: true
+    })
     fakeNow += 80
     terminalInputLatency.noteOutput('pty-1')
     runUntilWindowRolls()
