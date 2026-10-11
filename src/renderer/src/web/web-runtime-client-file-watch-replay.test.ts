@@ -1,3 +1,4 @@
+import { pairedRuntimeConnectionFromOffer } from '../../../shared/paired-runtime-connection'
 // Regression tests for the reconnect-gap resync of replayed paired-web file
 // watches: a replayed files.watch reports changes only from its own native
 // setup, so consumers must receive a conservative overflow once it is ready.
@@ -45,12 +46,14 @@ describe('WebRuntimeClient file-watch replay resync', () => {
   })
 
   it('delivers a conservative overflow after a replayed file watch is ready', async () => {
-    const client = new WebRuntimeClient({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:6768',
-      deviceToken: 'token',
-      publicKeyB64: Buffer.alloc(32).toString('base64')
-    })
+    const client = new WebRuntimeClient(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.alloc(32).toString('base64')
+      })
+    )
     const initialSocket = fakeSockets[0]!
     initialSocket.readyState = FakeWebSocket.OPEN
     const onResponse = vi.fn()
@@ -114,12 +117,14 @@ describe('WebRuntimeClient file-watch replay resync', () => {
   })
 
   it('replays an active file watch on reconnect and keeps its logical handle', async () => {
-    const client = new WebRuntimeClient({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:6768',
-      deviceToken: 'token',
-      publicKeyB64: Buffer.alloc(32).toString('base64')
-    })
+    const client = new WebRuntimeClient(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.alloc(32).toString('base64')
+      })
+    )
     const initialSocket = fakeSockets[0]!
     initialSocket.readyState = FakeWebSocket.OPEN
     const onResponse = vi.fn()
@@ -187,12 +192,14 @@ describe('WebRuntimeClient file-watch replay resync', () => {
   })
 
   it('does not replay a file watch stopped after its socket disconnects', async () => {
-    const client = new WebRuntimeClient({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:6768',
-      deviceToken: 'token',
-      publicKeyB64: Buffer.alloc(32).toString('base64')
-    })
+    const client = new WebRuntimeClient(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.alloc(32).toString('base64')
+      })
+    )
     const initialSocket = fakeSockets[0]!
     initialSocket.readyState = FakeWebSocket.OPEN
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
@@ -226,12 +233,14 @@ describe('WebRuntimeClient file-watch replay resync', () => {
   })
 
   it('evicts a failed file-watch setup before reconnect can replay it', async () => {
-    const client = new WebRuntimeClient({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:6768',
-      deviceToken: 'token',
-      publicKeyB64: Buffer.alloc(32).toString('base64')
-    })
+    const client = new WebRuntimeClient(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.alloc(32).toString('base64')
+      })
+    )
     const initialSocket = fakeSockets[0]!
     initialSocket.readyState = FakeWebSocket.OPEN
     const sharedKey = new Uint8Array(32)

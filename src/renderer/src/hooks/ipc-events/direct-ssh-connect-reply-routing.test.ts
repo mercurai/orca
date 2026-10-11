@@ -82,7 +82,6 @@ async function createHarness(
   })
   const store = useAppStore.getState()
   const invalidate = vi.spyOn(store, 'invalidateStaleDirectSshTargetPtyBindings').mockReturnValue(1)
-  const retry = vi.spyOn(store, 'retryDirectSshTargetPanes').mockReturnValue(1)
   const clearBindings = vi.spyOn(store, 'clearDirectSshTargetPtyBindings').mockReturnValue(1)
   const runtime = createDirectSshBridgeRuntime()
   const requestReconnect = vi.spyOn(runtime.reconnectCoordinator, 'requestReconnect')
@@ -100,7 +99,6 @@ async function createHarness(
     runtime,
     getState,
     invalidate,
-    retry,
     clearBindings,
     requestReconnect,
     prepareHost,
@@ -132,7 +130,7 @@ afterEach(async () => {
 
 describe('direct SSH connect reply routing', () => {
   it.each(['reply-first', 'push-first'] as const)(
-    'retries through the real coordinator once when connection ordering is %s',
+    'clears stale bindings through the real coordinator once when connection ordering is %s',
     async (ordering) => {
       const harness = await createHarness()
       const state = connectedState()
@@ -146,18 +144,16 @@ describe('direct SSH connect reply routing', () => {
 
       expect(harness.requestReconnect).toHaveBeenCalledExactlyOnceWith(authority(state))
       expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(state))
-      expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(state))
       expect(harness.runtime.reconnectAuthorityByTarget.get(state.targetId)).toEqual(
         authority(state)
       )
       await settle()
 
-      harness.retry.mockClear()
+      harness.invalidate.mockClear()
       harness.emit({ ...state })
 
       expect(harness.requestReconnect).toHaveBeenCalledOnce()
-      expect(harness.invalidate).toHaveBeenCalledOnce()
-      expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(state))
+      expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(state))
       expect(harness.prepareHost).toHaveBeenLastCalledWith(authority(state), 'wake-refresh')
     }
   )
@@ -172,21 +168,20 @@ describe('direct SSH connect reply routing', () => {
     )
     expect(harness.requestReconnect).not.toHaveBeenCalled()
     expect(harness.invalidate).not.toHaveBeenCalled()
-    expect(harness.retry).not.toHaveBeenCalled()
 
     harness.emit({ ...state })
 
     expect(harness.requestReconnect).not.toHaveBeenCalled()
-    expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(state))
+    expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(state))
     expect(harness.runtime.reconnectAuthorityByTarget.size).toBe(0)
 
     const next = connectedState(state.targetId, 2)
     harness.applyConnectReply(next)
-    harness.retry.mockClear()
+    harness.invalidate.mockClear()
     harness.emit(next)
 
     expect(harness.requestReconnect).toHaveBeenCalledExactlyOnceWith(authority(next))
-    expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(next))
+    expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(next))
   })
 
   it.each(['disconnected', 'error'] as const)(
@@ -201,7 +196,7 @@ describe('direct SSH connect reply routing', () => {
       harness.emit(state)
 
       expect(harness.requestReconnect).toHaveBeenCalledExactlyOnceWith(authority(state))
-      expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(state))
+      expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(state))
       expect(harness.runtime.reconnectAuthorityByTarget.get(state.targetId)).toEqual(
         authority(state)
       )
@@ -222,12 +217,12 @@ describe('direct SSH connect reply routing', () => {
         'initial-hydration'
       )
       expect(harness.requestReconnect).not.toHaveBeenCalled()
-      expect(harness.retry).not.toHaveBeenCalled()
+      expect(harness.invalidate).not.toHaveBeenCalled()
 
       harness.emit(state)
 
       expect(harness.requestReconnect).not.toHaveBeenCalled()
-      expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(state))
+      expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(state))
       expect(harness.runtime.reconnectAuthorityByTarget.size).toBe(0)
     }
   )
@@ -250,13 +245,12 @@ describe('direct SSH connect reply routing', () => {
       harness.emit(partial)
 
       expect(harness.requestReconnect).not.toHaveBeenCalled()
-      expect(harness.retry).not.toHaveBeenCalled()
+      expect(harness.invalidate).not.toHaveBeenCalled()
       resolveState(state)
       await settle()
 
       expect(harness.requestReconnect).toHaveBeenCalledExactlyOnceWith(authority(state))
-      expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(state))
-      expect(harness.retry).toHaveBeenCalledWith(authority(state))
+      expect(harness.invalidate).toHaveBeenCalledWith(authority(state))
       harness.emit(state)
       expect(harness.requestReconnect).toHaveBeenCalledOnce()
     }
@@ -274,11 +268,11 @@ describe('direct SSH connect reply routing', () => {
     expect(harness.requestReconnect.mock.calls).toEqual([[authority(first)], [authority(second)]])
 
     harness.emit({ ...first, status: 'disconnected' })
-    harness.retry.mockClear()
+    harness.invalidate.mockClear()
     harness.emit(second)
 
     expect(harness.requestReconnect).toHaveBeenCalledTimes(2)
-    expect(harness.retry).toHaveBeenCalledExactlyOnceWith(authority(second))
+    expect(harness.invalidate).toHaveBeenCalledExactlyOnceWith(authority(second))
     expect(harness.runtime.reconnectAuthorityByTarget.get(second.targetId)).toEqual(
       authority(second)
     )

@@ -1,3 +1,4 @@
+import { pairedRuntimeConnectionFromOffer } from '../../../shared/paired-runtime-connection'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Cable, Loader2, Server, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -59,7 +60,7 @@ export default function WebConnect({
       offer: parsedOffer,
       previousEnvironment: existingEnvironment
     })
-    const client = new WebRuntimeClient(parsedOffer)
+    const client = new WebRuntimeClient(pairedRuntimeConnectionFromOffer(parsedOffer))
     try {
       const response = await client.call('status.get', undefined, { timeoutMs: 15_000 })
       if (!response.ok) {

@@ -1,3 +1,7 @@
+import {
+  pairedRuntimeConnectionFromOffer,
+  type PairedRuntimeConnection
+} from '../../../shared/paired-runtime-connection'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import nacl from 'tweetnacl'
 import { WebSocketServer } from 'ws'
@@ -10,7 +14,7 @@ import {
   publicKeyToBase64
 } from '../../../shared/e2ee-crypto'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../../shared/electron-remote-runtime-client-capabilities'
-import { encodePairingOffer, parsePairingCode, type PairingOffer } from '../../../shared/pairing'
+import { encodePairingOffer, parsePairingCode } from '../../../shared/pairing'
 import { createPairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
 import { NODE_PAIRED_E2EE_PRIMITIVES } from '../../../shared/paired-e2ee-node-primitives'
 import { sendRemoteRuntimeRequest } from '../../../shared/remote-runtime-client'
@@ -42,7 +46,10 @@ afterEach(async () => {
 })
 
 /** A paired host that records the capabilities a client authenticates with, then answers. */
-async function recordingHost(): Promise<{ pairing: PairingOffer; auth: Promise<unknown> }> {
+async function recordingHost(): Promise<{
+  pairing: PairedRuntimeConnection
+  auth: Promise<unknown>
+}> {
   const keys = generateKeyPair()
   const wss = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   servers.push(wss)
@@ -93,7 +100,7 @@ async function recordingHost(): Promise<{ pairing: PairingOffer; auth: Promise<u
   if (!pairing) {
     throw new Error('test pairing did not parse')
   }
-  return { pairing, auth }
+  return { pairing: pairedRuntimeConnectionFromOffer(pairing), auth }
 }
 
 // The route decides whether a paired host will admit a chat from these; a list that differs from

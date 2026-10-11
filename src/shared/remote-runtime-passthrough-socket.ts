@@ -1,5 +1,5 @@
 import WebSocket from 'ws'
-import type { PairingOffer } from './pairing'
+import type { PairedRuntimeConnection } from './paired-runtime-connection'
 import type { RuntimeCapability } from './protocol-version'
 import {
   formatRemoteRuntimeCloseMessage,
@@ -33,14 +33,14 @@ export type RemoteRuntimePassthroughCallbacks = {
  * socket and fails on any other, while a relay forwards whatever its client multiplexes.
  */
 export function openRemoteRuntimePassthroughSocket(
-  pairing: PairingOffer,
+  connection: PairedRuntimeConnection,
   clientCapabilities: readonly RuntimeCapability[],
   callbacks: RemoteRuntimePassthroughCallbacks,
   options: RemoteRuntimeSocketLivenessOptions & { timeoutMs: number }
 ): Promise<RemoteRuntimePassthroughSocket> {
   return new Promise((resolve, reject) => {
     let state: 'awaiting_ready' | 'awaiting_authenticated' | 'ready' | 'ended' = 'awaiting_ready'
-    const opened = openRemoteRuntimeWebSocket(pairing, {
+    const opened = openRemoteRuntimeWebSocket(connection, {
       onTextFrame: (_ws, frame) => onTextFrame(frame),
       onBinaryFrame: (_ws, frame) => {
         liveness.noteActivity()
@@ -127,7 +127,7 @@ export function openRemoteRuntimePassthroughSocket(
         state = 'awaiting_authenticated'
         void sendRemoteRuntimeTokenAuth({
           handshake,
-          deviceToken: pairing.deviceToken,
+          deviceToken: connection.credential.deviceToken,
           clientCapabilities,
           stillAwaiting: () => state === 'awaiting_authenticated',
           send: (authFrame) => ws.send(authFrame),

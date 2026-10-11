@@ -172,7 +172,7 @@ describe('useIpcEvents agent status snapshot integration', () => {
     { enabled: true, expectedRoute: ['request'] },
     {
       enabled: false,
-      expectedRoute: ['replace', 'invalidate', 'retry', 'capture', 'prepare']
+      expectedRoute: ['replace', 'invalidate', 'capture', 'prepare']
     }
   ])(
     'routes a changed direct SSH authority through the enabled=$enabled path',
@@ -200,10 +200,6 @@ describe('useIpcEvents agent status snapshot integration', () => {
         },
         invalidateStaleDirectSshTargetPtyBindings: () => {
           order.push('invalidate')
-          return 1
-        },
-        retryDirectSshTargetPanes: () => {
-          order.push('retry')
           return 1
         },
         setSshTargetsMetadata: vi.fn(),
@@ -430,8 +426,7 @@ describe('useIpcEvents agent status snapshot integration', () => {
       clearRemoteDetectedAgents: vi.fn(),
       clearDirectSshTargetPtyBindings: vi.fn(),
       clearRemovedSshTargetState: vi.fn(),
-      invalidateStaleDirectSshTargetPtyBindings: vi.fn(() => 0),
-      retryDirectSshTargetPanes: vi.fn(() => 0)
+      invalidateStaleDirectSshTargetPtyBindings: vi.fn(() => 0)
     })
     const coordinator = {
       requestReconnect: vi.fn(async () => ({ status: 'complete' })),

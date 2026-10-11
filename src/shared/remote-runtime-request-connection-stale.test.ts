@@ -1,3 +1,4 @@
+import { pairedRuntimeConnectionFromOffer } from './paired-runtime-connection'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import type { PairingOffer } from './pairing'
@@ -85,12 +86,14 @@ describe('RemoteRuntimeRequestConnection stale socket callbacks', () => {
   it('runs socket cleanup when the cached connection closes', async () => {
     const { RemoteRuntimeRequestConnection } =
       await import('./remote-runtime-request-connection.js')
-    const connection = new RemoteRuntimeRequestConnection({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:6768',
-      deviceToken: 'device-token',
-      publicKeyB64: Buffer.from(new Uint8Array(32).fill(9)).toString('base64')
-    })
+    const connection = new RemoteRuntimeRequestConnection(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'device-token',
+        publicKeyB64: Buffer.from(new Uint8Array(32).fill(9)).toString('base64')
+      })
+    )
 
     const request = connection.request('status.get', undefined, 1000)
     const socket = opens[0]!
@@ -105,12 +108,14 @@ describe('RemoteRuntimeRequestConnection stale socket callbacks', () => {
   it('releases a pending request when the cached socket send throws', async () => {
     const { RemoteRuntimeRequestConnection } =
       await import('./remote-runtime-request-connection.js')
-    const connection = new RemoteRuntimeRequestConnection({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:6768',
-      deviceToken: 'device-token',
-      publicKeyB64: Buffer.from(new Uint8Array(32).fill(9)).toString('base64')
-    })
+    const connection = new RemoteRuntimeRequestConnection(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:6768',
+        deviceToken: 'device-token',
+        publicKeyB64: Buffer.from(new Uint8Array(32).fill(9)).toString('base64')
+      })
+    )
     const request = connection.request('status.get', undefined, 1000)
     const socket = opens[0]!
     await authenticate(socket, () => {
@@ -135,12 +140,14 @@ describe('RemoteRuntimeRequestConnection stale socket callbacks', () => {
     try {
       const { RemoteRuntimeRequestConnection } =
         await import('./remote-runtime-request-connection.js')
-      const connection = new RemoteRuntimeRequestConnection({
-        v: 2,
-        endpoint: 'ws://127.0.0.1:6768',
-        deviceToken: 'device-token',
-        publicKeyB64: Buffer.from(new Uint8Array(32).fill(9)).toString('base64')
-      })
+      const connection = new RemoteRuntimeRequestConnection(
+        pairedRuntimeConnectionFromOffer({
+          v: 2,
+          endpoint: 'ws://127.0.0.1:6768',
+          deviceToken: 'device-token',
+          publicKeyB64: Buffer.from(new Uint8Array(32).fill(9)).toString('base64')
+        })
+      )
 
       const first = connection.request('slow.method', undefined, 10)
       await authenticate(opens[0]!)

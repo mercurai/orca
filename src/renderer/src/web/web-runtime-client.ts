@@ -1,3 +1,4 @@
+import type { PairedRuntimeConnection } from '../../../shared/paired-runtime-connection'
 import type { PairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
 import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import { RuntimeHostStatusOwner } from '../../../shared/runtime-host-status-owner'
@@ -8,7 +9,6 @@ import type {
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { WebRuntimeConnectionTransport } from './web-runtime-connection-transport'
 import { subscribeWebRuntimeFileWatch } from './web-runtime-file-watch-subscription'
-import type { WebPairingOffer } from './web-pairing'
 import type { WebRuntimeConnectionState } from './web-runtime-connection-frame-router'
 import type {
   WebRuntimeSubscribeOptions,
@@ -34,7 +34,7 @@ export class WebRuntimeClient {
   readonly statusOwner?: RuntimeHostStatusOwner
 
   constructor(
-    private readonly pairing: WebPairingOffer,
+    private readonly connection: PairedRuntimeConnection,
     options: {
       reconnect?: boolean
       status?: {
@@ -46,7 +46,7 @@ export class WebRuntimeClient {
     } = {}
   ) {
     this.transport = new WebRuntimeConnectionTransport(
-      pairing,
+      connection,
       {
         now: () => this.now(),
         isDocumentVisible: () => this.isDocumentVisible()
@@ -117,7 +117,7 @@ export class WebRuntimeClient {
         teardownRetries: this.fileWatchTeardownRetries
       })
     }
-    const client = new WebRuntimeClient(this.pairing)
+    const client = new WebRuntimeClient(this.connection)
     this.childClients.add(client)
     const closeChild = (notifySubscriptions = false): void => {
       options?.signal?.removeEventListener('abort', onAbort)
@@ -181,7 +181,14 @@ export class WebRuntimeClient {
     const id = this.nextId()
     const subscription = { id, method, params, callbacks, needsReplay: false }
     this.subscriptions.set(id, subscription)
-    if (!this.sendEncrypted({ id, deviceToken: this.pairing.deviceToken, method, params })) {
+    if (
+      !this.sendEncrypted({
+        id,
+        deviceToken: this.connection.credential.deviceToken,
+        method,
+        params
+      })
+    ) {
       this.subscriptions.delete(id)
       throw new Error('Remote Orca runtime is not connected.')
     }
@@ -192,7 +199,7 @@ export class WebRuntimeClient {
         if (teardown) {
           this.sendEncrypted({
             id: this.nextId(),
-            deviceToken: this.pairing.deviceToken,
+            deviceToken: this.connection.credential.deviceToken,
             method: teardown.method,
             params: teardown.params
           })

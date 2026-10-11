@@ -10,7 +10,7 @@ import type { Worktree } from '../../../../shared/worktree/types'
 import { WebRuntimeClient } from '../web-runtime-client'
 import {
   clearStoredWebRuntimeEnvironment,
-  getPreferredWebPairingOffer,
+  getPreferredWebRuntimeConnection,
   readStoredWebRuntimeEnvironment,
   updateStoredEnvironmentRuntimeId
 } from '../web-runtime-environment'
@@ -64,7 +64,7 @@ export async function observeWebRuntimeStatus(
   if (existing) {
     return existing.refresh({ timeoutMs, observeOnly: true })
   }
-  const transient = new WebRuntimeClient(getPreferredWebPairingOffer(environment), {
+  const transient = new WebRuntimeClient(getPreferredWebRuntimeConnection(environment), {
     reconnect: false
   })
   try {
@@ -100,18 +100,21 @@ export function getClientForEnvironment(
     webRuntimeState.activeClientEnvironmentId !== environment.id
   ) {
     webRuntimeState.activeClient?.close()
-    webRuntimeState.activeClient = new WebRuntimeClient(getPreferredWebPairingOffer(environment), {
-      status: {
-        environmentId: environment.id,
-        pairingRevision: environment.pairingRevision ?? environment.createdAt,
-        publish: (snapshot) => {
-          for (const listener of statusListeners) {
-            listener(snapshot)
-          }
-        },
-        verified: (response) => updateEnvironmentFromResponse(environment, response)
+    webRuntimeState.activeClient = new WebRuntimeClient(
+      getPreferredWebRuntimeConnection(environment),
+      {
+        status: {
+          environmentId: environment.id,
+          pairingRevision: environment.pairingRevision ?? environment.createdAt,
+          publish: (snapshot) => {
+            for (const listener of statusListeners) {
+              listener(snapshot)
+            }
+          },
+          verified: (response) => updateEnvironmentFromResponse(environment, response)
+        }
       }
-    })
+    )
     webRuntimeState.activeClientEnvironmentId = environment.id
   }
   return webRuntimeState.activeClient

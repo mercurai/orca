@@ -21,7 +21,7 @@ import type { TerminalSideEffectBatch } from '../../shared/terminal-side-effect-
 import type { OrchestrationEnvironmentTransport } from '../runtime/orchestration/environment-transport'
 import { resolveEnvironment } from '../../shared/runtime-environment-store'
 import { resolveTuiAgentLaunchEnv } from '../../shared/tui-agent-launch-defaults'
-import { getPreferredPairingOffer } from '../../shared/runtime-environments'
+import { getPreferredPairedRuntimeConnection } from '../../shared/runtime-environments'
 import { fingerprintOrchestrationPeer } from '../runtime/orchestration/environment-transport'
 import { callRuntimeEnvironment } from '../ipc/runtime-environment-transport-routing'
 import { mainProcessState as state } from './main-process-state'
@@ -59,11 +59,11 @@ export function initializeMainProcessRuntime(): OrcaRuntimeService {
   const orchestrationEnvironmentTransport: OrchestrationEnvironmentTransport = {
     resolve: (selector) => {
       const environment = resolveEnvironment(app.getPath('userData'), selector)
-      const pairing = getPreferredPairingOffer(environment)
+      const connection = getPreferredPairedRuntimeConnection(environment)
       return {
         environmentId: environment.id,
         name: environment.name,
-        peerFingerprint: fingerprintOrchestrationPeer(pairing.publicKeyB64),
+        peerFingerprint: fingerprintOrchestrationPeer(connection.hostPublicKeyB64),
         pairingRevision: environment.pairingRevision ?? environment.createdAt
       }
     },

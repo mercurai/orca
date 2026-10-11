@@ -1,3 +1,7 @@
+import {
+  pairedRuntimeConnectionFromOffer,
+  type PairedRuntimeConnection
+} from '../../../shared/paired-runtime-connection'
 import type { PublicKnownRuntimeEnvironment } from '../../../shared/runtime-environments'
 import {
   RuntimeHostDescriptorSchema,
@@ -144,22 +148,21 @@ export function redactStoredWebRuntimeEnvironment(
   }
 }
 
-export function getPreferredWebPairingOffer(
+export function getPreferredWebRuntimeConnection(
   environment: StoredWebRuntimeEnvironment
-): WebPairingOffer {
+): PairedRuntimeConnection {
   const endpoint =
     environment.endpoints.find((entry) => entry.id === environment.preferredEndpointId) ??
     environment.endpoints[0]
   if (!endpoint) {
     throw new Error('No runtime endpoint is stored for this web client.')
   }
-  return {
-    v: 2,
+  return pairedRuntimeConnectionFromOffer({
     endpoint: endpoint.endpoint,
     deviceToken: endpoint.deviceToken,
     publicKeyB64: endpoint.publicKeyB64,
-    ...(environment.pairedDeviceId ? { pairedDeviceId: environment.pairedDeviceId } : {})
-  }
+    pairedDeviceId: environment.pairedDeviceId
+  })
 }
 
 export function updateStoredEnvironmentRuntimeId(

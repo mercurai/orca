@@ -17,9 +17,7 @@ import { directSshAuthoritiesEqual } from '../direct-ssh-reconnect-tokens'
 import { createDirectSshWorktreeRefreshScheduler } from '../direct-ssh-worktree-refresh-scheduler'
 import type { AppState } from '../../store/types'
 
-type DirectSshTerminalActions = Partial<
-  Pick<AppState, 'invalidateStaleDirectSshTargetPtyBindings' | 'retryDirectSshTargetPanes'>
->
+type DirectSshTerminalActions = Partial<Pick<AppState, 'invalidateStaleDirectSshTargetPtyBindings'>>
 type AuthorityDeadline = { timer: ReturnType<typeof setTimeout>; settle: () => void }
 
 export type DirectSshBridgeRuntime = {
@@ -113,9 +111,12 @@ export function createDirectSshBridgeRuntime(): DirectSshBridgeRuntime {
     readHostScopedLineage: hostHydration.readHostScopedLineage,
     invalidateStaleTerminalBindings: (authority) =>
       terminalActions().invalidateStaleDirectSshTargetPtyBindings?.(authority) ?? 0,
-    retryTargetPanes: (authority) => terminalActions().retryDirectSshTargetPanes?.(authority) ?? 0,
-    correctUnboundTerminalPanes: (authority) =>
-      terminalActions().retryDirectSshTargetPanes?.(authority) ?? 0,
+    // Why 0: a pane on an `ssh:` row never spawns, so there is no pane to retry.
+    retryTargetPanes: () => 0,
+    correctUnboundTerminalPanes: (authority) => {
+      terminalActions().invalidateStaleDirectSshTargetPtyBindings?.(authority)
+      return 0
+    },
     onTelemetry: createDirectSshReconnectProductTelemetryAdapter()
   })
   const prepareHost: DirectSshBridgeRuntime['prepareHost'] = async (authority, reason, options) => {

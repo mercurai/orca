@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type WebSocket from 'ws'
 import type { PairedE2EEChannel } from './paired-e2ee-client-handshake'
-import type { PairingOffer } from './pairing'
+import type { PairedRuntimeConnection } from './paired-runtime-connection'
 import { RemoteRuntimeClientError } from './remote-runtime-client-error'
 import { serializeRemoteRuntimeRpcRequest } from './remote-runtime-memory-limits'
 import type { RuntimeRpcResponse } from './runtime-rpc-envelope'
@@ -25,7 +25,7 @@ export class RemoteRuntimeSubscriptionRequestChannel {
 
   constructor(
     private readonly options: {
-      pairing: PairingOffer
+      connection: PairedRuntimeConnection
       channel: PairedE2EEChannel
       // The socket to write on, or null while the subscription is not ready to carry requests.
       resolveWritableSocket: () => WebSocket | null
@@ -70,7 +70,7 @@ export class RemoteRuntimeSubscriptionRequestChannel {
     try {
       serialized = serializeRemoteRuntimeRpcRequest({
         requestId,
-        deviceToken: this.options.pairing.deviceToken,
+        deviceToken: this.options.connection.credential.deviceToken,
         method,
         params
       })

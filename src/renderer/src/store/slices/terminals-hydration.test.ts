@@ -93,7 +93,6 @@ globalThis.window = { api: mockApi }
 
 import type { WorkspaceSessionState } from '../../../../shared/workspace-session-state-types'
 import type { SshProviderEpoch } from '../../../../shared/ssh-types'
-import type { DirectSshPaneRetryAttemptId } from './direct-ssh-terminal-recovery-types'
 import {
   FLOATING_TERMINAL_WORKTREE_ID,
   getDefaultWorkspaceSession
@@ -743,19 +742,6 @@ describe('hydrateWorkspaceSession', () => {
       providerEpoch: 'epoch-a' as SshProviderEpoch,
       connectionGeneration: 7
     }
-    const ledgerTabs = [targetTab, deletedTargetTab, siblingTab]
-    const retry = {
-      attemptId: 'attempt' as DirectSshPaneRetryAttemptId,
-      authority,
-      tabGeneration: 0,
-      startedAt: 0
-    }
-    const retryByTabId = Object.fromEntries(ledgerTabs.map((tab) => [tab.id, retry]))
-    const liveBinding = { ...retry, ptyId: 'ssh:target-a@@pty-ledger' }
-    const liveByTabId = Object.fromEntries(ledgerTabs.map((tab) => [tab.id, liveBinding]))
-    const historyByTabId = Object.fromEntries(
-      ledgerTabs.map((tab) => [tab.id, { authority, attemptedAt: [0] }])
-    )
     seedStore(store, {
       workspaceSessionReady: true,
       repos: [
@@ -782,9 +768,6 @@ describe('hydrateWorkspaceSession', () => {
       activeWorktreeId: siblingWorktreeId,
       activeTabId: siblingTab.id,
       restoredRuntimeHostIdByWorkspaceSessionKey: runtimeOwners,
-      directSshPaneRetryByTabId: retryByTabId,
-      directSshLivePtyBindingByTabId: liveByTabId,
-      directSshPaneRetryHistoryByTabId: historyByTabId,
       sshConnectionStates: new Map([
         [
           authority.targetId,
@@ -836,19 +819,6 @@ describe('hydrateWorkspaceSession', () => {
     expect(store.getState().pendingReconnectPtyIdByTabId).toEqual({
       [targetTab.id]: 'ssh:target-a@@pty-a'
     })
-    const retainedLedgerTabIds = ledgerTabs
-      .filter((tab) => tab.id !== deletedTargetTab.id)
-      .map((tab) => tab.id)
-      .sort()
-    expect(Object.keys(store.getState().directSshPaneRetryByTabId).sort()).toEqual(
-      retainedLedgerTabIds
-    )
-    expect(Object.keys(store.getState().directSshLivePtyBindingByTabId).sort()).toEqual(
-      retainedLedgerTabIds
-    )
-    expect(Object.keys(store.getState().directSshPaneRetryHistoryByTabId).sort()).toEqual(
-      retainedLedgerTabIds
-    )
 
     await store.getState().reconnectPersistedTerminals(undefined, {
       directSshAuthority: authority,

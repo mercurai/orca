@@ -1,3 +1,4 @@
+import { pairedRuntimeConnectionFromOffer } from './paired-runtime-connection'
 import type { PairedE2EEClientHandshake } from './paired-e2ee-client-handshake'
 import { createFixedKeyLegacyHandshakeForTest } from './paired-e2ee-fixed-key-test-fixture'
 import path from 'node:path'
@@ -85,12 +86,14 @@ describe('RemoteRuntimeSharedControlConnection', () => {
   })
 
   it('releases a pending request when the socket send throws', async () => {
-    const connection = new RemoteRuntimeSharedControlConnection({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:1',
-      deviceToken: 'token',
-      publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
-    })
+    const connection = new RemoteRuntimeSharedControlConnection(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:1',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
+      })
+    )
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const unsafe = connection as unknown as {
       state: string
@@ -120,12 +123,14 @@ describe('RemoteRuntimeSharedControlConnection', () => {
   })
 
   it('replaces a stuck pre-ready socket when a one-shot probe proves reachability', () => {
-    const connection = new RemoteRuntimeSharedControlConnection({
-      v: 2,
-      endpoint: 'ws://127.0.0.1:1',
-      deviceToken: 'token',
-      publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
-    })
+    const connection = new RemoteRuntimeSharedControlConnection(
+      pairedRuntimeConnectionFromOffer({
+        v: 2,
+        endpoint: 'ws://127.0.0.1:1',
+        deviceToken: 'token',
+        publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
+      })
+    )
     const close = vi.fn()
     const cleanup = vi.fn()
     const open = vi.fn()
@@ -635,7 +640,7 @@ describe('RemoteRuntimeSharedControlConnection', () => {
     const retainedBytes = retainedRemoteRuntimeJsonStringBytes(
       serializeRemoteRuntimeRpcRequest({
         requestId: '00000000-0000-4000-8000-000000000000',
-        deviceToken: server.pairing.deviceToken,
+        deviceToken: server.pairing.credential.deviceToken,
         method: 'worktree.large',
         params
       })

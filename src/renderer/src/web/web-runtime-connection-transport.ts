@@ -1,3 +1,4 @@
+import type { PairedRuntimeConnection } from '../../../shared/paired-runtime-connection'
 import type { RuntimeRpcResponse } from '../../../shared/runtime-rpc-envelope'
 import { withReconnectJitter } from '../../../shared/reconnect-jitter'
 import { WebRuntimeConnectionHeartbeat } from './web-runtime-connection-heartbeat'
@@ -12,7 +13,6 @@ import {
   type PairedE2EEClientHandshake
 } from '../../../shared/paired-e2ee-client-handshake'
 import { WEB_PAIRED_E2EE_PRIMITIVES } from './web-paired-e2ee-primitives'
-import type { WebPairingOffer } from './web-pairing'
 import type { WebRuntimeTransportSubscription } from './web-runtime-subscription-contract'
 import { WebRuntimeSubscriptionRegistry } from './web-runtime-subscription-registry'
 import { WebRuntimeRequestRegistry } from './web-runtime-request-registry'
@@ -39,28 +39,28 @@ export class WebRuntimeConnectionTransport {
   private readonly connectionWaiters: WebRuntimeConnectionWaiters
 
   constructor(
-    private readonly pairing: WebPairingOffer,
+    private readonly connection: PairedRuntimeConnection,
     clock: { now: () => number; isDocumentVisible: () => boolean },
     private readonly lifecycle: {
       onStateChanged?: (state: WebRuntimeConnectionState) => void
       reconnect?: boolean
     } = {}
   ) {
-    // Why: an invalid pairing key fails construction, not the first connect.
-    WEB_PAIRED_E2EE_PRIMITIVES.publicKeyFromBase64(pairing.publicKeyB64)
+    // Why: an invalid host key fails construction, not the first connect.
+    WEB_PAIRED_E2EE_PRIMITIVES.publicKeyFromBase64(connection.hostPublicKeyB64)
     this.connectionWaiters = new WebRuntimeConnectionWaiters({
-      endpoint: pairing.endpoint,
+      endpoint: connection.endpoint,
       getState: () => this.state,
       isIntentionallyClosed: () => this.intentionallyClosed
     })
     this.subscriptionRegistry = new WebRuntimeSubscriptionRegistry({
-      deviceToken: pairing.deviceToken,
+      deviceToken: connection.credential.deviceToken,
       nextId: () => this.nextId(),
       sendEncrypted: (message) => this.sendEncrypted(message)
     })
     this.subscriptions = this.subscriptionRegistry.subscriptions
     this.requestRegistry = new WebRuntimeRequestRegistry({
-      deviceToken: pairing.deviceToken,
+      deviceToken: connection.credential.deviceToken,
       nextId: () => this.nextId(),
       waitForConnected: (timeoutMs, signal) => this.connectionWaiters.wait(timeoutMs, signal),
       sendEncrypted: (message) => this.sendEncrypted(message)
@@ -73,7 +73,7 @@ export class WebRuntimeConnectionTransport {
       sendProbe: () =>
         this.sendEncrypted({
           id: `web-heartbeat-${this.nextId()}`,
-          deviceToken: this.pairing.deviceToken,
+          deviceToken: this.connection.credential.deviceToken,
           method: 'status.get'
         }),
       handleDeadSocket: (socket) => this.handleSocketClosed(socket)
@@ -163,7 +163,7 @@ export class WebRuntimeConnectionTransport {
     }
     let socket: WebSocket
     try {
-      socket = new WebSocket(this.pairing.endpoint)
+      socket = new WebSocket(this.connection.endpoint)
     } catch (error) {
       this.requestRegistry.rejectAll(error instanceof Error ? error.message : String(error))
       this.scheduleReconnect()
@@ -187,7 +187,7 @@ export class WebRuntimeConnectionTransport {
       this.setState('handshaking')
       const handshake = createPairedE2EEClientHandshake({
         primitives: WEB_PAIRED_E2EE_PRIMITIVES,
-        hostPublicKeyB64: this.pairing.publicKeyB64,
+        hostPublicKeyB64: this.connection.hostPublicKeyB64,
         framing: 'legacy'
       })
       this.handshake = handshake
@@ -226,7 +226,7 @@ export class WebRuntimeConnectionTransport {
     const socket = this.ws
     let frame: string
     try {
-      frame = await sealWebRuntimeAuth(handshake, this.pairing.deviceToken)
+      frame = await sealWebRuntimeAuth(handshake, this.connection.credential.deviceToken)
     } catch {
       socket?.close()
       return

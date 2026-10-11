@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { abortSignalReason } from './abort-signal-reason'
-import type { PairingOffer } from './pairing'
+import type { PairedRuntimeConnection } from './paired-runtime-connection'
 import { scheduleOrphanedRemoteRuntimeSocketClose } from './remote-runtime-abort-orphaned-socket'
 import { serializeRemoteRuntimeRpcRequest } from './remote-runtime-memory-limits'
 import type { PairedE2EEClientHandshake } from './paired-e2ee-client-handshake'
@@ -45,7 +45,7 @@ export class RemoteRuntimeRequestConnection {
   private idleCloseTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
-    private readonly pairing: PairingOffer,
+    private readonly connection: PairedRuntimeConnection,
     private readonly additionalClientCapabilities: readonly RuntimeCapability[] = []
   ) {}
 
@@ -64,7 +64,7 @@ export class RemoteRuntimeRequestConnection {
       preparedRequest = prepareRemoteRuntimeRequest(this.pendingRequests, () =>
         serializeRemoteRuntimeRpcRequest({
           requestId,
-          deviceToken: this.pairing.deviceToken,
+          deviceToken: this.connection.credential.deviceToken,
           method,
           params
         })
@@ -166,7 +166,7 @@ export class RemoteRuntimeRequestConnection {
   }
 
   private open(): void {
-    const opened = openRemoteRuntimeWebSocket(this.pairing, {
+    const opened = openRemoteRuntimeWebSocket(this.connection, {
       onClose: (ws) => {
         if (this.ws === ws) {
           this.close()
@@ -232,7 +232,7 @@ export class RemoteRuntimeRequestConnection {
     this.state = 'awaiting_authenticated'
     void sendRemoteRuntimeTokenAuth({
       handshake,
-      deviceToken: this.pairing.deviceToken,
+      deviceToken: this.connection.credential.deviceToken,
       clientCapabilities: remoteRuntimeClientCapabilities(this.additionalClientCapabilities),
       stillAwaiting: () => this.handshake === handshake && this.state === 'awaiting_authenticated',
       send: (authFrame) => this.ws?.send(authFrame),

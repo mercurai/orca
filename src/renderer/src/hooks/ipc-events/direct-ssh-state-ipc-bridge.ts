@@ -188,8 +188,7 @@ export function registerDirectSshStateIpcBridge(
         coordinatorRoutingEnabled: isDirectSshReconnectCoordinatorRoutingEnabled(),
         invalidateStaleTerminalBindings: (nextAuthority) =>
           terminalActions().invalidateStaleDirectSshTargetPtyBindings?.(nextAuthority) ?? 0,
-        retryTargetPanes: (nextAuthority) =>
-          terminalActions().retryDirectSshTargetPanes?.(nextAuthority) ?? 0,
+        retryTargetPanes: () => 0,
         prepareHost,
         rememberReconnectAuthority: (nextAuthority) => {
           if (nextAuthority) {

@@ -213,21 +213,6 @@ export function targetScopedWorkspaceHydrationPatch(
     ),
     pendingReconnectPtyIdByTabId,
     everActivatedWorktreeIds,
-    directSshPaneRetryByTabId: replaceHydratedRecordKeys(
-      state.directSshPaneRetryByTabId,
-      {},
-      deletedTargetTabIds
-    ),
-    directSshLivePtyBindingByTabId: replaceHydratedRecordKeys(
-      state.directSshLivePtyBindingByTabId,
-      {},
-      deletedTargetTabIds
-    ),
-    directSshPaneRetryHistoryByTabId: replaceHydratedRecordKeys(
-      state.directSshPaneRetryHistoryByTabId,
-      {},
-      deletedTargetTabIds
-    ),
     ...(nextUnverifiedPtyLossTabIds !== state.unverifiedPtyLossTabIds
       ? { unverifiedPtyLossTabIds: nextUnverifiedPtyLossTabIds }
       : {}),

@@ -1,3 +1,4 @@
+import { pairedRuntimeConnectionFromOffer } from '../../../shared/paired-runtime-connection'
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
 import type { PairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
 import { createFixedKeyLegacyHandshakeForTest } from '../../../shared/paired-e2ee-fixed-key-test-fixture'
@@ -70,12 +71,14 @@ function makeConnectedClient(): {
   setVisible: (visible: boolean) => void
 } {
   let nowMs = 1_000
-  const client = new WebRuntimeClient({
-    v: 2,
-    endpoint: 'ws://127.0.0.1:6768',
-    deviceToken: 'token',
-    publicKeyB64: Buffer.alloc(32).toString('base64')
-  })
+  const client = new WebRuntimeClient(
+    pairedRuntimeConnectionFromOffer({
+      v: 2,
+      endpoint: 'ws://127.0.0.1:6768',
+      deviceToken: 'token',
+      publicKeyB64: Buffer.alloc(32).toString('base64')
+    })
+  )
   clients.push(client)
   const internals = client as unknown as HeartbeatInternals
   // Override the protected time/visibility seams deterministically.
