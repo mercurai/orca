@@ -22,6 +22,7 @@ relay_max_instances                   = 2
 # Staging proves these before production turns them on.
 relay_director_cloud_sql_proxy_sidecar = true
 relay_event_loop_stall_alert           = true
+relay_dead_cell_verdict_alert          = true
 # What the serving staging director runs (revision 00171, 2026-10-11). Pinned so the sidecar apply,
 # whose revision the next deploy adopts as its shape, does not also drop it to the 80 / 30 s defaults.
 relay_director_concurrency             = 1000

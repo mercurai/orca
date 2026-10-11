@@ -13,7 +13,6 @@ import type {
   MobileSessionWorktreeInputs,
   OpenFileIndexes,
   OpenFilesProjectionCache,
-  RegisteredTerminalTab,
   TabsProjectionCache
 } from './types'
 
@@ -35,11 +34,7 @@ export const EMPTY_WORKTREE_OPEN_FILE_IDS: readonly string[] = []
 
 export const mobilePublicationEpoch = `renderer:${createBrowserUuid()}`
 
-export type RegisteredTerminalTabKey = string
-
 export const graphState = {
-  registeredTabs: new Map<RegisteredTerminalTabKey, RegisteredTerminalTab>(),
-  tabRegisteredAt: new Map<RegisteredTerminalTabKey, number>(),
   syncScheduled: false,
   syncInFlight: false,
   syncPendingAfterFlight: false,
@@ -68,37 +63,6 @@ export const graphState = {
   cachedMobileTerminalThemeSystemPrefersDark: null as boolean | null,
   cachedMobileTerminalTheme: undefined as RuntimeMobileTerminalTheme | undefined,
   hasCachedMobileTerminalTheme: false
-}
-
-export function registeredTerminalTabKey(
-  worktreeId: string,
-  tabId: string
-): RegisteredTerminalTabKey {
-  return `${worktreeId}\0${tabId}`
-}
-
-export function findRegisteredTerminalTab(
-  tabId: string,
-  worktreeId?: string
-): { key: RegisteredTerminalTabKey; tab: RegisteredTerminalTab } | null {
-  if (worktreeId !== undefined) {
-    const key = registeredTerminalTabKey(worktreeId, tabId)
-    const tab = graphState.registeredTabs.get(key)
-    return tab ? { key, tab } : null
-  }
-
-  let match: { key: RegisteredTerminalTabKey; tab: RegisteredTerminalTab } | null = null
-  for (const [key, tab] of graphState.registeredTabs) {
-    if (tab.tabId !== tabId) {
-      continue
-    }
-    // A tab id without its worktree is ambiguous; callers must fail closed.
-    if (match) {
-      return null
-    }
-    match = { key, tab }
-  }
-  return match
 }
 
 /** IDs occurring more than once cannot address the legacy tab-keyed runtime maps safely. */

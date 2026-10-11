@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
-import { acceptSshPtyOutputData, acceptSshPtyOutputExit } from './ssh-pty-output-intake-registry'
 import { registerPtyHandlers, getPtyRendererDeliveryDebugSnapshot } from './pty'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
@@ -48,65 +47,9 @@ vi.mock('../codex/codex-state-db-backfill-recovery', () =>
 )
 
 describe('registerPtyHandlers', () => {
-  const {
-    mainWindow,
-    installObservableDaemonTestProvider,
-    getPtyAckDataListener,
-    getPtyDataSendCalls
-  } = setupPtyIpcSuite()
+  const { mainWindow, installObservableDaemonTestProvider, getPtyDataSendCalls } =
+    setupPtyIpcSuite()
 
-  it('rejects local data while an SSH renderer exit waits for projection settlement', async () => {
-    const provider = installObservableDaemonTestProvider()
-    let sequence = 0
-    const runtime = {
-      setPtyController: vi.fn(),
-      setRemoteTerminalSourceRangeConsumerHooks: vi.fn(),
-      getPtyOutputSequence: vi.fn(() => sequence),
-      acceptPtyDataBounded: vi.fn((_id: string, _data: string, _at: number, rawLength: number) => {
-        sequence += rawLength
-        return { sequence, completion: Promise.resolve() }
-      }),
-      onPtyData: vi.fn(),
-      onPtyExit: vi.fn()
-    }
-    const id = 'ssh:exit-data-race@@relay-pty'
-
-    registerPtyHandlers(mainWindow as never, runtime as never)
-    mainWindow.webContents.send.mockClear()
-    await acceptSshPtyOutputData({
-      id,
-      data: 'before-exit',
-      providerGeneration: 51,
-      ptyIncarnation: 'incarnation-51',
-      rawLength: 'before-exit'.length,
-      transformed: false
-    })
-    const exit = acceptSshPtyOutputExit({
-      id,
-      code: 0,
-      providerGeneration: 51,
-      ptyIncarnation: 'incarnation-51'
-    })
-    await Promise.resolve()
-
-    provider.emitData(id, 'must-not-follow-exit')
-    expect(mainWindow.webContents.send).not.toHaveBeenCalledWith('pty:data', {
-      id,
-      data: 'must-not-follow-exit'
-    })
-
-    getPtyAckDataListener()(null, { id, processedChars: 'before-exit'.length })
-    await exit
-    expect(mainWindow.webContents.send.mock.calls.at(-1)).toEqual([
-      'pty:exit',
-      {
-        id,
-        code: 0,
-        providerGeneration: 51,
-        ptyIncarnation: 'incarnation-51'
-      }
-    ])
-  })
   it('resumes a paused producer when the PTY exits before draining', async () => {
     vi.useFakeTimers()
     try {

@@ -60,8 +60,6 @@ export type SshIpcMockState = {
   powerMonitorOnMock: Mock
   mockSshStore: SshStoreMock
   mockConnectionManager: SshConnectionManagerMock
-  mockAcceptSshPtyOutputData: Mock
-  mockAcceptSshPtyOutputExit: Mock
   mockMux: SshChannelMultiplexerMock
   mockFsProvider: Record<string, unknown>
   mockGitProvider: Record<string, unknown>
@@ -80,7 +78,6 @@ export type SshIpcMockModule = Record<string, unknown>
 export type SshIpcMockModules = {
   sshConfigHostPicker: SshIpcMockModule
   electron: SshIpcMockModule
-  sshPtyOutputIntakeRegistry: SshIpcMockModule
   hostServerConnect: SshIpcMockModule
   sshConnectionStore: SshIpcMockModule
   sshConnectionManager: SshIpcMockModule

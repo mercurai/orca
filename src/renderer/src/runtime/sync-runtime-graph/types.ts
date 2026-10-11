@@ -1,4 +1,3 @@
-import type { PaneManager } from '@/lib/pane-manager/pane-manager'
 import type { AppState } from '@/store/types'
 import type { RuntimeMobileTerminalTheme } from '../../../../shared/runtime-types'
 import type { TabGroupLayoutNode } from '../../../../shared/tab-types'
@@ -30,15 +29,6 @@ export type RuntimeMobileSessionSyncKey = {
   openFilesProjection: string
   browserProjection: string
   editorDraftsProjection: string
-}
-
-export type RegisteredTerminalTab = {
-  tabId: string
-  worktreeId: string
-  getManager: () => PaneManager | null
-  getContainer: () => HTMLDivElement | null
-  getPtyIdForPane: (paneId: number) => string | null
-  getTabWideAgentHintLeafId: () => string | null
 }
 
 export type OpenFileByWorktreeAndId = Map<string, Map<string, AppState['openFiles'][number]>>

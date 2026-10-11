@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest'
+import { buildMobileSessionTabSnapshots } from './sync-runtime-graph'
 import {
-  buildMobileSessionTabSnapshots,
   focusRuntimeTerminalSurface,
   hasRegisteredRuntimeTerminalTab,
   registerRuntimeTerminalTab
-} from './sync-runtime-graph'
+} from './mounted-terminal-tab-registry'
 import { makeState } from './sync-runtime-graph-test-harness'
 import type { AppState } from '../store/types'
 

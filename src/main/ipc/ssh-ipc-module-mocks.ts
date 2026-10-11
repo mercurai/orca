@@ -35,8 +35,6 @@ export function createSshIpcMocks(): SshIpcMocks {
       setCallbacks: vi.fn(),
       callbacksRef: { current: null as unknown }
     },
-    mockAcceptSshPtyOutputData: vi.fn().mockResolvedValue({}),
-    mockAcceptSshPtyOutputExit: vi.fn().mockResolvedValue(undefined),
     mockMux: {
       dispose: vi.fn(),
       isDisposed: vi.fn().mockReturnValue(false),
@@ -80,8 +78,6 @@ export function createSshIpcMocks(): SshIpcMocks {
     powerMonitorOnMock,
     mockSshStore,
     mockConnectionManager,
-    mockAcceptSshPtyOutputData,
-    mockAcceptSshPtyOutputExit,
     mockMux,
     mockFsProvider,
     mockGitProvider,
@@ -110,24 +106,6 @@ export function createSshIpcMocks(): SshIpcMocks {
         on: powerMonitorOnMock,
         off: powerMonitorOffMock
       }
-    },
-    sshPtyOutputIntakeRegistry: {
-      acceptSshPtyOutputData: mockAcceptSshPtyOutputData,
-      acceptSshPtyOutputExit: mockAcceptSshPtyOutputExit,
-      allocateSshPtyProviderGeneration: (() => {
-        let generation = 0
-        return () => ++generation
-      })(),
-      beginSshPtyOutputGenerationMigration: vi.fn(() => ({
-        byPty: new Map(),
-        completion: Promise.resolve()
-      })),
-      applySshPtySourceCancellationProof: vi.fn().mockReturnValue(false),
-      applySshPtySourceRecoveryCancellationProof: vi.fn().mockReturnValue(false),
-      closeSshPtyOutputGeneration: vi.fn(),
-      getSshPtyAcceptedSourceCheckpoints: vi.fn().mockReturnValue([]),
-      installSshPtySourceAckPublisher: vi.fn().mockReturnValue(() => {}),
-      installSshPtySourceCancellationPublisher: vi.fn().mockReturnValue(() => {})
     },
     // A managed host by default; the real decision is covered by its own tests.
     hostServerConnect: {
