@@ -31,10 +31,10 @@ afterEach(async () => {
 })
 
 /** A resources dir whose template carries only `kept`, as `build-orcad-template --targets` leaves it. */
-async function resourcesWith(kept) {
+async function resourcesWith(kept, { compat = false } = {}) {
   const resourcesDir = await mkdtemp(join(tmpdir(), 'orca-partial-orcad-template-'))
   roots.push(resourcesDir)
-  const templateDir = await writeOrcadTemplateTestFixture(resourcesDir)
+  const templateDir = await writeOrcadTemplateTestFixture(resourcesDir, { compat })
   if (kept) {
     const manifestPath = join(templateDir, ORCAD_TEMPLATE_MANIFEST_FILENAME)
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
@@ -83,6 +83,13 @@ describe('the packaged target list', () => {
 describe('packaging a partial orcad template', () => {
   it('accepts a template that carries exactly the listed targets', async () => {
     const { resourcesDir } = await resourcesWith([SHIPPED])
+
+    await expect(finalize(resourcesDir, SHIPPED)).resolves.toBeUndefined()
+  })
+
+  // `--targets linux-x64-glibc` also stages the glibc 2.17 slot when one was built.
+  it('accepts the optional compat slot beside its listed base target', async () => {
+    const { resourcesDir } = await resourcesWith([SHIPPED, 'linux-x64-glibc217'], { compat: true })
 
     await expect(finalize(resourcesDir, SHIPPED)).resolves.toBeUndefined()
   })
