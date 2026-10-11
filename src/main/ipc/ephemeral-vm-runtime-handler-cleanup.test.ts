@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { upsertEphemeralVmRuntime } from '../../shared/ephemeral-vm-runtime-store'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 
 const handlers = new Map<string, (_event: unknown, args: { runtimeId: string }) => unknown>()
 const { getPathMock, handleMock, removeRuntimeOwnedSshTargetMock, removeHandlerMock } = vi.hoisted(
