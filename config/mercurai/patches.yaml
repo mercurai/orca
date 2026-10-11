@@ -149,3 +149,15 @@ patches:
       - src/main/wsl-running-distros.test.ts
       - src/main/wsl.test.ts
     notes: async repo detection, runner script and provider contract; wsl, whoami and icacls probes through runProcess; startup grant resolves its identity asynchronously (ported by hand from upstream PR 20498, issue 20497)
+  - slug: orca-partial-orcad-template
+    branch: patch/orca-partial-orcad-template
+    # planned until the base moves to v1.4.224: the template it narrows does not exist on v1.4.223.
+    status: planned
+    issue: mercurai/claude-code-config#1128
+    owner: harness
+    added: 2026-10-11
+    tests:
+      - config/scripts/packaged-orcad-template-targets.test.mjs
+      - config/scripts/packaged-orcad-template.test.mjs
+      - config/scripts/verify-packaged-orcad-template.test.mjs
+    notes: packaging accepts a partial orcad template named by ORCA_ORCAD_TEMPLATE_TARGETS (the fork ships linux-x64-glibc only)

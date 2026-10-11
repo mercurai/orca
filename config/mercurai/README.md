@@ -61,6 +61,17 @@ series.
 - `fork-release-win-build`: builds the Windows installer for a `v<upstream>-mercurai.N` tag and
   publishes it to the release channel (below). Dispatchable by hand with `-f tag=...` to rebuild
   or retry a tag.
+- `fork-orcad-template`: builds the orcad deployment template for a ref. From upstream v1.4.224
+  every SSH host runs a managed Orca server (orcad), which the desktop deploys from a template
+  packaged inside the app; a build without it installs and then fails every SSH host. The fork
+  builds `linux-x64-glibc` only (it covers `serverone`); upstream builds eight targets on six
+  runners. `fork-release-win-build` calls it for the tag, downloads the template, packages with
+  `ORCA_REQUIRE_ORCAD_TEMPLATE=1` and `ORCA_ORCAD_TEMPLATE_TARGETS=<the same list>` (the second
+  comes from `patch/orca-partial-orcad-template`), and then checks the template inside the
+  unpacked app with `config/mercurai/scripts/check-orcad-template.mjs`. A tag older than the
+  template (the v1.4.223 line) skips all of it. To add a target: add its build lane to
+  `fork-orcad-template` first, then widen the list; a host on a target outside the list gets no
+  managed server and falls back to the legacy relay.
 
 Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
 fetches, rebases or assembles and reports, but pushes nothing and opens no issue. That is how a

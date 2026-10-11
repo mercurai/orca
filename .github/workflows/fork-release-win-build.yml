@@ -34,8 +34,17 @@ env:
   TAG: ${{ inputs.tag }}
 
 jobs:
+  # From v1.4.224 every SSH host runs orcad, deployed from a template inside the app; a tag older
+  # than the template skips the build (ships=false) and packages as before (claude-code-config#1125).
+  orcad-template:
+    if: github.repository == 'mercurai/orca'
+    uses: ./.github/workflows/fork-orcad-template.yml
+    with:
+      ref: refs/tags/${{ inputs.tag }}
+
   build-win:
     if: github.repository == 'mercurai/orca'
+    needs: orcad-template
     # windows-2022, not windows-latest: the 2025 image's VS 2026 breaks node-gyp, as in the dev channels.
     runs-on: windows-2022
     timeout-minutes: 90
@@ -109,13 +118,52 @@ jobs:
         env:
           ORCA_REQUIRE_RELAY_NATIVE_ADDONS: 'x64,arm64'
 
+      - name: Download the orcad deployment template
+        if: needs.orcad-template.outputs.ships == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: orcad-template
+          path: out/orcad-template
+
       # --publish never: this step only packages; the token-holding steps below publish.
       - name: Build the Windows installer
         shell: bash
+        env:
+          SHIPS_ORCAD_TEMPLATE: ${{ needs.orcad-template.outputs.ships }}
+          ORCAD_TEMPLATE_TARGETS: ${{ needs.orcad-template.outputs.targets }}
         run: |
           set -euo pipefail
           node config/scripts/ensure-native-runtime.mjs --runtime=electron
+          # Exported here and only here: an empty list fails packaging by design, and upstream's own
+          # packaging tests read these from the ambient environment. Both together: without the
+          # REQUIRE flag a missing template would pass as "skipped".
+          if [ "$SHIPS_ORCAD_TEMPLATE" = "true" ]; then
+            export ORCA_REQUIRE_ORCAD_TEMPLATE=1
+            export ORCA_ORCAD_TEMPLATE_TARGETS="$ORCAD_TEMPLATE_TARGETS"
+          fi
           pnpm exec electron-builder --config config/electron-builder.config.cjs --win --publish never
+
+      # The fork's check script lives on the workflow's branch, not in the release tag's tree.
+      - name: Fetch the fork's template check
+        if: needs.orcad-template.outputs.ships == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .fork
+          sparse-checkout: config/mercurai/scripts
+          persist-credentials: false
+
+      # What ships is what gets checked: the template inside the unpacked app, not the build input.
+      - name: Check the packaged orcad template
+        if: needs.orcad-template.outputs.ships == 'true'
+        shell: bash
+        env:
+          ORCAD_TEMPLATE_TARGETS: ${{ needs.orcad-template.outputs.targets }}
+        run: |
+          set -euo pipefail
+          node .fork/config/mercurai/scripts/check-orcad-template.mjs \
+            --repo "$GITHUB_WORKSPACE" --resources dist/win-unpacked/resources \
+            --targets "$ORCAD_TEMPLATE_TARGETS" --require git-spawn-worker-entry.js
 
       - name: Check the build outputs
         shell: bash
