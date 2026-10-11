@@ -238,6 +238,11 @@ async function writeEphemeralVmRuntimeStore(
       })
     )
     const preparedFeatures = mergeRuntimeFeatures(features.features, requiredFeatures)
+    // Why first: the publishes are async, so a reader can land between them; a superset sidecar
+    // with the old runtimes is harmless, but new runtimes without their metadata read as ordinary.
+    if (features.writable && !runtimeFeatureListsEqual(features.features, preparedFeatures)) {
+      await writeEphemeralVmRuntimeFeatureStore(userDataPath, features, preparedFeatures)
+    }
     await writeSecureJsonFileWithinLimitAsync(
       path,
       RollbackEphemeralVmRuntimeStoreSchema.parse({
@@ -252,9 +257,6 @@ async function writeEphemeralVmRuntimeStore(
         'runtime_error',
         'Could not preserve ephemeral VM runtime compatibility metadata.'
       )
-    }
-    if (features.writable && !runtimeFeatureListsEqual(features.features, preparedFeatures)) {
-      await writeEphemeralVmRuntimeFeatureStore(userDataPath, features, preparedFeatures)
     }
     if (features.writable && !runtimeFeatureListsEqual(preparedFeatures, requiredFeatures)) {
       try {
