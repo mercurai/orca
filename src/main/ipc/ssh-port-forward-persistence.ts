@@ -70,7 +70,7 @@ export async function restorePortForwards(
       return
     }
     try {
-      await portForwardManager!.addForward(
+      const entry = await portForwardManager!.addForward(
         targetId,
         conn,
         saved.localPort,
@@ -78,6 +78,11 @@ export async function restorePortForwards(
         saved.remotePort,
         saved.label
       )
+      // Why: a disconnect during the add already swept this target's forwards; this one came after.
+      if (connectionManager!.getConnection(targetId) !== conn) {
+        await portForwardManager!.removeForwardAndWait(entry.id)
+        return
+      }
     } catch (err) {
       console.warn(
         `[ssh] Failed to restore forward :${saved.localPort} → ${saved.remoteHost}:${saved.remotePort}: ${err instanceof Error ? err.message : String(err)}`

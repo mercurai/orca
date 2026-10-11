@@ -12,7 +12,12 @@ export function restoreManagedHostPortForwards(targetId: string): Promise<void> 
   // Why chained: overlapping connects would otherwise both bind the same saved local port.
   const previous = restoring.get(targetId) ?? Promise.resolve()
   const next = previous
-    .then(() => restorePortForwards(targetId, getCurrentMainWindow))
+    // Why re-checked: a disconnect or relay fallback queued behind the previous restore ends managed.
+    .then(() =>
+      getSshHostServerStatus(targetId)?.kind === 'managed'
+        ? restorePortForwards(targetId, getCurrentMainWindow)
+        : undefined
+    )
     .catch((error: unknown) => {
       console.warn(`[ssh] Could not restore port forwards for ${targetId}:`, error)
     })

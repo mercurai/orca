@@ -15,7 +15,7 @@ const h = vi.hoisted(() => {
         saved.portForwards = update.portForwards
       })
     },
-    connectionManager: { getConnection: vi.fn(() => conn) },
+    connectionManager: { getConnection: vi.fn<() => { id: string } | undefined>(() => conn) },
     portForwardManager: {
       closeStaleForwards: vi.fn(async () => {}),
       listForwards: vi.fn(() => [...active]),
@@ -39,7 +39,11 @@ const h = vi.hoisted(() => {
           active.push(entry)
           return entry
         }
-      )
+      ),
+      removeForwardAndWait: vi.fn(async (id: string) => {
+        const index = active.findIndex((entry) => entry.id === id)
+        return index !== -1 ? active.splice(index, 1)[0] : null
+      })
     },
     hostServerStatus: vi.fn<() => { kind: 'managed'; environmentId: string } | undefined>(() => ({
       kind: 'managed',
@@ -96,5 +100,42 @@ describe('saved port forward restore', () => {
     h.hostServerStatus.mockReturnValueOnce(undefined)
     await restoreManagedHostPortForwards('t1')
     expect(h.portForwardManager.addForward).not.toHaveBeenCalled()
+  })
+
+  it('closes a forward whose add finished after the host disconnected', async () => {
+    h.portForwardManager.addForward.mockImplementationOnce(
+      async (connectionId, _conn, localPort) => {
+        const entry = {
+          id: 'pf-late',
+          connectionId,
+          localPort,
+          remoteHost: '127.0.0.1',
+          remotePort: 7860,
+          label: undefined
+        }
+        h.active.push(entry)
+        h.connectionManager.getConnection.mockReturnValue(undefined)
+        return entry
+      }
+    )
+    await restorePortForwards('t1', () => null)
+    expect(h.portForwardManager.removeForwardAndWait).toHaveBeenCalledWith('pf-late')
+    expect(h.active).toEqual([])
+    h.connectionManager.getConnection.mockReturnValue(h.conn)
+  })
+
+  it('skips a queued managed restore once the host stopped being managed', async () => {
+    let release: () => void = () => {}
+    h.portForwardManager.closeStaleForwards.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (release = resolve))
+    )
+    const first = restoreManagedHostPortForwards('t1')
+    await vi.waitFor(() => expect(h.portForwardManager.closeStaleForwards).toHaveBeenCalled())
+    const second = restoreManagedHostPortForwards('t1')
+    h.hostServerStatus.mockReturnValue(undefined)
+    release()
+    await Promise.all([first, second])
+    expect(h.portForwardManager.closeStaleForwards).toHaveBeenCalledTimes(1)
+    h.hostServerStatus.mockReturnValue({ kind: 'managed', environmentId: 'env-1' })
   })
 })

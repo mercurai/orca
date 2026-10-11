@@ -16,6 +16,12 @@ import {
 } from './runtime-managed-worktree-metadata'
 import { resolveRuntimeGitHubWorktreeBase } from './runtime-github-worktree-base'
 import { resolveRuntimeGitLabWorktreeBase } from './runtime-gitlab-worktree-base'
+import { listWorktreesStrict } from '../git/worktree-listing'
+import {
+  adoptRuntimeProvisionedRoot,
+  readLocalSparseCheckoutEnabled,
+  type RuntimeProvisionedRootRequest
+} from './runtime-provisioned-root-adoption'
 
 export class OrcaRuntimeWithCreateManagedRemoteWorktree extends OrcaRuntimeWithCreateManagedWorktree {
   protected createManagedRemoteWorktree(
@@ -168,6 +174,27 @@ export class OrcaRuntimeWithCreateManagedRemoteWorktree extends OrcaRuntimeWithC
         notifyChanged: (repoId) => this.notifyWorktreesChanged(repoId),
         showWorktree: (selector) => this.showManagedWorktree(selector)
       }
+    })
+  }
+
+  adoptManagedProvisionedRoot(
+    repoSelector: string,
+    request: RuntimeProvisionedRootRequest
+  ): Promise<CreateWorktreeResult> {
+    if (!this.store) {
+      throw new Error('runtime_unavailable')
+    }
+    return adoptRuntimeProvisionedRoot(repoSelector, request, {
+      store: this.store,
+      resolveRepo: (selector) => this.resolveRepoSelector(selector),
+      listWorktrees: (repoPath) => listWorktreesStrict(repoPath),
+      isSparseCheckoutEnabled: readLocalSparseCheckoutEnabled,
+      invalidateScan: (repoId) => {
+        this.invalidateResolvedWorktreeCache()
+        this.invalidateWorktreeScanCacheForRepo(repoId)
+      },
+      notifyChanged: (repoId) => this.notifyWorktreesChanged(repoId),
+      showWorktree: (selector) => this.showManagedWorktree(selector)
     })
   }
 

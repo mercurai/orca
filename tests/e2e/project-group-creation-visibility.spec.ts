@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { test, expect } from './helpers/orca-app'
@@ -26,7 +26,11 @@ for (const delayCreateResponse of [false, true]) {
     const paths = Array.from({ length: 30 }, (_, index) =>
       path.join(root, `repo-${String(index).padStart(2, '0')}`)
     )
-    for (const repoPath of paths) {
+    const templatePath = paths[0]
+    if (!templatePath) {
+      throw new Error('Repository fixture requires a first path')
+    }
+    for (const repoPath of [templatePath]) {
       mkdirSync(repoPath)
       writeFileSync(path.join(repoPath, 'seed.txt'), 'seed\n')
       for (const args of [
@@ -47,6 +51,9 @@ for (const delayCreateResponse of [false, true]) {
         const result = await runProcess({ program: 'git', args, cwd: repoPath, timeoutMs: 10_000 })
         expect(result.code, result.stderr).toBe(0)
       }
+    }
+    for (const repoPath of paths.slice(1)) {
+      cpSync(templatePath, repoPath, { recursive: true, force: false, errorOnExist: true })
     }
     const repoIds = await orcaPage.evaluate(async (paths) => {
       const store = window.__store!

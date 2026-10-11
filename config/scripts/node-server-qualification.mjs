@@ -37,7 +37,25 @@ export function nodeServerQualification(changedFiles, scope, { fullQualification
   const selected = new Set(['ubuntu-22.04'])
   let qualification = false
   let full = fullQualification || changedFiles.length === 0 || scope.graphUnavailable === true
-  for (const file of changedFiles) {
+  const matched = scope.matchedFiles
+  const qualificationFiles =
+    scope.graphResolved === true &&
+    scope.graphUnavailable !== true &&
+    scope.shouldRun === true &&
+    Array.isArray(matched) &&
+    matched.length > 0 &&
+    new Set(matched).size === matched.length &&
+    matched.every((file) => typeof file === 'string' && changedFiles.includes(file))
+      ? [
+          ...new Set([
+            ...matched,
+            ...changedFiles.filter((file) =>
+              PLATFORM_PREFIXES.some((prefix) => file.startsWith(prefix))
+            )
+          ])
+        ]
+      : changedFiles
+  for (const file of qualificationFiles) {
     // Build policy and native sources can change every slot, even with a platform in the name.
     if (
       !file.includes('/') ||

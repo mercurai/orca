@@ -30,7 +30,8 @@ test.use({
 test('adopts a recipe-provisioned SSH root without creating a linked worktree', async ({
   orcaPage
 }, testInfo) => {
-  test.setTimeout(240_000)
+  // The first connect deploys the VM's managed server before the root is adopted.
+  test.setTimeout(420_000)
   let target: DockerSshRelayTarget | null = null
   const sourceRepo = mkdtempSync(path.join(tmpdir(), 'orca-provisioned-root-source-'))
   try {
@@ -59,27 +60,32 @@ test('adopts a recipe-provisioned SSH root without creating a linked worktree', 
 
     await expect(dialog).toBeHidden({ timeout: 60_000 })
     await expect(orcaPage.getByRole('option', { name: new RegExp(workspaceName) })).toBeVisible({
-      timeout: 60_000
+      timeout: 240_000
     })
-    await ensureTerminalVisible(orcaPage)
 
-    const adopted = await orcaPage.evaluate(
-      ({ sourceRepoId, workspaceName }) => {
-        const state = window.__store!.getState()
-        return Object.values(state.worktreesByRepo)
-          .flat()
-          .find(
-            (worktree) => worktree.displayName === workspaceName && worktree.repoId !== sourceRepoId
-          )
-      },
-      { sourceRepoId, workspaceName }
-    )
+    const findAdopted = () =>
+      orcaPage.evaluate(
+        ({ sourceRepoId, workspaceName }) =>
+          Object.values(window.__store!.getState().worktreesByRepo)
+            .flat()
+            .find(
+              (worktree) =>
+                worktree.displayName === workspaceName && worktree.repoId !== sourceRepoId
+            ) ?? null,
+        { sourceRepoId, workspaceName }
+      )
+    await expect
+      .poll(findAdopted, { timeout: 60_000, message: 'the provisioned root was never adopted' })
+      .not.toBeNull()
+    const adopted = await findAdopted()
+    await ensureTerminalVisible(orcaPage)
     expect(adopted).toMatchObject({
       path: DOCKER_SSH_RELAY_REMOTE_REPO_PATH,
       isMainWorktree: true,
       ephemeralVmCheckoutMode: 'provisioned-root'
     })
-    expect(adopted?.hostId).toMatch(/^(?:ssh:runtime-ssh-|runtime:)/)
+    // The VM's managed server holds the workspace; no relay serves it.
+    expect(adopted?.hostId).toMatch(/^runtime:/)
     expect(
       execDockerSshRelayTargetCommand(
         target,

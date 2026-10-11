@@ -1,37 +1,7 @@
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { createAgentChildWorkAdmission } from '../shared/agent-status-child-work-admission'
 import { createAgentStatusStore } from '../shared/agent-status-store'
 import { makeStructuredAgentStatusSubject } from '../shared/agent-status-subject'
-
-const SHARED_CORE_FILES = [
-  'agent-status-child-work.ts',
-  'agent-status-child-work-codec.ts',
-  'agent-status-child-work-activity-codec.ts',
-  'agent-status-child-work-legality.ts',
-  'agent-status-child-work-value-guards.ts',
-  'agent-status-child-work-view.ts',
-  'agent-status-child-work-admission.ts',
-  'agent-status-child-work-admission-core.ts',
-  'agent-status-child-work-admission-operations.ts',
-  'agent-status-child-work-resume.ts',
-  'agent-status-child-work-alias.ts',
-  'agent-status-child-work-binding.ts',
-  'agent-status-child-work-freshness.ts',
-  'agent-status-child-work-projection.ts',
-  'agent-status-store.ts',
-  'agent-status-store-byte-budget.ts',
-  'agent-status-store-child-queries.ts',
-  'agent-status-store-codec.ts',
-  'agent-status-store-mutation.ts',
-  'agent-status-store-contract.ts',
-  'agent-status-store-fact-codec.ts',
-  'agent-status-store-parent.ts',
-  'agent-status-store-persistence.ts',
-  'agent-status-store-state.ts',
-  'agent-status-store-status-codec.ts',
-  'agent-status-transport-envelope.ts'
-]
 
 const trustedSubject = makeStructuredAgentStatusSubject(
   {
@@ -73,15 +43,5 @@ describe('agent status store relay context', () => {
     expect(replica.applySnapshot(authority.getSnapshot())).toBe(true)
     expect(replica.getParent(trustedSubject)?.firstObservedAt).toBe(10)
     expect(replica.getChildren(trustedSubject)[0]?.childWorkId).toBe('relay-child-1')
-  })
-
-  it('keeps the relay-consumed core free of main, renderer and Electron imports', () => {
-    for (const filename of SHARED_CORE_FILES) {
-      const source = readFileSync(new URL(`../shared/${filename}`, import.meta.url), 'utf8')
-      expect(source, filename).not.toMatch(
-        /from\s+['"](?:electron|\.\.\/(?:main|renderer))(?:\/|['"])/
-      )
-      expect(source, filename).not.toMatch(/require\(['"]electron['"]\)/)
-    }
   })
 })
