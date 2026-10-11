@@ -87,19 +87,23 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
 
   async revokeMobileDevice(deviceId: string): Promise<boolean> {
     const device = this.deviceRegistry?.getDevice(deviceId)
-    if (device?.scope !== 'mobile') {
+    if (device?.scope !== 'mobile' || !this.deviceRegistry) {
       return false
     }
-    if (device.relayBinding) {
-      if (!(await this.queueRelayDeviceRevoke(device.relayBinding))) {
+    // Why: the outbox writes below are async; the phone must be refused from the start, not the end.
+    const release = this.deviceRegistry.beginRevocation(deviceId)
+    try {
+      if (device.relayBinding && !(await this.queueRelayDeviceRevoke(device.relayBinding))) {
         return false
       }
-    }
-    // Why: unpairing must delete the phone's push token at the gateway too, and the
-    // registration id is only readable while the device row still exists.
-    await this.queuePushUnregister(deviceId, device.pushRegistration?.registrationId)
-    if (!(await this.deviceRegistry?.removeDevice(deviceId))) {
-      return false
+      // Why: unpairing must delete the phone's push token at the gateway too, and the
+      // registration id is only readable while the device row still exists.
+      await this.queuePushUnregister(deviceId, device.pushRegistration?.registrationId)
+      if (!(await this.deviceRegistry.removeDevice(deviceId))) {
+        return false
+      }
+    } finally {
+      release()
     }
     this.mobileRelayPairingProvider?.onDemandStateChanged?.()
     this.runtime.forgetClientNavigationState(deviceId)

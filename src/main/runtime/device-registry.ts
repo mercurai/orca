@@ -11,6 +11,7 @@ import { writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 import type { DeviceScope } from '../../shared/runtime-types'
 import { removeStaleDurableWriteTempFiles } from '../durable-file-write'
 import { DEVICE_REGISTRY_FILENAME } from './mobile-pairing-files'
+import { DeviceRevocationMarks } from './device-revocation-marks'
 import type { RelayDeviceBinding } from './relay/relay-revoke-outbox'
 import { validRelayBinding } from './device-registry-relay-binding'
 import type { MobilePairingConnectionMode } from '../../shared/mobile-pairing-connection-mode'
@@ -47,8 +48,7 @@ const STALE_WRITE_TEMP_AGE_MS = 24 * 60 * 60 * 1000
 export class DeviceRegistry {
   private readonly registryPath: string
   private devices: DeviceEntry[] = []
-  // Why: revocation fails closed; a device being removed is refused before its write lands.
-  private readonly revokingDeviceIds = new Set<string>()
+  private readonly revocations = new DeviceRevocationMarks()
   /** Set when the registry exists but could not be read, which makes `devices` a lie to save from. */
   private registryUnreadable = false
   private pendingLastSeenFlush: NodeJS.Timeout | null = null
@@ -155,9 +155,14 @@ export class DeviceRegistry {
     })
   }
 
+  /** Refuses the device's token until the returned release runs. */
+  beginRevocation(deviceId: string): () => void {
+    return this.revocations.begin(deviceId)
+  }
+
   removeDevice(deviceId: string): Promise<boolean> {
     // Synchronous, before the queue: requests already in flight must not outlive the revoke.
-    this.revokingDeviceIds.add(deviceId)
+    const release = this.beginRevocation(deviceId)
     return this.serialized(async () => {
       const nextDevices = this.devices.filter((d) => d.deviceId !== deviceId)
       if (nextDevices.length === this.devices.length) {
@@ -167,7 +172,7 @@ export class DeviceRegistry {
       // only in-process while disk still lists it (and vice versa on reload).
       await this.commit(nextDevices)
       return true
-    }).finally(() => this.revokingDeviceIds.delete(deviceId))
+    }).finally(release)
   }
 
   getDevice(deviceId: string): DeviceEntry | null {
@@ -251,7 +256,7 @@ export class DeviceRegistry {
 
   validateToken(token: string): DeviceEntry | null {
     const device = this.devices.find((d) => d.token === token)
-    return device && !this.revokingDeviceIds.has(device.deviceId) ? device : null
+    return device && !this.revocations.has(device.deviceId) ? device : null
   }
 
   updateLastSeen(deviceId: string): Promise<void> {
