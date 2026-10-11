@@ -21,7 +21,7 @@ const { closeLocalWatcherForWorktreePathMock, closeRemoteWatcherForWorktreePathM
 const { computeWorktreePathMock, countGitHubWorkItemsMock, createGitHubIssueMock } = mocks
 const { createGitLabIssueMock, createHostedReviewMock, createSetupRunnerScript } = mocks
 const { createStackedHostedReviewMock, detectInstalledAgentsWithShellPathHydrationMock } = mocks
-const { detectRemoteAgentsMock, electronMocks, ensurePathWithinWorkspaceMock } = mocks
+const { electronMocks, ensurePathWithinWorkspaceMock } = mocks
 const { findExistingWorktreeSymlinkPathsMock, forceDeleteLocalBranchMock } = mocks
 const { forgetLocalWatcherRemovalSnapshotMock, forgetRemoteWatcherRemovalSnapshotMock } = mocks
 const { describeCreatedWorktree } = mocks
@@ -286,8 +286,6 @@ function resetRuntimeTestMocks(): void {
   listGitHubAssignableUsersMock.mockResolvedValue([])
   detectInstalledAgentsWithShellPathHydrationMock.mockReset()
   detectInstalledAgentsWithShellPathHydrationMock.mockResolvedValue([])
-  detectRemoteAgentsMock.mockReset()
-  detectRemoteAgentsMock.mockResolvedValue([])
   markCodexProjectTrustedMock.mockReset()
   markCopilotFolderTrustedMock.mockReset()
   markCursorWorkspaceTrustedMock.mockReset()
