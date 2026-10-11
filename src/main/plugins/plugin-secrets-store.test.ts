@@ -24,7 +24,7 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../shared/child-process/run-process')>()
+  const actual = await importOriginal<typeof runProcessModule>()
   return {
     ...actual,
     runProcess: vi.fn(actual.runProcess),
@@ -34,6 +34,7 @@ vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
 
 import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
 import { PluginSecretsStore } from './plugin-secrets-store'
+import type * as runProcessModule from '../../shared/child-process/run-process'
 
 const roots: string[] = []
 
