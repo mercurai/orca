@@ -23,6 +23,7 @@ const {
   ORCAD_TEMPLATE_TARGETS_DIR
 } = require('../../src/shared/orcad-artifacts.ts')
 const { verifyPackagedOrcadTemplate } = require('./verify-packaged-orcad-template.cjs')
+const { packagedOrcadTemplateTargets } = require('./packaged-orcad-template-targets.cjs')
 
 const ORCAD_TEMPLATE_RESOURCE_DIR = 'orcad-template'
 const orcadTemplateExtraResource = { from: 'out/orcad-template', to: ORCAD_TEMPLATE_RESOURCE_DIR }
@@ -120,6 +121,8 @@ function resealOrcadTemplateManifest(templateDir, signedPaths) {
  */
 async function finalizePackagedOrcadTemplate(resourcesDir, options) {
   const { platform, env = process.env, signMacBinary } = options
+  // Read first: a malformed target list must fail the build even when no template was built.
+  const targets = packagedOrcadTemplateTargets(env)
   const templateDir = join(resourcesDir, ORCAD_TEMPLATE_RESOURCE_DIR)
   if (!existsSync(templateDir)) {
     if (isOrcadTemplateRequired(env)) {
@@ -136,7 +139,7 @@ async function finalizePackagedOrcadTemplate(resourcesDir, options) {
     }
     resealOrcadTemplateManifest(templateDir, machO)
   }
-  verifyPackagedOrcadTemplate(resourcesDir)
+  verifyPackagedOrcadTemplate(resourcesDir, targets)
 }
 
 /** `inner-signing-list.txt` lines are app-relative Windows paths; keep the template's. */
@@ -156,7 +159,7 @@ function resealSignedWindowsApp(appDir, signedListFile) {
     return
   }
   resealOrcadTemplateManifest(join(resourcesDir, ORCAD_TEMPLATE_RESOURCE_DIR), signed)
-  verifyPackagedOrcadTemplate(resourcesDir)
+  verifyPackagedOrcadTemplate(resourcesDir, packagedOrcadTemplateTargets())
   console.log(`[packaged-orcad-template] resealed ${signed.length} signed template file(s)`)
 }
 
