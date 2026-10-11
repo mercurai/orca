@@ -127,7 +127,10 @@ describe('terminal input latency probe', () => {
     probe.noteInput('b', t.wall() + 5_000, KEY) // clock skew: future send time
     const first = probe.drain()
     expect(first.inputCount).toBe(2)
+    expect(first.typedPtyCount).toBe(2)
     expect(first.ipcLagMaxMs).toBe(0)
-    expect(probe.drain().inputCount).toBe(0)
+    const next = probe.drain()
+    expect(next.inputCount).toBe(0)
+    expect(next.typedPtyCount).toBe(0)
   })
 })
