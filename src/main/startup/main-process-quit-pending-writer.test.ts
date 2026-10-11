@@ -90,7 +90,8 @@ it('quits at the teardown deadline without releasing admission while the writer 
   await vi.advanceTimersByTimeAsync(1)
   expect(app.quit).toHaveBeenCalledOnce()
   expect(console.warn).toHaveBeenCalledWith('[shutdown] Quit teardown deadline reached', {
-    pendingTeardowns: ['state']
+    // The path-write drain follows the store flush, so a pending flush leaves both pending.
+    pendingTeardowns: ['path-writes', 'state']
   })
   expect(store.flushFinalOrThrowAsync).toHaveBeenCalledOnce()
   expect(store.freezeWritesAsync).not.toHaveBeenCalled()
