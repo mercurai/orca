@@ -98,7 +98,11 @@ it('folds calls that land mid-write into one follow-up stamp carrying the newest
   const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
-  markEnvironmentUsedDetached(userDataPath, id, { pairedDeviceId: 'device-9' })
+  // Why the token: a device id is only stored with the token its reply carried, so it would land if kept.
+  markEnvironmentUsedDetached(userDataPath, id, {
+    pairedDeviceId: 'device-9',
+    pairingDeviceToken: 'device-token'
+  })
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-2' })
   await idle()
 
@@ -106,7 +110,7 @@ it('folds calls that land mid-write into one follow-up stamp carrying the newest
   const [stored] = listEnvironments(userDataPath)
   // Whole-args replacement (#1100 Part A): a device id never lands beside another reply's ids.
   expect(stored?.runtimeId).toBe('runtime-2')
-  expect(stored?.pairedDeviceId).not.toBe('device-9')
+  expect(stored?.pairedDeviceId).toBeUndefined()
 })
 
 it('does not resurrect an environment removed while the stamp was writing', async () => {
