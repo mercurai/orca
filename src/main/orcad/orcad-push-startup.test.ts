@@ -30,6 +30,7 @@ vi.mock('./orcad-app-paths', () => ({
 }))
 vi.mock('./orcad-browser-provider', () => ({ resolveOrcadBrowserProvider: state.browserProvider }))
 vi.mock('./orcad-instance-lock', () => ({
+  prepareOrcadDataRoot: async () => {},
   acquireOrcadInstanceLock: () => ({
     path: join(state.root, 'orcad.lock'),
     record: { pid: process.pid, startedAtMs: null, nonce: 'headless-instance' },

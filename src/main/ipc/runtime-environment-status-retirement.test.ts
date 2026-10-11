@@ -107,6 +107,7 @@ it('does not fence another environment or a fresh probe after retirement', async
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
   advanceRuntimeEnvironmentCapabilityIncarnation(envId)
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
-  expect(resolveEnvironment(directory, envId).runtimeId).toBe('old-host')
+  // The usage stamp is detached, so it lands after the status reply.
+  await vi.waitFor(() => expect(resolveEnvironment(directory, envId).runtimeId).toBe('old-host'))
   expect(mocks.ensure).toHaveBeenCalledTimes(2)
 })

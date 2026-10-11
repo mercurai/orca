@@ -201,9 +201,10 @@ describe('acquireOrcadInstanceLock', () => {
 
   it.runIf(process.platform !== 'win32')(
     'tightens a group/world-accessible data root rather than refusing when it can',
-    () => {
+    async () => {
       const root = makeRoot()
       chmodSync(root, 0o755)
+      await prepareOrcadDataRoot(root, hooks())
       acquireOrcadInstanceLock(root, hooks())
       expect(statSync(root).mode & 0o777).toBe(0o700)
     }
