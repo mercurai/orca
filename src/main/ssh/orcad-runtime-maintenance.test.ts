@@ -167,7 +167,11 @@ describe('rollbackManagedOrcadEnvironment', () => {
 
   it('refuses a rollback to a snapshot older than the migrated catalog, not a newer one', async () => {
     // The harness's active version activated 2026-01-01.
-    await recordManagedOrcadMigration(harness.userDataPath, 'environment-1', '2026-02-01T00:00:00.000Z')
+    await recordManagedOrcadMigration(
+      harness.userDataPath,
+      'environment-1',
+      '2026-02-01T00:00:00.000Z'
+    )
     await expect(
       rollbackManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     ).resolves.toMatchObject({ outcome: 'refused', code: 'orcad_rollback_crosses_migration' })

@@ -34,7 +34,11 @@ describe('retaining a committed migration source', () => {
     await writeOrcadMigrationSourceCutover(userDataPath, committed)
     const at = () => new Date('2026-10-03T00:00:00.000Z')
     await retainOrcadMigrationSource(userDataPath, 'm-1', at)
-    await retainOrcadMigrationSource(userDataPath, 'm-1', () => new Date('2026-12-01T00:00:00.000Z'))
+    await retainOrcadMigrationSource(
+      userDataPath,
+      'm-1',
+      () => new Date('2026-12-01T00:00:00.000Z')
+    )
     expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.sourceRetainedAt).toBe(
       '2026-10-03T00:00:00.000Z'
     )
@@ -50,7 +54,8 @@ describe('retaining a committed migration source', () => {
         sourceRetainedAt: '2026-10-03T00:00:00.000Z'
       })
     }
-    await expect(writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-new', 'ssh-9'))
+    await expect(
+      writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-new', 'ssh-9'))
     ).rejects.not.toThrow()
   })
 })

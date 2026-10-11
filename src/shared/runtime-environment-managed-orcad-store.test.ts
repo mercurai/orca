@@ -46,7 +46,7 @@ describe('managed orcad environment store', () => {
   })
   afterEach(() => rmSync(userDataPath, { recursive: true, force: true }))
 
-  const add = (overrides: Partial<Parameters<typeof addManagedOrcadEnvironment>[1]> = {}) =>
+  const add = async (overrides: Partial<Parameters<typeof addManagedOrcadEnvironment>[1]> = {}) =>
     await addManagedOrcadEnvironment(userDataPath, {
       id: 'environment-1',
       name: 'Managed',
@@ -102,8 +102,11 @@ describe('managed orcad environment store', () => {
 
   it('keeps a managed server from being removed or re-paired outside its lifecycle', async () => {
     add()
-    await expect(removeEnvironment(userDataPath, 'Managed')).rejects.toThrow('managed by Orca over SSH')
-    await expect(updateEnvironmentFromPairingCode(userDataPath, 'Managed', { pairingCode: pairingCode() })
+    await expect(removeEnvironment(userDataPath, 'Managed')).rejects.toThrow(
+      'managed by Orca over SSH'
+    )
+    await expect(
+      updateEnvironmentFromPairingCode(userDataPath, 'Managed', { pairingCode: pairingCode() })
     ).rejects.toThrow('managed by Orca over SSH')
     expect(listEnvironments(userDataPath)).toHaveLength(1)
   })
@@ -132,7 +135,8 @@ describe('managed orcad environment store', () => {
     expect(refreshed.endpoints[0]?.deviceToken).toBe('rotated-token')
     expect(refreshed.pairingRevision).toBe(500)
     expect(refreshed.orcadDeployment).toEqual(deployment)
-    await expect(refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode('ws://127.0.0.1:1'))
+    await expect(
+      refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode('ws://127.0.0.1:1'))
     ).rejects.toThrow('does not point at its SSH tunnel')
   })
 
@@ -202,7 +206,8 @@ describe('managed orcad environment store', () => {
       publicKeyB64: Buffer.alloc(32, 1).toString('base64')
     })
     expect(
-      (await refreshManagedOrcadPairing(userDataPath, 'environment-1', rotated, 500)).orcadMigratedAt
+      (await refreshManagedOrcadPairing(userDataPath, 'environment-1', rotated, 500))
+        .orcadMigratedAt
     ).toBe('2026-03-01T00:00:00.000Z')
   })
 })

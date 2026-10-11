@@ -495,7 +495,7 @@ async function connectAgain(): Promise<void> {
   await resolveHostServerOnConnect(target, {
     ...hostServerDepsStub(),
     managedEnvironmentId: () => environmentId,
-    retainCommittedSource: (host) => {
+    retainCommittedSource: async (host) => {
       const head = listOrcadMigrationSourceCutovers(userDataPath).find(
         (journal) => journal.sshTargetId === host.id && !journal.sourceRetainedAt
       )

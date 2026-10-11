@@ -91,7 +91,10 @@ export async function addManagedOrcadEnvironment(
  * Unlinks a managed server once its orcad is proven to have exited: drops the persisted entry
  * and the sidecar record that held its deployment link.
  */
-export async function removeManagedOrcadEnvironment(userDataPath: string, environmentId: string): Promise<void> {
+export async function removeManagedOrcadEnvironment(
+  userDataPath: string,
+  environmentId: string
+): Promise<void> {
   await runEnvironmentStoreMutation(userDataPath, async () => {
     const store = readPersistedEnvironmentStore(userDataPath)
     const persisted = resolveEnvironmentFromStore(store, environmentId)
@@ -152,7 +155,13 @@ export async function refreshManagedOrcadPairing(
     const state = { ...rest, orcadDeployment: deployment }
     // Why three writes: the entry stays current for both store states, so a failed or interrupted
     // store write can never strand the deployment link.
-    await writeRuntimeEnvironmentSidecarEntry(userDataPath, store.environments, existing, state, next)
+    await writeRuntimeEnvironmentSidecarEntry(
+      userDataPath,
+      store.environments,
+      existing,
+      state,
+      next
+    )
     await writeEnvironmentStore(userDataPath, { version: 1, environments })
     await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, next, state)
     return resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
