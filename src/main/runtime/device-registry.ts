@@ -47,6 +47,8 @@ const STALE_WRITE_TEMP_AGE_MS = 24 * 60 * 60 * 1000
 export class DeviceRegistry {
   private readonly registryPath: string
   private devices: DeviceEntry[] = []
+  // Why: revocation fails closed; a device being removed is refused before its write lands.
+  private readonly revokingDeviceIds = new Set<string>()
   /** Set when the registry exists but could not be read, which makes `devices` a lie to save from. */
   private registryUnreadable = false
   private pendingLastSeenFlush: NodeJS.Timeout | null = null
@@ -154,6 +156,8 @@ export class DeviceRegistry {
   }
 
   removeDevice(deviceId: string): Promise<boolean> {
+    // Synchronous, before the queue: requests already in flight must not outlive the revoke.
+    this.revokingDeviceIds.add(deviceId)
     return this.serialized(async () => {
       const nextDevices = this.devices.filter((d) => d.deviceId !== deviceId)
       if (nextDevices.length === this.devices.length) {
@@ -163,7 +167,7 @@ export class DeviceRegistry {
       // only in-process while disk still lists it (and vice versa on reload).
       await this.commit(nextDevices)
       return true
-    })
+    }).finally(() => this.revokingDeviceIds.delete(deviceId))
   }
 
   getDevice(deviceId: string): DeviceEntry | null {
@@ -246,7 +250,8 @@ export class DeviceRegistry {
   }
 
   validateToken(token: string): DeviceEntry | null {
-    return this.devices.find((d) => d.token === token) ?? null
+    const device = this.devices.find((d) => d.token === token)
+    return device && !this.revokingDeviceIds.has(device.deviceId) ? device : null
   }
 
   updateLastSeen(deviceId: string): Promise<void> {
