@@ -14,6 +14,7 @@ import {
   readEnvironmentStore,
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError
+  runEnvironmentStoreMutation,
 } from './runtime-environment-store-file'
 import {
   overlayRuntimeEnvironmentSidecar,
@@ -32,7 +33,7 @@ type AccessContext = {
   view: KnownRuntimeEnvironment
 }
 
-export function prepareRuntimeEnvironmentSshAccessLink(
+export async function prepareRuntimeEnvironmentSshAccessLink(
   userDataPath: string,
   args: {
     expectedEnvironment: KnownRuntimeEnvironment
@@ -42,25 +43,27 @@ export function prepareRuntimeEnvironmentSshAccessLink(
     remotePort: number
     targetFingerprint: string
   }
-): KnownRuntimeEnvironment {
-  const { expectedEnvironment: _expected, ...fields } = args
-  const intent = RuntimeSshAccessOperationSchema.parse({ ...fields, operation: 'link' })
-  const context = readAccessContext(userDataPath, args.expectedEnvironment, true)
-  const existing = context.view
-  if (existing.pendingSshAccessOperation) {
-    requireMatchingIntent(existing, intent)
-    return existing
-  }
-  if (existing.sshAccess) {
-    throw invalid('This server already has SSH access.')
-  }
-  if (existing.connectionDependency) {
-    throw invalid('Unlink the existing external tunnel before adding SSH access.')
-  }
-  return commit(userDataPath, context, { ...context.entry, pendingSshAccessOperation: intent })
+): Promise<KnownRuntimeEnvironment> {
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const { expectedEnvironment: _expected, ...fields } = args
+    const intent = RuntimeSshAccessOperationSchema.parse({ ...fields, operation: 'link' })
+    const context = readAccessContext(userDataPath, args.expectedEnvironment, true)
+    const existing = context.view
+    if (existing.pendingSshAccessOperation) {
+      requireMatchingIntent(existing, intent)
+      return existing
+    }
+    if (existing.sshAccess) {
+      throw invalid('This server already has SSH access.')
+    }
+    if (existing.connectionDependency) {
+      throw invalid('Unlink the existing external tunnel before adding SSH access.')
+    }
+    return await commit(userDataPath, context, { ...context.entry, pendingSshAccessOperation: intent })
+  })
 }
 
-export function linkVerifiedRuntimeEnvironmentSshAccess(
+export async function linkVerifiedRuntimeEnvironmentSshAccess(
   userDataPath: string,
   args: {
     expectedEnvironment: KnownRuntimeEnvironment
@@ -70,128 +73,136 @@ export function linkVerifiedRuntimeEnvironmentSshAccess(
     tunnel: RuntimeSshTunnelLink
     now?: number
   }
-): KnownRuntimeEnvironment {
-  const views = readEnvironmentStore(userDataPath).environments
-  const completed = views.find((entry) => entry.id === args.expectedEnvironment.id)
-  if (completed?.sshAccess?.requestId && completed.sshAccess.requestId === args.requestId) {
-    return requireMatchingCompletedLink(completed, args)
-  }
-  const context = readAccessContext(userDataPath, args.expectedEnvironment)
-  const existing = context.view
-  const intent = existing.pendingSshAccessOperation
-  if (
-    !intent ||
-    intent.operation !== 'link' ||
-    intent.requestId !== args.requestId ||
-    intent.sshTargetId !== args.tunnel.sshTargetId ||
-    intent.sshTargetGeneration !== args.tunnel.sshTargetGeneration ||
-    intent.remotePort !== args.tunnel.remotePort
-  ) {
-    throw invalid('SSH access completion does not match its pending link intent.')
-  }
-  const offer = getPreferredPairingOffer(existing)
-  if (
-    !args.verifiedRuntimeId.trim() ||
-    (existing.runtimeId !== null && existing.runtimeId !== args.verifiedRuntimeId) ||
-    args.verifiedPairing.publicKeyB64 !== offer.publicKeyB64 ||
-    args.verifiedPairing.deviceToken !== offer.deviceToken ||
-    args.verifiedPairing.pairedDeviceId !== offer.pairedDeviceId
-  ) {
-    throw invalid('The SSH endpoint did not verify as this paired server.')
-  }
-  if (
-    views.some((entry) => entry.id !== existing.id && entry.runtimeId === args.verifiedRuntimeId)
-  ) {
-    throw invalid(
-      'This runtime is registered more than once. Reconcile its existing registrations first.'
-    )
-  }
-  const endpointId = `ssh-${randomUUID()}`
-  const { pendingSshAccessOperation: _intent, ...remaining } = context.entry
-  return commit(userDataPath, context, {
-    ...remaining,
-    pairingRevisionFloor: nextPairingRevision(existing, args.now ?? Date.now()),
-    runtimeId: args.verifiedRuntimeId,
-    sshAccess: {
-      ...args.tunnel,
-      requestId: intent.requestId,
-      targetFingerprint: intent.targetFingerprint,
-      endpointId,
-      previousPreferredEndpointId: existing.preferredEndpointId,
-      endpoint: {
-        id: endpointId,
-        kind: 'websocket',
-        label: 'SSH tunnel',
-        endpoint: args.verifiedPairing.endpoint,
-        publicKeyB64: offer.publicKeyB64,
-        deviceToken: offer.deviceToken
-      }
+): Promise<KnownRuntimeEnvironment> {
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const views = readEnvironmentStore(userDataPath).environments
+    const completed = views.find((entry) => entry.id === args.expectedEnvironment.id)
+    if (completed?.sshAccess?.requestId && completed.sshAccess.requestId === args.requestId) {
+      return requireMatchingCompletedLink(completed, args)
     }
+    const context = readAccessContext(userDataPath, args.expectedEnvironment)
+    const existing = context.view
+    const intent = existing.pendingSshAccessOperation
+    if (
+      !intent ||
+      intent.operation !== 'link' ||
+      intent.requestId !== args.requestId ||
+      intent.sshTargetId !== args.tunnel.sshTargetId ||
+      intent.sshTargetGeneration !== args.tunnel.sshTargetGeneration ||
+      intent.remotePort !== args.tunnel.remotePort
+    ) {
+      throw invalid('SSH access completion does not match its pending link intent.')
+    }
+    const offer = getPreferredPairingOffer(existing)
+    if (
+      !args.verifiedRuntimeId.trim() ||
+      (existing.runtimeId !== null && existing.runtimeId !== args.verifiedRuntimeId) ||
+      args.verifiedPairing.publicKeyB64 !== offer.publicKeyB64 ||
+      args.verifiedPairing.deviceToken !== offer.deviceToken ||
+      args.verifiedPairing.pairedDeviceId !== offer.pairedDeviceId
+    ) {
+      throw invalid('The SSH endpoint did not verify as this paired server.')
+    }
+    if (
+      views.some((entry) => entry.id !== existing.id && entry.runtimeId === args.verifiedRuntimeId)
+    ) {
+      throw invalid(
+        'This runtime is registered more than once. Reconcile its existing registrations first.'
+      )
+    }
+    const endpointId = `ssh-${randomUUID()}`
+    const { pendingSshAccessOperation: _intent, ...remaining } = context.entry
+    return await commit(userDataPath, context, {
+      ...remaining,
+      pairingRevisionFloor: nextPairingRevision(existing, args.now ?? Date.now()),
+      runtimeId: args.verifiedRuntimeId,
+      sshAccess: {
+        ...args.tunnel,
+        requestId: intent.requestId,
+        targetFingerprint: intent.targetFingerprint,
+        endpointId,
+        previousPreferredEndpointId: existing.preferredEndpointId,
+        endpoint: {
+          id: endpointId,
+          kind: 'websocket',
+          label: 'SSH tunnel',
+          endpoint: args.verifiedPairing.endpoint,
+          publicKeyB64: offer.publicKeyB64,
+          deviceToken: offer.deviceToken
+        }
+      }
+    })
   })
 }
 
-export function prepareRuntimeEnvironmentSshAccessUnlink(
+export async function prepareRuntimeEnvironmentSshAccessUnlink(
   userDataPath: string,
   args: { expectedEnvironment: KnownRuntimeEnvironment; requestId: string; now?: number }
-): KnownRuntimeEnvironment {
-  const context = readAccessContext(userDataPath, args.expectedEnvironment)
-  const existing = context.view
-  if (existing.pendingSshAccessOperation) {
-    if (
-      existing.pendingSshAccessOperation.operation === 'unlink' &&
-      existing.pendingSshAccessOperation.requestId === args.requestId
-    ) {
-      return existing
+): Promise<KnownRuntimeEnvironment> {
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const context = readAccessContext(userDataPath, args.expectedEnvironment)
+    const existing = context.view
+    if (existing.pendingSshAccessOperation) {
+      if (
+        existing.pendingSshAccessOperation.operation === 'unlink' &&
+        existing.pendingSshAccessOperation.requestId === args.requestId
+      ) {
+        return existing
+      }
+      throw invalid('Another SSH access operation is pending.')
     }
-    throw invalid('Another SSH access operation is pending.')
-  }
-  const sshAccess = existing.sshAccess
-  if (!sshAccess) {
-    throw invalid('This server does not have independently linked SSH access.')
-  }
-  const { sshAccess: _access, ...remaining } = context.entry
-  return commit(userDataPath, context, {
-    ...remaining,
-    pairingRevisionFloor: nextPairingRevision(existing, args.now ?? Date.now()),
-    pendingSshAccessOperation: {
-      requestId: args.requestId,
-      operation: 'unlink',
-      sshTargetId: sshAccess.sshTargetId,
-      sshTargetGeneration: sshAccess.sshTargetGeneration,
-      remotePort: sshAccess.remotePort,
-      targetFingerprint: sshAccess.targetFingerprint
+    const sshAccess = existing.sshAccess
+    if (!sshAccess) {
+      throw invalid('This server does not have independently linked SSH access.')
     }
+    const { sshAccess: _access, ...remaining } = context.entry
+    return await commit(userDataPath, context, {
+      ...remaining,
+      pairingRevisionFloor: nextPairingRevision(existing, args.now ?? Date.now()),
+      pendingSshAccessOperation: {
+        requestId: args.requestId,
+        operation: 'unlink',
+        sshTargetId: sshAccess.sshTargetId,
+        sshTargetGeneration: sshAccess.sshTargetGeneration,
+        remotePort: sshAccess.remotePort,
+        targetFingerprint: sshAccess.targetFingerprint
+      }
+    })
   })
 }
 
-export function completeRuntimeEnvironmentSshAccessUnlink(
+export async function completeRuntimeEnvironmentSshAccessUnlink(
   userDataPath: string,
   args: { expectedEnvironment: KnownRuntimeEnvironment; requestId: string }
-): KnownRuntimeEnvironment {
-  const context = readAccessContext(userDataPath, args.expectedEnvironment)
-  const intent = context.view.pendingSshAccessOperation
-  if (!intent || intent.operation !== 'unlink' || intent.requestId !== args.requestId) {
-    throw invalid('SSH access completion does not match its pending unlink intent.')
-  }
-  const { pendingSshAccessOperation: _intent, ...remaining } = context.entry
-  return commit(userDataPath, context, remaining)
+): Promise<KnownRuntimeEnvironment> {
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const context = readAccessContext(userDataPath, args.expectedEnvironment)
+    const intent = context.view.pendingSshAccessOperation
+    if (!intent || intent.operation !== 'unlink' || intent.requestId !== args.requestId) {
+      throw invalid('SSH access completion does not match its pending unlink intent.')
+    }
+    const { pendingSshAccessOperation: _intent, ...remaining } = context.entry
+    return await commit(userDataPath, context, remaining)
+  })
 }
 
-export function cancelRuntimeEnvironmentSshAccessLink(
+export async function cancelRuntimeEnvironmentSshAccessLink(
   userDataPath: string,
   args: { expectedEnvironment: KnownRuntimeEnvironment; requestId: string }
-): KnownRuntimeEnvironment {
-  const context = readAccessContext(userDataPath, args.expectedEnvironment)
-  const intent = context.view.pendingSshAccessOperation
-  if (!intent || intent.requestId !== args.requestId) {
-    throw invalid('SSH access cancellation does not match its pending link intent.')
-  }
-  if (intent.operation === 'unlink') {
-    return context.view
-  }
-  return commit(userDataPath, context, {
-    ...context.entry,
-    pendingSshAccessOperation: { ...intent, operation: 'unlink' }
+): Promise<KnownRuntimeEnvironment> {
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const context = readAccessContext(userDataPath, args.expectedEnvironment)
+    const intent = context.view.pendingSshAccessOperation
+    if (!intent || intent.requestId !== args.requestId) {
+      throw invalid('SSH access cancellation does not match its pending link intent.')
+    }
+    if (intent.operation === 'unlink') {
+      return context.view
+    }
+    return await commit(userDataPath, context, {
+      ...context.entry,
+      pendingSshAccessOperation: { ...intent, operation: 'unlink' }
+    })
   })
 }
 
@@ -250,12 +261,12 @@ function readAccessContext(
   return { environments, persisted, entry, view }
 }
 
-/** Writes only after the overlay proves every requested field survives validation. */
-function commit(
+/** Writes only after the overlay proves every requested field survives validation. Inside the lane only. */
+async function commit(
   userDataPath: string,
   context: AccessContext,
   next: SidecarState
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const view = overlayRuntimeEnvironmentSidecar(context.persisted, {
     ...next,
     binding: runtimeEnvironmentSidecarBinding(context.persisted)
@@ -267,7 +278,7 @@ function commit(
   ) {
     throw invalid('The SSH access state is inconsistent with this paired server.')
   }
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, context.environments, context.persisted, next)
+  await writeRuntimeEnvironmentSidecarEntry(userDataPath, context.environments, context.persisted, next)
   return view
 }
 

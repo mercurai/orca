@@ -74,14 +74,14 @@ describe('independent runtime SSH access coordinator', () => {
         }
       }
     )
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetAllMocks()
     events = []
     userDataPath = mkdtempSync(join(tmpdir(), 'runtime-access-test-'))
-    environmentId = addEnvironmentFromPairingCode(userDataPath, {
+    environmentId = (await addEnvironmentFromPairingCode(userDataPath, {
       name: 'server',
       pairingCode: encodePairingOffer(pairing)
-    }).id
+    })).id
     target = {
       id: 'target',
       label: 'host',
@@ -146,7 +146,7 @@ describe('independent runtime SSH access coordinator', () => {
       if (!persisted) {
         throw new Error('missing environment')
       }
-      writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, persisted, {
+      await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, persisted, {
         reconciliation: {
           version: 1,
           stage: 'prepared',

@@ -106,18 +106,18 @@ export async function runOrcadDeltaMove(args: OrcadDeltaMoveArgs): Promise<Orcad
         'This host changed while the move was starting. Try the move again.'
       )
     }
-    const cutover = plan.resumes ?? journalDelta(args, plan, planned, terminals.provenPtyIds, now)
+    const cutover = plan.resumes ?? (await journalDelta(args, plan, planned, terminals.provenPtyIds, now))
     return commitDelta(args, plan, cutover, changedAt, now)
   })
 }
 
-function journalDelta(
+async function journalDelta(
   args: OrcadDeltaMoveArgs,
   plan: OrcadDeltaMovePlan,
   planned: string,
   provenPtyIds: string[],
   now: () => Date
-): OrcadMigrationSourceCutover {
+): Promise<OrcadMigrationSourceCutover> {
   const timestamp = now().toISOString()
   const cutover: OrcadMigrationSourceCutover = {
     version: ORCAD_MIGRATION_SOURCE_CUTOVER_VERSION,
@@ -136,7 +136,7 @@ function journalDelta(
     sourceBaselineFingerprint: planned,
     manifest: plan.manifest
   }
-  writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
+  await writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
   return cutover
 }
 
@@ -160,7 +160,7 @@ async function commitDelta(
     now
   }
   // Before any commit can land, resumed ones included: a rollback must not cross this move.
-  recordManagedOrcadMigration(userDataPath, plan.environmentId, now().toISOString())
+  await recordManagedOrcadMigration(userDataPath, plan.environmentId, now().toISOString())
   try {
     await args.ensureTunnel()
     const committed = await commitOrcadMigrationDestination(context, cutover.migrationId)
@@ -176,7 +176,7 @@ async function commitDelta(
       throw error
     }
   }
-  retainOrcadMigrationSource(userDataPath, cutover.migrationId, now)
+  await retainOrcadMigrationSource(userDataPath, cutover.migrationId, now)
   return { outcome: 'moved', migrationId: cutover.migrationId }
 }
 
@@ -226,7 +226,7 @@ export async function keepOrcadServerVersion(args: {
   if (!environmentId || !args.target.orcadFence?.sourceChangedAt || !head) {
     throw new Error('orcad_delta_not_changed')
   }
-  writeOrcadMigrationSourceCutover(args.userDataPath, {
+  await writeOrcadMigrationSourceCutover(args.userDataPath, {
     ...head,
     // Keeping the server's version is the explicit reconcile: the source as it is now is the baseline.
     sourceBaselineFingerprint: currentOrcadSourceFingerprint(args.store, args.target)

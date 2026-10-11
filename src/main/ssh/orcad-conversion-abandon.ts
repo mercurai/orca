@@ -43,7 +43,7 @@ export async function abandonOrcadConversion(args: {
   const context = { ...args, destination: args.destinationFor(environment) }
   return abortOrcadMigrationCutover(context, cutover.migrationId, async (aborted) => {
     await closeOrcadManagedTunnel(environment.id).catch(() => undefined)
-    removeManagedOrcadEnvironment(args.userDataPath, environment.id)
+    await removeManagedOrcadEnvironment(args.userDataPath, environment.id)
     await releaseOrcadMigrationFence(context, aborted)
   })
 }
