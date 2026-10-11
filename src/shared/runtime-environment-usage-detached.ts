@@ -1,57 +1,25 @@
 import {
   getEnvironmentStorePath,
-  bumpEnvironmentWriteGeneration,
-  getEnvironmentWriteGeneration,
-  writeEnvironmentStoreAsync
+  markEnvironmentUsed,
+  planEnvironmentUsedUpdate,
+  type EnvironmentUsageArgs
 } from './runtime-environment-store'
-import { planEnvironmentUsedUpdate } from './runtime-environment-usage'
-import { SecureWriteSupersededError } from './secure-file-async-write'
-
-type UsageArgs = { runtimeId?: string | null; pairedDeviceId?: string }
 
 // Why: the store is rewritten (two icacls spawns on Windows) at most once per minute per environment,
-// but the write is async, so responses landing mid-write fold into one pending stamp (latest wins).
-const writing = new Map<string, { pending: UsageArgs | null }>()
-// A sync mutation (pairing edit, removal) between our read and the rename voids the snapshot: re-read.
-const MAX_ATTEMPTS = 2
+// but the write is async, so responses landing mid-write fold into one pending stamp.
+const writing = new Map<string, { pending: EnvironmentUsageArgs | null }>()
 
-function foldUsageArgs(into: UsageArgs | null, next: UsageArgs): UsageArgs {
-  return {
-    runtimeId: next.runtimeId ?? into?.runtimeId,
-    pairedDeviceId: next.pairedDeviceId ?? into?.pairedDeviceId
-  }
+function carriesIdentity(args: EnvironmentUsageArgs): boolean {
+  return args.runtimeId != null || args.pairedDeviceId != null
 }
 
-async function persistStamp(
-  userDataPath: string,
-  selector: string,
-  args: UsageArgs
-): Promise<void> {
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const generation = getEnvironmentWriteGeneration()
-    const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
-    if (!plan) {
-      return
-    }
-    try {
-      await writeEnvironmentStoreAsync(userDataPath, plan.store, {
-        // Our own publish counts as a write, so a concurrent stamp for another environment re-reads.
-        shouldPublish: () => {
-          if (getEnvironmentWriteGeneration() !== generation) {
-            return false
-          }
-          bumpEnvironmentWriteGeneration()
-          return true
-        }
-      })
-      return
-    } catch (error) {
-      if (!(error instanceof SecureWriteSupersededError)) {
-        throw error
-      }
-    }
-  }
-  // Two attempts lost to concurrent edits: dropping a lastUsedAt stamp is harmless, the next response re-stamps.
+// Why whole-args replacement: a paired device id is only valid with the token its reply carried,
+// so an id from one reply must never be recorded beside the token of another.
+function foldUsageArgs(
+  into: EnvironmentUsageArgs | null,
+  next: EnvironmentUsageArgs
+): EnvironmentUsageArgs {
+  return into && !carriesIdentity(next) ? into : next
 }
 
 /**
@@ -61,7 +29,7 @@ async function persistStamp(
 export function markEnvironmentUsedDetached(
   userDataPath: string,
   selector: string,
-  args: UsageArgs = {}
+  args: EnvironmentUsageArgs = {}
 ): void {
   const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
   if (!plan) {
@@ -73,13 +41,14 @@ export function markEnvironmentUsedDetached(
     inFlight.pending = foldUsageArgs(inFlight.pending, args)
     return
   }
-  const state: { pending: UsageArgs | null } = { pending: null }
+  const state: { pending: EnvironmentUsageArgs | null } = { pending: null }
   writing.set(key, state)
   void (async () => {
-    let next: UsageArgs | null = args
+    let next: EnvironmentUsageArgs | null = args
     while (next) {
       try {
-        await persistStamp(userDataPath, selector, next)
+        // Re-plans inside the store's mutation lane, so a pairing edit meanwhile is never overwritten.
+        await markEnvironmentUsed(userDataPath, selector, next)
       } catch (error) {
         console.warn(`Could not persist last-used time for runtime environment ${selector}:`, error)
       }

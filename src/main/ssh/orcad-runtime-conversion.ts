@@ -79,7 +79,7 @@ export async function convertSshTargetToManagedOrcad(
     throw new Error('orcad_migration_destination_environment_mismatch')
   }
   // Before any commit can land, so a crash after it still blocks rollbacks across it.
-  const marked = recordManagedOrcadMigration(
+  const marked = await recordManagedOrcadMigration(
     userDataPath,
     environment.id,
     (args.now ?? (() => new Date()))().toISOString()
@@ -102,7 +102,7 @@ export async function convertSshTargetToManagedOrcad(
     throw new Error(`orcad_migration_commit_not_proven:${committed.phase}`)
   }
   if (committed.phase === 'destination-committed') {
-    retainOrcadMigrationSource(userDataPath, committed.migrationId, args.now)
+    await retainOrcadMigrationSource(userDataPath, committed.migrationId, args.now)
   }
   return {
     outcome: 'converted',

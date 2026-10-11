@@ -8,7 +8,7 @@ import {
   RuntimeEnvironmentStoreError,
   type RuntimeEnvironmentStoreErrorCode
 } from '../../shared/runtime-environment-store'
-import { markEnvironmentUsed as markEnvironmentUsedInStore } from '../../shared/runtime-environment-usage'
+import { markEnvironmentUsed as markEnvironmentUsedInStore } from '../../shared/runtime-environment-store'
 import type {
   KnownRuntimeEnvironment,
   PublicKnownRuntimeEnvironment
