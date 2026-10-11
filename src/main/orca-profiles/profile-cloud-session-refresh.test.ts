@@ -95,7 +95,8 @@ describe('profile cloud session refresh', () => {
 
     const first = readFreshOrcaCloudSession(config, active, '/data')
     const second = readFreshOrcaCloudSession(config, active, '/data')
-    expect(refreshMock).toHaveBeenCalledTimes(1)
+    // Why: the mutation fence is captured (awaited) before the request goes out.
+    await vi.waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1))
 
     resolveRefresh({
       accessToken: 'new-access',

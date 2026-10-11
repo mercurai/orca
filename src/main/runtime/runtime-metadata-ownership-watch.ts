@@ -26,7 +26,7 @@ export type RuntimeMetadataOwnershipWatchOptions = {
   userDataPath: string
   ownedPid: number
   ownedRuntimeId: string
-  republish: () => void
+  republish: () => Promise<void>
   pollIntervalMs?: number
   isProcessRunning?: (pid: number) => boolean
   onReclaim?: (previous: RuntimeMetadata | null) => void
@@ -70,7 +70,7 @@ export function watchRuntimeMetadataOwnership(
       return
     }
     try {
-      options.republish()
+      await options.republish()
     } catch (error) {
       // Why: a transient write failure must not kill the watch; the next tick retries.
       console.error('[runtime] Failed to reclaim runtime metadata ownership:', error)

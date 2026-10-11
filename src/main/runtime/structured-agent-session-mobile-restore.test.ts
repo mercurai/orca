@@ -80,6 +80,8 @@ describe('prompt delivery after host recovery', () => {
       notificationSeq: delivered.notificationSeq
     }
     unsubscribe()
+    // Why: dispatch persists the dismissal record without awaiting, and a restart reads the file.
+    await original.flushDismissals()
     const restarted = new RuntimeMobileNotificationController()
     restarted.configureDismissalStore(h.root)
     const events: MobileNotificationEvent[] = []
@@ -109,6 +111,7 @@ describe('prompt delivery after host recovery', () => {
       expect(events.filter((event) => event.type === 'dismiss')).toEqual([
         expect.objectContaining({ dismissedDelivery: identity })
       ])
+      await restarted.flushDismissals()
       expect(
         new MobileNotificationDismissalStore(h.root).liveDeliveries(identity.notificationId)
       ).toEqual([])

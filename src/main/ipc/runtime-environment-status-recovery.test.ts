@@ -40,7 +40,7 @@ afterEach(() => {
 })
 
 it('recovers a saved host after its first status check fails, without another UI request', async () => {
-  const environment = addEnvironmentFromPairingCode(profile, {
+  const environment = await addEnvironmentFromPairingCode(profile, {
     name: 'offline-at-startup',
     pairingCode: pairingCode()
   })
@@ -70,7 +70,7 @@ it('recovers a saved host after its first status check fails, without another UI
 })
 
 it('a passive capability check does not strand later active bootstrap recovery', async () => {
-  const environment = addEnvironmentFromPairingCode(profile, {
+  const environment = await addEnvironmentFromPairingCode(profile, {
     name: 'passive-first',
     pairingCode: pairingCode()
   })

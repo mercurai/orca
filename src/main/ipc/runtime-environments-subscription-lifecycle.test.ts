@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../shared/electron-remote-runtime-client-capabilities'
 import * as environmentStore from '../../shared/runtime-environment-store'
+import * as environmentUsage from '../../shared/runtime-environment-usage-detached'
 
 const {
   handleMock,
@@ -180,7 +181,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     registerRuntimeEnvironmentHandlers(store as never)
     const close = vi.fn()
     const sendBinary = vi.fn()
-    const markUsedSpy = vi.spyOn(environmentStore, 'markEnvironmentUsed')
+    const markUsedSpy = vi.spyOn(environmentUsage, 'markEnvironmentUsedDetached')
     subscribeRemoteRuntimeRequestMock.mockImplementation(
       async (_pairing, _method, _params, _timeoutMs, callbacks) => {
         callbacks.onResponse({
@@ -494,7 +495,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       )
 
       await vi.waitFor(() => expect(subscribeRemoteRuntimeRequestMock).toHaveBeenCalledTimes(1))
-      environmentStore.updateEnvironmentFromPairingCode(userDataPath, added.environment.id, {
+      await environmentStore.updateEnvironmentFromPairingCode(userDataPath, added.environment.id, {
         pairingCode: pairingCode('ws://127.0.0.1:7678')
       })
       invalidateRuntimeEnvironmentTransport(added.environment.id)

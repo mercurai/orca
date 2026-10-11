@@ -9,6 +9,8 @@ import type { DeviceRegistry } from '../device-registry'
 import type { E2EEKeypair } from '../e2ee-keypair'
 import type { UnpairedDeviceAuthThrottle } from '../rpc/unpaired-device-auth-throttle'
 import type { MobileSocketWiring } from '../rpc/mobile-socket-wiring'
+import { removeStaleDurableWriteTempFiles } from '../../durable-file-write'
+import { getEnvironmentStorePath } from '../../../shared/runtime-environment-store'
 import { RelayRevokeOutbox } from '../relay/relay-revoke-outbox'
 import { PushUnregisterOutbox } from '../push/push-unregister-outbox'
 import { RuntimeBinaryMessageRouter } from '../runtime-binary-message-router'
@@ -130,8 +132,17 @@ export class RuntimeRpcState {
     )
     this.browserHostLongPollCapPerDevice = Math.max(1, Math.floor(this.browserHostLongPollCap / 2))
     this.specializedLongPollCap = Math.max(1, Math.floor(longPollCap * SPECIALIZED_LONG_POLL_SHARE))
+    // Why: the async environment-store write can be cut off between writeFile and rename, orphaning a temp file that holds device tokens.
+    void removeStaleDurableWriteTempFiles(getEnvironmentStorePath(userDataPath), {
+      minimumAgeMs: 24 * 60 * 60 * 1000
+    })
     this.relayRevokeOutbox = new RelayRevokeOutbox(userDataPath)
     this.pushUnregisterOutbox = new PushUnregisterOutbox(userDataPath)
-    this.runtime.configureNotificationDismissalStore(userDataPath)
+    // Why: the registry is created lazily with the pairing identity; with no mobile device paired a
+    // dismissal record can never be needed, so the store keeps history in memory only.
+    this.runtime.configureNotificationDismissalStore(userDataPath, {
+      hasPairedMobileDevice: () =>
+        this.deviceRegistry?.listDevices().some((device) => device.scope === 'mobile') ?? false
+    })
   }
 }
