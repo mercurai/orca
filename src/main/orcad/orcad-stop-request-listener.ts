@@ -46,28 +46,34 @@ function listenForRequest<T>(
       }
     }
   }
+  const handOn = (request: T | null): void => {
+    if (request === null || closed) {
+      return
+    }
+    closed = true
+    stop()
+    onRequest(request)
+  }
   const check = (): void => {
     if (closed || consuming) {
       return
     }
+    let consumed: T | null | Promise<T | null>
+    try {
+      consumed = consume(requestPath)
+    } catch (error) {
+      report(error)
+      return
+    }
+    // Why: a synchronous consume (the slot request) hands on before this returns, as it always did.
+    if (!(consumed instanceof Promise)) {
+      handOn(consumed)
+      return
+    }
     consuming = true
-    void (async () => {
-      let request: T | null
-      try {
-        request = await consume(requestPath)
-      } catch (error) {
-        report(error)
-        return
-      } finally {
-        consuming = false
-      }
-      if (request === null || closed) {
-        return
-      }
-      closed = true
-      stop()
-      onRequest(request)
-    })()
+    void consumed.then(handOn, report).finally(() => {
+      consuming = false
+    })
   }
   let watcher: FSWatcher | null = null
   try {
