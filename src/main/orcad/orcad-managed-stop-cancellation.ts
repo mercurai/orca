@@ -11,10 +11,10 @@ import {
 } from './orcad-managed-stop-request'
 
 /** `dispatched` means orcad already began stopping; only its completion can say how it ended. */
-export function cancelOrcadManagedStop(
+export async function cancelOrcadManagedStop(
   request: OrcadManagedStopRequest
-): OrcadManagedStopCancellation['outcome'] {
-  const outcome = claimOrcadManagedStopDecision(request, 'canceled')
+): Promise<OrcadManagedStopCancellation['outcome']> {
+  const outcome = await claimOrcadManagedStopDecision(request, 'canceled')
   if (outcome === 'canceled') {
     withdrawOrcadManagedStopRequest(request)
   }
