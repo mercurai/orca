@@ -18,7 +18,8 @@ import {
   ORCAD_LOCK_FILE_NAME,
   OrcadInstanceLockError,
   type OrcadInstanceLockHooks,
-  type OrcadLockRecord
+  type OrcadLockRecord,
+  prepareOrcadDataRoot
 } from './orcad-instance-lock'
 
 const roots: string[] = []
@@ -211,15 +212,16 @@ describe('acquireOrcadInstanceLock', () => {
   // Not as root: root owns /tmp, so "a root this process does not own" has no stand-in there.
   it.runIf(process.platform !== 'win32' && process.getuid?.() !== 0)(
     'refuses a data root owned by another uid',
-    () => {
+    async () => {
       const root = makeRoot()
       // /tmp itself is root-owned and sticky on every supported platform, so it stands in for
       // "a data root this process does not own" without needing privileges to create one.
-      expect(() => acquireOrcadInstanceLock('/tmp', hooks())).toThrow(
+      await expect(prepareOrcadDataRoot('/tmp', hooks())).rejects.toThrow(
         expect.objectContaining({ code: 'orcad_data_root_wrong_owner' })
       )
       // And the private root this test made is still acceptable, so the refusal is about
       // ownership rather than a blanket rejection.
+      await prepareOrcadDataRoot(root, hooks())
       expect(acquireOrcadInstanceLock(root, hooks()).record.identity).toBe('uid-1000')
     }
   )
@@ -239,7 +241,7 @@ describe('acquireOrcadInstanceLock', () => {
     expect(next.record.pid).toBe(process.pid)
   })
 
-  it('restricts a Windows data root by ACL, and refuses when the ACL cannot be applied', () => {
+  it('restricts a Windows data root by ACL, and refuses when the ACL cannot be applied', async () => {
     const root = makeRoot()
     const restricted: string[] = []
     const windows = (applied: boolean) =>
@@ -250,11 +252,12 @@ describe('acquireOrcadInstanceLock', () => {
           return applied
         }
       })
-    expect(() => acquireOrcadInstanceLock(root, windows(false))).toThrow(
+    await expect(prepareOrcadDataRoot(root, windows(false))).rejects.toThrow(
       expect.objectContaining({ code: 'orcad_data_root_shared' })
     )
     // Refused before any record was published.
     expect(() => readFileSync(join(root, ORCAD_LOCK_FILE_NAME))).toThrow()
+    await prepareOrcadDataRoot(root, windows(true))
     expect(acquireOrcadInstanceLock(root, windows(true)).record.pid).toBe(process.pid)
     expect(restricted).toEqual([root, root])
   })

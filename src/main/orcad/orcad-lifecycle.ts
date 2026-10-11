@@ -2,7 +2,7 @@ import { setRuntimeBrowserCommandsFactory } from '../runtime/runtime-browser-com
 import { startOrcadBrowserProvider } from './orcad-browser-startup'
 import { OrcadRuntimeLifetime, type OrcadRuntimeCleanup } from './orcad-runtime-lifetime'
 import type { OrcadManagedStopInstance } from '../../shared/orcad-stop-request'
-import { acquireOrcadInstanceLock } from './orcad-instance-lock'
+import { acquireOrcadInstanceLock, prepareOrcadDataRoot } from './orcad-instance-lock'
 import { ORCAD_BUNDLED_LAUNCHER_ENV } from './orcad-bundled-runtime'
 import { resolveOrcadExitCode } from './orcad-exit-code'
 import { recordAgentSessionRuntimeEnd } from '../runtime/agent-session-runtime-end-record'
@@ -109,6 +109,7 @@ export async function startOrcadWithHost<T extends object>(
   start: (registerCleanup: (cleanup: OrcadRuntimeCleanup) => void) => Promise<T>,
   runQuitHandlers: () => void
 ): Promise<T & { stop(): Promise<void>; instance: OrcadManagedStopInstance }> {
+  await prepareOrcadDataRoot(userDataPath)
   const instanceLock = acquireOrcadInstanceLock(userDataPath)
   const { pid, startedAtMs, nonce } = instanceLock.record
   const instance = { pid, startedAtMs, nonce, lockPath: instanceLock.path }
