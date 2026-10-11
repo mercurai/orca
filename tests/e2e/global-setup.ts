@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { prepareDockerSshRelayImage } from './helpers/docker-ssh-relay-image'
+import { prepareDockerSshHostImage } from './helpers/docker-ssh-host-image'
 
 export const E2E_TEST_REPO_PATH_FILE_ENV = 'ORCA_E2E_TEST_REPO_PATH_FILE'
 const RUN_TEST_REPO_PATH_FILE =
@@ -117,7 +117,7 @@ export default function globalSetup(): void {
   }
   if (process.env.ORCA_E2E_SSH_DOCKER === '1') {
     console.error('[e2e] Preparing Docker OpenSSH fixture image...')
-    prepareDockerSshRelayImage(root)
+    prepareDockerSshHostImage(root)
   }
 
   // ── 2. Create a seeded test git repo ───────────────────────────────

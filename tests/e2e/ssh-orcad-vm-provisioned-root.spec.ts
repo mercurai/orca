@@ -4,17 +4,17 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test } from './helpers/orca-app'
-import { ensureDockerSshRelayImage } from './helpers/docker-ssh-relay-image'
+import { ensureDockerSshHostImage } from './helpers/docker-ssh-host-image'
 import {
-  cleanupDockerSshRelayTarget,
-  execDockerSshRelayTargetCommand,
-  shellQuote,
-  startDockerSshRelayTarget,
-  DOCKER_SSH_RELAY_REMOTE_REPO_PATH,
-  type DockerSshRelayTarget
-} from './helpers/docker-ssh-relay-target'
+  cleanupDockerSshHostTarget,
+  execDockerSshHostTargetCommand,
+  startDockerSshHostTarget,
+  DOCKER_SSH_HOST_REMOTE_REPO_PATH,
+  type DockerSshHostTarget
+} from './helpers/docker-ssh-host-target'
 import { ensureTerminalVisible, waitForSessionReady } from './helpers/store'
 import { ORCAD_TEMPLATE } from './helpers/orcad-managed-workspace'
+import { quotePosixShell } from '../../src/shared/wsl-login-shell-command'
 
 /** A recipe VM's SSH root, served by a managed orcad the first connect deploys. */
 test.skip(
@@ -32,11 +32,11 @@ test('adopts a recipe-provisioned SSH root without creating a linked worktree', 
 }, testInfo) => {
   // The first connect deploys the VM's managed server before the root is adopted.
   test.setTimeout(420_000)
-  let target: DockerSshRelayTarget | null = null
+  let target: DockerSshHostTarget | null = null
   const sourceRepo = mkdtempSync(path.join(tmpdir(), 'orca-provisioned-root-source-'))
   try {
-    ensureDockerSshRelayImage(process.cwd())
-    target = startDockerSshRelayTarget(testInfo)
+    ensureDockerSshHostImage(process.cwd())
+    target = startDockerSshHostTarget(testInfo)
     const expectedRefHead = seedRecipeRepo(sourceRepo, target)
     await waitForSessionReady(orcaPage)
     const sourceRepoId = await addRecipeRepo(orcaPage, sourceRepo)
@@ -80,28 +80,28 @@ test('adopts a recipe-provisioned SSH root without creating a linked worktree', 
     const adopted = await findAdopted()
     await ensureTerminalVisible(orcaPage)
     expect(adopted).toMatchObject({
-      path: DOCKER_SSH_RELAY_REMOTE_REPO_PATH,
+      path: DOCKER_SSH_HOST_REMOTE_REPO_PATH,
       isMainWorktree: true,
       ephemeralVmCheckoutMode: 'provisioned-root'
     })
     // The VM's managed server holds the workspace; no relay serves it.
     expect(adopted?.hostId).toMatch(/^runtime:/)
     expect(
-      execDockerSshRelayTargetCommand(
+      execDockerSshHostTargetCommand(
         target,
-        `git -C ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} worktree list --porcelain | grep -c '^worktree '`
+        `git -C ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} worktree list --porcelain | grep -c '^worktree '`
       )
     ).toBe('1')
     expect(
-      execDockerSshRelayTargetCommand(
+      execDockerSshHostTargetCommand(
         target,
-        `git -C ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} branch --show-current`
+        `git -C ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} branch --show-current`
       )
     ).toBe(workspaceName)
     expect(
-      execDockerSshRelayTargetCommand(
+      execDockerSshHostTargetCommand(
         target,
-        `git -C ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} rev-parse HEAD`
+        `git -C ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} rev-parse HEAD`
       )
     ).toBe(expectedRefHead)
 
@@ -130,9 +130,9 @@ test('adopts a recipe-provisioned SSH root without creating a linked worktree', 
       )
       .toBe(false)
     const destroyed = target
-    expect(() => execDockerSshRelayTargetCommand(destroyed, 'true')).toThrow()
+    expect(() => execDockerSshHostTargetCommand(destroyed, 'true')).toThrow()
   } finally {
-    cleanupDockerSshRelayTarget(target)
+    cleanupDockerSshHostTarget(target)
     rmSync(sourceRepo, { recursive: true, force: true })
   }
 })
@@ -151,11 +151,11 @@ async function addRecipeRepo(page: Parameters<typeof waitForSessionReady>[0], re
   }, repoPath)
 }
 
-function seedRecipeRepo(repoPath: string, target: DockerSshRelayTarget): string {
+function seedRecipeRepo(repoPath: string, target: DockerSshHostTarget): string {
   const createScript = path.join(repoPath, 'create.sh')
   const destroyScript = path.join(repoPath, 'destroy.sh')
   // The recipe's isolated HOME must still address the engine that owns the fixture container.
-  const docker = `docker --config ${shellQuote(process.env.DOCKER_CONFIG ?? path.join(homedir(), '.docker'))}`
+  const docker = `docker --config ${quotePosixShell(process.env.DOCKER_CONFIG ?? path.join(homedir(), '.docker'))}`
   writeFileSync(
     createScript,
     `#!/usr/bin/env bash
@@ -165,9 +165,9 @@ set -euo pipefail
 [ -n "\${ORCA_REPO_REF:-}" ]
 [ -n "\${ORCA_REPO_REF_HEAD:-}" ]
 [ -n "\${ORCA_REPO_BRANCH:-}" ]
-${docker} exec ${shellQuote(target.containerName)} git -C ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} cat-file -e "$ORCA_REPO_REF_HEAD^{commit}"
-${docker} exec ${shellQuote(target.containerName)} git -C ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} checkout -B "$ORCA_REPO_BRANCH" "$ORCA_REPO_REF_HEAD" >&2
-node -e 'console.log(JSON.stringify({schemaVersion:2,checkoutMode:"provisioned-root",connection:{type:"ssh",projectRoot:process.argv[1],target:{label:"Docker provisioned root",host:process.argv[2],port:Number(process.argv[3]),username:"root",identityFile:process.argv[4],identitiesOnly:true}}}))' ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} ${shellQuote(target.host)} ${target.port} ${shellQuote(target.identityFile)}
+${docker} exec ${quotePosixShell(target.containerName)} git -C ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} cat-file -e "$ORCA_REPO_REF_HEAD^{commit}"
+${docker} exec ${quotePosixShell(target.containerName)} git -C ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} checkout -B "$ORCA_REPO_BRANCH" "$ORCA_REPO_REF_HEAD" >&2
+node -e 'console.log(JSON.stringify({schemaVersion:2,checkoutMode:"provisioned-root",connection:{type:"ssh",projectRoot:process.argv[1],target:{label:"Docker provisioned root",host:process.argv[2],port:Number(process.argv[3]),username:"root",identityFile:process.argv[4],identitiesOnly:true}}}))' ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} ${quotePosixShell(target.host)} ${target.port} ${quotePosixShell(target.identityFile)}
 `
   )
   writeFileSync(
@@ -175,7 +175,7 @@ node -e 'console.log(JSON.stringify({schemaVersion:2,checkoutMode:"provisioned-r
     `#!/usr/bin/env bash
 set -euo pipefail
 cat >/dev/null
-${docker} rm -f ${shellQuote(target.containerName)} >/dev/null
+${docker} rm -f ${quotePosixShell(target.containerName)} >/dev/null
 `
   )
   chmodSync(createScript, 0o755)
@@ -202,18 +202,18 @@ ${docker} rm -f ${shellQuote(target.containerName)} >/dev/null
     cwd: repoPath,
     encoding: 'utf8'
   }).trim()
-  execDockerSshRelayTargetCommand(
+  execDockerSshHostTargetCommand(
     target,
-    `rm -rf ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)} && mkdir -p ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)}`
+    `rm -rf ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)} && mkdir -p ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)}`
   )
   execFileSync('docker', [
     'cp',
     `${repoPath}${path.sep}.`,
-    `${target.containerName}:${DOCKER_SSH_RELAY_REMOTE_REPO_PATH}`
+    `${target.containerName}:${DOCKER_SSH_HOST_REMOTE_REPO_PATH}`
   ])
-  execDockerSshRelayTargetCommand(
+  execDockerSshHostTargetCommand(
     target,
-    `chown -R root:root ${shellQuote(DOCKER_SSH_RELAY_REMOTE_REPO_PATH)}`
+    `chown -R root:root ${quotePosixShell(DOCKER_SSH_HOST_REMOTE_REPO_PATH)}`
   )
   return expectedRefHead
 }

@@ -15,7 +15,7 @@ vi.mock('node:fs', () => ({
   realpathSync: (value: string) => value,
   writeFileSync: fixture.write
 }))
-vi.mock('./helpers/docker-ssh-relay-image', () => ({ prepareDockerSshRelayImage: vi.fn() }))
+vi.mock('./helpers/docker-ssh-host-image', () => ({ prepareDockerSshHostImage: vi.fn() }))
 
 import globalSetup, { workerTestRepositoryPathFile } from './global-setup'
 

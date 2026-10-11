@@ -30,20 +30,20 @@ function hashDockerFixtureDirectory(fixtureDir: string): string {
 }
 
 function fixtureImage(root: string): string {
-  const fixtureDir = path.join(root, 'tests', 'e2e', 'fixtures', 'docker-ssh-relay')
+  const fixtureDir = path.join(root, 'tests', 'e2e', 'fixtures', 'docker-ssh-host')
   const digest = hashDockerFixtureDirectory(fixtureDir)
-  return `orca-e2e-ssh-relay:${digest}`
+  return `orca-e2e-ssh-host:${digest}`
 }
 
-export function getDockerSshRelayImage(): string {
+export function getDockerSshHostImage(): string {
   return process.env.ORCA_E2E_SSH_DOCKER_IMAGE ?? fixtureImage(process.cwd())
 }
 
-export function prepareDockerSshRelayImage(root: string): void {
+export function prepareDockerSshHostImage(root: string): void {
   if (process.env.ORCA_E2E_SSH_DOCKER_IMAGE) {
     return
   }
-  const fixtureDir = path.join(root, 'tests', 'e2e', 'fixtures', 'docker-ssh-relay')
+  const fixtureDir = path.join(root, 'tests', 'e2e', 'fixtures', 'docker-ssh-host')
   const image = fixtureImage(root)
   execFileSync(
     'docker',
@@ -52,7 +52,7 @@ export function prepareDockerSshRelayImage(root: string): void {
   )
 }
 
-export function ensureDockerSshRelayImage(root: string): void {
+export function ensureDockerSshHostImage(root: string): void {
   if (process.env.ORCA_E2E_SSH_DOCKER_IMAGE) {
     return
   }
@@ -60,5 +60,5 @@ export function ensureDockerSshRelayImage(root: string): void {
   if (spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status === 0) {
     return
   }
-  prepareDockerSshRelayImage(root)
+  prepareDockerSshHostImage(root)
 }

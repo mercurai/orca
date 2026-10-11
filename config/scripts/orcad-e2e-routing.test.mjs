@@ -125,7 +125,7 @@ it('routes managed target-owner guards and menus to the real launch regression',
       'tests/e2e/helpers/orcad-convert-flow.ts',
       'tests/e2e/helpers/orcad-convert-host.ts',
       'tests/e2e/helpers/orcad-upgrade-profile.ts',
-      'tests/e2e/helpers/docker-ssh-relay-target.ts'
+      'tests/e2e/helpers/docker-ssh-host-target.ts'
     ],
     ORCAD_OPEN_IN_OWNER_E2E_SPEC
   )

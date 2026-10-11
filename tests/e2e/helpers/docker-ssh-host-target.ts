@@ -3,15 +3,14 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { getDockerSshRelayImage } from './docker-ssh-relay-image'
+import { getDockerSshHostImage } from './docker-ssh-host-image'
+import { quotePosixShell } from '../../../src/shared/wsl-login-shell-command'
 
 import type { TestInfo } from '@stablyai/playwright-test'
 
-export const DOCKER_SSH_RELAY_REMOTE_REPO_PATH = '/tmp/orca-docker-relay-perf-repo'
-export const DOCKER_SSH_PROXY_JUMP_REMOTE_REPO_PATH = '/tmp/orca-docker-proxy-jump-repo'
-export const DOCKER_SSH_SECOND_HUB_REMOTE_REPO_PATH = '/tmp/orca-docker-second-hub-repo'
+export const DOCKER_SSH_HOST_REMOTE_REPO_PATH = '/tmp/orca-docker-relay-perf-repo'
 
-export type DockerSshRelayTarget = {
+export type DockerSshHostTarget = {
   containerName: string
   containerIp: string
   host: string
@@ -32,12 +31,8 @@ function tryRun(command: string, args: string[], opts: { timeoutMs?: number } = 
   spawnSync(command, args, { stdio: 'ignore', timeout: opts.timeoutMs ?? 10_000 })
 }
 
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`
-}
-
-export function execDockerSshRelayTargetCommand(
-  target: DockerSshRelayTarget,
+export function execDockerSshHostTargetCommand(
+  target: DockerSshHostTarget,
   command: string
 ): string {
   return run('docker', ['exec', target.containerName, 'bash', '-lc', command], {
@@ -45,8 +40,8 @@ export function execDockerSshRelayTargetCommand(
   })
 }
 
-export function execDockerSshRelayTargetControlCommand(
-  target: DockerSshRelayTarget,
+export function execDockerSshHostTargetControlCommand(
+  target: DockerSshHostTarget,
   command: string
 ): string {
   return run('docker', [
@@ -60,7 +55,7 @@ export function execDockerSshRelayTargetControlCommand(
   ])
 }
 
-function sshArgs(target: DockerSshRelayTarget, command: string): string[] {
+function sshArgs(target: DockerSshHostTarget, command: string): string[] {
   return [
     '-i',
     target.identityFile,
@@ -79,7 +74,7 @@ function sshArgs(target: DockerSshRelayTarget, command: string): string[] {
   ]
 }
 
-function waitForSsh(target: DockerSshRelayTarget): void {
+function waitForSsh(target: DockerSshHostTarget): void {
   const deadline = Date.now() + 90_000
   let lastError = ''
   while (Date.now() < deadline) {
@@ -103,39 +98,22 @@ function waitForSsh(target: DockerSshRelayTarget): void {
   )
 }
 
-export function dockerSshRelayRepoSentinel(target: DockerSshRelayTarget, repoPath: string): string {
-  return `${target.containerName}:${repoPath}`
-}
-
-function seedRemoteRepo(target: DockerSshRelayTarget, repoPath: string): void {
-  const sentinel = dockerSshRelayRepoSentinel(target, repoPath)
-  execDockerSshRelayTargetCommand(
+function seedRemoteRepo(target: DockerSshHostTarget, repoPath: string): void {
+  const sentinel = `${target.containerName}:${repoPath}`
+  execDockerSshHostTargetCommand(
     target,
     [
-      `rm -rf ${shellQuote(repoPath)}`,
-      `mkdir -p ${shellQuote(repoPath)}`,
-      `cd ${shellQuote(repoPath)}`,
+      `rm -rf ${quotePosixShell(repoPath)}`,
+      `mkdir -p ${quotePosixShell(repoPath)}`,
+      `cd ${quotePosixShell(repoPath)}`,
       'git init',
       'git config user.email e2e@test.local',
       'git config user.name "Orca Docker SSH E2E"',
-      `printf '%s\\n' ${shellQuote(sentinel)} > .orca-e2e-destination-id`,
-      `printf '%s\\n' ${shellQuote(`remote relay ${sentinel}`)} > README.md`,
+      `printf '%s\\n' ${quotePosixShell(sentinel)} > .orca-e2e-destination-id`,
+      `printf '%s\\n' ${quotePosixShell(`remote relay ${sentinel}`)} > README.md`,
       'git add README.md .orca-e2e-destination-id',
       'git commit -m initial'
     ].join(' && ')
-  )
-}
-
-/**
- * The fixture image ships Debian's `/etc/bash.bashrc` with the xterm title block commented out and
- * an all-comments `/root/.bashrc`, so its shell never emits OSC 0. Orca derives a tab title from
- * that sequence, so without this every SSH tab keeps its `Terminal N` placeholder no matter how
- * healthy the shell is. Opt in from specs that assert on titles; a real user's shell sets one.
- */
-export function enableDockerSshRelayTargetShellTitle(target: DockerSshRelayTarget): void {
-  execDockerSshRelayTargetControlCommand(
-    target,
-    `printf '%s\\n' ${shellQuote(String.raw`PS1="\[\e]0;\u@\h: \w\a\]$PS1"`)} >> /root/.bashrc`
   )
 }
 
@@ -146,7 +124,7 @@ export function enableDockerSshRelayTargetShellTitle(target: DockerSshRelayTarge
  * reports a connect failure (port 9 is closed on any sane host), while one running
  * `AllowTcpForwarding no` refuses the channel itself with "administratively prohibited".
  */
-function probeDockerSshRelayTargetForwarding(target: DockerSshRelayTarget): string {
+function probeDockerSshHostTargetForwarding(target: DockerSshHostTarget): string {
   const result = spawnSync(
     'ssh',
     [
@@ -181,15 +159,15 @@ function probeDockerSshRelayTargetForwarding(target: DockerSshRelayTarget): stri
  * this before the app connects. Returns once a real ssh client has confirmed the refusal, so a
  * config that silently failed to apply surfaces here rather than as a confusing assertion later.
  */
-export function blockDockerSshRelayTargetTcpForwarding(target: DockerSshRelayTarget): void {
-  execDockerSshRelayTargetControlCommand(
+export function blockDockerSshHostTargetTcpForwarding(target: DockerSshHostTarget): void {
+  execDockerSshHostTargetControlCommand(
     target,
     "printf '%s\\n' 'AllowTcpForwarding no' >> /etc/ssh/sshd_config; kill -HUP 1"
   )
   const deadline = Date.now() + 60_000
   let lastProbe = ''
   while (Date.now() < deadline) {
-    lastProbe = probeDockerSshRelayTargetForwarding(target)
+    lastProbe = probeDockerSshHostTargetForwarding(target)
     if (/administratively prohibited/i.test(lastProbe)) {
       return
     }
@@ -200,58 +178,20 @@ export function blockDockerSshRelayTargetTcpForwarding(target: DockerSshRelayTar
   )
 }
 
-/**
- * Makes the target unreachable over SSH while the container, its fixtures and `docker exec` stay
- * up: sshd re-binds to the container's loopback, so the published port stops reaching it. Only new
- * connections are refused; an established session lives until its client closes it. Returns once
- * a real ssh client fails to connect, so a config that silently failed to apply surfaces here.
- */
-export function refuseDockerSshRelayTargetConnections(target: DockerSshRelayTarget): void {
-  // Why HUP, not a restart: see blockDockerSshRelayTargetTcpForwarding — PID 1 is sshd.
-  execDockerSshRelayTargetControlCommand(
-    target,
-    "printf '%s\\n' 'ListenAddress 127.0.0.1' >> /etc/ssh/sshd_config; kill -HUP 1"
-  )
-  const deadline = Date.now() + 60_000
-  let lastProbe = ''
-  while (Date.now() < deadline) {
-    const result = spawnSync('ssh', sshArgs(target, 'true'), {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 15_000
-    })
-    lastProbe = result.stderr || result.stdout || `exit ${result.status}`
-    // Why the auth check: a refusal must look like a dead host, never a credential prompt.
-    if (result.status !== 0 && !/permission denied/i.test(lastProbe)) {
-      return
-    }
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500)
-  }
-  throw new Error(`sshd kept accepting connections after ListenAddress 127.0.0.1: ${lastProbe}`)
-}
-
-export function writeDockerSshRelayTargetFile(
-  target: DockerSshRelayTarget,
+export function writeDockerSshHostTargetFile(
+  target: DockerSshHostTarget,
   filePath: string,
   contents: string
 ): void {
-  execDockerSshRelayTargetCommand(
+  execDockerSshHostTargetCommand(
     target,
-    `printf '%s' ${shellQuote(contents)} > ${shellQuote(filePath)}`
+    `printf '%s' ${quotePosixShell(contents)} > ${quotePosixShell(filePath)}`
   )
 }
 
-/** Why not `writeDockerSshRelayTargetFile`: that one passes the contents as a shell argument, so a
- * payload the size of a real repository's path list exceeds ARG_MAX before it reaches the shell. */
-export function copyFileIntoDockerSshRelayTarget(
-  target: DockerSshRelayTarget,
-  localPath: string,
-  remotePath: string
-): void {
-  run('docker', ['cp', localPath, `${target.containerName}:${remotePath}`], { timeoutMs: 120_000 })
-}
-
-export function startDockerSshRelayTarget(testInfo: TestInfo): DockerSshRelayTarget {
+export function startDockerSshHostTarget(
+  testInfo: Pick<TestInfo, 'workerIndex'>
+): DockerSshHostTarget {
   const host = process.env.ORCA_E2E_SSH_TARGET_HOST?.trim() || '127.0.0.1'
   if (host === 'localhost' || host === '::1' || host.startsWith('127.')) {
     if (process.env.ORCA_E2E_SSH_TARGET_HOST) {
@@ -264,7 +204,7 @@ export function startDockerSshRelayTarget(testInfo: TestInfo): DockerSshRelayTar
   run('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', identityFile, '-q'])
   const publicKey = readFileSync(`${identityFile}.pub`, 'utf8').trim()
   const containerName = `orca-ssh-e2e-${testInfo.workerIndex}-${Date.now()}-${randomUUID().slice(0, 8)}`
-  let target: DockerSshRelayTarget | null = null
+  let target: DockerSshHostTarget | null = null
 
   try {
     tryRun('docker', ['rm', '-f', containerName])
@@ -279,7 +219,7 @@ export function startDockerSshRelayTarget(testInfo: TestInfo): DockerSshRelayTar
         `${bindHost}::22`,
         '-e',
         `AUTHORIZED_KEY=${publicKey}`,
-        getDockerSshRelayImage(),
+        getDockerSshHostImage(),
         'bash',
         '-lc',
         [
@@ -308,19 +248,17 @@ export function startDockerSshRelayTarget(testInfo: TestInfo): DockerSshRelayTar
     }
     target = { containerName, containerIp, host, identityFile, port, tempDir }
     waitForSsh(target)
-    seedRemoteRepo(target, DOCKER_SSH_RELAY_REMOTE_REPO_PATH)
-    seedRemoteRepo(target, DOCKER_SSH_PROXY_JUMP_REMOTE_REPO_PATH)
-    seedRemoteRepo(target, DOCKER_SSH_SECOND_HUB_REMOTE_REPO_PATH)
+    seedRemoteRepo(target, DOCKER_SSH_HOST_REMOTE_REPO_PATH)
     return target
   } catch (error) {
-    cleanupDockerSshRelayTarget(
+    cleanupDockerSshHostTarget(
       target ?? { containerName, containerIp: '', host, identityFile, port: 0, tempDir }
     )
     throw error
   }
 }
 
-export function cleanupDockerSshRelayTarget(target: DockerSshRelayTarget | null): void {
+export function cleanupDockerSshHostTarget(target: DockerSshHostTarget | null): void {
   if (!target) {
     return
   }

@@ -5,7 +5,6 @@
  */
 import { expect, test } from './helpers/orca-app'
 import { reconnect } from './helpers/orcad-convert-flow'
-import { shellQuote } from './helpers/docker-ssh-relay-target'
 import { callEnvironment, createPairedHostTerminal } from './helpers/paired-host-terminal'
 import { reserveLocalPort } from './helpers/reserve-local-port'
 import { openTerminalWorkspaceRootLink } from './helpers/terminal-workspace-root-link'
@@ -18,6 +17,7 @@ import {
   typeInTerminal,
   withManagedHost
 } from './helpers/orcad-managed-workspace'
+import { quotePosixShell } from '../../src/shared/wsl-login-shell-command'
 
 test.skip(
   !ORCAD_TEMPLATE || process.env.ORCA_E2E_SSH_DOCKER !== '1',
@@ -29,7 +29,7 @@ test('Quick Open finds a file in a monorepo-sized managed workspace', async (// 
 {}, testInfo) => {
   test.setTimeout(10 * 60_000)
   await withManagedHost(testInfo, async (fixture) => {
-    const repo = shellQuote(fixture.host.remoteRepoPath)
+    const repo = quotePosixShell(fixture.host.remoteRepoPath)
     // ~22.6k tracked paths: past the size whose single reply once overflowed the transport (#12547).
     fixture.host.exec!(
       [
@@ -70,7 +70,7 @@ for (const acrossReconnect of [false, true]) {
       const script = `require('node:http').createServer((_q, r) => r.end(${JSON.stringify(marker)})).listen(${remotePort}, '127.0.0.1')`
       // Started from the workspace so the scan attributes it to this workspace.
       fixture.host.exec!(
-        `cd ${shellQuote(fixture.host.remoteRepoPath)} && nohup node -e ${shellQuote(script)} >/tmp/orca-http.log 2>&1 < /dev/null &`
+        `cd ${quotePosixShell(fixture.host.remoteRepoPath)} && nohup node -e ${quotePosixShell(script)} >/tmp/orca-http.log 2>&1 < /dev/null &`
       )
       // The scan the Ports panel shows for a workspace on this host.
       await expect
@@ -120,7 +120,7 @@ test('a terminal link opens an image outside the managed workspace', async (// o
     'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFklEQVR4AWN8z8DwnwEJMDGgAcICAO2mBAXmO4drAAAAAElFTkSuQmCC'
   await withManagedHost(testInfo, async (fixture) => {
     fixture.host.exec!(
-      `printf '%s' ${shellQuote(imageBase64)} | base64 -d > ${shellQuote(imagePath)}`
+      `printf '%s' ${quotePosixShell(imageBase64)} | base64 -d > ${quotePosixShell(imagePath)}`
     )
     // Why /root: the default folder workspace is /tmp, which would make the image a workspace file.
     const { page, seeded } = await launchManagedWorkspace(fixture, { folderPath: '/root' })
@@ -154,7 +154,7 @@ test('a managed terminal reports agent status from hooks and from Pi-style title
         '--data-urlencode "paneKey=${ORCA_PANE_KEY}" --data-urlencode "tabId=${ORCA_TAB_ID}"',
         '--data-urlencode "worktreeId=${ORCA_WORKTREE_ID}" --data-urlencode "env=${ORCA_AGENT_HOOK_ENV}"',
         '--data-urlencode "version=${ORCA_AGENT_HOOK_VERSION}"',
-        `--data-urlencode ${shellQuote(`payload=${payload}`)} >/tmp/orca-hook.log 2>&1 ) &`
+        `--data-urlencode ${quotePosixShell(`payload=${payload}`)} >/tmp/orca-hook.log 2>&1 ) &`
       ].join(' ')
     )
     await expect

@@ -1,7 +1,7 @@
 import type { Page, TestInfo } from '@stablyai/playwright-test'
 import { expect } from './orca-app'
-import { shellQuote } from './docker-ssh-relay-target'
 import { focusActiveTerminalInput, getTerminalContent } from './terminal'
+import { quotePosixShell } from '../../../src/shared/wsl-login-shell-command'
 
 export async function openTerminalWorkspaceRootLink(
   page: Page,
@@ -13,7 +13,7 @@ export async function openTerminalWorkspaceRootLink(
   await focusActiveTerminalInput(page)
   const readyMarker = `ROOT_LINK_PRINTED_${Date.now()}`
   await page.keyboard.insertText(
-    String.raw`printf '\n%s\n%s\n' ${shellQuote(rootPath)} ${shellQuote(readyMarker)}`
+    String.raw`printf '\n%s\n%s\n' ${quotePosixShell(rootPath)} ${quotePosixShell(readyMarker)}`
   )
   await page.keyboard.press('Enter')
   await expect
