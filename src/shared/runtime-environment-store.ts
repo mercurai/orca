@@ -14,7 +14,7 @@ import {
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
   runEnvironmentStoreMutation,
-  writeEnvironmentStore
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store-file'
 import { writeRuntimeEnvironmentSidecarEntry } from './runtime-environment-sidecar'
 
@@ -76,7 +76,7 @@ export async function addEnvironmentFromPairingCode(
         environment
       ].sort((a, b) => a.name.localeCompare(b.name))
     }
-    await writeEnvironmentStore(userDataPath, next)
+    await writeEnvironmentStoreAsync(userDataPath, next)
     return environment
   })
 }
@@ -91,7 +91,7 @@ export async function removeEnvironment(
     const store = readPersistedEnvironmentStore(userDataPath)
     const persisted = resolveEnvironmentFromStore(store, environment.id)
     const remaining = store.environments.filter((entry) => entry.id !== environment.id)
-    await writeEnvironmentStore(userDataPath, { version: 1, environments: remaining })
+    await writeEnvironmentStoreAsync(userDataPath, { version: 1, environments: remaining })
     // A leftover entry would read as stale anyway; dropping it keeps the sidecar from growing.
     await writeRuntimeEnvironmentSidecarEntry(userDataPath, remaining, persisted, null)
     return environment
@@ -134,7 +134,7 @@ export async function updateEnvironmentFromPairingCode(
       pairingRevision: Math.max(now, previousPairingRevision + 1),
       lastUsedAt: existing.lastUsedAt
     }
-    await writeEnvironmentStore(userDataPath, {
+    await writeEnvironmentStoreAsync(userDataPath, {
       version: 1,
       environments: store.environments
         .map((entry) => (entry.id === existing.id ? next : entry))
@@ -251,7 +251,7 @@ export async function markEnvironmentUsed(
   await runEnvironmentStoreMutation(userDataPath, async () => {
     const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
     if (plan) {
-      await writeEnvironmentStore(userDataPath, plan.store)
+      await writeEnvironmentStoreAsync(userDataPath, plan.store)
     }
   })
 }

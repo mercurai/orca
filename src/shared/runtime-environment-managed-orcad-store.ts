@@ -12,7 +12,7 @@ import {
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
   runEnvironmentStoreMutation,
-  writeEnvironmentStore
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store-file'
 import {
   readCurrentRuntimeEnvironmentSidecarEntry,
@@ -73,7 +73,7 @@ export async function addManagedOrcadEnvironment(
     await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, persisted, {
       orcadDeployment: args.orcadDeployment
     })
-    await writeEnvironmentStore(userDataPath, { version: 1, environments })
+    await writeEnvironmentStoreAsync(userDataPath, { version: 1, environments })
     const registered = readEnvironmentStore(userDataPath).environments.find(
       (entry) => entry.id === args.id
     )
@@ -99,7 +99,7 @@ export async function removeManagedOrcadEnvironment(
     const store = readPersistedEnvironmentStore(userDataPath)
     const persisted = resolveEnvironmentFromStore(store, environmentId)
     const remaining = store.environments.filter((entry) => entry.id !== persisted.id)
-    await writeEnvironmentStore(userDataPath, { version: 1, environments: remaining })
+    await writeEnvironmentStoreAsync(userDataPath, { version: 1, environments: remaining })
     await writeRuntimeEnvironmentSidecarEntry(userDataPath, remaining, persisted, null)
   })
 }
@@ -162,7 +162,7 @@ export async function refreshManagedOrcadPairing(
       state,
       next
     )
-    await writeEnvironmentStore(userDataPath, { version: 1, environments })
+    await writeEnvironmentStoreAsync(userDataPath, { version: 1, environments })
     await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, next, state)
     return resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
   })

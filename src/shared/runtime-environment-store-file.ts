@@ -110,7 +110,7 @@ export function runEnvironmentStoreMutation<T>(
 }
 
 /** Writes only persisted fields; sidecar state is written by the sidecar module. Call inside the lane. */
-export async function writeEnvironmentStore(
+export async function writeEnvironmentStoreAsync(
   userDataPath: string,
   store: RuntimeEnvironmentStore
 ): Promise<void> {

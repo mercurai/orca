@@ -94,7 +94,7 @@ it('turns ten usage stamps in one minute into one write', async () => {
   expect(writes).toHaveLength(1)
 })
 
-it('folds a call that lands mid-write into one follow-up stamp carrying the newest ids', async () => {
+it('folds calls that land mid-write into one follow-up stamp carrying the newest call ids', async () => {
   const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
@@ -103,10 +103,10 @@ it('folds a call that lands mid-write into one follow-up stamp carrying the newe
   await idle()
 
   expect(writes).toHaveLength(2)
-  expect(listEnvironments(userDataPath)[0]).toMatchObject({
-    runtimeId: 'runtime-2',
-    pairedDeviceId: 'device-9'
-  })
+  const [stored] = listEnvironments(userDataPath)
+  // Whole-args replacement (#1100 Part A): a device id never lands beside another reply's ids.
+  expect(stored?.runtimeId).toBe('runtime-2')
+  expect(stored?.pairedDeviceId).not.toBe('device-9')
 })
 
 it('does not resurrect an environment removed while the stamp was writing', async () => {
