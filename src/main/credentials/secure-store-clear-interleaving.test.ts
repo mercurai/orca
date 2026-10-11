@@ -50,7 +50,7 @@ type Store = {
   readCached: () => unknown
 }
 
-/** Clears after 0, 1, 2, … turns of a save until the save finishes before the clear twice in a row. */
+/** Clears after 0, 1, 2, ... turns of a save until it finishes before the clear twice in a row. */
 async function expectClearAlwaysWins(store: Store): Promise<number> {
   let settledBeforeClear = 0
   let turns = 0
@@ -125,7 +125,10 @@ describe('a clear always wins over a save in flight', () => {
         }),
       clear: () => sessions.clearOrcaCloudSession(profileId, dirs.userData),
       hasFile: () => existsSync(sessions.getOrcaCloudSessionPath(profileId, dirs.userData)),
-      readCached: () => sessions.readOrcaCloudSession(profileId, dirs.userData)
+      readCached: () => {
+        const result = sessions.readOrcaCloudSession(profileId, dirs.userData)
+        return result.status === 'found' ? result.session : null
+      }
     })
   })
 })
