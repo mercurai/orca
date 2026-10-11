@@ -86,7 +86,7 @@ afterEach(() => rmSync(harness.userDataPath, { recursive: true, force: true }))
 
 describe('stopManagedOrcadEnvironment', () => {
   it('unlinks the server only after the host proves orcad exited', async () => {
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('migration-1', 'ssh-1', { environmentId: 'environment-1' }),
       phase: 'destination-committed',
       sourceRetainedAt: '2026-10-01T00:00:00.000Z'

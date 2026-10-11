@@ -6,9 +6,11 @@
  * the target's `orcadFence`, which shipped builds keep, survived it. A missing journal must
  * never look like "no migration"; an unreadable one fails closed.
  */
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { writeSecureJsonFileWithinLimit } from '../../shared/bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from '../../shared/bounded-secure-json-file'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { removeSecureFile } from '../../shared/secure-file-async-write'
 import { readNodeFileSyncWithinLimit } from '../../shared/node-bounded-file-reader'
 import {
   MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS,
@@ -132,12 +134,26 @@ export function listOrcadMigrationCutoverChainForTarget(
   return chain
 }
 
-/** Durable before it returns: a fence written after this always has its journal on disk. */
-export function writeOrcadMigrationSourceCutover(
+/** Durable once it resolves: a fence written after awaiting this always has its journal on disk. */
+export async function writeOrcadMigrationSourceCutover(
   userDataPath: string,
   cutover: OrcadMigrationSourceCutover
-): void {
+): Promise<void> {
   const parsed = parseOrcadMigrationSourceCutover(cutover)
+  const directory = orcadMigrationCutoverJournalDirectory(userDataPath)
+  // Why one lane per journal: the capacity check reads every entry, so it and the write stay atomic.
+  await serializePathWrite(`${directory}#journal`, async () => {
+    await writeCutoverWithinCapacity(userDataPath, directory, parsed)
+  })
+  parsedJournals.delete(directory)
+  notifyJournalChanged(userDataPath)
+}
+
+async function writeCutoverWithinCapacity(
+  userDataPath: string,
+  directory: string,
+  parsed: OrcadMigrationSourceCutover
+): Promise<void> {
   const existing = listOrcadMigrationSourceCutovers(userDataPath)
   // Why in flight only: a retained cutover is finished and may wait two releases for retirement.
   const inFlight = existing.filter(
@@ -149,17 +165,14 @@ export function writeOrcadMigrationSourceCutover(
   ) {
     throw new Error('orcad_migration_cutover_capacity_exceeded')
   }
-  const directory = orcadMigrationCutoverJournalDirectory(userDataPath)
   mkdirSync(directory, { recursive: true, mode: 0o700 })
-  writeSecureJsonFileWithinLimit(
+  // durable: fsyncs the file before the rename and the directory after it, as the sync write did.
+  await writeSecureJsonFileWithinLimitAsync(
     join(directory, `${parsed.migrationId}.json`),
     parsed,
     MAX_JOURNAL_FILE_BYTES,
     { durable: true }
   )
-  syncDirectoryDurablySync(directory)
-  parsedJournals.delete(directory)
-  notifyJournalChanged(userDataPath)
 }
 
 export function removeOrcadMigrationSourceCutover(userDataPath: string, migrationId: string): void {
@@ -167,7 +180,8 @@ export function removeOrcadMigrationSourceCutover(userDataPath: string, migratio
     throw new Error('orcad_migration_cutover_id_invalid')
   }
   const directory = orcadMigrationCutoverJournalDirectory(userDataPath)
-  rmSync(join(directory, `${migrationId}.json`), { force: true })
+  // Why removeSecureFile: a write still queued for this journal must not bring it back.
+  removeSecureFile(join(directory, `${migrationId}.json`))
   parsedJournals.delete(directory)
   if (existsSync(directory)) {
     syncDirectoryDurablySync(directory)

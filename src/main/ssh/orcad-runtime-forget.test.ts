@@ -62,7 +62,7 @@ describe('a managed server whose host is gone (P1-E)', () => {
   })
 
   it('is forgotten locally without contacting the host, which frees its SSH target', async () => {
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('migration-1', 'ssh-1', { environmentId: 'environment-1' }),
       phase: 'destination-committed',
       sourceRetainedAt: '2026-10-01T00:00:00.000Z'

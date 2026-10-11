@@ -182,7 +182,7 @@ describe('rollbackManagedOrcadEnvironment', () => {
 
   it('refuses a rollback across a retained delta move that predates the mark', async () => {
     // A delta finished by an earlier build left no mark; its retained journal still counts.
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('delta-1', 'ssh-1', { environmentId: 'environment-1' }),
       startedAt: '2026-02-01T00:00:00.000Z',
       phase: 'destination-committed',
