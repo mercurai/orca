@@ -73,7 +73,10 @@ export async function teardownSshTargetTransport(
   // Why: start the transport disconnect before session teardown; the async wrapper turns a sync throw into a rejection.
   const transportDisconnect = (async () => connectionManager?.disconnect(targetId))()
   const [teardownResult, disconnectResult] = await Promise.allSettled([
-    teardownActiveSshSession(targetId, teardown),
+    activeSessions.has(targetId)
+      ? teardownActiveSshSession(targetId, teardown)
+      : // A managed host has no relay session, but its forwards still hold local ports.
+        (async () => portForwardManager?.removeAllForwards(targetId))(),
     transportDisconnect
   ])
   if (teardownResult.status === 'rejected') {

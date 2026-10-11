@@ -61,8 +61,6 @@ test('Quick Open finds a file in a monorepo-sized managed workspace', async (// 
 for (const acrossReconnect of [false, true]) {
   test(`a managed host reports its listener, and an SSH forward reaches it${acrossReconnect ? ' across a reconnect' : ''}`, async (// oxlint-disable-next-line no-empty-pattern -- Owns its app launch through a restart session.
   {}, testInfo) => {
-    // Why fixme: saved forwards are re-established only by the relay session's connect callbacks.
-    test.fixme(acrossReconnect, 'A managed host reconnect never calls restorePortForwards')
     test.setTimeout(10 * 60_000)
     const remotePort = 7860
     const marker = `ORCA_FORWARD_${Date.now()}`
@@ -97,11 +95,18 @@ for (const acrossReconnect of [false, true]) {
         }
       }
       await expect.poll(fetchMarker, { timeout: 30_000 }).toBe(marker)
+      let forwardId = forward.id
       if (acrossReconnect) {
         await reconnect(page, seeded.targetId)
         await expect.poll(fetchMarker, { timeout: 60_000 }).toBe(marker)
+        // The restored forward is a new entry for the same saved port.
+        const restored = await page.evaluate(
+          (targetId) => window.api.ssh.listPortForwards({ targetId }),
+          seeded.targetId
+        )
+        forwardId = restored.find((entry) => entry.localPort === localPort)?.id ?? forwardId
       }
-      await page.evaluate((id) => window.api.ssh.removePortForward({ id }), forward.id)
+      await page.evaluate((id) => window.api.ssh.removePortForward({ id }), forwardId)
       await expect.poll(fetchMarker, { timeout: 30_000 }).not.toBe(marker)
     }).finally(() => reservation.release())
   })

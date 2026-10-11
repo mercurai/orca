@@ -11,6 +11,7 @@ import {
   testingTargets
 } from './ssh-connect-attempt-registry'
 import { connectionManager, getCurrentMainWindow } from './ssh-ipc-context'
+import { restoreManagedHostPortForwards } from './ssh-managed-port-forward-restore'
 import { requestCredential } from './ssh-passphrase'
 import { clearRelayLostBackoff } from './ssh-relay-lost-backoff'
 import {
@@ -108,6 +109,10 @@ export function handleSshConnectionStateChange(targetId: string, state: SshConne
   }
 
   if (!session) {
+    // An explicit connect restores through its own publish; this covers a transport that recovered.
+    if (state.status === 'connected' && !connectInFlight.has(targetId)) {
+      void restoreManagedHostPortForwards(targetId)
+    }
     return
   }
   // Why: allow reconnect from both 'ready' and 'reconnecting'; without the latter, a failed relay deploy would permanently brick the session.

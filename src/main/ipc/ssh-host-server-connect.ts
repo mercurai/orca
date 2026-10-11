@@ -18,6 +18,7 @@ import { knownSshHostPlatform } from '../ssh/ssh-host-platform-memo'
 import { getSshTargetRegistryStore } from '../ssh/ssh-target-registry'
 import { allowsDirectSshRelay } from '../ssh/ssh-connection-store'
 import { connectionManager, getCurrentMainWindow } from './ssh-ipc-context'
+import { restoreManagedHostPortForwards } from './ssh-managed-port-forward-restore'
 import {
   broadcastSshState,
   clearRelayStateOverride,
@@ -101,6 +102,7 @@ export function publishManagedServerConnect(
     ...(serving ? { serving } : {})
   }
   setSshHostServerStatus(targetId, managedServer)
+  void restoreManagedHostPortForwards(targetId)
   const state: SshConnectionState = {
     ...(connectionManager!.getState(targetId) ?? { targetId, reconnectAttempt: 0 }),
     targetId,

@@ -42,8 +42,8 @@ const asiaCells = ['production-gce-c27', 'production-gce-c28', 'production-gce-c
 const c30Digest = '4158d8a2e18e9caec439d257f0c1e45d92ffea8c0262f057b2f08c76a134bcf0'
 // C31 launches on the digest the director served when it was declared.
 const c31Digest = 'f30b5cb1ec52b6b6145efecfa1b8be9e3d309403beffd8abcc64197a2087e269'
-// Staging C4 stays on the serving director's image until the director's identity bootstrap deploy.
-const stagingC4Digest = launchDigest
+// Staging C4 runs the step-5 image D for the staging e2e.
+const stagingC4Digest = 'ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02'
 
 function cellBlock(tfvars, cellId) {
   const start = tfvars.indexOf(`"${cellId}"`)
