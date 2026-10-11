@@ -75,7 +75,7 @@ export function saveArtifactShareRecord(
 ): Promise<void> {
   return serializeRecords(profileId, userDataPath, async () => {
     const records = await readRecords(profileId, userDataPath)
-    // Why: a sign-out queued ahead of this save already cleared the index; never write the old token back.
+    // Why: a sign-out queued ahead already cleared the index; never write the old token back.
     if (
       expectedLifecycle !== undefined &&
       `${records.lifecycleGeneration}:${records.lifecycleNonce}` !== expectedLifecycle
