@@ -79,9 +79,9 @@ describe('migration cutover journal sidecar', () => {
     for (const index of [1, 2, 3, 4]) {
       await writeOrcadMigrationSourceCutover(userDataPath, cutover(`m-${index}`, `ssh-${index}`))
     }
-    await expect(writeOrcadMigrationSourceCutover(userDataPath, cutover('m-5', 'ssh-5'))).rejects.toThrow(
-      'capacity'
-    )
+    await expect(
+      writeOrcadMigrationSourceCutover(userDataPath, cutover('m-5', 'ssh-5'))
+    ).rejects.toThrow('capacity')
     await writeOrcadMigrationSourceCutover(userDataPath, {
       ...cutover('m-1', 'ssh-1'),
       phase: 'destination-staged'

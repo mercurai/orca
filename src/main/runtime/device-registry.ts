@@ -12,55 +12,20 @@ import type { DeviceScope } from '../../shared/runtime-types'
 import { removeStaleDurableWriteTempFiles } from '../durable-file-write'
 import { DEVICE_REGISTRY_FILENAME } from './mobile-pairing-files'
 import { DeviceRevocationMarks } from './device-revocation-marks'
-import type { RelayDeviceBinding } from './relay/relay-revoke-outbox'
-import { validRelayBinding } from './device-registry-relay-binding'
 import type { MobilePairingConnectionMode } from '../../shared/mobile-pairing-connection-mode'
 import type { RuntimePairingReach } from '../../shared/runtime-pairing-reach'
-import { RUNTIME_DEVICE_GRANTS, type RuntimeDeviceGrant } from './rpc/rpc-method-permission'
+import type { RelayDeviceBinding } from './relay/relay-revoke-outbox'
+import type { RuntimeDeviceGrant } from './rpc/rpc-method-permission'
+import type { MobilePushRegistration } from '../../shared/mobile-push-contract'
 import {
-  parseMobilePushRegistration,
-  type MobilePushRegistration
-} from '../../shared/mobile-push-contract'
+  normalizeDeviceEntry,
+  sameGrants,
+  validGrants,
+  type DeviceEntry
+} from './device-registry-entry'
 
 export type { DeviceScope }
-
-export type DeviceEntry = {
-  deviceId: string
-  name: string
-  token: string
-  scope: DeviceScope
-  pairedAt: number
-  lastSeenAt: number
-  relayBinding?: RelayDeviceBinding
-  mobilePairingConnectionMode?: MobilePairingConnectionMode
-  // Why: STA-2370 — a grant minted for "This computer only" proves nothing about off-host reach when its
-  // client connects, so the bind decision must be able to tell it apart from a LAN/phone grant.
-  pairingReach?: RuntimePairingReach
-  // Why: survives a desktop restart so the host can keep pushing without the phone
-  // re-registering. Absent on every registry written before background push existed.
-  pushRegistration?: MobilePushRegistration
-  // Why: administrative permissions are granted only when pairing; absent on older rows means none.
-  grants?: RuntimeDeviceGrant[]
-}
-
-const GRANTABLE: ReadonlySet<string> = new Set(RUNTIME_DEVICE_GRANTS)
-
-function isRuntimeDeviceGrant(value: unknown): value is RuntimeDeviceGrant {
-  return typeof value === 'string' && GRANTABLE.has(value)
-}
-
-function validGrants(value: unknown, scope: DeviceScope): RuntimeDeviceGrant[] | undefined {
-  if (scope !== 'runtime' || !Array.isArray(value)) {
-    return undefined
-  }
-  const grants = [...new Set(value.filter(isRuntimeDeviceGrant))].sort()
-  return grants.length > 0 ? grants : undefined
-}
-
-function sameGrants(entry: DeviceEntry, grants: readonly RuntimeDeviceGrant[]): boolean {
-  const current = entry.grants ?? []
-  return current.length === grants.length && current.every((grant) => grants.includes(grant))
-}
+export type { DeviceEntry } from './device-registry-entry'
 
 // Why: a lastSeen refresh is pure bookkeeping, so coalesce reconnect bursts into one write instead of
 // paying a secure-file rewrite (two synchronous PowerShell ACL spawns on Windows) per connection.
@@ -370,22 +335,7 @@ export class DeviceRegistry {
     try {
       hardenExistingSecureFile(this.registryPath)
       const parsed = JSON.parse(readFileSync(this.registryPath, 'utf-8')) as DeviceEntry[]
-      this.devices = parsed.map((device) => ({
-        ...device,
-        // Why: older registries only existed for phone pairing. Treat missing
-        // scope as mobile so legacy device tokens do not gain new CLI powers.
-        scope: device.scope === 'runtime' ? 'runtime' : 'mobile',
-        grants: validGrants(device.grants, device.scope === 'runtime' ? 'runtime' : 'mobile'),
-        relayBinding: validRelayBinding(device.relayBinding, device.deviceId),
-        mobilePairingConnectionMode:
-          device.mobilePairingConnectionMode === 'local-only' ? 'local-only' : 'automatic',
-        // Why: registries written before this field existed only ever held network-reach grants (phones and
-        // LAN links), so a missing value must keep binding every interface on reconnect.
-        pairingReach: device.pairingReach === 'this-computer' ? 'this-computer' : 'network',
-        // Why: a malformed row must degrade to "no background push", never fail the load
-        // and strand every paired device.
-        pushRegistration: parseMobilePushRegistration(device.pushRegistration)
-      }))
+      this.devices = parsed.map(normalizeDeviceEntry)
       this.registryUnreadable = false
     } catch (error) {
       // "Cannot read" is not "is empty". Saving an empty list over a registry we were merely
