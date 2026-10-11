@@ -36,15 +36,18 @@ it('gives up on a hung write at the bound and logs its path, never its payload',
   const hang = deferred()
   const write = serializePathWrite('/profile/api-key', () => hang.promise)
 
-  await drainPathWritesForQuit(20)
+  try {
+    await drainPathWritesForQuit(20)
 
-  expect(warn).toHaveBeenCalledOnce()
-  expect(warn.mock.calls[0]).toEqual([
-    '[shutdown] Secure file writes still pending at quit',
-    { paths: ['/profile/api-key'] }
-  ])
-  hang.resolve()
-  await write
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]).toEqual([
+      '[shutdown] Secure file writes still pending at quit',
+      { paths: ['/profile/api-key'] }
+    ])
+  } finally {
+    hang.resolve()
+    await write
+  }
   expect(pendingPathWritePaths()).toEqual([])
 })
 
