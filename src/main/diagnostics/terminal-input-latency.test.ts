@@ -29,6 +29,7 @@ describe('terminal input latency probe', () => {
     probe.noteInput('a', t.wall() - 400, KEY)
     const w = probe.drain()
     expect(w.inputCount).toBe(2)
+    expect(w.typedPtyCount).toBe(1)
     expect(w.ipcLagP50Ms).toBe(40)
     expect(w.ipcLagMaxMs).toBe(400)
   })
