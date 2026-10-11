@@ -228,6 +228,20 @@ describe('ephemeral VM runtime store rollback projection', () => {
     expect(listEphemeralVmRuntimes(userDataPath)).toContainEqual(provisioned)
   })
 
+  it('persists both of two upserts started without awaiting the first', async () => {
+    const userDataPath = makeUserDataPath()
+    // The cross-version driver fires these back to back; the serialized read-modify-write must keep both.
+    const first = upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    const second = upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
+    await Promise.all([first, second])
+
+    expect(
+      listEphemeralVmRuntimes(userDataPath)
+        .map((runtime) => runtime.id)
+        .sort()
+    ).toEqual(['ordinary-runtime', 'provisioned-runtime'])
+  })
+
   it('carries rollback lifecycle mutations through re-upgrade', async () => {
     const userDataPath = makeUserDataPath()
     await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
