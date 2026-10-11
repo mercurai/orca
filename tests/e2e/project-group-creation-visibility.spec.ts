@@ -87,7 +87,7 @@ for (const delayCreateResponse of [false, true]) {
       })
     }
     const creation = orcaPage.evaluate(() =>
-      window.__store!.getState().createProjectGroup('Crowded group')
+      window.__store!.getState().createProjectGroup('Crowded group', 'local')
     )
     if (delayCreateResponse) {
       try {
@@ -163,7 +163,9 @@ for (const delayCreateResponse of [false, true]) {
       }
     }
     await expect(group).toHaveCount(1)
-    await orcaPage.evaluate(() => window.__store!.getState().fetchProjectGroups())
+    await orcaPage.evaluate(() =>
+      window.__store!.getState().fetchProjectGroups({ runtimeEnvironmentId: null })
+    )
     await expect(group).toHaveCount(1)
     await group.click()
     for (const repo of groupedRepos) {

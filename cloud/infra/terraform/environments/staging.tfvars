@@ -39,7 +39,11 @@ relay_gce_cells = {
     boot_disk_gb      = 30
     boot_image        = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-7"
     capacity_requests = 4000
-    image             = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:2d0f6e6db2b0eb9d6aba188698de8330f8c30b4e76badfcf0fac3f3eb9508a87"
+    # Step-5 image D (#27049-#27107). Never 2d0f6e6: it cannot report capped telemetry.
+    image = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
+    # Step-5 staging e2e: c1 is the second US reserve cell, so it needs a cap and rehome trust.
+    connection_hard_cap         = 600
+    connection_unobserved_bound = 60
   }
   "staging-gce-c2" = {
     hostname                    = "c2"
@@ -48,7 +52,7 @@ relay_gce_cells = {
     boot_disk_gb                = 30
     boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-7"
     capacity_requests           = 4000
-    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:1239830d0946dc92ded3c9edde1c0b827f584a7a2be5c177beed900056d76f69"
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
     connection_hard_cap         = 600
     connection_unobserved_bound = 60
   }
@@ -73,14 +77,15 @@ relay_gce_cells = {
     boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-21"
     capacity_requests           = 6000
     database_pool_max           = 10
-    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:5aedbca5c86de24c8b4d4bf7e3b444b76c712f281ede916cb9d90f70cad1e563"
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
     initially_enabled           = false
     connection_hard_cap         = 3000
     connection_unobserved_bound = 60
   }
 }
 
-relay_region_rehome_source_cell_ids = ["staging-gce-c2", "staging-gce-c3"]
+# c1 and c4 hold rehome trust for the step-5 staging e2e: the reserve and demote routes need it.
+relay_region_rehome_source_cell_ids = ["staging-gce-c1", "staging-gce-c2", "staging-gce-c3", "staging-gce-c4"]
 
 # Push is currently provisioned only in production.
 push_gateway_enabled = false
