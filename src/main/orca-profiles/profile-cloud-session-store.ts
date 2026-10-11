@@ -2,7 +2,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { safeStorage } from 'electron'
 import { isUnreadableError } from '../../shared/secure-file'
-import { removeSecureFile, writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
+import {
+  removeSecureFile,
+  SecureWriteDiscardedError,
+  writeSecureJsonFileAsync
+} from '../../shared/secure-file-async-write'
 import type {
   OrcaCloudCapabilities,
   OrcaCloudOrgSummary,
@@ -165,13 +169,21 @@ export async function saveOrcaCloudSessionExchange(
     cloudSessionIdentity(profileId, exchange.cloud),
     userDataPath
   )
-  return saveOrcaCloudSession(profileId, userDataPath, {
-    accessToken: exchange.accessToken,
-    refreshToken: exchange.refreshToken,
-    expiresAt: exchange.expiresAt,
-    organizations: exchange.organizations,
-    capabilities: exchange.capabilities
-  })
+  try {
+    return await saveOrcaCloudSession(profileId, userDataPath, {
+      accessToken: exchange.accessToken,
+      refreshToken: exchange.refreshToken,
+      expiresAt: exchange.expiresAt,
+      organizations: exchange.organizations,
+      capabilities: exchange.capabilities
+    })
+  } catch (error) {
+    if (error instanceof SecureWriteDiscardedError) {
+      console.warn('[orca-cloud] sign-out discarded the session write', error.targetPath)
+      throw new Error('Signed out while signing in.')
+    }
+    throw error
+  }
 }
 
 export function saveOrcaCloudSessionIfCurrent(
