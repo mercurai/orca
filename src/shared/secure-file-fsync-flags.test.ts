@@ -1,6 +1,7 @@
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
 import { removeTreeSync } from './windows-transient-lock-removal'
 import type * as NodeFs from 'node:fs'
+import type * as NodeFsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -24,11 +25,23 @@ vi.mock('node:fs', async () => {
   }
 })
 
-import {
-  bestEffortFsyncDirectorySync,
-  fsyncFileSync,
-  writeDurableSecureJsonFile
-} from './secure-file'
+vi.mock('node:fs/promises', async () => {
+  const actual = await vi.importActual<typeof NodeFsPromises>('node:fs/promises')
+  return {
+    ...actual,
+    open: (path: NodeFs.PathLike, flags: string | number, mode?: NodeFs.Mode) => {
+      openedPaths.push({
+        path: String(path),
+        flags,
+        ownerWritable: Boolean(statSync(path).mode & 0o200)
+      })
+      return actual.open(path, flags, mode)
+    }
+  }
+})
+
+import { bestEffortFsyncDirectorySync, fsyncFileSync } from './secure-file'
+import { writeDurableSecureJsonFileAsync } from './secure-file-async-write'
 
 const createdPaths: string[] = []
 
@@ -64,14 +77,14 @@ describe('secure file fsync flags', () => {
     expect(openedPaths).toEqual([{ path, flags: 'r', ownerWritable: false }])
   })
 
-  posixIt('durably writes when umask removes owner-write from the temporary file', () => {
+  posixIt('durably writes when umask removes owner-write from the temporary file', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'orca-durable-file-fsync-read-only-'))
     createdPaths.push(directory)
     const path = join(directory, 'record.json')
     const originalUmask = process.umask(0o200)
 
     try {
-      expect(() => writeDurableSecureJsonFile(path, { ok: true })).not.toThrow()
+      await expect(writeDurableSecureJsonFileAsync(path, { ok: true })).resolves.toBe(true)
     } finally {
       process.umask(originalUmask)
     }
