@@ -45,14 +45,14 @@ export async function runOrcadManagedStopCommand(
   return completion
 }
 
-export function runOrcadManagedStopCancelCommand(
+export async function runOrcadManagedStopCancelCommand(
   argv: readonly string[]
-): OrcadManagedStopCancellation {
+): Promise<OrcadManagedStopCancellation> {
   const request = parseRequestArgument(argv, ORCAD_CANCEL_MANAGED_STOP_FLAG)
   const cancellation: OrcadManagedStopCancellation = {
     ...request,
     kind: 'orcad_managed_stop_cancellation',
-    outcome: cancelOrcadManagedStop(request)
+    outcome: await cancelOrcadManagedStop(request)
   }
   process.stdout.write(`${JSON.stringify(cancellation)}\n`)
   return cancellation
@@ -81,11 +81,9 @@ export const ORCAD_MANAGED_STOP_EXIT_USAGE = 64
 export async function runOrcadManagedStopCommandAndExit(argv: readonly string[]): Promise<void> {
   let code = ORCAD_MANAGED_STOP_EXIT_VERDICT
   try {
-    if (argv[0] === ORCAD_CANCEL_MANAGED_STOP_FLAG) {
-      runOrcadManagedStopCancelCommand(argv)
-    } else {
-      await runOrcadManagedStopCommand(argv)
-    }
+    await (argv[0] === ORCAD_CANCEL_MANAGED_STOP_FLAG
+      ? runOrcadManagedStopCancelCommand(argv)
+      : runOrcadManagedStopCommand(argv))
   } catch (error) {
     console.error('orcad: managed stop failed:', error)
     code =

@@ -6,7 +6,8 @@
 import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { readNodeFileSyncWithinLimit } from '../../shared/node-bounded-file-reader'
-import { writeDurableSecureJsonFile } from '../../shared/secure-file'
+import { removeSecureFile } from '../../shared/secure-file-async-write'
+import { writeOrcadStopRecordFile } from './orcad-completed-stop-receipt'
 import {
   ORCAD_IDLE_STOP_RECORD_FILENAME,
   OrcadIdleStopRecordSchema,
@@ -21,11 +22,11 @@ export function orcadIdleStopRecordPath(userDataPath: string): string {
   return join(userDataPath, ORCAD_IDLE_STOP_RECORD_FILENAME)
 }
 
-export function writeOrcadIdleStopRecord(
+export async function writeOrcadIdleStopRecord(
   userDataPath: string,
   evidence: OrcadIdleExitEvidence,
   version: string
-): void {
+): Promise<void> {
   const record: OrcadIdleStopRecord = {
     schemaVersion: 1,
     kind: 'orcad_idle_stop',
@@ -35,7 +36,7 @@ export function writeOrcadIdleStopRecord(
     stoppedAt: new Date(evidence.stoppedAt).toISOString(),
     idleTimeoutMs: evidence.timeoutMs
   }
-  if (!writeDurableSecureJsonFile(orcadIdleStopRecordPath(userDataPath), record)) {
+  if (!(await writeOrcadStopRecordFile(orcadIdleStopRecordPath(userDataPath), record))) {
     throw new Error('orcad_idle_stop_record_permissions_unconfirmed')
   }
 }
@@ -58,5 +59,6 @@ export function consumeOrcadIdleStopRecord(userDataPath: string): OrcadIdleStopR
 }
 
 export function discardOrcadIdleStopRecord(userDataPath: string): void {
-  rmSync(orcadIdleStopRecordPath(userDataPath), { force: true })
+  // Why removeSecureFile: a write still in flight must not bring back the record of a failed stop.
+  removeSecureFile(orcadIdleStopRecordPath(userDataPath))
 }

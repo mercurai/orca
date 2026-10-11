@@ -1,6 +1,6 @@
 import { chmodSync, statSync } from 'node:fs'
 import process from 'node:process'
-import { restrictWindowsPathSync } from '../../shared/secure-path-windows-acl'
+import { restrictWindowsPathAsync } from '../../shared/secure-path-windows-acl'
 
 export type OrcadInstanceLockCode =
   | 'orcad_data_root_unusable'
@@ -23,7 +23,7 @@ export class OrcadInstanceLockError extends Error {
 export type OrcadDataRootPrivacyHooks = {
   platform?: NodeJS.Platform
   /** Windows: restrict the data root's ACL to this user; false when it could not be applied. */
-  restrictWindowsDataRoot?: (dataRoot: string) => boolean
+  restrictWindowsDataRoot?: (dataRoot: string) => boolean | Promise<boolean>
 }
 
 /**
@@ -34,16 +34,16 @@ export type OrcadDataRootPrivacyHooks = {
  * we own the directory, tightening it is strictly better than refusing to start. We refuse
  * only when the permissions are not ours to fix.
  */
-export function assertOrcadDataRootIsPrivate(
+export async function assertOrcadDataRootIsPrivate(
   dataRoot: string,
   hooks: OrcadDataRootPrivacyHooks
-): void {
+): Promise<void> {
   // Windows ACLs are not expressible as a POSIX mode, and `statSync().mode` there reports a
   // synthesized one, so Windows restricts and verifies the ACL instead (icacls, no PowerShell).
   if ((hooks.platform ?? process.platform) === 'win32') {
     const restrict =
-      hooks.restrictWindowsDataRoot ?? ((path: string) => restrictWindowsPathSync(path, true))
-    if (!restrict(dataRoot)) {
+      hooks.restrictWindowsDataRoot ?? ((path: string) => restrictWindowsPathAsync(path, true))
+    if (!(await restrict(dataRoot))) {
       throw new OrcadInstanceLockError(
         'orcad_data_root_shared',
         `Could not restrict the orcad data root ${dataRoot} to this user. orcad stores ` +

@@ -203,6 +203,14 @@ function reportSettlementThrow(targetPath: string, error: unknown): void {
   }
 }
 
+/** Verify-first restrict of a path of unknown history; false when the ACL could not be confirmed. */
+export async function restrictWindowsPathAsync(
+  targetPath: string,
+  isDirectory: boolean
+): Promise<boolean> {
+  return await restrictAsync(targetPath, isDirectory)
+}
+
 async function restrictAsync(targetPath: string, isDirectory: boolean): Promise<boolean> {
   const currentUserSid = await getCurrentWindowsUserSidAsync()
   if (!currentUserSid) {

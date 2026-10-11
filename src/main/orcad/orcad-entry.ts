@@ -167,6 +167,7 @@ async function startOrcadRuntime(
   const { createOrcadProfileStateStartup } = await import('./orcad-profile-state-startup')
   const { startOrcadDaemon, stopOrcadDaemon } = await import('./orcad-daemon-supervision')
   const { daemonOwnsFreshPersistentPtys } = await import('../daemon/daemon-init')
+  const { drainPathWritesForQuit } = await import('../startup/path-write-quit-drain')
   const { collectOrcadHealth } = await import('./orcad-health')
   // Why importable here: the singleton's module tree never reaches Electron, and orcad supplies
   // its persistence and endpoint paths explicitly below.
@@ -187,6 +188,9 @@ async function startOrcadRuntime(
   let uninstallObservedStatusIdentity = (): void => {}
   let removeStatusHookSettingsListener = (): void => {}
   // Cleanups run in reverse: RPC, then recovery and watchers, then the final flush, then daemon.
+  // Registered first so it runs last: secure-file writes are async now, and the synchronous ones
+  // never lost a write at exit; wait for any still queued (bounded, inside the shutdown deadline).
+  registerCleanup(() => drainPathWritesForQuit())
   registerCleanup(() => agentHookServer.stop())
   registerCleanup(() => uninstallHookStatusRepublish())
   registerCleanup(() => uninstallObservedStatusIdentity())
