@@ -37,6 +37,10 @@ import {
 import { LayoutOracle, type OracleFinding } from './helpers/workspace-layout-oracle'
 import type { OracleLayout } from './helpers/workspace-layout-oracle-model'
 import { ORACLE_REPORT_DIR_ENV } from './helpers/workspace-layout-oracle-session'
+import {
+  summarizeEventLoopDelay,
+  type EventLoopDelaySummary
+} from './helpers/event-loop-delay-report'
 import { unexpectedFindings } from './workspace-layout-oracle-known-on-main'
 
 type Run = {
@@ -472,7 +476,18 @@ async function runHeadlessScenario(
     }
     return findings
   } finally {
-    writeReport(testInfo, `${kind}-${scenario.id}`, findings, Date.now() - started)
+    const ended = Date.now()
+    writeReport(testInfo, `${kind}-${scenario.id}`, {
+      durationMs: ended - started,
+      findings,
+      // orcad, or Electron serve's main process.
+      eventLoopDelay: summarizeEventLoopDelay(
+        host.userDataDir,
+        kind === 'orcad' ? 'orcad' : 'main',
+        started,
+        ended
+      )
+    })
     await host.dispose()
   }
 }
@@ -480,15 +495,18 @@ async function runHeadlessScenario(
 function writeReport(
   testInfo: TestInfo,
   scenarioId: string,
-  findings: OracleFinding[],
-  durationMs: number
+  report: {
+    durationMs: number
+    findings: OracleFinding[]
+    eventLoopDelay: EventLoopDelaySummary
+  }
 ): void {
   const dir = process.env[ORACLE_REPORT_DIR_ENV] ?? testInfo.outputPath('layout-oracle')
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, `headless-${scenarioId}-${Date.now()}.json`)
   writeFileSync(
     file,
-    `${JSON.stringify({ scenario: `headless-${scenarioId}`, durationMs, findings }, null, 2)}\n`
+    `${JSON.stringify({ scenario: `headless-${scenarioId}`, ...report }, null, 2)}\n`
   )
 }
 

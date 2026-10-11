@@ -7423,7 +7423,10 @@
           "connectionTestHost": "Host",
           "connectionTestPort": "Port",
           "connectionTestRunning": "Testing...",
-          "connectionTestAction": "Test Connection"
+          "connectionTestAction": "Test Connection",
+          "appStatus": "App: ",
+          "terminalHostStatus": "Terminal hosts: ",
+          "terminalHostRecovery": "If a terminal cannot read protected files, save its work and close it in Terminal → Manage Sessions. Restart the daemon if new terminals are also affected; restarting closes its current terminals."
         },
         "ExperimentalPane": {
           "9762364929": "Uses APFS clone-copy on macOS when possible, otherwise symlinks configured folders or files into created worktrees.",
@@ -13913,7 +13916,8 @@
             "resumeInChatTranscriptMissing": "This conversation's history could not be loaded, so it cannot be resumed in chat.",
             "resumeInChatFailed": "Could not resume this session in a new chat.",
             "resumeInNewCliUnavailable": "This session cannot be opened in the CLI.",
-            "resumeInNewCliHostTooOld": "Update Orca on the host that runs this chat to resume it in a new CLI."
+            "resumeInNewCliHostTooOld": "Update Orca on the host that runs this chat to resume it in a new CLI.",
+            "folderWorkspaceUnavailable": "Folder workspace is no longer available."
           },
           "AiVaultPanelControls": {
             "scanningSessions": "Scanning sessions",
@@ -14015,7 +14019,9 @@
             "copied": "Copied",
             "copy": "Copy",
             "noFirstPromptAvailable": "No first prompt available",
-            "loadingFirstPrompt": "Loading first prompt…"
+            "loadingFirstPrompt": "Loading first prompt…",
+            "folder": "Folder",
+            "resumeInFolder": "Resume in Folder"
           },
           "AiVaultSessionRow": {
             "noPreviewAvailable": "No conversation preview available",
@@ -14111,7 +14117,12 @@
             "noRecordedWorktree": "No worktree was recorded for this session.",
             "archivedJumpUnavailable": "This session is in an archived worktree.",
             "noActiveWorktreeMatch": "No active worktree matches this session.",
-            "noActiveWorktreeTarget": "No active worktree is available."
+            "noActiveWorktreeTarget": "No active worktree is available.",
+            "jumpToFolder": "Jump to Folder",
+            "archivedFolderJumpUnavailable": "This session is in an archived folder.",
+            "currentFolder": "Current folder",
+            "archivedFolder": "Archived folder",
+            "activeFolder": "Folder"
           },
           "AiVaultSessionSubagents": {
             "subagentsCount": "Subagents ({{value0}})",
@@ -18224,7 +18235,8 @@
         "orcaStopQuit": "Orca on {{machine}} was closed while this response was in progress.",
         "orcaStopCrash": "Orca on {{machine}} stopped unexpectedly while this response was in progress.",
         "orcaStopRemote": "Orca on {{machine}} stopped while this response was in progress.",
-        "orcaStopCanContinue": "You can continue in this conversation."
+        "orcaStopCanContinue": "You can continue in this conversation.",
+        "orcaStopUnnamedServer": "the remote server"
       },
       "composer": {
         "imageUnsupported": "Image paste is not supported for this agent.",

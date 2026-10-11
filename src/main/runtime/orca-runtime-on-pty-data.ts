@@ -1,6 +1,5 @@
 // @ts-nocheck -- mechanically split from OrcaRuntimeService; behavior is covered by AST equivalence and characterization tests.
 import { OrcaRuntimeWithPreparePtyExecutionContext } from './orca-runtime-prepare-pty-execution-context'
-import type { TerminalOutputSourceRange } from '../../shared/terminal-output-source-range'
 import { advertisedUrlWatcher } from '../ports/advertised-url-watcher'
 import { appendNormalizedToTailBuffer } from './terminal-tail-buffer'
 import { normalizeTerminalChunk } from './terminal-ansi-normalization'
@@ -30,8 +29,7 @@ export class OrcaRuntimeWithOnPtyData extends OrcaRuntimeWithPreparePtyExecution
     data: string,
     at: number,
     sequenceChars = data.length,
-    transformed = false,
-    sourceRanges?: readonly TerminalOutputSourceRange[]
+    transformed = false
   ): number {
     const outputSequence = (this.ptyOutputSequenceById.get(ptyId) ?? 0) + sequenceChars
     this.ptyOutputSequenceById.set(ptyId, outputSequence)
@@ -273,8 +271,7 @@ export class OrcaRuntimeWithOnPtyData extends OrcaRuntimeWithPreparePtyExecution
       seq: outputSequence,
       rawLength: sequenceChars,
       ...(transformed ? { transformed: true } : {}),
-      ...(cwdChanged && cwd !== null ? { cwd } : {}),
-      ...(sourceRanges && sourceRanges.length > 0 ? { sourceRanges } : {})
+      ...(cwdChanged && cwd !== null ? { cwd } : {})
     }))
     return outputSequence
   }

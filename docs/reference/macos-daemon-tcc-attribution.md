@@ -39,7 +39,8 @@ So a packaged macOS GUI app starts its daemon from a private copy that the updat
   normal authenticated handshake, fenced by the launch nonce.
 
 Node servers, SSH hosts, unpackaged builds, Linux and Windows keep the fork launcher. Adopting an
-existing daemon never copies.
+existing daemon never copies. Telemetry reports a daemon started from a copy as
+`spawner_path_class=stable-copy`.
 
 Only Developer ID builds exercise the helper path in practice. A local ad hoc build's designated
 requirement is a cdhash, which the helper (a different binary) cannot match, so it falls back to the
@@ -119,7 +120,9 @@ are still running are adopted as usual. Copies are only deleted by the collectio
 there (`retireOtherMacDaemonCopies(root, '')`) until no copy-launched daemon can remain; each copy
 keeps about 124 MiB.
 
-## Existing sessions
+## Existing sessions and status
 
-Running old daemons keep their terminals; a denied terminal is recovered by closing it or restarting
-the daemon.
+Running old daemons keep their terminals; settings reports app and terminal-host Full Disk Access
+separately, and a denied terminal is recovered by closing it or restarting the daemon. The packaging
+hook also gives the main bundle and every Helper the Desktop, Documents and Downloads descriptions,
+because the fork fallback still hosts terminals in `Orca Helper`.

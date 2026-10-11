@@ -14,6 +14,7 @@ import { bootstrapRestoredLaunch } from './terminal-restart-persistence'
 import { waitForPaneCount } from './terminal'
 import { LayoutOracle, type OracleFinding } from './workspace-layout-oracle'
 import { readRuntimePartitions } from './workspace-layout-oracle-views'
+import { summarizeEventLoopDelay, type EventLoopDelaySummary } from './event-loop-delay-report'
 
 export const ORACLE_REPORT_DIR_ENV = 'ORCA_LAYOUT_ORACLE_REPORT_DIR'
 
@@ -72,6 +73,7 @@ export async function runOracleScenario(
   const session = createRestartSession(testInfo)
   let app: ElectronApplication | null = null
   const worktreeIds: string[] = []
+  const started = Date.now()
   try {
     const first = await session.launch()
     app = first.app
@@ -131,7 +133,11 @@ export async function runOracleScenario(
     } finally {
       await run.oracle.stop()
     }
-    writeReport(testInfo, scenarioId, run.oracle.findings, run.oracle.viewCreations.at(-1) ?? {})
+    writeReport(testInfo, scenarioId, {
+      findings: run.oracle.findings,
+      viewCreations: run.oracle.viewCreations.at(-1) ?? {},
+      eventLoopDelay: summarizeEventLoopDelay(session.userDataDir, 'main', started, Date.now())
+    })
     return run.oracle.findings
   } finally {
     if (app) {
@@ -144,14 +150,15 @@ export async function runOracleScenario(
 function writeReport(
   testInfo: TestInfo,
   scenarioId: string,
-  findings: OracleFinding[],
-  viewCreations: Record<string, number>
+  report: {
+    findings: OracleFinding[]
+    viewCreations: Record<string, number>
+    /** Main's event-loop delay over the scenario. */
+    eventLoopDelay: EventLoopDelaySummary
+  }
 ): void {
   const dir = process.env[ORACLE_REPORT_DIR_ENV] ?? testInfo.outputPath('layout-oracle')
   mkdirSync(dir, { recursive: true })
   const file = path.join(dir, `${scenarioId}-${Date.now()}.json`)
-  writeFileSync(
-    file,
-    `${JSON.stringify({ scenario: scenarioId, findings, viewCreations }, null, 2)}\n`
-  )
+  writeFileSync(file, `${JSON.stringify({ scenario: scenarioId, ...report }, null, 2)}\n`)
 }

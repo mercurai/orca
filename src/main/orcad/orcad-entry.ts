@@ -206,6 +206,8 @@ async function startOrcadRuntime(
   const { resolvePushGatewayOrigin } = await import('../runtime/push/push-gateway-origin')
 
   const runtimeUserDataPath = getAppEnvironment().getPath('userData')
+  const { startEventLoopDelayProbe } = await import('../diagnostics/event-loop-delay-probe')
+  startEventLoopDelayProbe('orcad', runtimeUserDataPath)
   // A missing `orca` command must never keep the server from starting.
   await prepareOrcadCliLauncher().catch((error: unknown) => {
     console.warn('[orcad] Could not prepare the profile CLI launcher', error)

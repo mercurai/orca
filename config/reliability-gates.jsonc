@@ -12399,10 +12399,9 @@
         "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/orca-runtime.test.ts src/main/runtime/orca-runtime-tail-wait-memo.test.ts",
         "pnpm exec vitest run --config config/vitest.config.ts src/wsl-guest/protocol-backpressure.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/wsl-guest/dispatcher.test.ts --reporter=dot",
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/terminal-source-range-ledger.test.ts src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts --reporter=dot",
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer.test.ts src/wsl-guest/dispatcher-client-writer.test.ts --reporter=dot",
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer.test.ts src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts src/wsl-guest/dispatcher-client-writer.test.ts --reporter=dot",
-        "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/terminal-source-range-ledger.test.ts src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts --reporter=dot",
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer.test.ts src/wsl-guest/dispatcher-client-writer.test.ts --reporter=dot",
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer.test.ts src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts src/wsl-guest/dispatcher-client-writer.test.ts --reporter=dot",
+        "pnpm exec vitest run --config config/vitest.config.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/persistence-ssh-targets-and-pane-keys.test.ts --reporter=dot",
         "pnpm exec vitest run --config config/vitest.config.ts src/main/agent-hooks/wsl-hook-relay-sentinel.test.ts --reporter=dot"
         // Historical evidence commands; the override is ignored after the always-on transition.
@@ -12417,8 +12416,6 @@
         "src/main/runtime/orca-runtime-tail-wait-memo.test.ts",
         "src/wsl-guest/protocol-backpressure.test.ts",
         "src/wsl-guest/dispatcher.test.ts",
-        "src/main/runtime/rpc/terminal-source-range-ledger.test.ts",
-        "src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts",
         "src/main/ssh/ssh-multiplexer-transport-writer.test.ts",
         "src/main/ssh/ssh-channel-multiplexer.test.ts",
         "src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts",
@@ -12486,21 +12483,6 @@
           "assertions": [
             "relay decoder accepts one maximum frame plus 1 MiB partial input and rejects one extra byte",
             "a throwing continuation clears retained input, releases one pause epoch, and publishes one typed ownership error"
-          ]
-        },
-        {
-          "file": "src/main/runtime/rpc/terminal-source-range-ledger.test.ts",
-          "assertions": [
-            "partial cumulative byte ACK releases exact credit while retaining the immutable covering source frame",
-            "a contiguous higher-generation recovery token is admitted while the prior token remains unsettled",
-            "stale stream and source generations cannot advance or replace the current ledger identity"
-          ]
-        },
-        {
-          "file": "src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts",
-          "assertions": [
-            "a partial cumulative byte ACK does not settle its source frame or detach the stream before recovered-token output",
-            "a parsed stale-generation ACK cannot release in-flight byte credit or flush queued output"
           ]
         },
         {
@@ -12579,19 +12561,10 @@
           "summary": "Sixteen deterministic SSH relay/session/source/decoder files passed 192 tests, including exit-sealed private recovery, retained stale-transfer cancellation authority, exact private-frame proof watermarks, one retirement record across 10,000 same-PTY token rotations, stale-owner fallback, and scheduler rejection isolation; no live topology was exercised."
         },
         {
-          "date": "2026-07-28",
-          "runner": "local",
-          "platform": "macos",
-          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/terminal-source-range-ledger.test.ts src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts --reporter=dot",
-          "result": "passed",
-          "durationSeconds": 7.17,
-          "summary": "Three deterministic main/runtime files passed 78 tests, including joined renderer/headless snapshot admission, exact partial cumulative credit, and recovered-token continuity; no live paired server or Docker topology was exercised."
-        },
-        {
           "date": "2026-07-29",
           "runner": "local",
           "platform": "macos",
-          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/runtime/rpc/terminal-source-range-ledger.test.ts src/main/runtime/rpc/terminal-multiplex-source-range-admission.test.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts --reporter=dot",
+          "command": "pnpm exec vitest run --config config/vitest.config.ts src/main/ssh/ssh-multiplexer-transport-writer.test.ts src/main/ssh/ssh-channel-multiplexer-backpressure.test.ts --reporter=dot",
           "result": "passed",
           "durationSeconds": 6.89,
           "summary": "Thirteen current-head deterministic files passed 150 tests across exit-sealed private recovery, stale-transfer cancellation authority, bounded latest-token retirement, restore retirement, fail-closed recovery cancellation, partial ACK and token rotation, reclaimed-span replacement, mux lane fairness, provisional activation, and exit-proof ordering; no live topology was exercised."
@@ -20719,7 +20692,11 @@
       "protection": "partial",
       "owner": "terminal-runtime",
       "layer": "daemon-native-signing-and-provider-contract",
-      "surfaces": ["packaged macOS daemon launch", "signed bundle retirement"],
+      "surfaces": [
+        "packaged macOS daemon launch",
+        "signed bundle retirement",
+        "Full Disk Access status"
+      ],
       "platforms": ["macos", "linux", "windows"],
       "providers": ["local", "daemon", "ssh", "wsl", "remote-runtime", "mobile"],
       "coveredPlatforms": ["macos"],
@@ -20727,9 +20704,9 @@
       "coverageNotes": "Signed arm64 macOS evidence; other platforms and hosts keep the existing launcher. See docs/reference/macos-daemon-tcc-attribution.md.",
       "motivatingLinks": ["https://github.com/stablyai/orca/issues/13921"],
       "invariant": "A packaged macOS daemon runs from the verified signed helper copy for its build, which the updater never touches, and never beside a job that may own the endpoint; the fork fallback still fits the startup gate. A copy is deleted only when lsof proves it unused.",
-      "oracle": "Deterministic launch, fallback-deadline and retirement tests, plus the signed launcher validation recorded in #25848.",
+      "oracle": "Deterministic launch, fallback-deadline, per-build copy, retirement and status tests, plus the signed launcher validation recorded in #25848.",
       "commands": [
-        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/daemon/macos-daemon-bundle.test.ts src/main/daemon/macos-daemon-launchd.test.ts src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts src/main/daemon/macos-daemon-job-state.test.ts src/main/daemon/macos-daemon-bundle-retirement.test.ts config/scripts/macos-folder-usage-descriptions.test.mjs"
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/daemon/macos-daemon-bundle.test.ts src/main/daemon/macos-daemon-launchd.test.ts src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts src/main/daemon/macos-daemon-job-state.test.ts src/main/daemon/macos-daemon-bundle-retirement.test.ts src/main/daemon/daemon-full-disk-access-status.test.ts src/main/daemon/daemon-pty-adapter-full-disk-access.test.ts config/scripts/macos-folder-usage-descriptions.test.mjs src/renderer/src/components/settings/DeveloperPermissionsPane.test.tsx"
       ],
       "testFiles": [
         "src/main/daemon/macos-daemon-bundle.test.ts",
@@ -20737,7 +20714,10 @@
         "src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts",
         "src/main/daemon/macos-daemon-job-state.test.ts",
         "src/main/daemon/macos-daemon-bundle-retirement.test.ts",
-        "config/scripts/macos-folder-usage-descriptions.test.mjs"
+        "src/main/daemon/daemon-full-disk-access-status.test.ts",
+        "src/main/daemon/daemon-pty-adapter-full-disk-access.test.ts",
+        "config/scripts/macos-folder-usage-descriptions.test.mjs",
+        "src/renderer/src/components/settings/DeveloperPermissionsPane.test.tsx"
       ],
       "assertionRefs": [
         {
@@ -20768,10 +20748,10 @@
           "date": "2026-10-10",
           "runner": "local",
           "platform": "macos",
-          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/daemon/macos-daemon-bundle.test.ts src/main/daemon/macos-daemon-launchd.test.ts src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts src/main/daemon/macos-daemon-job-state.test.ts src/main/daemon/macos-daemon-bundle-retirement.test.ts config/scripts/macos-folder-usage-descriptions.test.mjs",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/daemon/macos-daemon-bundle.test.ts src/main/daemon/macos-daemon-launchd.test.ts src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts src/main/daemon/macos-daemon-job-state.test.ts src/main/daemon/macos-daemon-bundle-retirement.test.ts src/main/daemon/daemon-full-disk-access-status.test.ts src/main/daemon/daemon-pty-adapter-full-disk-access.test.ts config/scripts/macos-folder-usage-descriptions.test.mjs src/renderer/src/components/settings/DeveloperPermissionsPane.test.tsx",
           "result": "passed",
-          "durationSeconds": 1.53,
-          "summary": "All 64 focused launch, fallback-deadline, per-build copy, retirement and packaging tests passed."
+          "durationSeconds": 2.38,
+          "summary": "All 82 focused launch, fallback-deadline, per-build copy, retirement, status and packaging tests passed."
         }
       ],
       "runtimeBudget": {

@@ -223,7 +223,7 @@ describe('registerPtyHandlers', () => {
       getDefaultShell: vi.fn(),
       getProfiles: vi.fn()
     } as never)
-    const store = { markSshRemotePtyLease: vi.fn(), clearSshRemotePtyKillIntent: vi.fn() }
+    const store = { markSshRemotePtyLease: vi.fn() }
     registerPtyHandlers(
       mainWindow as never,
       undefined,

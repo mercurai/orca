@@ -219,6 +219,8 @@ export async function readStructuredAgentSessionOptions(
             reason: 'unsupported'
           }),
     conversationCommands: capabilities?.compact ? ['clear', 'compact'] : ['clear'],
+    // A live child may narrow what its agent declares, never widen it.
+    acceptsImages: capabilities?.imagePrompts === true && options.acceptsImages !== false,
     ...(capabilities?.threadGoal
       ? { threadGoal: { current: session.journal.threadGoal(), ...contextFloor } }
       : {}),

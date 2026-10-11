@@ -4,8 +4,9 @@ import {
   type HostAuthority,
   type HostAuthorityKey
 } from '../../../shared/host-authority'
+import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 
-export type RuntimeClientTarget = { kind: 'local' } | { kind: 'environment'; environmentId: string }
+export type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 
 /** Transport to an owner's runtime environment; `null` is this app (local or direct SSH). */
 export function runtimeTargetForOwnerEnvironment(

@@ -92,15 +92,6 @@ export type EditorDraftHashCache = {
   hashByFileId: Map<string, string>
   projection: string
 }
-export type AgentStatusProjectionCacheEntry = {
-  entry: AppState['agentStatusByPaneKey'][string]
-  projection: string
-}
-export type AgentStatusProjectionCache = {
-  source: AppState['agentStatusByPaneKey']
-  entries: Map<string, AgentStatusProjectionCacheEntry>
-  projection: string
-}
 export type MobileSessionAgentStatusByWorktree = ReadonlyMap<
   string,
   ReadonlyMap<string, AppState['agentStatusByPaneKey'][string]>

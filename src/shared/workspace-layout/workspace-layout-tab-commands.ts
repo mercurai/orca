@@ -1,4 +1,4 @@
-import { filterRecord, omitStoredFields } from './stored-record-fields'
+import { filterRecord, omitStoredFields, withoutKey } from './stored-record-fields'
 import { canReplacePreviewContentType, partitionPinnedTabOrder } from './tab-order'
 import { getNextTerminalOrdinal } from './terminal-tab-ordinal'
 import { layoutContainsLeafId } from './terminal-pane-tree'
@@ -88,6 +88,9 @@ export function closeTab(
       ...next,
       editorFiles: next.editorFiles.filter((file) => file.filePath !== tab.entityId)
     }
+  }
+  if (next.editorViews) {
+    next = { ...next, editorViews: withoutKey(next.editorViews, tabId) }
   }
   if (tab.kind === 'browser' && next.browserTabs) {
     next = { ...next, browserTabs: next.browserTabs.filter((entry) => entry.id !== tab.entityId) }

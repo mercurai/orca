@@ -455,12 +455,13 @@ export function main(root = process.cwd()) {
         `::error file=${file}::${now} ${ratchet.label}, baseline allows ${allowed}. ${ADVICE}`
       )
     }
+    // Why: a removal must not fail PRs that branched before it; only growth fails.
     for (const { file, now, allowed } of shrunk) {
-      console.error(
-        `::error file=${file}::${now} ${ratchet.label}, baseline still allows ${allowed}. Run: pnpm check:layout-writer-ratchets --prune`
+      console.warn(
+        `::warning file=${file}::${now} ${ratchet.label}, baseline still allows ${allowed}. Run: pnpm check:layout-writer-ratchets --prune`
       )
     }
-    if (grown.length + shrunk.length > 0) {
+    if (grown.length > 0) {
       failed = true
     } else {
       console.log(`Layout-writer ratchet (${ratchet.id}) OK — ${total(current)} ${ratchet.label}.`)

@@ -10,7 +10,13 @@ import type { Repo } from '../../shared/repo-types'
 import type { SshTarget } from '../../shared/ssh-types'
 import type { WorkspaceSessionState } from '../../shared/workspace-session-state-types'
 import { folderWorkspaceKey } from '../../shared/workspace-scope'
-import { closeTestStores, createSqliteTestStore } from '../persistence-test-harness'
+import {
+  closeTestStores,
+  createSqliteTestStore,
+  readPersistedStateJson,
+  writePersistedStateJson
+} from '../persistence-test-harness'
+import type { PersistedState } from '../../shared/persisted-state-types'
 import { Store } from '../persistence/loading-store/store'
 import { listOrcadMigrationSourceCutovers } from './orcad-migration-cutover-journal'
 import { fakeOrcadMigrationDestination } from './orcad-migration-destination-fake'
@@ -144,7 +150,7 @@ function deltaMove(at: () => Date = now) {
 const LEAF = '11111111-1111-4111-8111-111111111111'
 
 /** What v1.4.218 leaves after a downgrade: a terminal in what it added, and client focus there. */
-function olderBuildSessionAfterDowngrade(): void {
+async function olderBuildSessionAfterDowngrade(): Promise<void> {
   const hostId = `ssh:${TARGET.id}` as const
   const group = store.createProjectGroup({
     name: 'downgrade-added',
@@ -219,14 +225,43 @@ function olderBuildSessionAfterDowngrade(): void {
     },
     hostId
   )
-  store.upsertSshRemotePtyLease({
-    targetId: TARGET.id,
-    ptyId: 'pty2:relay:1',
-    worktreeId: folderKey,
-    tabId: 'tab-term',
-    leafId: LEAF,
-    state: 'expired'
+  // Only the older build writes relay lease and consumer-recovery rows; this build loads them.
+  await reopenWithOlderBuildRelayRows({
+    sshRemotePtyLeases: [
+      {
+        targetId: TARGET.id,
+        ptyId: 'pty2:relay:1',
+        worktreeId: folderKey,
+        tabId: 'tab-term',
+        leafId: LEAF,
+        state: 'expired',
+        createdAt: 1,
+        updatedAt: 1
+      }
+    ],
+    sshPtyConsumerRecoveries: [
+      {
+        targetId: TARGET.id,
+        clientInstanceId: 'client-1',
+        serverBuildId: '0.1.0',
+        clientGeneration: 1,
+        ownerGeneration: 1,
+        ownerLease: '9ab3f53d-0de9-4b80-af38-0cc15f62a6ba'
+      }
+    ]
   })
+}
+
+async function reopenWithOlderBuildRelayRows(rows: Partial<PersistedState>): Promise<void> {
+  const dataFile = join(userDataPath, 'orca-data.json')
+  await store.flushPendingOrThrowAsync()
+  await store.freezeWritesAsync()
+  const persisted = JSON.parse(readPersistedStateJson(dataFile))
+  writePersistedStateJson(dataFile, JSON.stringify({ ...persisted, ...rows }))
+  store = createSqliteTestStore(Store, { dataFile })
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: SshConnectionStore wraps the real test store it is given.
+  sshStore = new SshConnectionStore(store as never)
+  mocks.state.targetStore = sshStore
 }
 
 /** The delta's commit and every read after it fail, as when the tunnel drops mid-commit. */
@@ -322,15 +357,8 @@ describe('moving what an older build added to a converted host', () => {
 
   it('moves what a downgrade added despite its exited terminal, tabs and client focus', async () => {
     await convertedThenChangedOnOlderBuild()
-    olderBuildSessionAfterDowngrade()
-    await store.upsertSshPtyConsumerRecovery({
-      targetId: TARGET.id,
-      clientInstanceId: 'client-1',
-      serverBuildId: '0.1.0',
-      clientGeneration: 1,
-      ownerGeneration: 1,
-      ownerLease: 'lease'
-    })
+    await olderBuildSessionAfterDowngrade()
+    expect(store.getSshRemotePtyLeases(TARGET.id)).toHaveLength(1)
     reconcileManagedOrcadSshTargets(userDataPath, store, now)
 
     const plan = planOrcadDeltaMove(userDataPath, store, store.getSshTarget(TARGET.id)!)

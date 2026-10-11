@@ -14,6 +14,7 @@ import type { AgentSessionRecordStore } from './agent-session-record-store'
 import { peekOpenedAgentSessionRecordStore } from './agent-session-record-store-slot'
 import { createAgentLaunchRecordWarmupGate } from './agent-launch-record-warmup-gate'
 import { WorkspaceLayoutStream } from './workspace-layout-stream'
+import type { RemoteLayoutSnapshot } from '../../shared/remote-layout-snapshot'
 import {
   shouldWatchLayoutRoundTrip,
   watchLayoutRoundTrip
@@ -150,6 +151,11 @@ class OrcaRuntimeService extends OrcaRuntimeWithMigrationCatalog {
     listener: Parameters<WorkspaceLayoutStream['subscribe']>[0]
   ): ReturnType<WorkspaceLayoutStream['subscribe']> {
     return this.workspaceLayoutStream.subscribe(listener)
+  }
+
+  /** This desktop's display-only copy of each paired server's layout (`layout.getRemoteSnapshots`). */
+  getRemoteLayoutSnapshots(): Record<string, RemoteLayoutSnapshot> {
+    return this.store?.getRemoteLayoutSnapshots?.() ?? {}
   }
 
   /** The launch record when it is already open, for a reader that must not wait for it. */

@@ -148,7 +148,10 @@ describe('converting an SSH host into a managed server', () => {
   })
 
   it('refuses before touching the host while terminals run or cannot be counted', async () => {
-    store.upsertSshRemotePtyLease({ targetId: TARGET.id, ptyId: 'p', state: 'expired' })
+    // Saved by a relay-era build; this build only reads it.
+    vi.spyOn(store, 'getSshRemotePtyLeases').mockReturnValue([
+      { targetId: TARGET.id, ptyId: 'p', state: 'expired', createdAt: 1, updatedAt: 1 }
+    ])
     const uncounted = async () => ({ verdict: 'unverifiable' as const, count: 0 })
     await expect(convert(uncounted)).resolves.toMatchObject({
       outcome: 'refused',
