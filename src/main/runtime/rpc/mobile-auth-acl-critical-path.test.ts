@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WebSocket } from 'ws'
 import type { ProcessResult, ProcessSpec } from '../../../shared/child-process/run-process'
 import { runProcess, runProcessSync } from '../../../shared/child-process/run-process'
-import { settlePathWritesForTests } from '../../../shared/path-write-serializer'
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import { resetSecureFileWindowsUserSidForTests } from '../../../shared/secure-path-windows-acl'
 import { DEVICE_REGISTRY_FILENAME } from '../mobile-pairing-files'
 import { DeviceRegistry, type DeviceEntry } from '../device-registry'
@@ -217,7 +217,7 @@ describe('mobile auth critical path', () => {
 
     // Why: the first sighting still reaches disk (rotatePendingDevice drops never-scanned entries), but the auth callback is synchronous.
     expect(timeline).toEqual(['e2ee_ready', 'e2ee_authenticated'])
-    await settlePathWritesForTests()
+    await drainPendingPathWrites()
     expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
     expect(runProcessSync).not.toHaveBeenCalled()
     expect(readPersistedDevices()[0]?.lastSeenAt).toBeGreaterThan(0)
@@ -236,7 +236,7 @@ describe('mobile auth critical path', () => {
 
     expect(aclSpawns()).toBe(0)
     await vi.advanceTimersByTimeAsync(250)
-    await settlePathWritesForTests()
+    await drainPendingPathWrites()
     expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
   })
 
@@ -252,7 +252,7 @@ describe('mobile auth critical path', () => {
     expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
 
     await vi.advanceTimersByTimeAsync(250)
-    await settlePathWritesForTests()
+    await drainPendingPathWrites()
     expect(aclSpawns()).toBe(SPAWNS_PER_WRITE)
   })
 
@@ -272,7 +272,7 @@ describe('mobile auth critical path', () => {
 
     expect(registry.getDevice(device.deviceId)?.lastSeenAt).toBe(refreshedAt)
     await vi.advanceTimersByTimeAsync(250)
-    await settlePathWritesForTests()
+    await drainPendingPathWrites()
     expect(
       readPersistedDevices().find((entry) => entry.deviceId === device.deviceId)?.lastSeenAt
     ).toBe(refreshedAt)

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runProcess, runProcessSync } from './child-process/run-process'
-import { settlePathWritesForTests } from './path-write-serializer'
+import { drainPendingPathWrites } from './path-write-serializer'
 import { writeSecureFileAsync } from './secure-file-async-write'
 import { resetSecureFileWindowsUserSidForTests } from './secure-path-windows-acl'
 
@@ -45,7 +45,7 @@ it('writes a secure file with no synchronous spawn and two icacls runs', async (
 
   // The bound is the steady state: a process's first write also pays one whoami and the directory's one-time harden.
   await writeSecureFileAsync(target, 'first')
-  await settlePathWritesForTests()
+  await drainPendingPathWrites()
   await new Promise((resolve) => setTimeout(resolve, 50))
   vi.mocked(runProcess).mockClear()
 
