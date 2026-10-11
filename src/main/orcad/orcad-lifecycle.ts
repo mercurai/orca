@@ -11,7 +11,6 @@ import {
   acquireProfileStateRuntimeAdmission,
   type ProfileStateRuntimeAdmission
 } from '../persistence/profile-state/profile-state-access'
-import { drainPathWritesForQuit } from '../startup/path-write-quit-drain'
 
 const bundledLauncherChannel = process.env[ORCAD_BUNDLED_LAUNCHER_ENV] === '1'
 delete process.env[ORCAD_BUNDLED_LAUNCHER_ENV]
@@ -160,7 +159,6 @@ export function createOrcadHostLifetime(steps: {
   })
   // Why here, run after the quit handlers (push, relay) and before the fences drop: secure-file
   // writes are async now, and the synchronous ones always finished before exit (bounded drain).
-  host.add(() => drainPathWritesForQuit())
   host.add(() => steps.runQuitHandlers())
   host.add(() => steps.clearBrowserCommands())
   host.add(() => steps.stopBrowserProvider())
