@@ -270,7 +270,12 @@ jobs:
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: |
           pnpm run check:reliability-gates
-          pnpm run check:process-host-imports
+          # mercurai fork: v1.4.224 pr.yml (synced from main) calls a script its package.json lacks; skip only then.
+          if node -e "process.exit(require('./package.json').scripts?.['check:process-host-imports'] ? 0 : 1)"; then
+            pnpm run check:process-host-imports
+          else
+            echo "::warning::package.json has no check:process-host-imports script (upstream release gap: pr.yml synced from main without it); skipped"
+          fi
 
       - name: Enforce dead design-system classes
         if: needs.code_paths.outputs.static_analysis == 'true'
