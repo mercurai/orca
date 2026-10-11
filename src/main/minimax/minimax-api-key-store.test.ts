@@ -41,7 +41,9 @@ vi.mock('../../shared/secure-file', () => ({
 }))
 
 vi.mock('../../shared/secure-file-async-write', () => ({
-  writeSecureFileAsync: writeSecureFileMock
+  writeSecureFileAsync: writeSecureFileMock,
+  ignoreDiscardedSecureWrite: async (save: () => Promise<void>) => await save(),
+  removeSecureFile: (path: string) => rmSyncMock(path, { force: true })
 }))
 
 const storePath = '/home/test/.orca/minimax-api-key.enc'
