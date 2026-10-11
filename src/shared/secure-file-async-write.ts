@@ -120,6 +120,10 @@ export async function writeSecureFileAsync(
       if (options.durable) {
         await bestEffortFsyncDirectory(dir)
       }
+      // Why: a delete during the post-rename awaits already removed the file; callers must not cache it.
+      if (pathDiscardEpoch(targetPath) !== discardEpoch) {
+        throw new SecureWriteDiscardedError(targetPath)
+      }
       return outcome === 'applied'
     } catch (error) {
       await rm(tmpFile, { force: true })

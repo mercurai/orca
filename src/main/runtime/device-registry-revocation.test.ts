@@ -64,4 +64,18 @@ describe('device revocation', () => {
     await expect(devices.removeDevice(device.deviceId)).rejects.toThrow('disk full')
     expect(devices.validateToken(device.token)?.deviceId).toBe(device.deviceId)
   })
+
+  it('refuses the token from the start of a multi-step revoke until it is released', async () => {
+    const devices = registry()
+    const device = await devices.addDevice('phone')
+
+    const releaseOuter = devices.beginRevocation(device.deviceId)
+    const releaseInner = devices.beginRevocation(device.deviceId)
+    expect(devices.validateToken(device.token)).toBeNull()
+    releaseInner()
+    releaseInner() // idempotent
+    expect(devices.validateToken(device.token)).toBeNull()
+    releaseOuter()
+    expect(devices.validateToken(device.token)?.deviceId).toBe(device.deviceId)
+  })
 })

@@ -9,6 +9,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 type Step = 'fsync:file' | 'fsync:directory' | 'rename' | 'write'
 const steps = vi.hoisted((): Step[] => [])
+const onDirectoryFsync = vi.hoisted(() => ({ run: null as (() => void) | null }))
 
 // secure-file opens through fs/promises only to fsync, so the open is the fsync for ordering.
 vi.mock('node:fs/promises', async () => {
@@ -16,7 +17,12 @@ vi.mock('node:fs/promises', async () => {
   return {
     ...actual,
     open: async (path: string, flags: string) => {
-      steps.push(statSync(path).isDirectory() ? 'fsync:directory' : 'fsync:file')
+      const isDirectory = statSync(path).isDirectory()
+      if (isDirectory && onDirectoryFsync.run) {
+        onDirectoryFsync.run()
+        onDirectoryFsync.run = null
+      }
+      steps.push(isDirectory ? 'fsync:directory' : 'fsync:file')
       return await actual.open(path, flags)
     },
     writeFile: async (...args: Parameters<typeof actual.writeFile>) => {
@@ -172,5 +178,17 @@ it('turns a discarded save into a no-op for store callers', async () => {
 
   await save
   expect(cached).toBeNull()
+  expect(existsSync(target)).toBe(false)
+})
+
+posixIt('reports a save as discarded when a clear lands after its rename', async () => {
+  const directory = freshDirectory('orca-secure-async-clear-late-')
+  const target = join(directory, 'api-key')
+  // The clear runs while the durable save awaits its directory fsync, after the publish.
+  onDirectoryFsync.run = () => removeSecureFile(target)
+
+  await expect(writeSecureFileAsync(target, 'secret', { durable: true })).rejects.toBeInstanceOf(
+    SecureWriteDiscardedError
+  )
   expect(existsSync(target)).toBe(false)
 })
