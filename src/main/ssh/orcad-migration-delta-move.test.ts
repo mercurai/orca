@@ -500,7 +500,7 @@ async function connectAgain(): Promise<void> {
         (journal) => journal.sshTargetId === host.id && !journal.sourceRetainedAt
       )
       if (head?.phase === 'destination-committed') {
-        retainOrcadMigrationSource(userDataPath, head.migrationId, now)
+        await retainOrcadMigrationSource(userDataPath, head.migrationId, now)
       }
     }
   })
