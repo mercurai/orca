@@ -5,6 +5,8 @@
 # (claude-code-config#1103). A moved fork branch (fork-sync-upstream's merge-forward) is retried by
 # replaying the manifest commit on top of it; a moved patch branch fails the push for good.
 # Usage: push-rebased-series.sh <rebased file: "branch before after" per line> <fork branch> [manifest commit] [remote]
+# A line with before = after leases a branch the run left unchanged, so a branch moved meanwhile
+# rejects the whole push instead of being recorded in the manifest unseen.
 set -euo pipefail
 rebased_file=$1 fork_branch=$2 manifest_commit=${3:-} remote=${4:-origin}
 
@@ -18,7 +20,11 @@ for attempt in 1 2 3; do
     git fetch -q "$remote" "$fork_branch"
     fork_base=$(git rev-parse FETCH_HEAD)
     git checkout -q --detach "$fork_base"
-    git cherry-pick "$manifest_commit" >/dev/null
+    if ! git cherry-pick "$manifest_commit" >/dev/null 2>&1; then
+      git cherry-pick --abort 2>/dev/null || true
+      echo "::error::the manifest commit does not apply to $fork_branch at $fork_base; nothing was pushed" >&2
+      exit 1
+    fi
     args+=("--force-with-lease=refs/heads/$fork_branch:$fork_base" "HEAD:refs/heads/$fork_branch")
   fi
   if [ "${#args[@]}" -eq 0 ]; then

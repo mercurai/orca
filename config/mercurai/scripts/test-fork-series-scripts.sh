@@ -62,7 +62,8 @@ setup; rebase_series
 git checkout -q -b mover "$(remote_sha mercurai)"; commit other.txt y "merge-forward"; git push -q origin mover:mercurai
 moved=$(remote_sha mercurai); git checkout -q fork
 bash "$here/push-rebased-series.sh" "$root/rebased" mercurai "$manifest" >/dev/null
-if remote_has "$moved" "$(remote_sha mercurai)" && [ "$(git --git-dir="$root/origin.git" show mercurai:manifest.yaml)" = "base: v2" ]; then
+if remote_has "$moved" "$(remote_sha mercurai)" && [ "$(git --git-dir="$root/origin.git" show mercurai:manifest.yaml)" = "base: v2" ] &&
+   remote_has v2 "$(remote_sha patch/a)" && remote_has v2 "$(remote_sha patch/b)"; then
   pass "a moved fork branch keeps its commit and gains the manifest"; else fail "a moved fork branch keeps its commit and gains the manifest"; fi
 
 # ci-base fixtures: ci-base/v1 = v1 + two fork-CI commits.
@@ -94,6 +95,61 @@ git checkout -q -b up v2; commit ci.yml "upstream changed it" "upstream ci"; git
 if bash "$here/carry-ci-base.sh" v1 v3 "$(git rev-parse v3)" >/dev/null 2>&1; then fail "a conflicting carry fails and pushes nothing"
 elif ! git --git-dir="$root/origin.git" rev-parse -q --verify refs/heads/ci-base/v3 >/dev/null; then
   pass "a conflicting carry fails and pushes nothing"; else fail "a conflicting carry fails and pushes nothing"; fi
+
+# 8. A rerun after upstream changed the lines around a carried change: no duplicate pick, no failure.
+setup
+git checkout -q -b old-b v1; printf 'a
+b
+c
+d
+e
+' > ctx.yml; git add ctx.yml; git commit -qm "upstream ctx"; git tag v1b
+git checkout -q -b ci1b v1b; printf 'a
+b
+c
+FORK
+e
+' > ctx.yml; git commit -qam "ci: fork line"
+git checkout -q -b up4 v1b; printf 'A-upstream
+b
+c
+d
+e
+' > ctx.yml; git commit -qam "upstream edits a line inside the carried hunk's context"; git tag v4
+git push -q origin v1b:refs/tags/v1b v4:refs/tags/v4 ci1b:refs/heads/ci-base/v1b; git checkout -q fork
+bash "$here/carry-ci-base.sh" v1b v4 "$(git rev-parse v4)" >/dev/null
+first=$(remote_sha ci-base/v4)
+if bash "$here/carry-ci-base.sh" v1b v4 "$(git rev-parse v4)" >/dev/null 2>&1 && [ "$(remote_sha ci-base/v4)" = "$first" ] &&
+   [ "$(git --git-dir="$root/origin.git" rev-list --count v4..refs/heads/ci-base/v4)" = 1 ]; then
+  pass "a rerun skips a commit whose surroundings changed"; else fail "a rerun skips a commit whose surroundings changed"; fi
+
+# 9. No old ci-base: publishes the bare tag with a warning.
+setup
+out=$(bash "$here/carry-ci-base.sh" v1 v2 "$(git rev-parse v2)" 2>&1 >/dev/null || true)
+if [ "$(remote_sha ci-base/v2)" = "$(git rev-parse v2)" ] && echo "$out" | grep -q "::warning::"; then
+  pass "a missing old ci-base warns and publishes the bare tag"; else fail "a missing old ci-base warns and publishes the bare tag"; fi
+
+# 10. The manifest commit does not apply to the moved fork branch: an error, nothing pushed.
+setup; rebase_series
+a0=$(remote_sha patch/a)
+git checkout -q -b clash "$(remote_sha mercurai)"; echo "base: hand-edited" > manifest.yaml; git commit -qam "human edit"; git push -q origin clash:mercurai
+m1=$(remote_sha mercurai); git checkout -q fork
+if bash "$here/push-rebased-series.sh" "$root/rebased" mercurai "$manifest" >/dev/null 2>&1; then fail "a manifest conflict pushes nothing"
+elif [ "$(remote_sha patch/a)" = "$a0" ] && [ "$(remote_sha mercurai)" = "$m1" ]; then pass "a manifest conflict pushes nothing"; else fail "a manifest conflict pushes nothing"; fi
+
+# 11. A branch the run left unchanged but someone moved: its lease rejects the whole push.
+setup; rebase_series
+b_before=$(awk '$1 == "patch/b" {print $2}' "$root/rebased")
+awk '$1 == "patch/b" {print $1, $2, $2; next} {print}' "$root/rebased" > "$root/rebased2"   # b unchanged by the run
+a0=$(remote_sha patch/a)
+git checkout -q -b mover2 "$b_before"; commit late.txt z "late push"; git push -q origin mover2:patch/b; git checkout -q fork
+if bash "$here/push-rebased-series.sh" "$root/rebased2" mercurai "$manifest" >/dev/null 2>&1; then fail "an unchanged branch is leased too"
+elif [ "$(remote_sha patch/a)" = "$a0" ]; then pass "an unchanged branch is leased too"; else fail "an unchanged branch is leased too"; fi
+
+# 12. Patches only, no manifest change.
+setup; rebase_series; m0=$(remote_sha mercurai)
+bash "$here/push-rebased-series.sh" "$root/rebased" mercurai "" >/dev/null
+if remote_has v2 "$(remote_sha patch/a)" && [ "$(remote_sha mercurai)" = "$m0" ]; then pass "patches alone push without a manifest commit"; else fail "patches alone push without a manifest commit"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

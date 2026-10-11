@@ -19,19 +19,29 @@ else
   start=$new_sha
 fi
 
-# '+' lines are fork-CI commits of the old base that the new one does not carry yet (matched by patch id).
-missing=()
+candidates=()
 if git rev-parse -q --verify "$old_ci" >/dev/null; then
-  mapfile -t missing < <(git cherry "$start" "$old_ci" "refs/tags/$old_tag^{commit}" | sed -n 's/^+ //p')
+  # The fork-CI commits are what the old ci-base adds to its own fork point; an upstream re-cut of the
+  # old tag cannot widen that range.
+  limit=$(git merge-base "$old_ci" "refs/tags/$old_tag^{commit}")
+  mapfile -t candidates < <(git rev-list --reverse --no-merges "$limit..$old_ci")
+else
+  echo "::warning::no ci-base/$old_tag to carry fork-CI commits from; ci-base/$new_tag is the bare tag" >&2
 fi
 
 git checkout -q --detach "$start"
-for commit in "${missing[@]}"; do
-  if ! git cherry-pick -x "$commit" >/dev/null; then
-    git cherry-pick --abort || true
+carried=0
+for commit in "${candidates[@]}"; do
+  # Already carried: the -x trailer names it, or an equal patch is there. The trailer survives upstream
+  # changing the lines around the carried change, which alters the patch id.
+  if git log --format=%B "$new_sha..HEAD" | grep -qF "cherry picked from commit $commit"; then continue; fi
+  if [ -z "$(git cherry HEAD "$commit" "$commit^" | sed -n 's/^+ //p')" ]; then continue; fi
+  if ! git cherry-pick -x "$commit" >/dev/null 2>&1; then
+    git cherry-pick --abort 2>/dev/null || true
     echo "::error::fork-CI commit $commit from ci-base/$old_tag does not apply to ci-base/$new_tag; carry it by hand" >&2
     exit 1
   fi
+  carried=$((carried + 1))
 done
 
 head=$(git rev-parse HEAD)
@@ -41,4 +51,4 @@ if [ "$head" = "$start" ] && git rev-parse -q --verify "$new_ci" >/dev/null; the
 fi
 # A plain push: fast-forward only, so a ci-base someone moved meanwhile is rejected, never overwritten.
 git push "$remote" "$head:refs/heads/ci-base/$new_tag"
-echo "ci-base/$new_tag -> $head (${#missing[@]} fork-CI commit(s) carried from ci-base/$old_tag)"
+echo "ci-base/$new_tag -> $head ($carried fork-CI commit(s) carried from ci-base/$old_tag)"

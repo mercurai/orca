@@ -1,7 +1,7 @@
 # mercurai fork: keep every active patch branch in config/mercurai/patches.yaml rebased.
 # With a `tag` input (dispatched by fork-sync-upstream for the newest release tag): rebase each
-# active branch from its recorded base onto the tag in local refs and run the patch's tests; only
-# when every patch rebased, push all patch branches (each leased on its pre-rebase sha) and the
+# active branch from its recorded base onto the tag in local refs and run its tests. Only when
+# every patch rebased, push all patch branches (each leased on its pre-rebase sha) and the
 # manifest base in one atomic push, so a conflict leaves the whole series on its old base. On the daily schedule, with no tag, it dry-rebases onto
 # upstream/main and only reports, so a conflict shows days before the tag that would carry it.
 # Dispatched from a non-default branch it only reports. Lives in the fork only.
@@ -116,7 +116,7 @@ jobs:
       - uses: ./.github/actions/install-node-dependencies
         if: ${{ steps.patches.outputs.count != '0' }}
 
-      - name: Rebase, test, push
+      - name: Rebase and test in local refs
         if: ${{ steps.patches.outputs.count != '0' }}
         id: rebase
         env:
@@ -168,10 +168,8 @@ jobs:
               continue
             fi
             if [ "$MODE" = real ]; then
-              # Pushed later, all together, and only if every patch rebased.
-              if [ "$(git rev-parse HEAD)" != "$before" ]; then
-                echo "$branch $before $(git rev-parse HEAD)" >> /tmp/rebased
-              fi
+              # Pushed later, all together, only if every patch rebased; an unchanged branch is leased too.
+              echo "$branch $before $(git rev-parse HEAD)" >> /tmp/rebased
               yq -i "(.patches[] | select(.branch == \"$branch\") | .base) = \"$TARGET\"" "$MANIFEST_WORK"
             else
               echo "$branch rebases cleanly onto $BASE ($(git rev-list --count "$BASE..HEAD") commits; dry run, not pushed)"
@@ -179,17 +177,6 @@ jobs:
           done < /tmp/active
           git checkout -q "$FORK_BRANCH"
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
-
-      # Patch CI: a draft PR from a patch branch against ci-base/<tag> runs upstream's pr.yml on the tag plus
-      # the patch, which is what gets assembled. A merge with the default branch is not that and conflicts.
-      - name: Publish the CI base branch for the tag
-        if: ${{ steps.mode.outputs.mode == 'real' }}
-        run: |
-          set -euo pipefail
-          # Carry the fork-CI commits of the old ci-base instead of publishing the bare tag (#1107).
-          old_base=$(yq -r '.base' /tmp/manifest-original.yaml)
-          bash /tmp/fork-scripts/carry-ci-base.sh "$old_base" "$TARGET" "${{ steps.fetch.outputs.base_sha }}"
-          git checkout -q "$FORK_BRANCH"
 
       - name: Record the base and the merged patches, then push the series atomically
         # Only when every patch rebased: a partly rebased series must not look assembled, and nothing is pushed.
@@ -210,6 +197,23 @@ jobs:
           fi
           # Every patch branch and the manifest move in one atomic push, or none of them does.
           bash /tmp/fork-scripts/push-rebased-series.sh /tmp/rebased "$FORK_BRANCH" "$manifest_commit"
+
+      # Patch CI: a draft PR from a patch branch against ci-base/<tag> runs upstream's pr.yml on the tag plus
+      # the patch, which is what gets assembled. A merge with the default branch is not that and conflicts.
+      # After the series push, and also when a patch conflicted: the lane resolving it needs the base.
+      - name: Publish the CI base branch for the tag
+        if: ${{ !cancelled() && steps.mode.outputs.mode == 'real' }}
+        run: |
+          set -euo pipefail
+          # Carry the fork-CI commits of the old ci-base instead of publishing the bare tag (#1107).
+          old_base=$(yq -r '.base' /tmp/manifest-original.yaml)
+          if ! bash /tmp/fork-scripts/carry-ci-base.sh "$old_base" "$TARGET" "${{ steps.fetch.outputs.base_sha }}"; then
+            title="ci-base: ci-base/$TARGET could not carry the fork-CI commits of ci-base/$old_base"
+            body="fork-rebase-patches run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID could not publish ci-base/$TARGET with the fork-CI commits of ci-base/$old_base. Carry them by hand (see the run log) before opening patch CI PRs against it."
+            gh label create "$CONFLICT_LABEL" --color d93f0b --description 'a patch branch no longer rebases' 2>/dev/null || true
+            gh issue create --label "$CONFLICT_LABEL" --title "$title" --body "$body"
+            exit 1
+          fi
 
       - name: Fail the run when any patch failed
         if: ${{ steps.rebase.outputs.failed == '1' }}
