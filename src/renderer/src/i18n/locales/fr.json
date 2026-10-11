@@ -1143,12 +1143,6 @@
         "f6300deb8b": "Nouvel onglet de navigateur",
         "7a64b31991": "La création d'un terminal local est indisponible tant qu'un runtime distant est actif",
         "60428567b4": "L'affichage d'un terminal local est indisponible tant qu'un runtime distant est actif",
-        "f8aaf2bde3": "Espace de travail téléversé",
-        "2fe88c2e06": "Synchronisation de l'espace de travail distant indisponible",
-        "workspaceChangedOnAnotherDevice": "Espace de travail modifié sur un autre appareil",
-        "2ec42e1c52": "Pas encore de espace de travail distant",
-        "88214a785b": "La synchronisation de l'espace de travail a attendu l'hydratation de la session locale et a expiré",
-        "4f78ba5885": "Espace de travail synchronisé",
         "ef223fbb6b": "Un appareil a tenté de se connecter mais n'est pas jumelé",
         "11992d0337": "S'il s'agissait de votre téléphone ou d'un autre client Orca, réappairez-le depuis Paramètres → Mobile.",
         "6573cfe955": "Ouvrir les paramètres mobiles",
@@ -3810,8 +3804,6 @@
             "connectedHostCount_one": "{{count}} hôte",
             "connectedHostCount_other": "{{count}} hôtes",
             "connecting": "Connexion…",
-            "workspaceConflict": "Conflit de espace de travail",
-            "workspaceSyncError": "Erreur de synchronisation de l'espace de travail",
             "runtime_unavailable_transport_up": "Orque indisponible"
           },
           "StatusBar": {

@@ -1214,12 +1214,6 @@
         "f6300deb8b": "New Browser Tab",
         "7a64b31991": "Local terminal creation is unavailable while a remote runtime is active",
         "60428567b4": "Local terminal reveal is unavailable while a remote runtime is active",
-        "f8aaf2bde3": "Workspace uploaded",
-        "2fe88c2e06": "Remote workspace sync unavailable",
-        "workspaceChangedOnAnotherDevice": "Workspace changed on another device",
-        "2ec42e1c52": "No remote workspace yet",
-        "88214a785b": "Workspace sync waited for local session hydration and timed out",
-        "4f78ba5885": "Workspace synced",
         "ef223fbb6b": "A device tried to connect but is not paired",
         "11992d0337": "If this was your phone or another Orca client, re-pair it from Settings → Mobile.",
         "6573cfe955": "Open Mobile Settings",
@@ -3926,9 +3920,7 @@
             "runtime_workspace_window_closed": "Workspace window closed",
             "connectedHostCount_one": "{{count}} host",
             "connectedHostCount_other": "{{count}} hosts",
-            "connecting": "Connecting…",
-            "workspaceConflict": "Workspace conflict",
-            "workspaceSyncError": "Workspace sync error"
+            "connecting": "Connecting…"
           },
           "StatusBar": {
             "9659e38343": "Ports",

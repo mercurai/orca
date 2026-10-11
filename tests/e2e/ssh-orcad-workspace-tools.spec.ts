@@ -7,7 +7,7 @@ import { expect, test } from './helpers/orca-app'
 import { reconnect } from './helpers/orcad-convert-flow'
 import { shellQuote } from './helpers/docker-ssh-relay-target'
 import { callEnvironment, createPairedHostTerminal } from './helpers/paired-host-terminal'
-import { reserveLocalPort } from './helpers/ssh-port-forward-snapshot-barrier'
+import { reserveLocalPort } from './helpers/reserve-local-port'
 import { openTerminalWorkspaceRootLink } from './helpers/terminal-workspace-root-link'
 import {
   echoMarker,

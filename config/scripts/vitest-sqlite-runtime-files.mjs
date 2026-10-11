@@ -56,7 +56,6 @@ export const SQLITE_RUNTIME_INCLUDE = [
   'src/main/codex/codex-structured-question-order.test.ts',
   'src/main/ipc/pty/ipc/spawn-commit-ssh-lease-cardinality.test.ts',
   'src/main/ipc/repos/folder-workspace-attachment-handlers.test.ts',
-  'src/main/ipc/ssh-host-partition-session-export.test.ts',
   'src/main/ipc/ssh-host-server-on-connect-wiring.test.ts',
   'src/main/native-chat/agent-session-attachments/agent-session-attachment-claims.test.ts',
   'src/main/native-chat/agent-session-attachments/agent-session-attachment-sweep.test.ts',
