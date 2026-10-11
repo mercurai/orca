@@ -62,6 +62,7 @@ function restoreAffectedStoreFiles(destination) {
     'src/shared/ephemeral-vm-runtime-store.ts',
     'src/shared/ephemeral-vm-runtimes.ts',
     // Why: the reverted store imports the synchronous secure writers the candidate deleted.
+    // POSIX only: their win32 ACL import (restrictWindowsPathSync) no longer exists at HEAD.
     'src/shared/bounded-secure-json-file.ts',
     'src/shared/secure-file.ts'
   ]) {
