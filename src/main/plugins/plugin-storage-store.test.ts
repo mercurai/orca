@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PLUGIN_STORAGE_VALUE_MAX_BYTES } from '../../shared/plugins/plugin-host-api'
 import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
 import { PluginKvStore } from './plugin-storage-store'
+import type * as runProcessModule from '../../shared/child-process/run-process'
 
 vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../shared/child-process/run-process')>()
+  const actual = await importOriginal<typeof runProcessModule>()
   return {
     ...actual,
     runProcess: vi.fn(actual.runProcess),

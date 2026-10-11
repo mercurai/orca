@@ -18,13 +18,14 @@ import SyncDatabase from '../sqlite/sync-database'
 import * as secureFile from '../../shared/secure-file-async-write'
 import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
 import { ManagedDataAccountService } from './service'
+import type * as runProcessModule from '../../shared/child-process/run-process'
 
 vi.mock('node:fs', async (importOriginal) => ({
   ...(await importOriginal<typeof fileSystem>())
 }))
 
 vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../shared/child-process/run-process')>()
+  const actual = await importOriginal<typeof runProcessModule>()
   return {
     ...actual,
     runProcess: vi.fn(actual.runProcess),

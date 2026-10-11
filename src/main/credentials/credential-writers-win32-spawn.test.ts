@@ -1,8 +1,10 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import type * as osModule from 'node:os'
 import { join } from 'node:path'
-import { afterAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, it, vi } from 'vitest'
 import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
+import type * as runProcessModule from '../../shared/child-process/run-process'
 
 const home = vi.hoisted(() => ({ dir: '' }))
 
@@ -15,12 +17,12 @@ vi.mock('electron', () => ({
 }))
 
 vi.mock('node:os', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:os')>()),
+  ...(await importOriginal<typeof osModule>()),
   homedir: () => home.dir
 }))
 
 vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../shared/child-process/run-process')>()
+  const actual = await importOriginal<typeof runProcessModule>()
   return {
     ...actual,
     runProcess: vi.fn(actual.runProcess),
