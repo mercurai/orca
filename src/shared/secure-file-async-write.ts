@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import { renameSync } from 'node:fs'
-import { chmod, mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
+import { renameSync, rmSync } from 'node:fs'
+import { chmod, mkdir, open, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { serializePathWrite } from './path-write-serializer'
+import { discardPendingPathWrites, pathDiscardEpoch, serializePathWrite } from './path-write-serializer'
 import {
   hardenSecurePathOnce,
   rememberHardenedPath,
@@ -54,11 +54,38 @@ export class SecureWriteSupersededError extends Error {
   }
 }
 
+/** A delete of the path landed after this write was requested; callers drop it, never retry. */
+export class SecureWriteDiscardedError extends Error {
+  constructor(path: string) {
+    super(`Secure write to ${path} was discarded by a later delete`)
+    this.name = 'SecureWriteDiscardedError'
+  }
+}
+
+/** For saves whose caller cleared the secret meanwhile: the clear wins and the save is a no-op. */
+export async function ignoreDiscardedSecureWrite(save: () => Promise<void>): Promise<void> {
+  try {
+    await save()
+  } catch (error) {
+    if (!(error instanceof SecureWriteDiscardedError)) {
+      throw error
+    }
+  }
+}
+
+/** Deletes a secure file and discards every write to it still in flight (save-then-clear stays cleared). */
+export function removeSecureFile(targetPath: string): void {
+  discardPendingPathWrites(targetPath)
+  rmSync(targetPath, { force: true })
+}
+
 export async function writeSecureFileAsync(
   targetPath: string,
   contents: string,
   options: { durable?: boolean; shouldPublish?: () => boolean } = {}
 ): Promise<boolean> {
+  // Captured at call time: a delete after the request but before the lane runs must still win.
+  const discardEpoch = pathDiscardEpoch(targetPath)
   return await serializePathWrite(targetPath, async () => {
     const dir = dirname(targetPath)
     // recursive mkdir is a no-op on an existing directory, so no exists-then-create race.
@@ -74,14 +101,14 @@ export async function writeSecureFileAsync(
       }
       // Why: writeFile mode is a no-op on Windows, so the credential's ACL must land before the rename publishes it under inherited ACLs.
       let outcome = await applyWritePathRestriction(tmpFile, targetPath)
-      if (options.shouldPublish) {
-        if (!options.shouldPublish()) {
-          throw new SecureWriteSupersededError(targetPath)
-        }
-        renameSync(tmpFile, targetPath)
-      } else {
-        await rename(tmpFile, targetPath)
+      // Checks and the rename are synchronous and adjacent, so nothing runs between veto and publish.
+      if (pathDiscardEpoch(targetPath) !== discardEpoch) {
+        throw new SecureWriteDiscardedError(targetPath)
       }
+      if (options.shouldPublish && !options.shouldPublish()) {
+        throw new SecureWriteSupersededError(targetPath)
+      }
+      renameSync(tmpFile, targetPath)
       // The staged file's protected DACL travels with the rename (same volume), so a successful
       // staged pass needs no second one; a failed one gets the published path's retry the tag had.
       if (outcome === 'failed') {
