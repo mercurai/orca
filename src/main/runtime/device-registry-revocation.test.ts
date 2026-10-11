@@ -2,11 +2,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type * as SecureFileAsyncWrite from '../../shared/secure-file-async-write'
 
 const failNextWrite = vi.hoisted(() => ({ armed: false }))
 
 vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../shared/secure-file-async-write')>()
+  const actual = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...actual,
     writeSecureJsonFileAsync: async (
