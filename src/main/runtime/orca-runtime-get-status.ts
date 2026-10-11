@@ -269,9 +269,9 @@ export class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithGetRuntimeId {
 
   protected notifyWorktreesChanged(
     repoId: string,
-    options?: { invalidateGitScans?: boolean }
+    options?: { invalidateGitScans?: boolean; sortOrderOnly?: boolean }
   ): void {
-    // Why: headless hosts have no window notifier, so invalidate here unless the change is metadata-only.
+    // Headless hosts invalidate here unless only metadata changed.
     if (options?.invalidateGitScans !== false) {
       runWorktreeChangeInvalidators(repoId)
     }
@@ -280,7 +280,11 @@ export class OrcaRuntimeWithGetStatus extends OrcaRuntimeWithGetRuntimeId {
     } else {
       this.notifier?.worktreesChanged(repoId)
     }
-    this.emitClientEvent({ type: 'worktreesChanged', repoId })
+    this.emitClientEvent({
+      type: 'worktreesChanged',
+      repoId,
+      ...(options?.sortOrderOnly === true ? { sortOrderOnly: true } : {})
+    })
   }
 
   /** Detail-level worktree lifecycle tap (plugin event bus). The coarse

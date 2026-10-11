@@ -206,7 +206,8 @@ export class OrcaRuntimeWithCreateManagedRemoteWorktree extends OrcaRuntimeWithC
       orderedIds,
       store: this.store,
       invalidateResolved: () => this.invalidateResolvedWorktreeCache(),
-      notifyChanged: (repoId) => this.notifyWorktreesChanged(repoId, { invalidateGitScans: false })
+      notifyChanged: (repoId) =>
+        this.notifyWorktreesChanged(repoId, { invalidateGitScans: false, sortOrderOnly: true })
     })
   }
 

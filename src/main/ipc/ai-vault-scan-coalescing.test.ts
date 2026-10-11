@@ -66,6 +66,39 @@ beforeEach(() => {
 })
 
 describe('Agent Session History scan coalescing', () => {
+  it('never shares a compact reply with a caller missing its exact baseline', async () => {
+    registerRuntimeHost()
+    const fingerprint = 'a'.repeat(64)
+    mocks.scanRuntimeAiVaultSessions.mockImplementation(async (_host, args) => {
+      await Promise.resolve()
+      return args.afterFingerprint === fingerprint
+        ? { ...EMPTY_RESULT, fingerprint, unchanged: true }
+        : { ...EMPTY_RESULT, scannedAt: 'full' }
+    })
+    const [conditional, legacy] = await Promise.all([
+      _internals.listAiVaultSessions({
+        executionHostScope: 'runtime:remote-server',
+        afterFingerprint: fingerprint
+      }),
+      _internals.listAiVaultSessions({ executionHostScope: 'runtime:remote-server' })
+    ])
+    expect(conditional.unchanged).toBe(true)
+    expect(legacy.unchanged).toBeUndefined()
+    expect(legacy.scannedAt).toBe('full')
+    expect(mocks.scanRuntimeAiVaultSessions).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not forward conditional hints into truncated all-host merges', async () => {
+    registerRuntimeHost()
+    await _internals.listAiVaultSessions({
+      executionHostScope: 'all',
+      afterFingerprint: 'a'.repeat(64)
+    })
+    expect(mocks.scanRuntimeAiVaultSessions.mock.calls[0]?.[1]).not.toHaveProperty(
+      'afterFingerprint'
+    )
+  })
+
   it.each([
     ['local', mocks.scanAiVaultSessionsInService],
     ['runtime:remote-server', mocks.scanRuntimeAiVaultSessions]

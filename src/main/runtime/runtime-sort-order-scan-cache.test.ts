@@ -53,7 +53,7 @@ async function expectOrderSaveSkipsGitScan(
   unsubscribe()
   const listed = await runtime.listDetectedManagedWorktrees(`id:${TEST_REPO_ID}`)
 
-  expect(events).toEqual([{ type: 'worktreesChanged', repoId: TEST_REPO_ID }])
+  expect(events).toEqual([{ type: 'worktreesChanged', repoId: TEST_REPO_ID, sortOrderOnly: true }])
   expect(listWorktrees).toHaveBeenCalledTimes(1)
   const sortOrderOf = (id: string) =>
     listed.worktrees.find((worktree) => worktree.id === id)?.sortOrder ?? Number.NaN

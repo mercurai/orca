@@ -94,11 +94,15 @@ async function listAiVaultSessions(
     includeAntigravityIdeSessions: args?.includeAntigravityIdeSessions === true
   })
   const depth = requestedAiVaultSessionDepth(args)
+  const afterFingerprint =
+    parseRoutableExecutionHostId(executionHostScope)?.kind === 'runtime'
+      ? args?.afterFingerprint
+      : undefined
   // Why: every renderer request carries its own cancellation signal, so
   // coalescing has to survive them — the coordinator hands all same-key callers
   // one scan and only aborts it once every one of them has cancelled.
   return scanCoordinator.run({
-    key: JSON.stringify({ key, depth }),
+    key: JSON.stringify({ key, depth, afterFingerprint }),
     force: args?.force,
     signal: options.signal,
     start: (scanSignal) => {
@@ -111,6 +115,7 @@ async function listAiVaultSessions(
         depth,
         scopePaths,
         force: args?.force === true,
+        afterFingerprint,
         scan
       })
     }
@@ -143,7 +148,7 @@ async function scanAiVaultSessionsByHostScope(
             scanRuntimeAiVaultSessions({
               hostInfo,
               scanner: handlerOptions.scanRuntimeAiVaultSessions,
-              listArgs: args,
+              listArgs: args ? { ...args, afterFingerprint: undefined } : undefined,
               options: { signal, timeoutMs: AI_VAULT_ALL_HOST_TIMEOUT_MS.runtimeScan }
             })
         })

@@ -33,11 +33,7 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
     if (!hostTabId) {
       throw new Error('tab_not_found')
     }
-    const publicSnapshot = this.toMobileSessionTabsResult(snapshot)
-    const targetGroup = publicSnapshot.tabGroups?.find((group) => group.id === move.targetGroupId)
-    if (!targetGroup) {
-      throw new Error('target_group_not_found')
-    }
+    const targetGroup = this.requireHeadlessTargetGroup(snapshot, move.targetGroupId)
     const tabOrder = this.normalizeMobileSessionTabOrder(snapshot, targetGroup, move.tabOrder)
     const orderIndexByParentTabId = new Map(tabOrder.map((tabId, index) => [tabId, index]))
     const nextTabs = [...snapshot.tabs].sort((a, b) => {
@@ -87,6 +83,7 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
     if (!hostTabId) {
       throw new Error('tab_not_found')
     }
+    this.requireHeadlessTargetGroup(snapshot, move.targetGroupId)
     const split = buildHeadlessTabGroupSplit({
       groups: snapshot.tabGroups ?? [],
       layout: snapshot.tabGroupLayout,
@@ -125,6 +122,7 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
     if (!hostTabId) {
       throw new Error('tab_not_found')
     }
+    this.requireHeadlessTargetGroup(snapshot, move.targetGroupId)
     const moved = buildHeadlessTabGroupMove({
       groups: snapshot.tabGroups ?? [],
       layout: snapshot.tabGroupLayout,
@@ -133,7 +131,7 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
       index: move.index
     })
     if (!moved) {
-      // Same-group / missing-target drop is a renderer no-op; mirror that.
+      // Same-group drop is a renderer no-op; mirror that.
       return { moved: true }
     }
     const layout = moved.layout ?? { type: 'leaf' as const, groupId: move.targetGroupId }
@@ -150,6 +148,20 @@ export class OrcaRuntimeWithMoveHeadlessMobileSessionTab extends OrcaRuntimeWith
     this.storeMobileSessionSnapshot(worktreeId, nextSnapshot)
     this.emitMobileSessionTabsSnapshot(nextSnapshot)
     return { moved: true }
+  }
+
+  // Why: the builders return null for a missing target AND a legit no-op; only the no-op may succeed.
+  protected requireHeadlessTargetGroup(
+    snapshot: RuntimeMobileSessionTabsSnapshot,
+    targetGroupId: string
+  ): RuntimeMobileSessionTabGroup {
+    const targetGroup = this.toMobileSessionTabsResult(snapshot).tabGroups?.find(
+      (group) => group.id === targetGroupId
+    )
+    if (!targetGroup) {
+      throw new Error('target_group_not_found')
+    }
+    return targetGroup
   }
 
   // Persist the headless tab-GROUP layout so snapshot rebuilds keep the split; the tab bar and rows
