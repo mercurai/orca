@@ -34,6 +34,8 @@ import { OrcaCloudRequestError } from '../orca-profiles/profile-cloud-client'
 type ArtifactAuthContext = {
   profileId: string
   scope: ArtifactShareScope
+  /** Share-index lifecycle captured with the auth; stores re-check it inside their serialized write. */
+  lifecycle: string
   assertCurrent: () => void
 }
 
@@ -73,6 +75,7 @@ function authContext(
   return {
     profileId: active.profile.id,
     scope,
+    lifecycle: lifecycleGeneration,
     assertCurrent: () => {
       const current = ensureActiveOrcaProfile(userDataPath)
       const cloudCurrent =

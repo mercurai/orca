@@ -52,6 +52,7 @@ function discardsCreateIntent(error: unknown): boolean {
 type ArtifactPublishAuthContext = {
   profileId: string
   scope: ArtifactShareScope
+  lifecycle?: string
   assertCurrent: () => void
 }
 
@@ -243,13 +244,19 @@ export class ArtifactPublisher {
       throw error
     }
     auth.assertCurrent()
-    await saveArtifactShareRecord(auth.profileId, this.userDataPath, request.sourceKey, {
-      slug: response.artifact.slug,
-      editToken: response.editToken,
-      shareUrl: response.shareUrl,
-      expiresAt: response.artifact.expiresAt,
-      ...auth.scope
-    })
+    await saveArtifactShareRecord(
+      auth.profileId,
+      this.userDataPath,
+      request.sourceKey,
+      {
+        slug: response.artifact.slug,
+        editToken: response.editToken,
+        shareUrl: response.shareUrl,
+        expiresAt: response.artifact.expiresAt,
+        ...auth.scope
+      },
+      auth.lifecycle
+    )
     return {
       editToken: response.editToken,
       intent,
