@@ -1,9 +1,13 @@
 import { safeStorage } from 'electron'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { hardenExistingSecureFile, isUnreadableError } from '../../shared/secure-file'
-import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
+import {
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 import { ApiKeyFileUnreadableError } from './api-key-file-unreadable-error'
 
@@ -108,6 +112,10 @@ export function createEncryptedApiKeyFileStore({
   }
 
   async function save(key: string): Promise<void> {
+    await ignoreDiscardedSecureWrite(() => saveUnlessCleared(key))
+  }
+
+  async function saveUnlessCleared(key: string): Promise<void> {
     const trimmed = key.trim()
     if (!trimmed) {
       throw new Error(`${providerLabel} API key is required`)
@@ -167,7 +175,7 @@ export function createEncryptedApiKeyFileStore({
 
   function clear(): void {
     cachedApiKey = null
-    rmSync(getApiKeyPath(), { force: true })
+    removeSecureFile(getApiKeyPath())
   }
 
   return { has, save, read, clear, protection }

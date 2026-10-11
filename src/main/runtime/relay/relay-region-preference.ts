@@ -1,10 +1,10 @@
 import { measureRelayRegionDecision } from './relay-region-decision'
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { z } from 'zod'
 import { hardenExistingSecureFile } from '../../../shared/secure-file'
-import { writeSecureJsonFileAsync } from '../../../shared/secure-file-async-write'
+import { removeSecureFile, writeSecureJsonFileAsync } from '../../../shared/secure-file-async-write'
 import { fetchRelayRegionCatalog, relayDirectorHost } from './relay-region-catalog-fetch'
 import type { RelayRegionDecision, RelayRegionWindow } from './relay-region-correction-protocol'
 import {
@@ -164,7 +164,7 @@ export class RelayRegionPreferenceResolver {
       outcome.decision = far ? 'deleted' : 'kept'
       outcome.reason = far ? 'assigned-cell-far' : 'assigned-cell-near'
       if (far) {
-        rmSync(this.cachePath(), { force: true })
+        removeSecureFile(this.cachePath())
       }
       this.logSelfHeal(outcome)
     } catch {

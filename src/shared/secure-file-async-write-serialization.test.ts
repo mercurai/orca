@@ -30,8 +30,26 @@ vi.mock('node:fs/promises', async () => {
   }
 })
 
+// The publishing rename is synchronous (so a veto check sits right before it), so it is counted here.
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  return {
+    ...actual,
+    renameSync: (...args: Parameters<typeof actual.renameSync>) => {
+      steps.push('rename')
+      return actual.renameSync(...args)
+    }
+  }
+})
+
+import { existsSync } from 'node:fs'
 import { pendingPathWriteCountForTests } from './path-write-serializer'
-import { writeSecureFileAsync } from './secure-file-async-write'
+import {
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  SecureWriteDiscardedError,
+  writeSecureFileAsync
+} from './secure-file-async-write'
 
 const directories: string[] = []
 
@@ -111,4 +129,48 @@ posixIt('removes the temp file when the write cannot be published', async () => 
   await expect(writeSecureFileAsync(target, 'x')).rejects.toThrow()
 
   expect(readdirSync(directory)).toEqual(['blocked'])
+})
+
+it('lets a clear that follows a save win, even while the save is in its ACL wait', async () => {
+  const directory = freshDirectory('orca-secure-async-clear-')
+  const target = join(directory, 'api-key')
+
+  const save = writeSecureFileAsync(target, 'secret')
+  removeSecureFile(target) // the user clears before the save published
+
+  await expect(save).rejects.toBeInstanceOf(SecureWriteDiscardedError)
+  expect(existsSync(target)).toBe(false)
+  expect(readdirSync(directory)).toEqual([])
+})
+
+it('discards every write queued before the clear, and keeps writes requested after it', async () => {
+  const directory = freshDirectory('orca-secure-async-clear-queue-')
+  const target = join(directory, 'session.json')
+
+  const first = writeSecureFileAsync(target, 'one')
+  const second = writeSecureFileAsync(target, 'two')
+  removeSecureFile(target)
+  const third = writeSecureFileAsync(target, 'three')
+
+  await expect(first).rejects.toBeInstanceOf(SecureWriteDiscardedError)
+  await expect(second).rejects.toBeInstanceOf(SecureWriteDiscardedError)
+  await third
+  expect(readFileSync(target, 'utf-8')).toBe('three')
+})
+
+it('turns a discarded save into a no-op for store callers', async () => {
+  const directory = freshDirectory('orca-secure-async-clear-noop-')
+  const target = join(directory, 'cookie')
+  let cached: string | null = null
+
+  const save = ignoreDiscardedSecureWrite(async () => {
+    await writeSecureFileAsync(target, 'cookie')
+    cached = 'cookie' // a store sets its cache only after the write published
+  })
+  removeSecureFile(target)
+  cached = null
+
+  await save
+  expect(cached).toBeNull()
+  expect(existsSync(target)).toBe(false)
 })
