@@ -37,8 +37,11 @@ vi.mock('node:path', () => ({
 vi.mock('../../shared/secure-file', () => ({
   hardenExistingSecureFile: hardenExistingSecureFileMock,
   isUnreadableError: (error: unknown) =>
-    error instanceof Error && 'code' in error && error.code === 'EBUSY',
-  writeSecureFile: writeSecureFileMock
+    error instanceof Error && 'code' in error && error.code === 'EBUSY'
+}))
+
+vi.mock('../../shared/secure-file-async-write', () => ({
+  writeSecureFileAsync: writeSecureFileMock
 }))
 
 const storePath = '/home/test/.orca/minimax-api-key.enc'
@@ -56,6 +59,7 @@ describe('minimax-api-key-store', () => {
     rmSyncMock.mockReset()
     hardenExistingSecureFileMock.mockReset()
     writeSecureFileMock.mockReset()
+    writeSecureFileMock.mockResolvedValue(true)
     safeStorageMock.isEncryptionAvailable.mockReset()
     safeStorageMock.encryptString.mockReset()
     safeStorageMock.decryptString.mockReset()
@@ -100,7 +104,7 @@ describe('minimax-api-key-store', () => {
   it('writes the key using safeStorage when encryption is available', async () => {
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
-    store.saveMiniMaxApiKey('sk-test-1234567890')
+    await store.saveMiniMaxApiKey('sk-test-1234567890')
     expect(safeStorageMock.encryptString).toHaveBeenCalledWith('sk-test-1234567890')
     expect(writeSecureFileMock).toHaveBeenCalledWith(
       storePath,
@@ -114,7 +118,7 @@ describe('minimax-api-key-store', () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
-    store.saveMiniMaxApiKey('sk-test-1234567890')
+    await store.saveMiniMaxApiKey('sk-test-1234567890')
     expect(writeSecureFileMock).toHaveBeenCalledWith(
       storePath,
       envelope('plaintext', 'sk-test-1234567890'),
@@ -166,7 +170,7 @@ describe('minimax-api-key-store', () => {
 
   it('refuses empty keys', async () => {
     const store = await loadStore()
-    expect(() => store.saveMiniMaxApiKey('   ')).toThrow(/required/)
+    await expect(store.saveMiniMaxApiKey('   ')).rejects.toThrow(/required/)
   })
 
   it('reads decrypted key from disk and caches it', async () => {

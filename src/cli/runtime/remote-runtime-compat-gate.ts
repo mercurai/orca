@@ -18,6 +18,8 @@ type WebSocketTransport = {
   sendWebSocketRequestWithStatusPreflight: typeof sendWebSocketRequestWithStatusPreflight
 }
 
+type ObservedRuntime = { runtimeId: string | null | undefined }
+
 export class RemoteRuntimeCompatGate {
   private checked = false
 
@@ -26,7 +28,7 @@ export class RemoteRuntimeCompatGate {
     private readonly environmentSelector: string | null
   ) {}
 
-  send<TResult>(args: {
+  async send<TResult>(args: {
     transport: WebSocketTransport
     pairing: PairingOffer
     method: string
@@ -43,24 +45,43 @@ export class RemoteRuntimeCompatGate {
         args.envelope
       )
     }
-    return args.transport.sendWebSocketRequestWithStatusPreflight<TResult>(
-      args.pairing,
-      args.method,
-      args.params,
-      args.timeoutMs,
-      (response) => {
-        if (response.ok === false) {
-          throw new RuntimeRpcFailureError(response)
-        }
-        this.noteVerifiedStatus(response.result)
-        if (this.environmentSelector) {
-          markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
-            runtimeId: response._meta.runtimeId
-          })
-        }
-      },
-      args.envelope
-    )
+    // Why: the preflight callback is synchronous, so it only records the runtime id to persist.
+    let observed: ObservedRuntime | null = null
+    let response: RuntimeRpcResponse<TResult>
+    try {
+      response = await args.transport.sendWebSocketRequestWithStatusPreflight<TResult>(
+        args.pairing,
+        args.method,
+        args.params,
+        args.timeoutMs,
+        (statusResponse) => {
+          if (statusResponse.ok === false) {
+            throw new RuntimeRpcFailureError(statusResponse)
+          }
+          this.noteVerifiedStatus(statusResponse.result)
+          if (this.environmentSelector) {
+            observed = { runtimeId: statusResponse._meta.runtimeId }
+          }
+        },
+        args.envelope
+      )
+    } catch (error) {
+      // Why: a failed usage write must not replace the request's own error.
+      await this.recordUsed(observed).catch((writeError) => {
+        console.warn('[runtime] failed to record environment usage:', writeError)
+      })
+      throw error
+    }
+    await this.recordUsed(observed)
+    return response
+  }
+
+  private async recordUsed(observed: ObservedRuntime | null): Promise<void> {
+    if (observed && this.environmentSelector) {
+      await markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
+        runtimeId: observed.runtimeId
+      })
+    }
   }
 
   noteVerifiedStatus(status: RuntimeStatus): void {

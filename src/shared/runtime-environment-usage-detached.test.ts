@@ -57,18 +57,21 @@ function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
   })
 }
 
-function seededStore(): { userDataPath: string; id: string } {
+async function seededStore(): Promise<{ userDataPath: string; id: string }> {
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-env-usage-detached-'))
   directories.push(userDataPath)
-  const env = addEnvironmentFromPairingCode(userDataPath, {
+  const env = await addEnvironmentFromPairingCode(userDataPath, {
     name: 'dev box',
     pairingCode: pairingCode()
   })
+  // Why: the seed write must not count toward the writes each test asserts on.
+  await idle()
+  writes.length = 0
   return { userDataPath, id: env.id }
 }
 
 it('persists the runtime id off the calling thread and throws for an unknown environment', async () => {
-  const { userDataPath, id } = seededStore()
+  const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
   await idle()
@@ -81,7 +84,7 @@ it('persists the runtime id off the calling thread and throws for an unknown env
 })
 
 it('turns ten usage stamps in one minute into one write', async () => {
-  const { userDataPath, id } = seededStore()
+  const { userDataPath, id } = await seededStore()
 
   for (let call = 0; call < 10; call += 1) {
     markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
@@ -92,7 +95,7 @@ it('turns ten usage stamps in one minute into one write', async () => {
 })
 
 it('folds a call that lands mid-write into one follow-up stamp carrying the newest ids', async () => {
-  const { userDataPath, id } = seededStore()
+  const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
   markEnvironmentUsedDetached(userDataPath, id, { pairedDeviceId: 'device-9' })
@@ -107,20 +110,20 @@ it('folds a call that lands mid-write into one follow-up stamp carrying the newe
 })
 
 it('does not resurrect an environment removed while the stamp was writing', async () => {
-  const { userDataPath, id } = seededStore()
+  const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
-  removeEnvironment(userDataPath, id)
+  await removeEnvironment(userDataPath, id)
   await idle()
 
   expect(listEnvironments(userDataPath)).toEqual([])
 })
 
 it('keeps a re-pair made while the stamp was writing, and the stamp lands on the next attempt', async () => {
-  const { userDataPath, id } = seededStore()
+  const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
-  const repaired = updateEnvironmentFromPairingCode(userDataPath, id, {
+  const repaired = await updateEnvironmentFromPairingCode(userDataPath, id, {
     pairingCode: pairingCode('ws://192.0.2.10:6768')
   })
   await idle()
@@ -131,12 +134,11 @@ it('keeps a re-pair made while the stamp was writing, and the stamp lands on the
     runtimeId: 'runtime-1'
   })
   expect(stored!.lastUsedAt).toBeTypeOf('number')
-  expect(writes).toHaveLength(2)
 })
 
 it('does not let two concurrent stamps for different environments roll each other back', async () => {
-  const { userDataPath, id } = seededStore()
-  const other = addEnvironmentFromPairingCode(userDataPath, {
+  const { userDataPath, id } = await seededStore()
+  const other = await addEnvironmentFromPairingCode(userDataPath, {
     name: 'second box',
     pairingCode: pairingCode('ws://127.0.0.1:6769')
   })

@@ -34,7 +34,7 @@ describe('paired runtime browser network tunnel', () => {
     await rpc.start()
     resources.push(() => rpc.stop())
 
-    const offer = rpc.createPairingOffer({ name: 'browser-command', scope: 'runtime' })
+    const offer = await rpc.createPairingOffer({ name: 'browser-command', scope: 'runtime' })
     if (!offer.available) {
       throw new Error('Runtime pairing is unavailable')
     }
@@ -115,7 +115,7 @@ describe('paired runtime browser network tunnel', () => {
     await rpc.start()
     resources.push(() => rpc.stop())
 
-    const offer = rpc.createPairingOffer({ name: 'browser-reconciliation', scope: 'runtime' })
+    const offer = await rpc.createPairingOffer({ name: 'browser-reconciliation', scope: 'runtime' })
     if (!offer.available) {
       throw new Error('Runtime pairing is unavailable')
     }
@@ -211,7 +211,7 @@ describe('paired runtime browser network tunnel', () => {
     await rpc.start()
     resources.push(() => rpc.stop())
 
-    const offer = rpc.createPairingOffer({ name: 'browser-tunnel', scope: 'runtime' })
+    const offer = await rpc.createPairingOffer({ name: 'browser-tunnel', scope: 'runtime' })
     if (!offer.available) {
       throw new Error('Runtime pairing is unavailable')
     }

@@ -52,7 +52,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const device = server['deviceRegistry'] ?? null
     expect(device).toBeNull()
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const entry = server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
+    const entry = await server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
     const ws = new FakeWebSocket()
     server['mobileSocketWiring'] = {
       getConnectionId: () => 'conn-test'
@@ -130,7 +130,7 @@ describe('OrcaRuntimeRpcServer', () => {
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
     // Why: 'runtime' scope, not 'mobile' — orchestration.ask is absent from the mobile allowlist.
-    const entry = server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
+    const entry = await server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
     const ws = new FakeWebSocket()
     server['mobileSocketWiring'] = {
       getConnectionId: () => 'conn-test'
@@ -212,7 +212,7 @@ describe('OrcaRuntimeRpcServer', () => {
     } as unknown as OrcaRuntimeService
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const entry = server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
+    const entry = await server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
     const ws = new FakeWebSocket()
     server['mobileSocketWiring'] = {
       getConnectionId: () => 'conn-test'

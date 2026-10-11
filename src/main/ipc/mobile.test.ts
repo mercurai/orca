@@ -477,7 +477,7 @@ describe('registerMobileHandlers', () => {
   })
 
   it('generates runtime-scoped pairing urls for web and desktop clients', async () => {
-    const createPairingOffer = vi.fn().mockReturnValue({
+    const createPairingOffer = vi.fn().mockResolvedValue({
       available: true,
       pairingUrl: 'orca://pair#runtime',
       webClientUrl: 'http://100.64.1.20:6768/web-index.html?pairing=runtime',
@@ -521,7 +521,7 @@ describe('registerMobileHandlers', () => {
   const stubRuntimePairingServer = (
     address: string
   ): { createPairingOffer: Mock; ensureNetworkExposure: Mock } => ({
-    createPairingOffer: vi.fn().mockReturnValue({
+    createPairingOffer: vi.fn().mockResolvedValue({
       available: true,
       pairingUrl: 'orca://pair#runtime',
       webClientUrl: `http://${address}/web-index.html?pairing=runtime`,
@@ -711,8 +711,8 @@ describe('registerMobileHandlers', () => {
     })
   })
 
-  it('revokes runtime access through the runtime server', () => {
-    const revokeRuntimeAccess = vi.fn().mockReturnValue(true)
+  it('revokes runtime access through the runtime server', async () => {
+    const revokeRuntimeAccess = vi.fn().mockResolvedValue(true)
     const rpcServer = {
       getDeviceRegistry: () => ({}),
       revokeRuntimeAccess
@@ -720,7 +720,7 @@ describe('registerMobileHandlers', () => {
 
     registerMobileHandlers(rpcServer as never)
 
-    expect(handlers.get('mobile:revokeRuntimeAccess')?.(null, { deviceId: 'runtime-1' })).toEqual({
+    expect(await handlers.get('mobile:revokeRuntimeAccess')?.(null, { deviceId: 'runtime-1' })).toEqual({
       revoked: true
     })
     expect(revokeRuntimeAccess).toHaveBeenCalledWith('runtime-1')
@@ -913,7 +913,7 @@ describe('runtime pairing bind host', () => {
       expect(offer.available).toBe(true)
       deviceId = offer.deviceId
       // Exactly what MobileSocketWiring does for every authenticated socket, local browser included.
-      server.getDeviceRegistry()?.updateLastSeen(deviceId)
+      await server.getDeviceRegistry()?.updateLastSeen(deviceId)
     } finally {
       await server.stop()
     }
@@ -943,7 +943,7 @@ describe('runtime pairing bind host', () => {
         reach: 'network'
       })) as { available: true; deviceId: string }
       expect(offer.available).toBe(true)
-      server.getDeviceRegistry()?.updateLastSeen(offer.deviceId)
+      await server.getDeviceRegistry()?.updateLastSeen(offer.deviceId)
     } finally {
       await server.stop()
     }

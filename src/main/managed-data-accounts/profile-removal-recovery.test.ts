@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ManagedDataAccountProvider } from '../../shared/managed-account-types'
-import { writeSecureFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import { ManagedDataAccountService } from './service'
 
 vi.mock('node:fs', async (importOriginal) => ({
@@ -35,7 +35,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-function interruptedRemoval(
+async function interruptedRemoval(
   provider: ManagedDataAccountProvider = 'devin',
   id: string = randomUUID()
 ) {
@@ -50,9 +50,9 @@ function interruptedRemoval(
   }
   mkdirSync(join(directory, 'data'), { recursive: true })
   writeFileSync(credentialsPath, 'private-test-only-credential')
-  expect(writeSecureFile(rollbackPath, JSON.stringify(before), { durable: true })).toBe(true)
+  expect(await writeSecureFileAsync(rollbackPath, JSON.stringify(before), { durable: true })).toBe(true)
   expect(
-    writeSecureFile(metadataPath, JSON.stringify({ accounts: [], activeAccountId: null }), {
+    await writeSecureFileAsync(metadataPath, JSON.stringify({ accounts: [], activeAccountId: null }), {
       durable: true
     })
   ).toBe(true)
@@ -67,13 +67,13 @@ describe('interrupted managed account removal recovery', () => {
   it.each(['devin', 'opencode'] as const)(
     'quarantines the canonical %s directory registered with an uppercase UUID',
     async (provider) => {
-      const fixture = interruptedRemoval(provider)
+      const fixture = await interruptedRemoval(provider)
       const id = fixture.id.toUpperCase()
       const registered = {
         accounts: [{ ...fixture.before.accounts[0], id }],
         activeAccountId: id
       }
-      expect(writeSecureFile(fixture.metadataPath, JSON.stringify(registered))).toBe(true)
+      expect(await writeSecureFileAsync(fixture.metadataPath, JSON.stringify(registered))).toBe(true)
       const cleanup = vi.fn(() => {
         throw new Error('cleanup deferred')
       })
@@ -104,7 +104,7 @@ describe('interrupted managed account removal recovery', () => {
   it.each(['devin', 'opencode'] as const)(
     'quarantines a committed %s removal left before quarantine on restart',
     async (provider) => {
-      const fixture = interruptedRemoval(provider)
+      const fixture = await interruptedRemoval(provider)
       const restarted = new ManagedDataAccountService(storage)
       expect(restarted.list(provider)).toEqual({ accounts: [], activeAccountId: null })
       expect(restarted.launchEnvironment(provider)).toEqual({})
@@ -133,7 +133,7 @@ describe('interrupted managed account removal recovery', () => {
       const credentialsPath = join(directory, 'data', 'devin', 'credentials.toml')
       const metadataPath = join(storage, 'devin', 'accounts.json')
       const rollbackPath = `${metadataPath}.${directoryId}.rollback`
-      expect(writeSecureFile(metadataPath, JSON.stringify(before))).toBe(true)
+      expect(await writeSecureFileAsync(metadataPath, JSON.stringify(before))).toBe(true)
       const credentials = readFileSync(credentialsPath)
       const original = readFileSync(metadataPath)
       const rename = fileSystem.renameSync
@@ -159,8 +159,8 @@ describe('interrupted managed account removal recovery', () => {
   )
 
   it('retains recovery evidence when quarantine is locked and continues other removals', async () => {
-    const locked = interruptedRemoval()
-    const other = interruptedRemoval()
+    const locked = await interruptedRemoval()
+    const other = await interruptedRemoval()
     const rename = fileSystem.renameSync
     const failingRename = vi.spyOn(fileSystem, 'renameSync').mockImplementation((from, to) => {
       if (from === locked.directory) {
@@ -184,7 +184,7 @@ describe('interrupted managed account removal recovery', () => {
   })
 
   it('leaves failed cleanup quarantined and retries it without restoring metadata', async () => {
-    const fixture = interruptedRemoval()
+    const fixture = await interruptedRemoval()
     const restarted = new ManagedDataAccountService(storage, () => {
       throw new Error('cleanup locked')
     })
@@ -204,7 +204,7 @@ describe('interrupted managed account removal recovery', () => {
   })
 
   it('retains backup evidence while an original profile collides with its quarantine', async () => {
-    const fixture = interruptedRemoval()
+    const fixture = await interruptedRemoval()
     const pendingDirectory = join(fixture.providerRoot, '.pending-delete', fixture.id)
     mkdirSync(pendingDirectory, { recursive: true })
     writeFileSync(join(pendingDirectory, 'private-state'), 'earlier-quarantine-test-data')
@@ -223,8 +223,8 @@ describe('interrupted managed account removal recovery', () => {
   })
 
   it('preserves registered profiles, their markers and quarantines, and unmarked directories', async () => {
-    const fixture = interruptedRemoval()
-    expect(writeSecureFile(fixture.metadataPath, JSON.stringify(fixture.before))).toBe(true)
+    const fixture = await interruptedRemoval()
+    expect(await writeSecureFileAsync(fixture.metadataPath, JSON.stringify(fixture.before))).toBe(true)
     const pendingDirectory = join(fixture.providerRoot, '.pending-delete', fixture.id)
     const unmarked = join(fixture.providerRoot, randomUUID())
     mkdirSync(pendingDirectory, { recursive: true })
@@ -248,12 +248,12 @@ describe('interrupted managed account removal recovery', () => {
       const lowerId = randomUUID()
       const registeredId = spelling === 'lowercase' ? lowerId : lowerId.toUpperCase()
       const markerId = spelling === 'lowercase' ? lowerId.toUpperCase() : lowerId
-      const fixture = interruptedRemoval('devin', markerId)
+      const fixture = await interruptedRemoval('devin', markerId)
       const registered = {
         accounts: [{ ...fixture.before.accounts[0], id: registeredId }],
         activeAccountId: registeredId
       }
-      expect(writeSecureFile(fixture.metadataPath, JSON.stringify(registered))).toBe(true)
+      expect(await writeSecureFileAsync(fixture.metadataPath, JSON.stringify(registered))).toBe(true)
       const marker = readFileSync(fixture.rollbackPath)
       const restarted = new ManagedDataAccountService(storage)
       await finishStartup(restarted)
@@ -273,12 +273,12 @@ describe('interrupted managed account removal recovery', () => {
       const lowerId = randomUUID()
       const registeredId = spelling === 'lowercase' ? lowerId : lowerId.toUpperCase()
       const markerId = spelling === 'lowercase' ? lowerId.toUpperCase() : lowerId
-      const fixture = interruptedRemoval('devin', markerId)
+      const fixture = await interruptedRemoval('devin', markerId)
       const registered = {
         accounts: [{ ...fixture.before.accounts[0], id: registeredId }],
         activeAccountId: registeredId
       }
-      expect(writeSecureFile(fixture.metadataPath, JSON.stringify(registered))).toBe(true)
+      expect(await writeSecureFileAsync(fixture.metadataPath, JSON.stringify(registered))).toBe(true)
       const pendingDirectory = join(fixture.providerRoot, '.pending-delete', markerId)
       const pendingCredentials = join(pendingDirectory, 'data', 'test-credentials')
       mkdirSync(join(fixture.providerRoot, '.pending-delete'), { recursive: true })
@@ -297,12 +297,12 @@ describe('interrupted managed account removal recovery', () => {
   )
 
   it('recovers an unregistered profile when its marker contains another UUID spelling', async () => {
-    const fixture = interruptedRemoval('devin', randomUUID().toUpperCase())
+    const fixture = await interruptedRemoval('devin', randomUUID().toUpperCase())
     const before = {
       accounts: [{ ...fixture.before.accounts[0], id: fixture.id.toLowerCase() }],
       activeAccountId: fixture.id.toLowerCase()
     }
-    expect(writeSecureFile(fixture.rollbackPath, JSON.stringify(before))).toBe(true)
+    expect(await writeSecureFileAsync(fixture.rollbackPath, JSON.stringify(before))).toBe(true)
     const restarted = new ManagedDataAccountService(storage)
     await finishStartup(restarted)
     expect(existsSync(fixture.directory)).toBe(false)
@@ -312,7 +312,7 @@ describe('interrupted managed account removal recovery', () => {
   it.each(['invalid JSON', 'invalid state', 'different id', 'directory', 'missing marker'])(
     'preserves original credentials without valid removal evidence: %s',
     async (invalid) => {
-      const fixture = interruptedRemoval()
+      const fixture = await interruptedRemoval()
       if (invalid === 'invalid JSON') {
         writeFileSync(fixture.rollbackPath, '{')
       } else if (invalid === 'invalid state') {
@@ -337,8 +337,8 @@ describe('interrupted managed account removal recovery', () => {
   )
 
   it('preserves unreadable backups and continues other eligible removals', async () => {
-    const unreadable = interruptedRemoval()
-    const other = interruptedRemoval()
+    const unreadable = await interruptedRemoval()
+    const other = await interruptedRemoval()
     const read = fileSystem.readFileSync
     const failingRead = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((...args) => {
       if (args[0] === unreadable.rollbackPath) {
@@ -360,10 +360,10 @@ describe('interrupted managed account removal recovery', () => {
   })
 
   it('rejects a linked provider directory without deleting another provider profile', async () => {
-    const fixture = interruptedRemoval('opencode')
+    const fixture = await interruptedRemoval('opencode')
     const alias = join(storage, 'devin')
     symlinkSync(fixture.providerRoot, alias, 'junction')
-    expect(writeSecureFile(fixture.metadataPath, JSON.stringify(fixture.before))).toBe(true)
+    expect(await writeSecureFileAsync(fixture.metadataPath, JSON.stringify(fixture.before))).toBe(true)
     const restarted = new ManagedDataAccountService(storage)
     await restarted.select('opencode', fixture.id)
     expect(console.warn).toHaveBeenCalledWith(
@@ -374,7 +374,7 @@ describe('interrupted managed account removal recovery', () => {
   })
 
   it('ignores non-UUID markers and cleans only valid completed removal markers', async () => {
-    const fixture = interruptedRemoval()
+    const fixture = await interruptedRemoval()
     rmSync(fixture.directory, { recursive: true })
     const invalid = join(fixture.providerRoot, 'accounts.json.unrecognized.rollback')
     writeFileSync(invalid, JSON.stringify(fixture.before))
@@ -387,7 +387,7 @@ describe('interrupted managed account removal recovery', () => {
   it.skipIf(process.platform === 'win32')(
     'rejects a marker symlink without touching its target',
     async () => {
-      const fixture = interruptedRemoval()
+      const fixture = await interruptedRemoval()
       const target = join(root, 'outside-backup')
       const backup = readFileSync(fixture.rollbackPath)
       writeFileSync(target, backup)
@@ -405,7 +405,7 @@ describe('interrupted managed account removal recovery', () => {
   it.skipIf(process.platform === 'win32')(
     'rejects a profile symlink without touching its target',
     async () => {
-      const fixture = interruptedRemoval()
+      const fixture = await interruptedRemoval()
       const target = join(root, 'outside-profile')
       mkdirSync(target)
       writeFileSync(join(target, 'private-data'), 'outside-private-test-data')

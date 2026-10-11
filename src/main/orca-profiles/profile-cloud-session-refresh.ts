@@ -62,12 +62,12 @@ function cloudSessionRefreshKey(profileId: string, userDataPath: string): string
 // Why: with refresh-token rotation, only the session that actually failed may
 // clear the store; otherwise a loser of a concurrent refresh race would wipe
 // the winner's freshly rotated session.
-function clearCloudSessionIfUnchanged(
+async function clearCloudSessionIfUnchanged(
   profileId: string,
   userDataPath: string,
   failed: OrcaCloudSession,
   active: ActiveOrcaProfileState
-): void {
+): Promise<void> {
   const current = readOrcaCloudSession(profileId, userDataPath)
   if (current.status === 'found' && current.session.refreshToken !== failed.refreshToken) {
     return
@@ -78,7 +78,7 @@ function clearCloudSessionIfUnchanged(
     return
   }
   if (active.profile.cloud) {
-    tombstoneCloudSession(
+    await tombstoneCloudSession(
       cloudSessionIdentity(active.profile.id, active.profile.cloud),
       userDataPath
     )
@@ -183,7 +183,7 @@ async function refreshStoredCloudSession(
       throw new AmbiguousRefreshReplayBlockedError()
     }
     const expectedIdentity = cloudSessionIdentity(active.profile.id, active.profile.cloud)
-    const snapshot = captureCloudSessionMutation(expectedIdentity, userDataPath)
+    const snapshot = await captureCloudSessionMutation(expectedIdentity, userDataPath)
     const attempt = await attemptCloudSessionRefresh(key, config, active, userDataPath, session)
     if (attempt.status === 'rotated-elsewhere') {
       return attempt.session
@@ -205,11 +205,16 @@ async function refreshStoredCloudSession(
       capabilities: refreshed.capabilities
     }
     if (
-      saveOrcaCloudSessionIfCurrent(active.profile.id, userDataPath, nextSession, snapshot) === null
+      (await saveOrcaCloudSessionIfCurrent(
+        active.profile.id,
+        userDataPath,
+        nextSession,
+        snapshot
+      )) === null
     ) {
       throw new StaleCloudSessionMutationError()
     }
-    linkOrcaProfileToCloud(active.profile.id, refreshed.cloud, userDataPath)
+    await linkOrcaProfileToCloud(active.profile.id, refreshed.cloud, userDataPath)
     return nextSession
   })()
   inflightCloudSessionRefreshes.set(key, task)
@@ -240,7 +245,7 @@ export async function readFreshOrcaCloudSession(
   } catch (error) {
     if (isOrcaCloudAuthFailure(error)) {
       warnIfPossibleRefreshReplay(active.profile.id, userDataPath, session.session, error)
-      clearCloudSessionIfUnchanged(active.profile.id, userDataPath, session.session, active)
+      await clearCloudSessionIfUnchanged(active.profile.id, userDataPath, session.session, active)
       return { status: 'reconnect-required' }
     }
     throw error
@@ -261,7 +266,7 @@ export async function forceRefreshOrcaCloudSession(
   } catch (error) {
     if (isOrcaCloudAuthFailure(error)) {
       warnIfPossibleRefreshReplay(active.profile.id, userDataPath, session, error)
-      clearCloudSessionIfUnchanged(active.profile.id, userDataPath, session, active)
+      await clearCloudSessionIfUnchanged(active.profile.id, userDataPath, session, active)
       return { status: 'reconnect-required' }
     }
     throw error
@@ -301,7 +306,12 @@ export async function runWithFreshOrcaCloudSession<T>(
       // the user out for it would destroy a valid session, so let it surface
       // as a failed operation instead.
       if (retryError instanceof OrcaCloudRequestError && retryError.statusCode === 401) {
-        clearCloudSessionIfUnchanged(active.profile.id, userDataPath, refreshed.session, active)
+        await clearCloudSessionIfUnchanged(
+          active.profile.id,
+          userDataPath,
+          refreshed.session,
+          active
+        )
         return { status: 'reconnect-required' }
       }
       throw retryError

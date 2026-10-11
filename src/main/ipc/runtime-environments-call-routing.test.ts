@@ -401,7 +401,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { ok: true; result: unknown }
     >('runtimeEnvironments:call')
     await call(null, { selector: 'desk', method: 'repo.list' })
-    markEnvironmentUsed(userDataPath, added.environment.id, {
+    await markEnvironmentUsed(userDataPath, added.environment.id, {
       runtimeId: 'runtime-downgraded'
     })
     await call(null, { selector: 'desk', method: 'repo.list' })
@@ -421,7 +421,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { environment: { id: string; name: string } }
     >('runtimeEnvironments:addFromPairingCode')
     const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
-    markEnvironmentUsed(userDataPath, added.environment.id, {
+    await markEnvironmentUsed(userDataPath, added.environment.id, {
       runtimeId: 'runtime-replacement'
     })
 

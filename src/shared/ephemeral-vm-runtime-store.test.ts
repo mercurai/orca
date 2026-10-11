@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodePairingOffer, PAIRING_OFFER_VERSION } from './pairing'
 import {
   EphemeralVmRuntimeStoreError,
@@ -13,6 +13,9 @@ import {
   upsertEphemeralVmRuntime
 } from './ephemeral-vm-runtime-store'
 import type { EphemeralVmRuntimeRecord } from './ephemeral-vm-runtimes'
+import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
+
+vi.mock('./child-process/run-process', () => ({ runProcess: vi.fn(), runProcessSync: vi.fn() }))
 
 function pairingCode(endpoint = 'wss://sandbox.example.com'): string {
   return encodePairingOffer({
@@ -70,10 +73,10 @@ describe('ephemeral VM runtime store', () => {
     return userDataPath
   }
 
-  it('persists recipe-created runtimes separately from saved remote environments', () => {
+  it('persists recipe-created runtimes separately from saved remote environments', async () => {
     const userDataPath = makeUserDataPath()
-    const first = upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
-    const second = upsertEphemeralVmRuntime(
+    const first = await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    const second = await upsertEphemeralVmRuntime(
       userDataPath,
       runtimeRecord({
         id: 'orca-instance-2',
@@ -90,11 +93,11 @@ describe('ephemeral VM runtime store', () => {
     expect(listEphemeralVmRuntimes(userDataPath)).toEqual([second, first])
   })
 
-  it('updates lifecycle and cleanup state', () => {
+  it('updates lifecycle and cleanup state', async () => {
     const userDataPath = makeUserDataPath()
-    upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
 
-    const failed = updateEphemeralVmRuntimeStatus(userDataPath, 'orca-instance-1', {
+    const failed = await updateEphemeralVmRuntimeStatus(userDataPath, 'orca-instance-1', {
       status: 'cleanup_failed',
       cleanupStatus: 'failed',
       cleanupLastAttemptAt: 3_000,
@@ -110,7 +113,7 @@ describe('ephemeral VM runtime store', () => {
       updatedAt: 3_000
     })
 
-    const recovered = updateEphemeralVmRuntimeStatus(userDataPath, 'orca-instance-1', {
+    const recovered = await updateEphemeralVmRuntimeStatus(userDataPath, 'orca-instance-1', {
       status: 'cleaned',
       cleanupStatus: 'succeeded',
       cleanupLastError: null,
@@ -125,9 +128,9 @@ describe('ephemeral VM runtime store', () => {
     expect(recovered.cleanupLastError).toBeUndefined()
   })
 
-  it('persists runtime connection metadata', () => {
+  it('persists runtime connection metadata', async () => {
     const userDataPath = makeUserDataPath()
-    upsertEphemeralVmRuntime(
+    await upsertEphemeralVmRuntime(
       userDataPath,
       runtimeRecord({
         connectionMode: 'ssh',
@@ -160,11 +163,11 @@ describe('ephemeral VM runtime store', () => {
     })
   })
 
-  it('removes cleaned runtimes', () => {
+  it('removes cleaned runtimes', async () => {
     const userDataPath = makeUserDataPath()
-    const record = upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+    const record = await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
 
-    expect(removeEphemeralVmRuntime(userDataPath, record.id)).toEqual(record)
+    expect(await removeEphemeralVmRuntime(userDataPath, record.id)).toEqual(record)
     expect(listEphemeralVmRuntimes(userDataPath)).toEqual([])
   })
 
@@ -184,17 +187,42 @@ describe('ephemeral VM runtime store', () => {
     expect(() => listEphemeralVmRuntimes(userDataPath)).toThrow(EphemeralVmRuntimeStoreError)
   })
 
-  it('rejects an oversized write without publishing a partial runtime record', () => {
+  it('rejects an oversized write without publishing a partial runtime record', async () => {
     const userDataPath = makeUserDataPath()
 
-    expect(() =>
+    await expect(
       upsertEphemeralVmRuntime(
         userDataPath,
         runtimeRecord({
           cleanupLastError: 'x'.repeat(MAX_EPHEMERAL_VM_RUNTIME_STORE_FILE_BYTES)
         })
       )
-    ).toThrow(EphemeralVmRuntimeStoreError)
+    ).rejects.toThrow(EphemeralVmRuntimeStoreError)
     expect(listEphemeralVmRuntimes(userDataPath)).toEqual([])
+  })
+
+  it('keeps both runtimes when two upserts run concurrently', async () => {
+    const userDataPath = makeUserDataPath()
+
+    await Promise.all([
+      upsertEphemeralVmRuntime(userDataPath, runtimeRecord({ id: 'orca-instance-1' })),
+      upsertEphemeralVmRuntime(userDataPath, runtimeRecord({ id: 'orca-instance-2' }))
+    ])
+
+    expect(
+      listEphemeralVmRuntimes(userDataPath)
+        .map((runtime) => runtime.id)
+        .sort()
+    ).toEqual(['orca-instance-1', 'orca-instance-2'])
+  })
+
+  it('spawns no synchronous process on win32 when writing the stores', async () => {
+    const userDataPath = makeUserDataPath()
+
+    await expectNoSyncSpawnOnWin32(async () => {
+      await upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
+      await updateEphemeralVmRuntimeStatus(userDataPath, 'orca-instance-1', { status: 'suspended' })
+      await removeEphemeralVmRuntime(userDataPath, 'orca-instance-1')
+    })
   })
 })
