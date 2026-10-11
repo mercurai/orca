@@ -4,6 +4,7 @@ import type {
   PairingProvisionRelayParams
 } from '../../../shared/mobile-relay-credential-contract'
 import { callerScopeOf, devicePrincipalOf } from '../device-principal'
+import { registerSocketDeviceKey } from './runtime-rpc-device-key-registration'
 import type { AuthenticatedMobileSocket } from '../rpc/mobile-socket-wiring'
 import type { RpcRequest, RpcResponse } from '../rpc/core'
 import type { WebSocketTransport } from '../rpc/ws-transport'
@@ -81,7 +82,7 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
         {
           connectionId: socket.connectionId,
           deviceId: socket.device.deviceId,
-          deviceToken: socket.device.deviceToken,
+          deviceToken: socket.device.clientId,
           clientCapabilities: () => socket.clientCapabilities,
           reply,
           sendBinary: (bytes) => {
@@ -127,13 +128,17 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
       typeof (request as Record<string, unknown>).deviceToken === 'string'
         ? ((request as Record<string, unknown>).deviceToken as string)
         : null
-    if (authenticatedDeviceToken && requestToken && requestToken !== authenticatedDeviceToken) {
+    // Why: a keyed socket proved no token, so any request token is a mismatch.
+    const boundToken = authenticatedSocket
+      ? (authenticatedSocket.device.deviceToken ?? null)
+      : authenticatedDeviceToken
+    if (requestToken && (authenticatedSocket || boundToken) && requestToken !== boundToken) {
       reply(JSON.stringify(this.buildError(request.id, 'unauthorized', 'Device token mismatch')))
       return
     }
     // Why: E2EE already authenticated the channel; authorize by that bound identity, not a repeated request field.
-    const token = authenticatedDeviceToken ?? requestToken
-    if (!token) {
+    const token = boundToken ?? requestToken
+    if (!token && !authenticatedSocket) {
       reply(JSON.stringify(this.buildError(request.id, 'unauthorized', 'Missing device token')))
       return
     }
@@ -141,7 +146,7 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
     // a revoke or credential change refuses its next request even before the socket closes.
     const device = authenticatedSocket
       ? this.deviceRegistry?.resolveAuthenticatedPrincipal(authenticatedSocket.device)
-      : this.deviceRegistry?.validateToken(token)
+      : this.deviceRegistry?.validateToken(token ?? '')
     if (!device) {
       reply(JSON.stringify(this.buildError(request.id, 'unauthorized', 'Invalid device token')))
       return
@@ -230,6 +235,13 @@ export class RuntimeRpcWebSocketDispatch extends RuntimeRpcMobileDevices {
               }
             : undefined,
         pairing: pairingContext,
+        deviceSelf:
+          authenticatedSocket && this.deviceRegistry
+            ? {
+                registerDeviceKey: (params) =>
+                  registerSocketDeviceKey(this.deviceRegistry!, authenticatedSocket, params)
+              }
+            : undefined,
         mobileRelayHosts: this.mobileRelayHostCatalog ?? undefined,
         delegatedMobileDevices:
           device.scope === 'runtime'

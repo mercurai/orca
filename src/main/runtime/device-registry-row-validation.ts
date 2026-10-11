@@ -2,6 +2,7 @@ import type { DeviceScope } from '../../shared/runtime-types'
 import type { RelayDeviceBinding } from './relay/relay-revoke-outbox'
 import type { DeviceEntry } from './device-registry'
 import { parseMobilePushRegistration } from '../../shared/mobile-push-contract'
+import { isDevicePublicKeyB64 } from '../../shared/device-key-proof'
 import { RUNTIME_DEVICE_GRANTS, type RuntimeDeviceGrant } from './rpc/rpc-method-permission'
 
 const GRANTABLE: ReadonlySet<string> = new Set(RUNTIME_DEVICE_GRANTS)
@@ -67,6 +68,23 @@ export function normalizeLoadedDeviceRow(device: DeviceEntry): DeviceEntry {
     callerFingerprint:
       typeof device.callerFingerprint === 'string' && device.callerFingerprint.length > 0
         ? device.callerFingerprint
-        : undefined
+        : undefined,
+    ...validDeviceKeyFields(device)
+  }
+}
+
+// Why: a malformed keyed row stays keyed (so it never falls back to a token) but cannot authenticate.
+function validDeviceKeyFields(
+  device: DeviceEntry
+): Pick<DeviceEntry, 'credentialKind' | 'devicePublicKeyB64' | 'forkedFrom'> {
+  if (device.credentialKind !== 'device-key') {
+    return { credentialKind: undefined, devicePublicKeyB64: undefined, forkedFrom: undefined }
+  }
+  return {
+    credentialKind: 'device-key',
+    devicePublicKeyB64: isDevicePublicKeyB64(device.devicePublicKeyB64)
+      ? device.devicePublicKeyB64
+      : undefined,
+    forkedFrom: typeof device.forkedFrom === 'string' ? device.forkedFrom : undefined
   }
 }

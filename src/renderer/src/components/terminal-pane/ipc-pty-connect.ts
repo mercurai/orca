@@ -49,12 +49,6 @@ export async function connectIpcPty(
     return
   }
   if (options.sessionId && hasPreHandlerPtyExit(options.sessionId)) {
-    if (options.admitPtyId && !options.admitPtyId(options.sessionId)) {
-      return context.isDestroyed() ? undefined : { id: options.sessionId }
-    }
-    if (context.isDestroyed()) {
-      return
-    }
     context.bind(options.sessionId)
     handlers.registerData(options.sessionId)
     if (context.isDestroyed()) {
@@ -99,7 +93,7 @@ export async function connectIpcPty(
     // recorded before we asked for a PTY, so it belongs to that earlier owner, not to us.
     const priorIncarnationFence = currentPreHandlerPtySequence()
     const spawnResult = await spawnIpcPty(transportOptions, options, admittedSessionId)
-    const retireFreshSpawn = async (path: 'disposed' | 'refused'): Promise<void> => {
+    const retireDisposedFreshSpawn = async (): Promise<void> => {
       if (context.handleExplicitlyClosedConnect?.(spawnResult.id)) {
         return
       }
@@ -107,29 +101,20 @@ export async function connectIpcPty(
       if (spawnResult.isReattach || spawnResult.coldRestore || context.ownsPtyId(spawnResult.id)) {
         return
       }
-      // Only disposed transports can have a successor; live refusal must still retire the PTY (#11003).
-      const retained = path === 'disposed' && retainDisposedSpawn?.() === true
-      if (!retained) {
+      // A disposed transport can have a successor that still owns this PTY (#11003).
+      if (retainDisposedSpawn?.() !== true) {
         await window.api.pty.kill(spawnResult.id)
       }
     }
 
     if (context.isDestroyed()) {
-      await retireFreshSpawn('disposed')
-      return
-    }
-    if (options.admitPtyId && !options.admitPtyId(spawnResult.id)) {
-      await retireFreshSpawn('refused')
-      return context.isDestroyed() ? undefined : spawnResult
-    }
-    if (context.isDestroyed()) {
-      await retireFreshSpawn('disposed')
+      await retireDisposedFreshSpawn()
       return
     }
     if (spawnResult.isReattach && !admittedSessionId) {
       context.getCallbacks().onReattachDetermined?.()
       if (context.isDestroyed()) {
-        await retireFreshSpawn('disposed')
+        await retireDisposedFreshSpawn()
         return
       }
     }

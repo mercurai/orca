@@ -185,6 +185,7 @@ describe('other clients after a clear', () => {
       {
         ws: socket,
         connectionId: 'phone-connection',
+        transcriptHashB64: null,
         device: { ...devicePrincipalOf(phone), deviceToken: phone.token },
         clientCapabilities: capabilities,
         transport: { transport: 'direct' }

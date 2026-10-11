@@ -1,4 +1,3 @@
-import { DIRECT_SSH_PANE_RETRY_SETTLEMENT_TIMEOUT_MS } from '@/components/terminal-pane/pty-connection/pty-connect-limits'
 import type {
   TerminalPaneRecoveryOutcome,
   TerminalPaneRecoveryReason,
@@ -27,11 +26,10 @@ export const RECOVERY_WINDOW_MS = 5 * 60_000
 // replay guard, input path) within seconds; the first remount fixes all of
 // them, the rest must coalesce instead of re-remounting mid-reattach.
 export const RECOVERY_COOLDOWN_MS = 15_000
-// Why reuse the direct-SSH settlement timeout: the same 31s bound already
-// decides when a pane's attach attempt has stopped being in flight. A 'pending'
-// ledger older than that describes a pane that never reported, not one still
-// working, so it must stop blocking rather than wedge recovery forever.
-export const RECOVERY_SETTLEMENT_TIMEOUT_MS = DIRECT_SSH_PANE_RETRY_SETTLEMENT_TIMEOUT_MS
+// Why a bound: a 'pending' ledger older than any attach takes describes a pane
+// that never reported, not one still working, so it must stop blocking rather
+// than wedge recovery forever.
+export const RECOVERY_SETTLEMENT_TIMEOUT_MS = 31_000
 
 /** Why a request exists at all. Only 'automatic' is subject to the
  *  settled-failure refusal: a user pressing Retry, or an external lifecycle

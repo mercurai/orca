@@ -65,7 +65,6 @@ function deferredResumeRecord(
     state: 'done',
     capturedAt: now,
     updatedAt: now,
-    ...(typeof session.connectionId === 'string' ? { connectionId: session.connectionId } : {}),
     ...(launchConfig ? { launchConfig } : {}),
     // Why `quit`: like a quit capture it names a pane that still exists and is unfinished work,
     // so a sweep never discards it as passive history (a `live` done note is).

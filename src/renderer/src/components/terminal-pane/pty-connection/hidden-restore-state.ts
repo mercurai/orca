@@ -1,16 +1,7 @@
-import { useAppStore } from '@/store'
-import type { PtyBufferSnapshot } from '../pty-transport'
 import { INITIAL_MODE_2031_REPLY_SCAN_STATE } from '../../../../../shared/terminal-color-scheme-protocol'
 import { discardTerminalOutput } from '@/lib/pane-manager/pane-terminal-output-scheduler'
 import { cancelTerminalScrollIntentBufferRebuildCompletions } from '@/lib/pane-manager/terminal-scroll-intent-rebuild'
 import { DeferredReattachLiveDataQueue } from '../deferred-reattach-live-data-queue'
-import { resolveHiddenRestoreScrollbackRows } from '../terminal-hidden-restore-scrollback'
-import {
-  decideSshReattachPaintSource,
-  memoizeSshReattachModelSnapshotProbe,
-  resolveSshReattachModelSnapshotWithTimeout,
-  shouldFetchSshReattachModelSnapshot
-} from '../ssh-reattach-model-restore'
 
 import {
   HIDDEN_OUTPUT_RESTORE_DEFERRED_RETRY_MS,
@@ -25,7 +16,7 @@ import { bindLiveDataCallback } from './live-data-callback'
 
 import { bindReattachLiveDataDeferral } from './reattach-live-data-deferral'
 
-export function bindHiddenRestoreStateAndSshProbe(session: ConnectPanePtySession): void {
+export function bindHiddenRestoreState(session: ConnectPanePtySession): void {
   session.scheduleHiddenOutputRestoreDeferredRetry = function (): void {
     if (
       session.disposed ||
@@ -137,52 +128,4 @@ export function bindHiddenRestoreStateAndSshProbe(session: ConnectPanePtySession
   }
 
   bindReattachLiveDataDeferral(session)
-  session.isCapturedDirectSshReattachCurrent = (ptyId: string): boolean =>
-    !session.directSshRetryAttempt || session.capturedDirectSshRetryStateMatches(ptyId)
-  session.rejectObsoleteDirectSshReattach = (ptyId: string | null | undefined): boolean => {
-    if (
-      !session.directSshRetryAttempt ||
-      (ptyId && session.claimCapturedDirectSshRetryPty(ptyId))
-    ) {
-      return false
-    }
-    session.transport.detach?.({ preserveExitObserver: false })
-    return true
-  }
-
-  let parkedSshSnapshotPrefetch: {
-    ptyId: string
-    fetch: () => Promise<PtyBufferSnapshot | null>
-  } | null = null
-
-  const createSshMainModelSnapshotProbe = (
-    ptyId: string
-  ): (() => Promise<PtyBufferSnapshot | null>) =>
-    memoizeSshReattachModelSnapshotProbe(async (): Promise<PtyBufferSnapshot | null> => {
-      const sshParkingEnabled = useAppStore.getState().settings?.terminalSshViewParking !== false
-      if (!shouldFetchSshReattachModelSnapshot({ ptyId, sshParkingEnabled })) {
-        return null
-      }
-      const snapshot = await resolveSshReattachModelSnapshotWithTimeout(
-        window.api.pty.getMainBufferSnapshot(ptyId, {
-          scrollbackRows: resolveHiddenRestoreScrollbackRows(
-            session.pane.terminal.options.scrollback
-          )
-        })
-      )
-      return snapshot &&
-        decideSshReattachPaintSource({ ptyId, sshParkingEnabled, snapshot }) ===
-          'main-model-snapshot'
-        ? snapshot
-        : null
-    })
-
-  session.getSshMainModelSnapshotProbe = (
-    ptyId: string
-  ): (() => Promise<PtyBufferSnapshot | null>) => {
-    if (parkedSshSnapshotPrefetch?.ptyId !== ptyId) {
-      parkedSshSnapshotPrefetch = { ptyId, fetch: createSshMainModelSnapshotProbe(ptyId) }
-    }
-    return parkedSshSnapshotPrefetch.fetch
-  }
 }

@@ -34,6 +34,7 @@ function socketFor(device: DeviceEntry): AuthenticatedMobileSocket {
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: dispatch only uses ws as a map key for abort registration.
     ws: {} as AuthenticatedMobileSocket['ws'],
     connectionId: 'connection-1',
+    transcriptHashB64: null,
     device: { ...devicePrincipalOf(device), deviceToken: device.token },
     clientCapabilities: [],
     transport: { transport: 'direct' }

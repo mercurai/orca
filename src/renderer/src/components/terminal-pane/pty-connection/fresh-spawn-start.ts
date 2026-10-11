@@ -45,10 +45,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       releaseDeferredCwdFence()
       return Promise.resolve(null)
     }
-    if (session.buffersInputOnlyForReattach) {
-      // Why: keys typed for the shell this pane meant to reattach must not run in its replacement.
-      session.transport.abandonPreconnectInput?.()
-    }
     session.authoritativeReattachGeneration += 1
     // Every fresh connect creates or rebinds a PTY. Do not let a legacy
     // response that omits `incarnationId` inherit the predecessor's fence.
@@ -99,14 +95,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       cols: session.cols,
       rows: session.rows,
       ...(startupOverride?.command ? { command: startupOverride.command } : {}),
-      ...(session.connectionId &&
-      startupOverride?.command &&
-      !session.shouldDeliverStartupViaTerminalPaste
-        ? { commandDelivery: 'provider' as const }
-        : {}),
-      ...(session.connectionId && startupOverride?.command
-        ? { startupCommandDelivery: 'shell-ready' as const }
-        : {}),
       ...(startupOverride?.env
         ? { env: session.mergeStartupEnvWithPaneIdentity(startupOverride.env) }
         : {}),
@@ -156,14 +144,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           clearPreSignaledSerializer()
           session.finishReattachLiveDataDeferral(false, outputCallbacks.generation)
           session.enterSpawnDeferredSleep(deferral, startupOverride, options, visibleAtSpawn)
-          return null
-        }
-        if (resolvedPtyId && !session.claimCapturedDirectSshRetryPty(resolvedPtyId)) {
-          releaseDeferredCwdFence()
-          session.finishReattachLiveDataDeferral(false, outputCallbacks.generation)
-          // Why: an outstanding declare keeps main's cooperation gate suppressing
-          // this paneKey's daemon-snapshot seed until something releases it.
-          clearPreSignaledSerializer()
           return null
         }
         const connectResult =
@@ -267,15 +247,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
             void window.api.pty.settlePaneSerializer(session.cacheKey, gen).catch(() => {})
           }
         }
-        if (resolvedPtyId && session.connectionId) {
-          if (
-            session.shouldUseProviderSshStartupDelivery &&
-            (startupOverride?.command || session.paneStartup?.command)
-          ) {
-            session.armStartupDraftReadinessObservation()
-          }
-          session.schedulePendingStartupCommandDelivery()
-        }
         session.finishReattachLiveDataDeferral(Boolean(resolvedPtyId), outputCallbacks.generation)
         return resolvedPtyId
       })
@@ -297,7 +268,6 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           pendingSpawnGenerationByPaneKey.delete(session.pendingSpawnKey)
         }
       })
-    session.armDirectSshPaneRetryTimeout(trackedPromise, session.directSshRetryAttempt)
     void trackedPromise.then((spawnedPtyId) => {
       if (spawnedPtyId) {
         // The dual of settleSpawnThatLeftPaneUnbound below, and the only place a
@@ -307,7 +277,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         // 'pending' for the whole settlement bound and blocks the tab's next
         // recovery. Generation-gated in the store, so a spawn with no recovery
         // attempt in flight writes nothing.
-        session.settlePaneAttachAttempt?.(undefined, 'success')
+        session.settlePaneAttachAttempt?.('success')
         return
       }
       queueMicrotask(() => {
@@ -320,7 +290,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
         }
         if (session.deferredSpawn) {
           // Why no remount: the host would defer the remount's restore again, in a loop.
-          session.settlePaneAttachAttempt?.(session.directSshRetryAttempt, 'failed')
+          session.settlePaneAttachAttempt?.('failed')
           return
         }
         settleSpawnThatLeftPaneUnbound(session)

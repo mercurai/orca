@@ -9,6 +9,13 @@ import {
   resolveMaxHostTerminals
 } from './host-terminal-ledger'
 
+const share = (terminals: number) => ({
+  terminals,
+  automaticInFlight: 0,
+  automaticLive: 0,
+  automaticAdmits: []
+})
+
 const createDir = (path: string): void => {
   mkdirSync(path, { recursive: true })
 }
@@ -44,39 +51,39 @@ describe('HostTerminalLedger', () => {
   it('shares one cap between two daemons on the same host', () => {
     const desktop = ledger(100)
     const serve = ledger(200)
-    expect(desktop.tryReserve(0)).toBe(true)
-    expect(desktop.tryReserve(1)).toBe(true)
-    expect(serve.tryReserve(0)).toBe(true)
-    expect(serve.tryReserve(1)).toBe(true)
+    expect(desktop.tryReserve(share(0))).toBe(true)
+    expect(desktop.tryReserve(share(1))).toBe(true)
+    expect(serve.tryReserve(share(0))).toBe(true)
+    expect(serve.tryReserve(share(1))).toBe(true)
 
-    expect(desktop.tryReserve(2)).toBe(false)
-    expect(serve.tryReserve(2)).toBe(false)
+    expect(desktop.tryReserve(share(2))).toBe(false)
+    expect(serve.tryReserve(share(2))).toBe(false)
 
-    serve.publish(1)
-    expect(desktop.tryReserve(2)).toBe(true)
+    serve.publish(share(1))
+    expect(desktop.tryReserve(share(2))).toBe(true)
   })
 
   it('leaves its published count unchanged when a reservation does not fit', () => {
     const desktop = ledger(100)
     const serve = ledger(200)
-    desktop.publish(4)
-    expect(serve.tryReserve(0)).toBe(false)
-    desktop.publish(3)
-    expect(desktop.tryReserve(3)).toBe(true)
+    desktop.publish(share(4))
+    expect(serve.tryReserve(share(0))).toBe(false)
+    desktop.publish(share(3))
+    expect(desktop.tryReserve(share(3))).toBe(true)
   })
 
   it('ignores and removes the entry of a daemon that died without cleaning up', () => {
     const crashed = ledger(200)
-    crashed.publish(4)
+    crashed.publish(share(4))
     alive.delete(200)
-    expect(ledger(100).tryReserve(0)).toBe(true)
+    expect(ledger(100).tryReserve(share(0))).toBe(true)
     expect(readdirSync(dir)).toEqual(['100.json'])
   })
 
   it('ignores an entry whose owner stopped refreshing it', () => {
-    ledger(200).publish(4)
+    ledger(200).publish(share(4))
     now += 6 * 60_000
-    expect(ledger(100).tryReserve(0)).toBe(true)
+    expect(ledger(100).tryReserve(share(0))).toBe(true)
   })
 
   it('keeps an idle daemon counted by refreshing its entry', () => {
@@ -90,13 +97,13 @@ describe('HostTerminalLedger', () => {
         createDir,
         log: vi.fn()
       })
-      idle.publish(4)
+      idle.publish(share(4))
       idle.start()
       vi.advanceTimersByTime(10 * 60_000)
       now = Date.now()
-      expect(ledger(100).tryReserve(0)).toBe(false)
+      expect(ledger(100).tryReserve(share(0))).toBe(false)
       idle.close()
-      expect(ledger(100).tryReserve(0)).toBe(true)
+      expect(ledger(100).tryReserve(share(0))).toBe(true)
     } finally {
       vi.useRealTimers()
     }
@@ -104,15 +111,41 @@ describe('HostTerminalLedger', () => {
 
   it('recreates its directory when a cleaner removed it', () => {
     const desktop = ledger(100)
-    desktop.publish(1)
+    desktop.publish(share(1))
     rmSync(dir, { recursive: true, force: true })
-    desktop.publish(4)
-    expect(ledger(200).tryReserve(0)).toBe(false)
+    desktop.publish(share(4))
+    expect(ledger(200).tryReserve(share(0))).toBe(false)
+  })
+
+  it('sums the automatic work other daemons publish, and forgets old admits', () => {
+    ledger(200).publish({
+      terminals: 3,
+      automaticInFlight: 1,
+      automaticLive: 2,
+      automaticAdmits: [now - 60_000, now - 100]
+    })
+    ledger(300).publish(share(1))
+    alive.add(300)
+    expect(ledger(100).readOthers()).toEqual({
+      terminals: 4,
+      automatic: { inFlight: 1, live: 2, admits: [now - 100] }
+    })
+  })
+
+  it('reads an entry from a daemon that publishes terminals only', () => {
+    writeFileSync(
+      join(dir, '200.json'),
+      JSON.stringify({ schemaVersion: 1, pid: 200, terminals: 2, updatedAt: now })
+    )
+    expect(ledger(100).readOthers()).toEqual({
+      terminals: 2,
+      automatic: { inFlight: 0, live: 0, admits: [] }
+    })
   })
 
   it('skips an unreadable entry instead of blocking terminals', () => {
     writeFileSync(join(dir, '200.json'), 'not json')
-    expect(ledger(100, 1).tryReserve(0)).toBe(true)
+    expect(ledger(100, 1).tryReserve(share(0))).toBe(true)
   })
 
   it('still caps its own terminals when the shared directory is unavailable', () => {
@@ -126,15 +159,15 @@ describe('HostTerminalLedger', () => {
       },
       log
     })
-    expect(isolated.tryReserve(1)).toBe(true)
-    expect(isolated.tryReserve(2)).toBe(false)
+    expect(isolated.tryReserve(share(1))).toBe(true)
+    expect(isolated.tryReserve(share(2))).toBe(false)
     expect(log).toHaveBeenCalledWith('host-terminal-ledger-unavailable', expect.any(Object))
   })
 
   it('counts only itself without a shared directory', () => {
     const solo = new HostTerminalLedger({ dir: null, maxTerminals: 1, pid: 100, log: vi.fn() })
-    expect(solo.tryReserve(0)).toBe(true)
-    expect(solo.tryReserve(1)).toBe(false)
+    expect(solo.tryReserve(share(0))).toBe(true)
+    expect(solo.tryReserve(share(1))).toBe(false)
   })
 })
 

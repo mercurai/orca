@@ -7,6 +7,17 @@ import {
   ensureOwnedPrivateDir,
   SHORT_DAEMON_SOCKET_DIR_PREFIX
 } from './daemon-socket-endpoint-path'
+import {
+  parseHostTerminalLedgerEntry,
+  sameHostTerminalShare,
+  type HostTerminalLedgerEntry,
+  type HostTerminalShare
+} from './host-terminal-ledger-entry'
+import {
+  NO_OTHER_AUTOMATIC_WORK,
+  recentAutomaticAdmits,
+  type OtherAutomaticWork
+} from '../../shared/host-automatic-work-budget'
 
 // Why 256: half of macOS's machine-wide pty limit (kern.tty.ptmx_max = 511), so other terminal
 // programs and the ptys agents open inside Orca terminals keep room; five times the deleted SSH
@@ -61,36 +72,6 @@ function removeQuietly(path: string): void {
   }
 }
 
-type LedgerEntry = { schemaVersion: 1; pid: number; terminals: number; updatedAt: number }
-
-function parseEntry(raw: string): LedgerEntry | null {
-  try {
-    const value: unknown = JSON.parse(raw)
-    if (
-      typeof value === 'object' &&
-      value !== null &&
-      'schemaVersion' in value &&
-      value.schemaVersion === 1 &&
-      'pid' in value &&
-      Number.isSafeInteger(value.pid) &&
-      'terminals' in value &&
-      Number.isSafeInteger(value.terminals) &&
-      'updatedAt' in value &&
-      typeof value.updatedAt === 'number'
-    ) {
-      return {
-        schemaVersion: 1,
-        pid: Number(value.pid),
-        terminals: Math.max(0, Number(value.terminals)),
-        updatedAt: value.updatedAt
-      }
-    }
-  } catch {
-    // Unreadable entries are skipped below.
-  }
-  return null
-}
-
 type HostTerminalLedgerOptions = {
   /** Null keeps the cap to this daemon's own terminals. */
   dir: string | null
@@ -102,11 +83,16 @@ type HostTerminalLedgerOptions = {
   log: (event: string, details: Record<string, unknown>) => void
 }
 
+/** Every other live daemon's share of this host, summed. */
+export type OtherDaemonsShare = { terminals: number; automatic: OtherAutomaticWork }
+
+const NO_OTHER_DAEMONS: OtherDaemonsShare = { terminals: 0, automatic: NO_OTHER_AUTOMATIC_WORK }
+
 /**
- * One cap on terminals for the whole execution host. Each daemon owns one file holding its
- * live-plus-starting count and sums everyone else's. It writes its reservation before reading
- * the others, so two daemons racing for the last slot cannot both see room.
- * Fail-open: an entry or directory that cannot be read never blocks a terminal.
+ * One cap on terminals, and one automatic-restore budget, for the whole execution host. Each
+ * daemon owns one file holding its share and sums everyone else's. It writes a terminal
+ * reservation before reading the others, so two daemons racing for the last slot cannot both
+ * see room. Fail-open: an entry or directory that cannot be read never blocks a terminal.
  */
 export class HostTerminalLedger {
   private readonly pid: number
@@ -114,7 +100,7 @@ export class HostTerminalLedger {
   private readonly isAlive: (pid: number) => boolean
   private dirReady = false
   private dirFailed = false
-  private published: number | null = null
+  private published: HostTerminalShare | null = null
   private refreshTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(private readonly options: HostTerminalLedgerOptions) {
@@ -127,27 +113,22 @@ export class HostTerminalLedger {
     return this.options.maxTerminals
   }
 
-  /** `ownTerminals` excludes the one being reserved; on false nothing was published. */
-  tryReserve(ownTerminals: number): boolean {
-    if (ownTerminals + 1 > this.options.maxTerminals) {
+  /** `own` excludes the terminal being reserved; on false its previous share is restored. */
+  tryReserve(own: HostTerminalShare): boolean {
+    if (own.terminals + 1 > this.options.maxTerminals) {
       return false
     }
-    this.write(ownTerminals + 1)
-    if (ownTerminals + 1 + this.readOthers() <= this.options.maxTerminals) {
+    this.write({ ...own, terminals: own.terminals + 1 })
+    if (own.terminals + 1 + this.readOthers().terminals <= this.options.maxTerminals) {
       return true
     }
-    this.write(ownTerminals)
+    this.write(own)
     return false
   }
 
-  /** Whether one more terminal would fit, without reserving it. */
-  hasRoom(ownTerminals: number): boolean {
-    return ownTerminals + 1 + this.readOthers() <= this.options.maxTerminals
-  }
-
-  publish(ownTerminals: number): void {
-    if (ownTerminals !== this.published) {
-      this.write(ownTerminals)
+  publish(own: HostTerminalShare): void {
+    if (this.published === null || !sameHostTerminalShare(own, this.published)) {
+      this.write(own)
     }
   }
 
@@ -199,14 +180,20 @@ export class HostTerminalLedger {
     return dir
   }
 
-  private write(terminals: number, retried = false): void {
-    this.published = terminals
+  private write(share: HostTerminalShare, retried = false): void {
+    this.published = share
     const dir = this.usableDir()
     if (dir === null) {
       return
     }
     const path = join(dir, `${this.pid}.json`)
-    const entry: LedgerEntry = { schemaVersion: 1, pid: this.pid, terminals, updatedAt: this.now() }
+    const entry: HostTerminalLedgerEntry = {
+      schemaVersion: 1,
+      pid: this.pid,
+      updatedAt: this.now(),
+      ...share,
+      automaticAdmits: recentAutomaticAdmits(share.automaticAdmits, this.now())
+    }
     try {
       writeFileSync(`${path}.tmp`, JSON.stringify(entry), { mode: 0o600 })
       renameFileWithWindowsRetry(`${path}.tmp`, path)
@@ -214,33 +201,34 @@ export class HostTerminalLedger {
       // Why: a periodic /tmp cleaner can remove the directory under a long-lived daemon.
       if (error instanceof Error && 'code' in error && error.code === 'ENOENT' && !retried) {
         this.dirReady = false
-        this.write(terminals, true)
+        this.write(share, true)
       }
       // Otherwise others undercount this daemon; its own cap still holds.
     }
   }
 
-  private readOthers(): number {
+  readOthers(): OtherDaemonsShare {
     const dir = this.usableDir()
     if (dir === null) {
-      return 0
+      return NO_OTHER_DAEMONS
     }
     let names: string[]
     try {
       names = readdirSync(dir)
     } catch {
-      return 0
+      return NO_OTHER_DAEMONS
     }
     const now = this.now()
-    let total = 0
+    const admits: number[] = []
+    const total = { terminals: 0, automatic: { inFlight: 0, live: 0, admits } }
     for (const name of names) {
       const match = /^(\d+)\.json$/.exec(name)
       if (!match || Number(match[1]) === this.pid) {
         continue
       }
-      let entry: LedgerEntry | null
+      let entry: HostTerminalLedgerEntry | null
       try {
-        entry = parseEntry(readFileSync(join(dir, name), 'utf8'))
+        entry = parseHostTerminalLedgerEntry(readFileSync(join(dir, name), 'utf8'))
       } catch {
         continue
       }
@@ -254,7 +242,10 @@ export class HostTerminalLedger {
       if (now - entry.updatedAt > STALE_AFTER_MS) {
         continue
       }
-      total += entry.terminals
+      total.terminals += entry.terminals
+      total.automatic.inFlight += entry.automaticInFlight
+      total.automatic.live += entry.automaticLive
+      admits.push(...recentAutomaticAdmits(entry.automaticAdmits, now))
     }
     return total
   }

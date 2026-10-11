@@ -193,11 +193,6 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       // Why: a detached client stops observing the pane's bytes, so it must cede
       // agent-status authority back to the host on the next mirrored snapshot.
       session.releaseRendererOwnedAgentStatusPane?.()
-      session.directSshPaneRetrySettlementCancelled = true
-      for (const timer of session.directSshPaneRetrySettlementTimers) {
-        clearTimeout(timer)
-      }
-      session.directSshPaneRetrySettlementTimers.clear()
       // Why: a stalled xterm replay may never reach its finally; release live-frame credit when this renderer no longer owns the stream.
       const queue = session.deferredReattachLiveData
       session.deferredReattachLiveData = null

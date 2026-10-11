@@ -235,7 +235,7 @@ export class RuntimeRpcLifecycle extends RuntimeRpcWebSocketDispatch {
             sendBinary,
             undefined,
             socket.ws,
-            socket.device.deviceToken,
+            socket.device.deviceToken ?? null,
             socket
           )
         )

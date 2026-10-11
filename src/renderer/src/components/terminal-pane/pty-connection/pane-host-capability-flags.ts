@@ -29,38 +29,13 @@ import {
   registerRendererOwnedAgentStatusPane
 } from '../renderer-owned-agent-status-registry'
 
-import { DIRECT_SSH_PANE_RETRY_SETTLEMENT_TIMEOUT_MS } from './pty-connect-limits'
 import { resolveLatestAgentDoneStartedAt } from './agent-done-started-at'
 import { rendererAgentStatusObservations } from '@/lib/renderer-agent-status-observations'
 
 import type { ConnectPanePtySession } from './connect-pane-pty-session'
-import type { DirectSshRetryLease } from './direct-ssh-retry-lease'
 
-/** Direct-SSH retry arming plus the host/Windows capability flags and input-activity tracking its status routing reads. */
-export function installDirectSshRetryStatus(session: ConnectPanePtySession): void {
-  session.armDirectSshPaneRetryTimeout = (
-    promise: Promise<unknown>,
-    attempt: DirectSshRetryLease | undefined
-  ): void => {
-    if (!attempt || session.disposed || session.directSshPaneRetryTimedPromises.has(promise)) {
-      return
-    }
-    session.directSshPaneRetryTimedPromises.add(promise)
-    const timer = setTimeout(() => {
-      session.directSshPaneRetrySettlementTimers.delete(timer)
-      if (session.directSshPaneRetrySettlementCancelled) {
-        return
-      }
-      session.settlePaneAttachAttempt(attempt, 'timed-out')
-    }, DIRECT_SSH_PANE_RETRY_SETTLEMENT_TIMEOUT_MS)
-    session.directSshPaneRetrySettlementTimers.add(timer)
-    void promise
-      .finally(() => {
-        session.directSshPaneRetrySettlementTimers.delete(timer)
-        clearTimeout(timer)
-      })
-      .catch(() => {})
-  }
+/** Host and Windows capability flags plus the input-activity tracking status routing reads. */
+export function installPaneHostCapabilityFlags(session: ConnectPanePtySession): void {
   session.shellOverride = session.tab?.shellOverride
   // Why: a serve/remote-runtime pane has no SSH connectionId and a Linux cwd, so
   // the native-Windows ConPTY heuristic misfires on a Windows client and wrongly
@@ -72,7 +47,7 @@ export function installDirectSshRetryStatus(session: ConnectPanePtySession): voi
     : getExecutionHostIdForWorktree(session.state, session.deps.worktreeId)
   session.isNativeWindowsConpty = isLocalNativeWindowsConpty({
     userAgent: navigator.userAgent,
-    connectionId: session.connectionId,
+    connectionId: null,
     cwd: session.deps.cwd,
     // Why: main folds the global Windows shell into its spawn classification
     // (pty.ts effectiveShellOverride); fold it here too so both sides treat
@@ -128,7 +103,7 @@ export function installDirectSshRetryStatus(session: ConnectPanePtySession): voi
     ? getCachedWindowsTerminalCapabilities()
     : null
   session.projectRuntime =
-    !session.tab?.forceHostRuntime && !session.connectionId && session.runtimeEnvironmentId === null
+    !session.tab?.forceHostRuntime && session.runtimeEnvironmentId === null
       ? getLocalProjectExecutionRuntimeContext(session.state, session.deps.worktreeId, undefined, {
           wslAvailable: session.localWindowsTerminalCapabilities?.wslAvailable,
           availableWslDistros: session.localWindowsTerminalCapabilities?.wslDistros ?? null
@@ -242,8 +217,6 @@ export function installDirectSshRetryStatus(session: ConnectPanePtySession): voi
         onDone: session.scheduleCommandCodeOutputDoneStatus
       })
   session.shouldDeliverStartupViaTerminalPaste = session.paneStartup?.delivery === 'terminal-paste'
-  session.shouldUseProviderSshStartupDelivery =
-    Boolean(session.connectionId) && !session.shouldDeliverStartupViaTerminalPaste
   session.hadExistingPaneTransportAtConnect = session.deps.paneTransportsRef.current.size > 0
   session.lastTerminalInputAt = Number.NEGATIVE_INFINITY
   session.lastInteractiveRedrawInputAt = Number.NEGATIVE_INFINITY

@@ -39,6 +39,8 @@ export type AuthenticatedMobileSocket = {
   ws: WebSocket
   connectionId: string
   device: E2EEAuthenticatedDevice
+  // Why: a device-key registration proves possession over this exact connection.
+  transcriptHashB64: string | null
   clientCapabilities: readonly RuntimeCapability[]
   transport: MobileSocketTransportMetadata
 }
@@ -60,7 +62,10 @@ type MobileSocketWiringOptions = {
 }
 
 function toAuthenticatedDevice(device: DeviceEntry): E2EEAuthenticatedDevice {
-  return { ...devicePrincipalOf(device), deviceToken: device.token }
+  return {
+    ...devicePrincipalOf(device),
+    ...(device.token !== undefined ? { deviceToken: device.token } : {})
+  }
 }
 
 export class MobileSocketWiring {
@@ -158,11 +163,33 @@ export class MobileSocketWiring {
           }
           return toAuthenticatedDevice(device)
         },
+        resolveAuthenticatedDeviceKey: (deviceId) => {
+          const lookup = this.deviceRegistry.lookupDeviceKey(deviceId)
+          if (lookup.kind !== 'found') {
+            return lookup
+          }
+          // Why: same relay binding rule as token auth — the outer relay cannot pick the identity.
+          // A fork keeps its token row's Relay binding (the key proof names the installation).
+          // Never "unknown": the device exists, and that verdict would make the client delete its key.
+          if (
+            metadata.transport === 'relay' &&
+            metadata.relayDeviceId !== lookup.device.deviceId &&
+            metadata.relayDeviceId !== lookup.device.forkedFrom
+          ) {
+            return { kind: 'refused' }
+          }
+          return {
+            kind: 'found',
+            device: toAuthenticatedDevice(lookup.device),
+            devicePublicKeyB64: lookup.device.devicePublicKeyB64
+          }
+        },
         onReady: (channel, device) => {
           const socket = {
             ws,
             connectionId,
             device,
+            transcriptHashB64: channel.transcriptHashB64,
             // Why: the channel owns the set for the whole connection, so this reads
             // through rather than snapshotting. It must also WRITE through — the
             // capability RPC updates the socket, and a getter-only property makes

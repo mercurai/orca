@@ -12,7 +12,7 @@ import {
 import { deriveSharedKey } from '../rpc/e2ee-crypto'
 import { deriveMobileE2EEV2KeySchedule } from '../rpc/mobile-e2ee-v2-key-schedule'
 
-// Why: the relay integration test needs an independent mobile-side wire peer
+// Why: desktop-side tests need an independent mobile-side wire peer
 // without importing Expo modules into the desktop Node TypeScript project.
 export class SimulatedMobileE2EEV2Peer {
   readonly hello: MobileE2EEV2Hello
@@ -23,7 +23,8 @@ export class SimulatedMobileE2EEV2Peer {
   constructor(
     private readonly clientKeys: nacl.BoxKeyPair,
     private readonly desktopPublicKey: Uint8Array,
-    relayHostId: string,
+    // null = a direct (LAN) socket.
+    relayHostId: string | null,
     clientNonce = nacl.randomBytes(32)
   ) {
     this.hello = {
@@ -36,8 +37,9 @@ export class SimulatedMobileE2EEV2Peer {
         protocol: 'orca-mobile-e2ee',
         initiator: 'mobile',
         responder: 'desktop',
-        transport: 'relay',
-        relayHostId
+        ...(relayHostId === null
+          ? { transport: 'direct' as const }
+          : { transport: 'relay' as const, relayHostId })
       }
     }
   }
