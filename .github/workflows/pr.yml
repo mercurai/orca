@@ -310,6 +310,11 @@ jobs:
               }
             fi
           done
+          # Extracted sources must sit inside the checkout to resolve its node_modules (zod).
+          export TMPDIR="$GITHUB_WORKSPACE/.rollback-repro-tmp"
+          rm -rf "$TMPDIR"
+          mkdir -p "$TMPDIR"
+          trap 'rm -rf "$TMPDIR"' EXIT
           node config/scripts/run-ephemeral-vm-runtime-store-rollback-repro.mjs \
             config/scripts/ephemeral-vm-runtime-store-cross-version.test.ts
 
