@@ -7,6 +7,7 @@ import {
   acquireProfileStateRuntimeAdmission,
   type ProfileStateRuntimeAdmission
 } from '../persistence/profile-state/profile-state-access'
+import { drainPathWritesForQuit } from '../startup/path-write-quit-drain'
 
 const bundledLauncherChannel = process.env[ORCAD_BUNDLED_LAUNCHER_ENV] === '1'
 delete process.env[ORCAD_BUNDLED_LAUNCHER_ENV]
@@ -107,23 +108,47 @@ export async function startOrcadWithHost<T extends object>(
       })
       return start(registerCleanup)
     },
-    async (runtimeCleanupSucceeded) => {
-      try {
-        await browserProvider?.stop()
-      } finally {
-        setRuntimeBrowserCommandsFactory(null)
-        runQuitHandlers()
-        try {
-          // Failed teardown excludes recovery until the process actually exits.
+    (runtimeCleanupSucceeded) =>
+      runOrcadHostCleanup({
+        stopBrowserProvider: async () => {
+          await browserProvider?.stop()
+        },
+        clearBrowserCommands: () => setRuntimeBrowserCommandsFactory(null),
+        runQuitHandlers,
+        // Failed teardown excludes recovery until the process actually exits.
+        releaseAdmission: () => {
           if (runtimeCleanupSucceeded) {
             admission?.release()
           }
-        } finally {
-          instanceLock.release()
-        }
-      }
-    }
+        },
+        releaseInstanceLock: () => instanceLock.release()
+      })
   )
+}
+
+/** The host's last teardown before process.exit; the lock is released however the rest ends. */
+export async function runOrcadHostCleanup(steps: {
+  stopBrowserProvider: () => Promise<void>
+  clearBrowserCommands: () => void
+  runQuitHandlers: () => void
+  releaseAdmission: () => void
+  releaseInstanceLock: () => void
+}): Promise<void> {
+  try {
+    await steps.stopBrowserProvider()
+  } finally {
+    steps.clearBrowserCommands()
+    steps.runQuitHandlers()
+    try {
+      // Why last, after the quit handlers (push, relay): secure-file writes are async now, and the
+      // synchronous ones always finished before exit. Wait for every one still queued (bounded,
+      // inside ORCAD_SHUTDOWN_DEADLINE_MS) while the lock still fences a second orcad out.
+      await drainPathWritesForQuit()
+      steps.releaseAdmission()
+    } finally {
+      steps.releaseInstanceLock()
+    }
+  }
 }
 
 export async function flushOrcadProfileStoreForShutdown(store: {
