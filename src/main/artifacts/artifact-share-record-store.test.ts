@@ -58,7 +58,9 @@ describe('artifact share record store', () => {
     )
     await Promise.all([signOut, save])
 
-    expect(await getArtifactShareRecord('local-profile', path, '/repo/report.html', scopeA)).toBeNull()
+    expect(
+      await getArtifactShareRecord('local-profile', path, '/repo/report.html', scopeA)
+    ).toBeNull()
   })
 
   it('keeps a save whose lifecycle is still current', async () => {
