@@ -1,7 +1,15 @@
 // The async lane's contract, which the synchronous twin got for free: the durability syscalls keep
 // their pinned order, and two writers racing on one destination cannot interleave their temp-file
 // dances onto it.
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync
+} from 'node:fs'
 import type * as NodeFs from 'node:fs'
 import type * as NodeFsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -49,7 +57,6 @@ vi.mock('node:fs', async () => {
   }
 })
 
-import { existsSync } from 'node:fs'
 import { pendingPathWriteCountForTests } from './path-write-serializer'
 import {
   ignoreDiscardedSecureWrite,
