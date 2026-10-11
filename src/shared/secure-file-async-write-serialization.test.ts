@@ -2,6 +2,7 @@
 // their pinned order, and two writers racing on one destination cannot interleave their temp-file
 // dances onto it.
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs'
+import type * as NodeFs from 'node:fs'
 import type * as NodeFsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -38,7 +39,7 @@ vi.mock('node:fs/promises', async () => {
 
 // The publishing rename is synchronous (so a veto check sits right before it), so it is counted here.
 vi.mock('node:fs', async () => {
-  const actual = await vi.importActual<typeof import('node:fs')>('node:fs')
+  const actual = await vi.importActual<typeof NodeFs>('node:fs')
   return {
     ...actual,
     renameSync: (...args: Parameters<typeof actual.renameSync>) => {
