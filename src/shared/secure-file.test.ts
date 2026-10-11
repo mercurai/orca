@@ -426,10 +426,7 @@ describe('hardenSecurePath', () => {
     mockAsyncIcacls(() => Promise.reject(new Error('access denied')))
 
     expect(() =>
-      hardenSecurePath('C:\\Users\\me\\.orca\\secret.json', {
-        isDirectory: false,
-        platform: 'win32'
-      })
+      hardenSecurePath('C:\\Users\\me\\.orca\\secret.json', { isDirectory: false })
     ).not.toThrow()
     await expect(flushAsyncAcl()).resolves.toBeUndefined()
   })
