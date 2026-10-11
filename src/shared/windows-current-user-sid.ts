@@ -1,4 +1,4 @@
-import { runProcess, runProcessSync, type ProcessResult } from './child-process/run-process'
+import { runProcess, type ProcessResult } from './child-process/run-process'
 import { windowsSystem32Binary } from './child-process/windows-system-binary'
 
 const WHOAMI_SID_ARGS = ['/user', '/fo', 'csv', '/nh'] as const
@@ -65,26 +65,6 @@ export async function getCurrentWindowsUserSidAsync(): Promise<string | null> {
   })().finally(() => {
     pendingSidLookup = null
   }))
-}
-
-export function getCurrentWindowsUserSid(): string | null {
-  const cached = cachedSidOutcome()
-  if (cached) {
-    return cached.sid
-  }
-  try {
-    // Why sync: only the credential-write lane reaches this, and it must not publish the file
-    // before its ACL is applied. The async lane populates the same cache for it.
-    return acceptSidLookup(
-      runProcessSync({
-        program: windowsSystem32Binary('whoami.exe'),
-        args: WHOAMI_SID_ARGS,
-        timeoutMs: WHOAMI_TIMEOUT_MS
-      })
-    )
-  } catch {
-    return acceptSidLookup(null)
-  }
 }
 
 function parseCsvLine(line: string): string[] {
