@@ -230,7 +230,7 @@ describe('ephemeral VM runtime store rollback projection', () => {
 
   it('persists both of two upserts started without awaiting the first', async () => {
     const userDataPath = makeUserDataPath()
-    // The cross-version driver fires these back to back; the serialized read-modify-write must keep both.
+    // Concurrent callers overlap these; the serialized read-modify-write must keep both records.
     const first = upsertEphemeralVmRuntime(userDataPath, runtimeRecord())
     const second = upsertEphemeralVmRuntime(userDataPath, provisionedRootRecord())
     await Promise.all([first, second])

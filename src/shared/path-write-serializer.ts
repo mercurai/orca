@@ -49,8 +49,9 @@ export function pendingPathWritePaths(): string[] {
   return [...pendingByPath.keys()]
 }
 
-/** Why: the sync writers always finished before quit; quit must wait for the async ones too. Also the
- *  seam for fire-and-forget callers (`markEnvironmentUsedDetached`) that have no handle to await. */
+/** Why: the sync writers always finished before quit; quit must wait for the async ones too. Waits
+ *  for writes queued before the map empties; a writer that queues a follow-up a few microtasks after
+ *  its slot releases can land after this resolves. */
 export async function drainPendingPathWrites(): Promise<void> {
   while (pendingByPath.size > 0) {
     await Promise.all(pendingByPath.values())

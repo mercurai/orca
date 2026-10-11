@@ -45,6 +45,7 @@ afterEach(() => {
   vi.doUnmock('../agent-hooks/server')
   vi.doUnmock('../agent-hooks/wsl-hook-relay-manager')
   vi.doUnmock('../browser/browser-manager')
+  vi.doUnmock('../browser/local-ssh-browser-route')
   for (const [moduleName] of stubbed) {
     vi.doUnmock(moduleName)
   }
@@ -54,7 +55,13 @@ afterEach(() => {
 // Real teardown deadline and real serializer: only the quit's other members are stubbed.
 it('holds app.quit until a secure write in flight at will-quit has published', async () => {
   vi.resetModules()
-  const app = Object.assign(new EventEmitter(), { quit: vi.fn() })
+  let publishedAtQuit: boolean | null = null
+  let published = false
+  const app = Object.assign(new EventEmitter(), {
+    quit: vi.fn(() => {
+      publishedAtQuit = published
+    })
+  })
   vi.doMock('electron', () => ({ app }))
   vi.doMock('./main-process-state', () => ({ mainProcessState: { isQuitting: true } }))
   vi.doMock('../quit-teardown-start-gate', () => ({
@@ -67,14 +74,27 @@ it('holds app.quit until a secure write in flight at will-quit has published', a
   vi.doMock('../browser/browser-manager', () => ({
     browserManager: { setBrowserGuestStateChangedListener: vi.fn() }
   }))
+  // Why false: a resolved promise is truthy, which would steer teardown down the update/dev paths.
+  const predicates = new Set([
+    'isQuittingForUpdate',
+    'isDevParentShutdownRequested',
+    'shouldQuitWhenAllWindowsClosed'
+  ])
   for (const [moduleName, exports] of stubbed) {
     vi.doMock(moduleName, () =>
-      Object.fromEntries(exports.map((name) => [name, vi.fn(() => Promise.resolve())]))
+      Object.fromEntries(
+        exports.map((name) => [
+          name,
+          predicates.has(name) ? vi.fn(() => false) : vi.fn(() => Promise.resolve())
+        ])
+      )
     )
   }
+  vi.doMock('../browser/local-ssh-browser-route', () => ({
+    closeAllLocalSshBrowserRoutes: vi.fn(() => Promise.resolve())
+  }))
   const { serializePathWrite } = await import('../../shared/path-write-serializer')
   let publish!: () => void
-  let published = false
   const write = serializePathWrite('/profile/session.json', async () => {
     await new Promise<void>((resolve) => {
       publish = resolve
@@ -92,7 +112,7 @@ it('holds app.quit until a secure write in flight at will-quit has published', a
   publish()
   await write
   await vi.waitFor(() => expect(app.quit).toHaveBeenCalled())
-  expect(published).toBe(true)
+  expect(publishedAtQuit).toBe(true)
   for (const listener of process.listeners('exit')) {
     if (!exitListenersBefore.includes(listener)) {
       process.removeListener('exit', listener)

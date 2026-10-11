@@ -91,7 +91,7 @@ test.skipIf(!targetRoot || !operation)(`STA-4274 ${operation ?? 'disabled'}`, as
   const store = await import(/* @vite-ignore */ moduleUrl)
 
   if (operation === 'write-legacy') {
-    store.upsertEphemeralVmRuntime(userDataPath, ordinary)
+    await store.upsertEphemeralVmRuntime(userDataPath, ordinary)
     return
   }
   if (operation === 'write-mixed') {
