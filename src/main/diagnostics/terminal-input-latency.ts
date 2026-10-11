@@ -8,6 +8,8 @@ const OUTPUT_HISTORY_EXPIRY_MS = 60_000
 
 export type TerminalInputLatencyWindow = {
   inputCount: number
+  /** Distinct PTYs typed into this window, so a p95 from one busy pane reads as such. */
+  typedPtyCount: number
   ipcLagP50Ms: number
   ipcLagP95Ms: number
   ipcLagMaxMs: number
@@ -35,6 +37,7 @@ export function createTerminalInputLatencyProbe(clock: Clock = defaultClock): {
   let echoes: number[] = []
   let skippedBusy = 0
   let skippedRemote = 0
+  let typedPtys = new Set<string>()
   const pendingEcho = new Map<string, number>()
   const lastOutputAt = new Map<string, number>()
 
@@ -44,6 +47,7 @@ export function createTerminalInputLatencyProbe(clock: Clock = defaultClock): {
       return
     }
     inputCount++
+    typedPtys.add(ptyId)
     if (typeof sentAtWallMs === 'number' && Number.isFinite(sentAtWallMs)) {
       const lag = clock.wallNow() - sentAtWallMs
       if (lag >= 0 && lag <= MAX_PLAUSIBLE_LAG_MS && ipcLags.length < MAX_SAMPLES_PER_WINDOW) {
@@ -99,6 +103,7 @@ export function createTerminalInputLatencyProbe(clock: Clock = defaultClock): {
     const echoTimes = [...echoes].sort((a, b) => a - b)
     const result: TerminalInputLatencyWindow = {
       inputCount,
+      typedPtyCount: typedPtys.size,
       ipcLagP50Ms: percentile(lags, 0.5),
       ipcLagP95Ms: percentile(lags, 0.95),
       ipcLagMaxMs: percentile(lags, 1),
@@ -110,6 +115,7 @@ export function createTerminalInputLatencyProbe(clock: Clock = defaultClock): {
       echoSkippedRemote: skippedRemote
     }
     inputCount = 0
+    typedPtys = new Set<string>()
     ipcLags = []
     echoes = []
     skippedBusy = 0
