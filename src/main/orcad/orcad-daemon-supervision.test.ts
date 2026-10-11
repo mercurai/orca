@@ -14,8 +14,10 @@ const {
   readDaemonPidRecordMock: vi.fn<() => { pid: number } | null>()
 }))
 
-vi.mock('../daemon/daemon-init', () => ({
-  initDaemonPtyProvider: initDaemonPtyProviderMock,
+vi.mock('../daemon/daemon-provider-init', () => ({
+  initDaemonPtyProvider: initDaemonPtyProviderMock
+}))
+vi.mock('../daemon/daemon-provider-state', () => ({
   disconnectDaemon: disconnectDaemonMock,
   // Exported here purely so the test can prove it is never reached — killing the daemon on
   // orcad shutdown is what would make an orcad restart destructive again.

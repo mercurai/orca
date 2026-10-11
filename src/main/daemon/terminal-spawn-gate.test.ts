@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import type { SubprocessHandle } from './session-subprocess-handle'
 import { TerminalHost, type TerminalHostOptions } from './terminal-host'
 import { TerminalSpawnGate, type TerminalSpawnAdmissionMode } from './terminal-spawn-gate'
-import type { SpawnIntent } from '../../shared/host-spawn-admission'
+import type { HostPressureLevel, SpawnIntent } from '../../shared/host-spawn-admission'
 
 type SpawnSubprocess = TerminalHostOptions['spawnSubprocess']
 
@@ -103,6 +103,31 @@ describe('TerminalSpawnGate', () => {
       'spawn-admission-observed',
       expect.objectContaining({ decision: 'wait', charge: 'automatic' })
     )
+  })
+
+  it('counts a remote resume that arrives with a claim but no history seed', async () => {
+    await host.createOrAttach({
+      sessionId: 'remote-resume',
+      cols: 80,
+      rows: 24,
+      agentSessionEnsure: {
+        claim: {
+          digestVersion: 1 as const,
+          keyId: 'key',
+          identityDigest: 'r'.repeat(43),
+          worktreeScopeDigest: 'b'.repeat(43),
+          agent: 'codex' as const
+        },
+        surface: {
+          worktreeId: 'worktree',
+          tabId: 'tab-remote',
+          leafId: '11111111-1111-4111-8111-111111111111',
+          terminalHandle: 'term_remote'
+        }
+      },
+      streamClient: stream()
+    })
+    expect(gate.snapshot().liveAutomatic).toBe(1)
   })
 
   it('never charges an attach and frees the live slot when the session exits', async () => {
@@ -265,6 +290,33 @@ describe('TerminalSpawnGate', () => {
       expect(armAutomaticWork).not.toHaveBeenCalled()
       await restore('first')
       expect(armAutomaticWork).toHaveBeenCalledOnce()
+    })
+
+    it('lets an undeclared restore wait out a growth storm, refusing it only past its deadline', async () => {
+      let pressure: HostPressureLevel = 'critical'
+      gate = new TerminalSpawnGate({
+        log,
+        mode: 'enforce',
+        now: () => Date.now(),
+        pressure: () => pressure
+      })
+      host = new TerminalHost({ spawnSubprocess, spawnGate: gate })
+      const cleared = restore('cleared', { deadlineAt: 5_000 })
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(spawnSubprocess).not.toHaveBeenCalled()
+      pressure = 'ok'
+      gate.onPressureChanged()
+      await expect(cleared).resolves.toMatchObject({ isNew: true })
+
+      pressure = 'critical'
+      const refused = restore('refused', { deadlineAt: Date.now() + 2_000 })
+      const assertion = expect(refused).rejects.toThrow('terminal_spawn_refused')
+      await vi.advanceTimersByTimeAsync(2_000)
+      await assertion
+      await expect(restore('declared', { declaredIntent: 'automatic-restore' })).rejects.toThrow(
+        'terminal_spawn_deferred:pressure'
+      )
+      expect(spawnSubprocess).toHaveBeenCalledOnce()
     })
 
     it('never queues an interactive shell behind a restore storm', async () => {

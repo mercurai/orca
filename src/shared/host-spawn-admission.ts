@@ -133,9 +133,11 @@ export function resolveSpawnCharge(
   limits: SpawnAdmissionLimits,
   now: number
 ): SpawnCharge {
+  // Why a claim alone: a remote client's `--resume` arrives on a fresh terminal id with no
+  // history seed, so requiring one let every reconnect storm through. An old caller is only
+  // ever paced, so a user-started agent costs at most a short wait during a storm.
   const intent =
-    facts.declaredIntent ??
-    (facts.hasAgentSessionClaim && facts.hasHistorySeed ? 'automatic-restore' : 'interactive')
+    facts.declaredIntent ?? (facts.hasAgentSessionClaim ? 'automatic-restore' : 'interactive')
   if (intent === 'interactive') {
     return 'interactive'
   }
@@ -175,9 +177,14 @@ export function decideSpawnAdmission(args: {
   }
   const negotiated = facts.declaredIntent !== null
   if (pressure === 'critical') {
-    // Why: an old caller clears its resume handle before spawning, so only critical
-    // pressure may refuse it, with the error it already treats as "reconnect".
-    return negotiated ? { kind: 'defer', reason: 'pressure' } : { kind: 'refuse_retryable' }
+    if (negotiated) {
+      return { kind: 'defer', reason: 'pressure' }
+    }
+    // Why: an old caller clears its resume handle before spawning, so it is refused only
+    // if the storm outlasts its whole admission window.
+    return now >= facts.deadlineAt
+      ? { kind: 'refuse_retryable' }
+      : { kind: 'wait', charge, retryAt: null }
   }
   if (negotiated && mode.kind === 'paused') {
     return { kind: 'defer', reason: 'paused' }

@@ -1,6 +1,6 @@
 import { OrcadBindAddressError } from './orcad-bind-address'
 import { OrcadBundledRuntimeError } from './orcad-bundled-runtime'
-import { OrcadInstanceLockError } from './orcad-instance-lock'
+import { OrcadInstanceLockError } from './orcad-data-root-privacy'
 import { ProfileStateAccessError } from '../persistence/profile-state/profile-state-access'
 import { ORCAD_EXIT_CONFIGURATION } from './orcad-configuration-exit'
 

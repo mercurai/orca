@@ -14,9 +14,9 @@
 import {
   disconnectDaemon,
   daemonOwnsFreshPersistentPtys,
-  initDaemonPtyProvider,
   readDaemonPidRecord
-} from '../daemon/daemon-init'
+} from '../daemon/daemon-provider-state'
+import { initDaemonPtyProvider } from '../daemon/daemon-provider-init'
 import { errorMessage } from '../../shared/error-message'
 
 const WINDOWS_DAEMON_STARTUP_TIMEOUT_MS = 30_000

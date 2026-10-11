@@ -11,15 +11,15 @@ import {
   trimPendingOutputCoveredBySnapshot
 } from './terminal-stream-replay'
 import type {
-  LegacyBinarySubscriptionState,
+  TerminalSubscribeBinaryState,
   TerminalSubscriptionArgs
-} from './terminal-legacy-subscription-types'
+} from './terminal-subscribe-types'
 
 const MOBILE_RENDERER_MOUNT_READY_TIMEOUT_MS = 3_000
 
-export async function publishLegacyBinaryInitialSnapshot(
+export async function publishTerminalSubscribeBinarySnapshot(
   args: TerminalSubscriptionArgs,
-  state: LegacyBinarySubscriptionState
+  state: TerminalSubscribeBinaryState
 ): Promise<void> {
   const {
     params,
@@ -38,7 +38,7 @@ export async function publishLegacyBinaryInitialSnapshot(
   if (isMobile && clientId) {
     await registration.addMobilePresence(ptyId, clientId, params.viewport)
   } else if (clientId && params.viewport) {
-    // Why: legacy subscribe records geometry without taking ownership; only an explicit activity/claim frame may suppress the host.
+    // Why: terminal.subscribe records geometry without taking ownership; only an explicit activity/claim frame may suppress the host.
     state.registeredRemoteDesktopDriver = true
     state.pendingRemoteDesktopViewport = params.viewport
   }
@@ -83,7 +83,7 @@ export async function publishLegacyBinaryInitialSnapshot(
     !rendererReady &&
     (rendererMountRequestedBeforePty || runtime.requestRendererTerminalTabMount(params.terminal))
   if (mountRequested) {
-    // Why: an idle legacy PTY emits no later byte, so wait for a settle proving this remount completed before replaying its screen.
+    // Why: an idle PTY emits no later byte, so wait for a settle proving this remount completed before replaying its screen.
     const mountWaitController = new AbortController()
     const abortMountWait = (): void => mountWaitController.abort()
     state.abortRendererMountWait = abortMountWait

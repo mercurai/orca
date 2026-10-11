@@ -10,13 +10,13 @@ import {
 } from './terminal-snapshot-publication'
 import { updateViewportForClient } from './terminal-viewport-update'
 import type {
-  LegacyBinarySubscriptionState,
+  TerminalSubscribeBinaryState,
   TerminalSubscriptionArgs
-} from './terminal-legacy-subscription-types'
+} from './terminal-subscribe-types'
 
-export function activateLegacyBinarySubscription(
+export function activateTerminalSubscribeBinaryLive(
   args: TerminalSubscriptionArgs,
-  state: LegacyBinarySubscriptionState
+  state: TerminalSubscribeBinaryState
 ): void {
   const { params, runtime, emit, ptyId, clientId, isMobile, supportsDesktopViewportClaims } = args
   const lateRendererReady = state.lateRendererReadyPromise
@@ -152,7 +152,7 @@ export function activateLegacyBinarySubscription(
     ).catch(() => {})
   }
 
-  // Legacy fit-override-changed for non-mobile (desktop) subscribers
+  // fit-override-changed for non-mobile (desktop) subscribers
   state.unsubscribeFit = !isMobile
     ? runtime.subscribeToFitOverrideChanges(ptyId, (event) => {
         const mode =

@@ -3,7 +3,7 @@ import type { TerminalOutputBatcher } from './terminal-output-batcher'
 import { isTerminalReadPayloadIncomplete } from './terminal-stream-replay'
 import { serializeBudgetedMobileSnapshot } from './terminal-snapshot-publication'
 import { updateViewportForClient } from './terminal-viewport-update'
-import type { TerminalSubscriptionArgs } from './terminal-legacy-subscription-types'
+import type { TerminalSubscriptionArgs } from './terminal-subscribe-types'
 import { allocateTerminalSubscriptionStreamId } from './terminal-subscription-stream-id'
 
 export async function runTerminalLeaseSubscription(args: TerminalSubscriptionArgs): Promise<void> {
@@ -93,7 +93,7 @@ export async function runTerminalJsonSubscription(args: TerminalSubscriptionArgs
   const unsubscribeStreamData = runtime.subscribeToTerminalData(ptyId, (data) => {
     outputBatcher?.push(data)
   })
-  // Why: the legacy JSON stream can feed a live xterm view, so register as a view subscriber; worst case is a withheld model reply, safer than a double reply.
+  // Why: the terminal.subscribe JSON stream can feed a live xterm view, so register as a view subscriber; worst case is a withheld model reply, safer than a double reply.
   const releaseViewSubscriber = runtime.registerRemoteTerminalViewSubscriber(ptyId)
   unsubscribeData = () => {
     releaseViewSubscriber()

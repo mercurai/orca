@@ -169,7 +169,7 @@ async function startOrcadRuntime(
   const { buildOrcadServeReadiness } = await import('./orcad-serve-readiness')
   const { createOrcadProfileStateStartup } = await import('./orcad-profile-state-startup')
   const { startOrcadDaemon, stopOrcadDaemon } = await import('./orcad-daemon-supervision')
-  const { daemonOwnsFreshPersistentPtys } = await import('../daemon/daemon-init')
+  const { daemonOwnsFreshPersistentPtys } = await import('../daemon/daemon-provider-state')
   const { collectOrcadHealth } = await import('./orcad-health')
   // Why importable here: the singleton's module tree never reaches Electron, and orcad supplies
   // its persistence and endpoint paths explicitly below.

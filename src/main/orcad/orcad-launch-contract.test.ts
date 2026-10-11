@@ -15,7 +15,7 @@ import {
   readAgentSessionRuntimeEnds
 } from '../runtime/agent-session-runtime-end-record'
 import { OrcadBindAddressError } from './orcad-bind-address'
-import { OrcadInstanceLockError } from './orcad-instance-lock'
+import { OrcadInstanceLockError } from './orcad-data-root-privacy'
 import { ProfileStateAccessError } from '../persistence/profile-state/profile-state-access'
 import { OrcadBundledRuntimeError } from './orcad-bundled-runtime'
 
@@ -42,7 +42,7 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--help', '--port', 'bad'])).toThrow('--port expects an integer')
     expect(() => parseArgs(['--help', '--bind'])).toThrow('--bind expects a value')
     expect(() => parseArgs(['--help', '--recipe-json'])).toThrow(
-      '--recipe-json requires --project-root'
+      'Recipe JSON output requires --project-root.'
     )
     for (const flag of ['--no-pairing', '--mobile-pairing']) {
       expect(() => parseArgs(['--help', '--grant-desktop-control', flag])).toThrow(
@@ -62,22 +62,27 @@ describe('parseArgs', () => {
   })
 
   it('takes the desktop serve flags orca serve forwards', () => {
-    expect(
-      parseArgs([
-        '--mobile-pairing',
-        '--recipe-json',
-        '--project-root',
-        '/work/app',
-        '--no-pairing'
-      ])
-    ).toEqual({
-      mobilePairing: true,
+    expect(parseArgs(['--recipe-json', '--project-root', '/work/app'])).toEqual({
       recipeJson: true,
-      projectRoot: '/work/app',
-      noPairing: true
+      projectRoot: '/work/app'
     })
-    expect(() => parseArgs(['--recipe-json'])).toThrow('--recipe-json requires --project-root')
+    expect(parseArgs(['--mobile-pairing'])).toEqual({ mobilePairing: true })
+    expect(parseArgs(['--no-pairing'])).toEqual({ noPairing: true })
+    expect(() => parseArgs(['--recipe-json'])).toThrow(
+      'Recipe JSON output requires --project-root.'
+    )
     expect(() => parseArgs(['--project-root'])).toThrow('--project-root expects a value')
+  })
+
+  it('rejects contradictory pairing flags with the desktop serve message', () => {
+    expect(() => parseArgs(['--no-pairing', '--mobile-pairing'])).toThrow(
+      'Use either --mobile-pairing or --no-pairing, not both.'
+    )
+    for (const flag of ['--no-pairing', '--mobile-pairing']) {
+      expect(() => parseArgs(['--recipe-json', '--project-root', '/work/app', flag])).toThrow(
+        `Recipe JSON output requires runtime pairing; remove ${flag}.`
+      )
+    }
   })
 
   it('rejects --bind with no value rather than silently binding the default', () => {

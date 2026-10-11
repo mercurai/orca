@@ -16,13 +16,13 @@ import { createTerminalOutputBatcher, type TerminalOutputBatcher } from './termi
 import { trimPendingOutputToBudget } from './terminal-stream-replay'
 import { allocateTerminalSubscriptionStreamId } from './terminal-subscription-stream-id'
 import type {
-  LegacyBinarySubscriptionState,
+  TerminalSubscribeBinaryState,
   TerminalSubscriptionArgs
-} from './terminal-legacy-subscription-types'
+} from './terminal-subscribe-types'
 import type { TerminalOutputChunk } from './terminal-stream-types'
-import { publishLegacyBinaryInitialSnapshot } from './terminal-legacy-subscribe-snapshot'
-import { activateLegacyBinarySubscription } from './terminal-legacy-subscribe-live'
-import { registerLegacyBinaryControlFrames } from './terminal-legacy-binary-control-frames'
+import { publishTerminalSubscribeBinarySnapshot } from './terminal-subscribe-binary-snapshot'
+import { activateTerminalSubscribeBinaryLive } from './terminal-subscribe-binary-live'
+import { registerTerminalSubscribeBinaryControlFrames } from './terminal-subscribe-binary-control-frames'
 const TERMINAL_QUERY_REPLAY_MAX_CHARS = 16 * 1024
 export async function runTerminalBinarySubscription(args: TerminalSubscriptionArgs): Promise<void> {
   const { runtime, registration, sendBinary, ptyId, clientId, isMobile } = args
@@ -97,7 +97,7 @@ export async function runTerminalBinarySubscription(args: TerminalSubscriptionAr
       sendFrame(chunk.opcode ?? TerminalStreamOpcode.Output, chunk.bytes, chunk.seq)
     }
   })
-  unregisterBinaryHandler = registerLegacyBinaryControlFrames(
+  unregisterBinaryHandler = registerTerminalSubscribeBinaryControlFrames(
     args,
     streamId,
     remoteDesktopSubscriptionKey,
@@ -164,7 +164,7 @@ export async function runTerminalBinarySubscription(args: TerminalSubscriptionAr
     releaseViewSubscriber()
     unsubscribeStreamData()
   }
-  const state: LegacyBinarySubscriptionState = {
+  const state: TerminalSubscribeBinaryState = {
     streamId,
     remoteDesktopSubscriptionKey,
     get closed() {
@@ -257,10 +257,10 @@ export async function runTerminalBinarySubscription(args: TerminalSubscriptionAr
     streamClosed,
     sendFrame
   }
-  await publishLegacyBinaryInitialSnapshot(args, state)
+  await publishTerminalSubscribeBinarySnapshot(args, state)
   if (registration.released) {
     return
   }
-  activateLegacyBinarySubscription(args, state)
+  activateTerminalSubscribeBinaryLive(args, state)
   await streamClosed
 }

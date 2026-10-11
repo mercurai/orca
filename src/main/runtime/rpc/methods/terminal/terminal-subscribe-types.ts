@@ -27,7 +27,7 @@ export type TerminalSubscriptionArgs = {
   serializerGenerationBeforeMobileFit: number
 }
 
-export type LegacyBinarySubscriptionState = {
+export type TerminalSubscribeBinaryState = {
   readonly streamId: number
   readonly remoteDesktopSubscriptionKey: string
   closed: boolean

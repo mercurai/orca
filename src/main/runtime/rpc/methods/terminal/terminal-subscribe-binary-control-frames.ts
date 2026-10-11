@@ -4,10 +4,10 @@ import {
   decodeTerminalStreamText
 } from '../../../../../shared/terminal-stream-protocol'
 import { isTerminalInputLockedForClient, sendTerminalStreamInput } from './terminal-input-delivery'
-import type { TerminalSubscriptionArgs } from './terminal-legacy-subscription-types'
+import type { TerminalSubscriptionArgs } from './terminal-subscribe-types'
 import { updateViewportForClient } from './terminal-viewport-update'
 
-type LegacyBinaryControlState = {
+type TerminalSubscribeBinaryControlState = {
   isClosed: () => boolean
   isBuffering: () => boolean
   setRegisteredRemoteDesktopDriver: () => void
@@ -17,11 +17,11 @@ type LegacyBinaryControlState = {
   sendFrame: (opcode: TerminalStreamOpcode, payload?: Uint8Array<ArrayBufferLike>) => void
 }
 
-export function registerLegacyBinaryControlFrames(
+export function registerTerminalSubscribeBinaryControlFrames(
   args: TerminalSubscriptionArgs,
   streamId: number,
   remoteDesktopSubscriptionKey: string,
-  controls: LegacyBinaryControlState
+  controls: TerminalSubscribeBinaryControlState
 ): () => void {
   const {
     params,
