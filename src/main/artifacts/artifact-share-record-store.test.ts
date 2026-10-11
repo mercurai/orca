@@ -40,6 +40,43 @@ afterEach(async () => {
 })
 
 describe('artifact share record store', () => {
+  it('drops a save whose sign-out was queued ahead of it', async () => {
+    const path = await userDataPath()
+    const lifecycle = captureArtifactShareLifecycle('local-profile', path)
+    const signOut = clearArtifactShareRecords('local-profile', path)
+    const save = saveArtifactShareRecord(
+      'local-profile',
+      path,
+      '/repo/report.html',
+      {
+        ...scopeA,
+        slug: 'artifact-a',
+        editToken: 'old-account-token',
+        shareUrl: 'https://share.onorca.dev/a/artifact-a'
+      },
+      lifecycle
+    )
+    await Promise.all([signOut, save])
+
+    expect(await getArtifactShareRecord('local-profile', path, '/repo/report.html', scopeA)).toBeNull()
+  })
+
+  it('keeps a save whose lifecycle is still current', async () => {
+    const path = await userDataPath()
+    const lifecycle = captureArtifactShareLifecycle('local-profile', path)
+    await saveArtifactShareRecord(
+      'local-profile',
+      path,
+      '/repo/report.html',
+      { ...scopeA, slug: 'artifact-a', editToken: 'token', shareUrl: 'https://share.onorca.dev/a' },
+      lifecycle
+    )
+
+    expect(
+      (await getArtifactShareRecord('local-profile', path, '/repo/report.html', scopeA))?.editToken
+    ).toBe('token')
+  })
+
   it('isolates edit tokens by cloud identity and API origin', async () => {
     const path = await userDataPath()
     await saveArtifactShareRecord('local-profile', path, '/repo/report.html', {

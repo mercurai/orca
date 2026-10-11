@@ -70,10 +70,18 @@ export function saveArtifactShareRecord(
   profileId: string,
   userDataPath: string,
   sourceKey: string,
-  record: ArtifactShareRecord
+  record: ArtifactShareRecord,
+  expectedLifecycle?: string
 ): Promise<void> {
   return serializeRecords(profileId, userDataPath, async () => {
     const records = await readRecords(profileId, userDataPath)
+    // Why: a sign-out queued ahead of this save already cleared the index; never write the old token back.
+    if (
+      expectedLifecycle !== undefined &&
+      `${records.lifecycleGeneration}:${records.lifecycleNonce}` !== expectedLifecycle
+    ) {
+      return
+    }
     records.shares[sourceKey] = { ...record, savedAt: Date.now() }
     records.shares = pruneRecords(records.shares, Date.now()).shares
     await writeDurableSecureJsonFileAsync(recordPath(profileId, userDataPath), records)
