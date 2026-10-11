@@ -55,7 +55,7 @@ function setup() {
   const onError = vi.fn()
   const resolveAuthenticatedDevice = vi.fn((token: string) =>
     token === 'valid-token'
-      ? { deviceId: 'device-1', deviceToken: token, scope: 'mobile' as const }
+      ? { deviceId: 'device-1', deviceToken: token, scope: 'mobile' as const, clientId: token, callerFingerprint: 'test-fingerprint', credentialRevision: 0 }
       : null
   )
   const channel = new E2EEChannel(ws as unknown as WebSocket, {
@@ -147,7 +147,10 @@ describe('E2EEChannel v2', () => {
     expect(ctx.onReady).toHaveBeenCalledWith(ctx.channel, {
       deviceId: 'device-1',
       deviceToken: 'valid-token',
-      scope: 'mobile'
+      scope: 'mobile',
+      clientId: 'valid-token',
+      callerFingerprint: 'test-fingerprint',
+      credentialRevision: 0
     })
     const authenticated = openServerFrame(ctx.ws.sent[1]!.data, 'text', schedule, 0n)
     expect(JSON.parse(new TextDecoder().decode(authenticated!))).toEqual({

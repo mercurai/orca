@@ -12,6 +12,7 @@ import {
   useTerminalArtifactTempFiles
 } from './orca-runtime-files-terminal-artifact-fixtures'
 import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
+import { SshHostNotServedError } from '../providers/ssh-host-not-served-error'
 import { RUNTIME_PREVIEWABLE_BINARY_MAX_BYTES } from './orca-runtime-files'
 import type { RuntimeFileCommands } from './orca-runtime-files'
 
@@ -436,66 +437,15 @@ describe('RuntimeFileCommands', () => {
       expect(writeTerminalArtifact).toHaveBeenCalled()
     })
 
-    it('reads a remote non-temp artifact cited by native chat', async () => {
-      const artifactPath = '/home/me/report.json'
+    it('refuses a native-chat artifact on an SSH target as not served', async () => {
       const { commands, readTerminalArtifact } = createRemoteTerminalArtifactGrantFixture(
-        artifactPath,
+        '/home/me/report.json',
         true
       )
-      const result = await resolveRemoteNativeChatArtifact(commands, artifactPath)
-      const target = absoluteFileTarget(result)
 
       await expect(
-        commands.readTerminalArtifactFile(
-          'id:wt-1',
-          target.grantId,
-          target.absolutePath,
-          'client-a'
-        )
-      ).resolves.toMatchObject({ content: '{"ok":true}' })
-      expect(readTerminalArtifact).toHaveBeenCalledWith(
-        artifactPath,
-        expect.objectContaining({ expectedRealPath: artifactPath })
-      )
-    })
-
-    it('rejects a retargeted remote native-chat artifact grant', async () => {
-      const artifactPath = '/home/me/report.json'
-      const { commands, readTerminalArtifact, moveArtifactTarget } =
-        createRemoteTerminalArtifactGrantFixture(artifactPath, true)
-      const result = await resolveRemoteNativeChatArtifact(commands, artifactPath)
-      const target = absoluteFileTarget(result)
-
-      moveArtifactTarget('/home/me/private.json')
-
-      await expect(
-        commands.readTerminalArtifactFile(
-          'id:wt-1',
-          target.grantId,
-          target.absolutePath,
-          'client-a'
-        )
-      ).rejects.toThrow('terminal_file_grant_stale')
-      expect(readTerminalArtifact).not.toHaveBeenCalled()
-    })
-
-    it('rejects a replaced remote native-chat artifact grant', async () => {
-      const artifactPath = '/home/me/report.json'
-      const { commands, readTerminalArtifact, replaceArtifact } =
-        createRemoteTerminalArtifactGrantFixture(artifactPath, true)
-      const result = await resolveRemoteNativeChatArtifact(commands, artifactPath)
-      const target = absoluteFileTarget(result)
-
-      replaceArtifact()
-
-      await expect(
-        commands.readTerminalArtifactFile(
-          'id:wt-1',
-          target.grantId,
-          target.absolutePath,
-          'client-a'
-        )
-      ).rejects.toThrow('terminal_file_grant_stale')
+        resolveRemoteNativeChatArtifact(commands, '/home/me/report.json')
+      ).rejects.toThrow(SshHostNotServedError)
       expect(readTerminalArtifact).not.toHaveBeenCalled()
     })
 

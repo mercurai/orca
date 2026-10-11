@@ -1165,6 +1165,8 @@ export const RPC_PARAMS_BY_METHOD = {
   'repo.show': RepoSelector,
   'repo.sparsePresets': RepoSelector,
   'repo.update': RepoUpdate,
+  'runtime.automaticWork.resume': null,
+  'runtime.automaticWork.status': null,
   'runtime.clientCapabilities.update': ClientCapabilitiesUpdate,
   'runtime.clientEvents.subscribe': null,
   'runtime.clientEvents.unsubscribe': ClientEventsUnsubscribeParams,

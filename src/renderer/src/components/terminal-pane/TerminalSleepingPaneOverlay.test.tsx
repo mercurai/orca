@@ -31,4 +31,23 @@ describe('TerminalSleepingPaneOverlay', () => {
     await user.click(screen.getByText('Sleeping — click to resume'))
     expect(onResume).toHaveBeenCalledTimes(2)
   })
+
+  it('offers to resume automatic restores only when the host can clear its pause', async () => {
+    const onResume = vi.fn()
+    const onResumeAutomaticRestores = vi.fn()
+    const user = userEvent.setup()
+    const { rerender } = render(<TerminalSleepingPaneOverlay reason="paused" onResume={onResume} />)
+    expect(screen.queryByRole('button', { name: 'Resume automatic restores' })).toBeNull()
+
+    rerender(
+      <TerminalSleepingPaneOverlay
+        reason="paused"
+        onResume={onResume}
+        onResumeAutomaticRestores={onResumeAutomaticRestores}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: 'Resume automatic restores' }))
+    expect(onResumeAutomaticRestores).toHaveBeenCalledOnce()
+    expect(onResume).not.toHaveBeenCalled()
+  })
 })

@@ -16,6 +16,23 @@ export type AutomaticWorkMode =
       since: number
     }
 
+/** What a daemon reports about automatic restores; `admission` says whether its gate enforces. */
+export type AutomaticWorkStatus = {
+  admission: 'observe' | 'enforce'
+  mode: AutomaticWorkMode
+}
+
+/** `cleared` is the pause the resume lifted, or null when automatic restores were running. */
+export type AutomaticWorkResumeResult = AutomaticWorkStatus & { cleared: AutomaticWorkMode | null }
+
+/** A gate-bearing terminal host from before resume existed: its pause is real but unreachable. */
+export const AUTOMATIC_WORK_RESUME_UNSUPPORTED = 'terminal-host-predates-resume'
+
+export type AutomaticWorkResumeOutcome =
+  | AutomaticWorkResumeResult
+  | typeof AUTOMATIC_WORK_RESUME_UNSUPPORTED
+  | null
+
 export type SpawnRequestFacts = {
   clientId: string
   /** Null when the caller predates the field; presence opts the request into `defer`. */

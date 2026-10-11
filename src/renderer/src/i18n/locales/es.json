@@ -3153,6 +3153,7 @@
             "remoteTerminalClosed": "La terminal remota se cerró.",
             "ptyAllocationLimit": "Tu sistema no puede asignar más dispositivos pty. Cierra algunas terminales que no estés usando, en Orca o en otro programa, y vuelve a intentarlo.",
             "terminalProcessLimit": "Tu sistema no puede iniciar otro proceso de terminal. Cierra las terminales que no uses o sal de los procesos que no necesites y vuelve a intentarlo.",
+            "hostTerminalCap": "El host ya está ejecutando tantas terminales como permite Orca. Cierra una terminal que ya no necesites y vuelve a intentarlo.",
             "retry": "Reintentar",
             "retrying": "Reintentando…",
             "retryUnavailable": "Reintentar no pudo volver a conectarse todavía. Vuelve a intentarlo en breve.",

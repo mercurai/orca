@@ -39,10 +39,11 @@ import {
 } from './worktree-removal-home-guard'
 import {
   ExecutionHostNotDispatchableError,
-  resolveFilesystemRouteForHost,
   resolveGitRouteForHost
 } from './providers/execution-host-provider-dispatch'
-import { SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE } from './providers/ssh-git-dispatch'
+import { getSshFilesystemProvider } from './providers/ssh-filesystem-dispatch'
+import { getSshGitProvider } from './providers/ssh-git-dispatch'
+import { SshHostNotServedError } from './providers/ssh-host-not-served-error'
 import type { SshGitProvider } from './providers/ssh-git-provider'
 import type { IFilesystemProvider } from './providers/types'
 
@@ -69,16 +70,16 @@ export function resolveWorktreeRemovalRoute(hostId: ExecutionHostId): WorktreeRe
     case 'runtime':
       throw new ExecutionHostNotDispatchableError(route.hostId)
     case 'ssh': {
-      if (!route.provider) {
-        throw new Error(SSH_GIT_PROVIDER_UNAVAILABLE_MESSAGE)
+      const provider = getSshGitProvider(route.connectionId)
+      if (!provider) {
+        throw new SshHostNotServedError(route.connectionId)
       }
-      const fsRoute = resolveFilesystemRouteForHost(hostId)
       return {
         kind: 'ssh',
         hostId: route.hostId,
         connectionId: route.connectionId,
-        provider: route.provider,
-        fsProvider: fsRoute.kind === 'ssh' ? fsRoute.provider : null
+        provider,
+        fsProvider: getSshFilesystemProvider(route.connectionId) ?? null
       }
     }
   }
@@ -87,7 +88,7 @@ export function resolveWorktreeRemovalRoute(hostId: ExecutionHostId): WorktreeRe
 /**
  * Reads the `$HOME` an active SSH session resolved on its host.
  *
- * Injected the same way `setSshActiveMultiplexerResolver` is, because importing
+ * Injected rather than imported, because importing
  * the session table here would run its registration inside every suite that
  * partially mocks the SSH registry. Unresolved stays `null` — "unknown", never
  * "this client's home".

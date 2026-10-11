@@ -9,6 +9,8 @@ import { classifyConnection, verdictDisplayLabel } from './connection-health'
 // reverted to "Connecting…" on every redial, so no escalation assertion here
 // could pass: the label looped "Connecting…" forever.
 
+vi.mock('./direct-e2ee-framing-policy', () => import('./legacy-direct-framing-test-policy'))
+
 vi.mock('./e2ee', () => ({
   generateKeyPair: () => ({ publicKey: new Uint8Array(32), secretKey: new Uint8Array(32) }),
   deriveSharedKey: () => new Uint8Array(32),

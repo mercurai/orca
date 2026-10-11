@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { WebSocket } from 'ws'
 import type { DeviceEntry, DeviceRegistry } from '../device-registry'
+import { devicePrincipalOf } from '../device-principal'
 import type { E2EEKeypair } from '../e2ee-keypair'
 import { E2EEChannel, type E2EEAuthenticatedDevice } from './e2ee-channel'
 import { createMobileE2EEOutboundMemoryBudget } from './mobile-e2ee-outbound-memory-budget'
@@ -59,11 +60,7 @@ type MobileSocketWiringOptions = {
 }
 
 function toAuthenticatedDevice(device: DeviceEntry): E2EEAuthenticatedDevice {
-  return {
-    deviceId: device.deviceId,
-    deviceToken: device.token,
-    scope: device.scope
-  }
+  return { ...devicePrincipalOf(device), deviceToken: device.token }
 }
 
 export class MobileSocketWiring {
@@ -123,10 +120,10 @@ export class MobileSocketWiring {
     return this.connectionIds.size
   }
 
-  terminateDeviceConnections(deviceToken: string): number {
+  terminateDeviceConnections(deviceId: string): number {
     let terminated = 0
     for (const transport of this.transports) {
-      terminated += transport.terminateClientConnections(deviceToken)
+      terminated += transport.terminateClientConnections(deviceId)
     }
     return terminated
   }
@@ -179,7 +176,7 @@ export class MobileSocketWiring {
             transport: metadata
           }
           this.authenticatedSockets.set(ws, socket)
-          transport.setClientId(ws, device.deviceToken)
+          transport.setClientId(ws, device.deviceId)
           // Why: deferred — the client's e2ee_authenticated must not wait on a secure-file rewrite.
           this.deviceRegistry.updateLastSeenDeferred(device.deviceId)
           this.onReady?.(socket)
@@ -225,7 +222,7 @@ export class MobileSocketWiring {
     const hasOtherConnections =
       socket !== null &&
       Array.from(this.authenticatedSockets.values()).some(
-        (candidate) => candidate.device.deviceToken === socket.device.deviceToken
+        (candidate) => candidate.device.deviceId === socket.device.deviceId
       )
     this.onClose(socket, hasOtherConnections)
   }

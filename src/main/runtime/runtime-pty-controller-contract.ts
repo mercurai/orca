@@ -1,4 +1,8 @@
-import type { SpawnIntent } from '../../shared/host-spawn-admission'
+import type {
+  AutomaticWorkResumeOutcome,
+  AutomaticWorkStatus,
+  SpawnIntent
+} from '../../shared/host-spawn-admission'
 import type {
   AgentSessionClaimedSpawnResult,
   AgentSessionExecutionClaim,
@@ -104,6 +108,9 @@ export type RuntimePtyController = {
     stablePaneOwner?: { handle: string; tabId: string; leafId: string }
     agentSessionEnsure?: AgentSessionClaimedSpawnResult
   }>
+  /** The local terminal owner's automatic-restore state; null when it has no fork gate. */
+  getAutomaticWorkStatus?(): Promise<AutomaticWorkStatus | null>
+  resumeAutomaticWork?(): Promise<AutomaticWorkResumeOutcome>
   write(ptyId: string, data: string, inputKind: TerminalInputKind): boolean
   /** Three-valued settlement; local providers settle synchronously. */
   writeWithSettlement?(

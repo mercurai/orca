@@ -345,8 +345,7 @@ vi.mock('../../providers/ssh-git-dispatch', () => ({
 
 vi.mock('../../ssh/ssh-target-registry', () => ({
   getActiveMultiplexer: getActiveMultiplexerMock,
-  getRegisteredSshState: () => ({ remotePlatform: 'linux' }),
-  setSshActiveMultiplexerResolver: vi.fn()
+  getRegisteredSshState: () => ({ remotePlatform: 'linux' })
 }))
 
 vi.mock('../../preflight/agent-detection', () => ({

@@ -3380,7 +3380,8 @@
             "sourceRestoring": "Reconnecting this terminal — its output is being re-established. The session is still running.",
             "remoteTerminalClosed": "Remote terminal was closed.",
             "ptyAllocationLimit": "Your system cannot allocate any more pty devices. Close some terminals you are not using, in Orca or another program, then try again.",
-            "terminalProcessLimit": "Your system cannot start another terminal process. Close unused terminals or quit unused processes, then try again."
+            "terminalProcessLimit": "Your system cannot start another terminal process. Close unused terminals or quit unused processes, then try again.",
+            "hostTerminalCap": "The host is already running as many terminals as Orca allows. Close a terminal you no longer need, then try again."
           },
           "TerminalProcessExitOverlay": {
             "capacityTitle": "Git Bash console limit reached",
@@ -3572,7 +3573,8 @@
             "pressureDetail": "The host is under heavy load. Your session is saved.",
             "deadlineDetail": "The host was busy restoring other terminals. Your session is saved.",
             "title": "Sleeping — click to resume",
-            "resume": "Resume"
+            "resume": "Resume",
+            "resumeAutomaticRestores": "Resume automatic restores"
           }
         }
       },

@@ -73,6 +73,16 @@ vi.mock('sonner', () => ({
   }
 }))
 
+const { canResumeHostAutomaticRestores, resumeHostAutomaticRestores } = vi.hoisted(() => ({
+  canResumeHostAutomaticRestores: vi.fn(async () => true),
+  resumeHostAutomaticRestores: vi.fn(async () => {})
+}))
+
+vi.mock('@/runtime/resume-host-automatic-restores', () => ({
+  canResumeHostAutomaticRestores,
+  resumeHostAutomaticRestores
+}))
+
 vi.mock('./terminal-pane-recovery', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   requestTerminalPaneRecovery: vi.fn(async () => {})
@@ -139,7 +149,7 @@ function freshSpawns(transport: MockTransport): Record<string, unknown>[] {
   })
 }
 
-function deferringTransport(): MockTransport {
+function deferringTransport(reason = 'live_cap'): MockTransport {
   const transport = createMockTransport(null)
   transport.connect.mockImplementation(
     async (opts: {
@@ -148,7 +158,7 @@ function deferringTransport(): MockTransport {
     }) => {
       // Why: the fixture tab names a PTY that is gone, so only the fresh restore reaches the gate.
       if (!opts.sessionId) {
-        opts.callbacks?.onSpawnDeferred?.('live_cap')
+        opts.callbacks?.onSpawnDeferred?.(reason)
       }
       return undefined
     }
@@ -361,6 +371,39 @@ describe('connectPanePty: a restore the host kept asleep', () => {
     await flushAsyncTicks(20)
 
     expect(freshSpawns(transport)).toHaveLength(1)
+    binding.dispose()
+  })
+
+  it('offers to clear a crash pause on the host, then resumes the pane', async () => {
+    const { connectPanePty } = await import('./pty-connection')
+    const { getPaneSpawnDeferral } = await import('@/lib/pane-spawn-deferral-registry')
+    const transport = deferringTransport('paused')
+    transportFactoryQueue.push(transport)
+    const pane = createPane(1)
+    const paneKey = makePaneKey('tab-1', pane.leafId)
+    const deps = createDeps({
+      isVisibleRef: { current: true },
+      startup: {
+        command: "claude '--resume' 'provider-session-1'",
+        launchAgent: 'claude',
+        resumeProviderSession: RESUME
+      }
+    })
+
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the shared pane fixtures stand in for the xterm-backed pane, manager and deps connectPanePty reads, as in the sibling connectPanePty specs.
+    const binding = connectPanePty(pane as never, createManager(1) as never, deps as never)
+    await flushAsyncTicks(20)
+
+    expect(canResumeHostAutomaticRestores).toHaveBeenCalledWith(null)
+    const offer = getPaneSpawnDeferral(paneKey)?.resumeAutomaticRestores
+    expect(offer).toBeTypeOf('function')
+    transport.connect.mockImplementation(async () => 'resumed-pty')
+    offer?.()
+    await flushAsyncTicks(20)
+
+    expect(resumeHostAutomaticRestores).toHaveBeenCalledWith(null)
+    expect(freshSpawns(transport)).toHaveLength(2)
+    expect(getPaneSpawnDeferral(paneKey)).toBeUndefined()
     binding.dispose()
   })
 })

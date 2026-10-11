@@ -17,6 +17,8 @@ import {
   type SpawnCharge,
   type SpawnRequestFacts
 } from '../../shared/host-spawn-admission'
+import { TERMINAL_HOST_CAP_HINT } from '../../shared/terminal-spawn-error-copy'
+import { DEFAULT_MAX_HOST_TERMINALS, HostTerminalLedger } from './host-terminal-ledger'
 
 export type TerminalSpawnAdmissionMode = 'observe' | 'enforce'
 
@@ -42,10 +44,13 @@ export type TerminalSpawnGateSnapshot = {
   mode: TerminalSpawnAdmissionMode
   inFlight: Record<SpawnCharge, number>
   liveAutomatic: number
+  /** Live plus starting terminals of every charge; what the host cap counts for this daemon. */
+  terminals: number
   waiting: number
   waited: number
   deferred: number
   refused: number
+  hostCapRefused: number
 }
 
 export class TerminalSpawnDeferredError extends Error {
@@ -64,6 +69,8 @@ type TerminalSpawnGateOptions = {
   automaticWorkMode?: () => AutomaticWorkMode
   /** Runs synchronously before the first automatic fork is admitted. */
   armAutomaticWork?: () => void
+  /** The execution host's terminal cap; defaults to capping this daemon alone. */
+  hostTerminals?: HostTerminalLedger
 }
 
 /**
@@ -80,11 +87,14 @@ export class TerminalSpawnGate {
   private readonly automaticWorkMode: () => AutomaticWorkMode
   private readonly state: SpawnAdmissionState
   private readonly liveAutomaticSessions = new Set<string>()
+  private readonly liveSessions = new Set<string>()
+  private readonly hostTerminals: HostTerminalLedger
   private readonly waiters = new Set<() => void>()
   private waited = 0
   private lastAutomaticAdmitAt: number | null = null
   private deferred = 0
   private refused = 0
+  private hostCapRefused = 0
 
   constructor(private readonly options: TerminalSpawnGateOptions) {
     this.mode = options.mode ?? 'observe'
@@ -93,6 +103,13 @@ export class TerminalSpawnGate {
     this.pressure = options.pressure ?? (() => 'unknown')
     this.automaticWorkMode = options.automaticWorkMode ?? (() => ({ kind: 'normal' }))
     this.state = createSpawnAdmissionState(this.limits, this.now())
+    this.hostTerminals =
+      options.hostTerminals ??
+      new HostTerminalLedger({
+        dir: null,
+        maxTerminals: DEFAULT_MAX_HOST_TERMINALS,
+        log: options.log
+      })
   }
 
   /** Returns synchronously unless the request has to wait, so an unpaced fork keeps
@@ -139,8 +156,16 @@ export class TerminalSpawnGate {
       now
     })
     if (this.mode === 'observe' || decision.kind === 'admit') {
+      // Why reserve before recording: a refused fork must not be logged as admitted.
+      if (!this.hostTerminals.tryReserve(this.ownTerminals())) {
+        this.refuseAtHostCap(facts, charge)
+      }
       this.record(decision, charge, facts, !alreadyWaited)
       return { kind: 'lease', lease: this.lease(facts, charge, now) }
+    }
+    // Why: a request that would only wait to be refused at the cap is told at once.
+    if (decision.kind === 'wait' && !this.hostTerminals.hasRoom(this.ownTerminals())) {
+      this.refuseAtHostCap(facts, charge)
     }
     this.record(decision, charge, facts, !alreadyWaited)
     if (decision.kind === 'defer') {
@@ -165,6 +190,10 @@ export class TerminalSpawnGate {
   }
 
   onSessionExit(sessionId: string): void {
+    if (this.liveSessions.delete(sessionId)) {
+      this.publishTerminals()
+      this.wakeWaiters()
+    }
     if (this.liveAutomaticSessions.delete(sessionId)) {
       releaseLiveAutomatic(this.state)
       this.wakeWaiters()
@@ -176,11 +205,56 @@ export class TerminalSpawnGate {
       mode: this.mode,
       inFlight: { ...this.state.inFlight },
       liveAutomatic: this.state.liveAutomatic,
+      terminals: this.ownTerminals(),
       waiting: this.waiters.size,
       waited: this.waited,
       deferred: this.deferred,
-      refused: this.refused
+      refused: this.refused,
+      hostCapRefused: this.hostCapRefused
     }
+  }
+
+  /** Starts keeping this daemon's entry in the host's shared count fresh. */
+  startHostTerminals(): void {
+    this.hostTerminals.start()
+  }
+
+  /** Removes this daemon from the host's shared count; its sessions are gone. */
+  stopHostTerminals(): void {
+    this.hostTerminals.close()
+  }
+
+  private ownTerminals(): number {
+    const { interactive, user, automatic } = this.state.inFlight
+    return this.liveSessions.size + interactive + user + automatic
+  }
+
+  private publishTerminals(): void {
+    try {
+      this.hostTerminals.publish(this.ownTerminals())
+    } catch {
+      // The shared count is advisory for other daemons; this one's own cap still holds.
+    }
+  }
+
+  private refuseAtHostCap(facts: SpawnRequestFacts, charge: SpawnCharge): never {
+    this.hostCapRefused += 1
+    try {
+      this.options.log('host-terminal-cap-reached', {
+        charge,
+        declaredIntent: facts.declaredIntent,
+        terminals: this.ownTerminals(),
+        maxTerminals: this.hostTerminals.maxTerminals
+      })
+    } catch {
+      // Diagnostics must never change the refusal.
+    }
+    // Why: a caller that declared a restore keeps its pane sleeping with its handle; every
+    // other caller, old ones included, sees a plain message it already renders as an error.
+    if (facts.declaredIntent !== null && charge !== 'interactive') {
+      throw new TerminalSpawnDeferredError('live_cap')
+    }
+    throw new Error(TERMINAL_HOST_CAP_HINT)
   }
 
   private lease(facts: SpawnRequestFacts, charge: SpawnCharge, now: number): TerminalSpawnLease {
@@ -200,6 +274,10 @@ export class TerminalSpawnGate {
       if (becameLive) {
         this.liveAutomaticSessions.add(sessionId)
       }
+      if (isAlive && sessionId !== null) {
+        this.liveSessions.add(sessionId)
+      }
+      this.publishTerminals()
       this.wakeWaiters()
     }
     return {

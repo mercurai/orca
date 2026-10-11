@@ -22,11 +22,8 @@ import {
   type DelegatedMobileDeviceEntry
 } from './delegated-mobile-devices'
 import type { RuntimeDeviceGrant } from './rpc/rpc-method-permission'
-import { validGrants, validRelayBinding } from './device-registry-row-validation'
-import {
-  parseMobilePushRegistration,
-  type MobilePushRegistration
-} from '../../shared/mobile-push-contract'
+import { normalizeLoadedDeviceRow, validGrants } from './device-registry-row-validation'
+import type { MobilePushRegistration } from '../../shared/mobile-push-contract'
 
 export type { DeviceScope }
 
@@ -50,6 +47,10 @@ export type DeviceEntry = {
   phoneKey?: string
   // Why: administrative permissions are granted only when pairing; absent on older rows means none.
   grants?: RuntimeDeviceGrant[]
+  // Why: authenticated sockets are bound to this; a credential change bumps it. Absent = 0.
+  credentialRevision?: number
+  // Why: orchestration ownership survives a credential change. Absent = sha256(token).
+  callerFingerprint?: string
 }
 
 function sameGrants(entry: DeviceEntry, grants: readonly RuntimeDeviceGrant[]): boolean {
@@ -270,6 +271,23 @@ export class DeviceRegistry {
     return this.devices.find((d) => d.token === token) ?? null
   }
 
+  /** The row an authenticated socket is still entitled to, or null once revoked or re-credentialed. */
+  resolveAuthenticatedPrincipal(principal: {
+    deviceId: string
+    credentialRevision: number
+    deviceToken?: string
+  }): DeviceEntry | null {
+    const device = this.getDevice(principal.deviceId)
+    if (
+      !device ||
+      (device.credentialRevision ?? 0) !== principal.credentialRevision ||
+      (principal.deviceToken !== undefined && device.token !== principal.deviceToken)
+    ) {
+      return null
+    }
+    return device
+  }
+
   updateLastSeen(deviceId: string): void {
     const index = this.devices.findIndex((d) => d.deviceId === deviceId)
     if (index === -1) {
@@ -345,25 +363,7 @@ export class DeviceRegistry {
     try {
       hardenExistingSecureFile(this.registryPath)
       const parsed = JSON.parse(readFileSync(this.registryPath, 'utf-8')) as DeviceEntry[]
-      this.devices = parsed.map((device) => ({
-        ...device,
-        // Why: older registries only existed for phone pairing. Treat missing
-        // scope as mobile so legacy device tokens do not gain new CLI powers.
-        scope: device.scope === 'runtime' ? 'runtime' : 'mobile',
-        grants: validGrants(device.grants, device.scope === 'runtime' ? 'runtime' : 'mobile'),
-        relayBinding: validRelayBinding(device.relayBinding, device.deviceId),
-        mobilePairingConnectionMode:
-          device.mobilePairingConnectionMode === 'local-only' ? 'local-only' : 'automatic',
-        // Why: registries written before this field existed only ever held network-reach grants (phones and
-        // LAN links), so a missing value must keep binding every interface on reconnect.
-        pairingReach: device.pairingReach === 'this-computer' ? 'this-computer' : 'network',
-        // Why: a malformed row must degrade to "no background push", never fail the load
-        // and strand every paired device.
-        pushRegistration: parseMobilePushRegistration(device.pushRegistration),
-        parentDeviceId:
-          typeof device.parentDeviceId === 'string' ? device.parentDeviceId : undefined,
-        phoneKey: typeof device.phoneKey === 'string' ? device.phoneKey : undefined
-      }))
+      this.devices = parsed.map(normalizeLoadedDeviceRow)
       this.registryUnreadable = false
     } catch (error) {
       // "Cannot read" is not "is empty". Saving an empty list over a registry we were merely

@@ -10,7 +10,10 @@ import type {
   LocalFilesystemProvider,
   LocalFilesystemProviderOptions
 } from '../providers/local-filesystem-provider'
-import { SSH_FILESYSTEM_PROVIDER_UNAVAILABLE_MESSAGE } from '../providers/ssh-filesystem-dispatch'
+import {
+  getSshFilesystemProvider,
+  SSH_FILESYSTEM_PROVIDER_UNAVAILABLE_MESSAGE
+} from '../providers/ssh-filesystem-dispatch'
 import type { IFilesystemProvider } from '../providers/types'
 
 export type ResolvedRuntimeFileWorktree = Worktree & { git: GitWorktreeInfo }
@@ -60,7 +63,11 @@ export function runtimeFileRouteForTarget(target: {
     case 'local':
       return { kind: 'local', createProvider: route.createProvider }
     case 'ssh':
-      return { kind: 'ssh', connectionId: route.connectionId, provider: route.provider }
+      return {
+        kind: 'ssh',
+        connectionId: route.connectionId,
+        provider: getSshFilesystemProvider(route.connectionId) ?? null
+      }
     case 'runtime':
       throw new ExecutionHostNotDispatchableError(route.hostId)
   }

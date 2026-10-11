@@ -206,7 +206,6 @@ const CROSS_VERSION_WIRE_PREFIXES = [
   // Run on every request the suites dispatch, whatever its method.
   'src/main/runtime/rpc/core.ts',
   'src/main/runtime/rpc/errors.ts',
-  'src/main/runtime/rpc/rpc-streaming-dispatcher.ts',
   'src/main/runtime/rpc/orchestration-contract-fence.ts',
   'src/main/runtime/rpc/orchestration-session-caller.ts',
   'src/main/runtime/rpc/orchestration-legacy-compatibility.ts',

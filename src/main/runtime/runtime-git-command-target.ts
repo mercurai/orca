@@ -9,7 +9,7 @@ import {
   resolveGitRouteForHost
 } from '../providers/execution-host-provider-dispatch'
 import type { createLocalGitProvider, LocalGitProvider } from '../providers/local-git-provider'
-import { sshGitProviderMissingError } from '../providers/ssh-git-dispatch'
+import { getSshGitProvider, sshGitProviderMissingError } from '../providers/ssh-git-dispatch'
 import type { SshGitProvider } from '../providers/ssh-git-provider'
 import type { CommitMessageAgentEnvironmentResolvers } from '../text-generation/commit-message-agent-environment'
 import type { PullRequestLinkedIssueMeta } from '../source-control/pull-request-linked-issue'
@@ -71,7 +71,11 @@ export function runtimeGitRouteForTarget(target: RuntimeGitTarget): RuntimeGitRo
     case 'local':
       return { kind: 'local', createProvider: route.createProvider }
     case 'ssh':
-      return { kind: 'ssh', connectionId: route.connectionId, provider: route.provider }
+      return {
+        kind: 'ssh',
+        connectionId: route.connectionId,
+        provider: getSshGitProvider(route.connectionId) ?? null
+      }
     case 'runtime':
       throw new ExecutionHostNotDispatchableError(route.hostId)
   }

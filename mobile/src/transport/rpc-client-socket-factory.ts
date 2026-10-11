@@ -1,3 +1,7 @@
+import {
+  createDirectE2EEFramingPolicy,
+  type DirectE2EEFramingPolicy
+} from './direct-e2ee-framing-policy'
 import { publicKeyFromBase64 } from './e2ee'
 import { RpcClientSocketSession } from './rpc-client-socket-session'
 import { redactSocketEndpoint } from './socket-event-debug'
@@ -25,6 +29,7 @@ type SocketFactoryOptions = {
 
 export class RpcClientSocketFactory {
   private readonly serverPublicKey: Uint8Array
+  private readonly framingPolicy: DirectE2EEFramingPolicy
   private lastInboundAt: number | null = null
   private lastSocketClosedAt: number | null = null
   private constructionCount = 0
@@ -32,6 +37,7 @@ export class RpcClientSocketFactory {
 
   constructor(private readonly options: SocketFactoryOptions) {
     this.serverPublicKey = publicKeyFromBase64(options.serverPublicKeyB64)
+    this.framingPolicy = createDirectE2EEFramingPolicy(options.serverPublicKeyB64)
   }
 
   open(): RpcClientSocketSession {
@@ -58,6 +64,8 @@ export class RpcClientSocketFactory {
       endpoint: this.options.endpoint,
       deviceToken: this.options.deviceToken,
       serverPublicKey: this.serverPublicKey,
+      serverPublicKeyB64: this.options.serverPublicKeyB64,
+      framingPolicy: this.framingPolicy,
       getCurrentSocket: this.options.getCurrentSocket,
       getState: this.options.getState,
       getReconnectAttempt: this.options.getReconnectAttempt,

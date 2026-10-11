@@ -24,11 +24,9 @@ import {
   runtimeFileSshTargetId,
   type ResolvedRuntimeFileTarget
 } from './runtime-file-command-target'
-import {
-  requireReachableFilesystemRoute,
-  requireFilesystemProviderForHost
-} from '../providers/execution-host-provider-dispatch'
-import { getConnectionExecutionHostId, toSshExecutionHostId } from '../../shared/execution-host'
+import { requireReachableFilesystemRoute } from '../providers/execution-host-provider-dispatch'
+import { requireSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
+import { getConnectionExecutionHostId } from '../../shared/execution-host'
 
 export class RuntimeFileCommandsWithResolveAllowedTerminalArtifactPath extends RuntimeFileCommandsWithResolveTerminalPath {
   protected async resolveAllowedTerminalArtifactPath(args: {
@@ -46,10 +44,8 @@ export class RuntimeFileCommandsWithResolveAllowedTerminalArtifactPath extends R
     absolutePath: string,
     connectionId?: string
   ): Promise<string> {
-    const route = requireReachableFilesystemRoute(getConnectionExecutionHostId(connectionId))
-    return route.kind === 'ssh'
-      ? route.provider.realpath(absolutePath)
-      : canonicalPathForArtifactComparison(absolutePath)
+    requireReachableFilesystemRoute(getConnectionExecutionHostId(connectionId))
+    return canonicalPathForArtifactComparison(absolutePath)
   }
 
   protected async resolveAbsoluteFileGrant(args: {
@@ -115,7 +111,7 @@ export class RuntimeFileCommandsWithResolveAllowedTerminalArtifactPath extends R
     absolutePath: string,
     connectionId: string
   ): Promise<string | null> {
-    const provider = requireFilesystemProviderForHost(toSshExecutionHostId(connectionId))
+    const provider = requireSshFilesystemProvider(connectionId)
     const roots = ['/tmp', '/private/tmp']
     const providerTempDir = await provider.getTempDir?.().catch(() => null)
     if (providerTempDir) {

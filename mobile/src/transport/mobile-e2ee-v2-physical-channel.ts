@@ -32,6 +32,7 @@ export class MobileE2EEV2PhysicalChannel {
       socket: MobileE2EEV2Socket
       deviceToken: string
       decodeBinary: (raw: unknown) => Promise<Uint8Array | null>
+      onReadyAccepted?: () => void
       onAuthenticated: () => void
       onText: (plaintext: string) => void
       onBinary: (plaintext: Uint8Array) => void
@@ -133,6 +134,7 @@ export class MobileE2EEV2PhysicalChannel {
       throw new Error('Invalid E2EE v2 ready')
     }
     this.state = 'awaiting-authenticated'
+    this.args.onReadyAccepted?.()
     this.outboundQueue.enqueue({
       kind: 'text',
       plaintext: JSON.stringify({

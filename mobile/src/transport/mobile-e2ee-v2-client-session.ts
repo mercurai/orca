@@ -1,4 +1,3 @@
-import * as ExpoCrypto from 'expo-crypto'
 import {
   encodeMobileE2EEV2Transcript,
   validateMobileE2EEV2Handshake,
@@ -9,7 +8,13 @@ import {
   openMobileE2EEV2Frame,
   sealMobileE2EEV2Frame
 } from '../../../src/shared/mobile-e2ee-v2-framing'
-import { deriveSharedKey, generateKeyPair, publicKeyFromBase64, publicKeyToBase64 } from './e2ee'
+import {
+  deriveSharedKey,
+  generateKeyPair,
+  publicKeyFromBase64,
+  publicKeyToBase64,
+  randomBytes
+} from './e2ee'
 import { deriveMobileE2EEV2KeySchedule } from './mobile-e2ee-v2-key-schedule'
 import { decodeBase64Bytes, encodeBase64Bytes } from './base64-byte-codec'
 
@@ -36,7 +41,7 @@ export class MobileE2EEV2ClientSession {
     clientKeyPair?: { publicKey: Uint8Array; secretKey: Uint8Array }
   }): MobileE2EEV2ClientSession {
     const keyPair = args.clientKeyPair ?? generateKeyPair()
-    const clientNonce = args.clientNonce ?? ExpoCrypto.getRandomBytes(32)
+    const clientNonce = args.clientNonce ?? randomBytes(32)
     if (clientNonce.length !== 32) {
       throw new Error(`Invalid client nonce length: ${clientNonce.length}`)
     }

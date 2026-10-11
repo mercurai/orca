@@ -85,15 +85,54 @@ relay_gce_cells = {
     boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-21"
     capacity_requests           = 6000
     database_pool_max           = 10
-    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:94bc2b2d5d42e87ce9528372734862b7616810b81a5b03c3ed140c6c5dd82fc8"
     initially_enabled           = false
     connection_hard_cap         = 3000
     connection_unobserved_bound = 60
   }
+  # Dead-cell guard e2e: six feed cells, five in the US, so one dead US cell is 1/6 of the fleet and
+  # 1/5 of its region (cell-poll-reachability.ts). c2's shape.
+  "staging-gce-c5" = {
+    hostname                    = "c5"
+    zone                        = "us-central1-a"
+    machine_type                = "e2-standard-2"
+    boot_disk_gb                = 30
+    boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-7"
+    capacity_requests           = 4000
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
+    connection_hard_cap         = 600
+    connection_unobserved_bound = 60
+  }
+  "staging-gce-c6" = {
+    hostname                    = "c6"
+    zone                        = "us-central1-b"
+    machine_type                = "e2-standard-2"
+    boot_disk_gb                = 30
+    boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-7"
+    capacity_requests           = 4000
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
+    connection_hard_cap         = 600
+    connection_unobserved_bound = 60
+  }
+  "staging-gce-c7" = {
+    hostname                    = "c7"
+    zone                        = "us-central1-f"
+    machine_type                = "e2-standard-2"
+    boot_disk_gb                = 30
+    boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-7"
+    capacity_requests           = 4000
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud-staging/orca-cloud/relay@sha256:ac2ab357d3ed9f104ed3d5c440ef3d1ad493d9661e86d1c404d8dfc6b7c59c02"
+    connection_hard_cap         = 600
+    connection_unobserved_bound = 60
+  }
 }
 
-# c1 and c4 hold rehome trust for the step-5 staging e2e: the reserve and demote routes need it.
-relay_region_rehome_source_cell_ids = ["staging-gce-c1", "staging-gce-c2", "staging-gce-c3", "staging-gce-c4"]
+# c1, c4 and c5-c7 hold rehome trust for the step-5 staging e2e: the seat feed, reserve and demote
+# routes need it.
+relay_region_rehome_source_cell_ids = [
+  "staging-gce-c1", "staging-gce-c2", "staging-gce-c3", "staging-gce-c4",
+  "staging-gce-c5", "staging-gce-c6", "staging-gce-c7"
+]
 
 # Push is currently provisioned only in production.
 push_gateway_enabled = false

@@ -35,5 +35,16 @@ export const SERVE_COMMAND_SPECS: CommandSpec[] = [
       'orca serve --port 6768 --pairing-address 100.64.1.20',
       'orca serve --pairing-address 100.64.1.20 --mobile-pairing'
     ]
+  },
+  {
+    path: ['serve', 'restore', 'resume'],
+    summary: 'Resume automatic terminal restores that this host paused',
+    usage: 'orca serve restore resume [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    notes: [
+      'After its terminal host stops unexpectedly, or while it is overloaded, Orca keeps restored agent sessions asleep instead of starting them all at once. Each one resumes when you open it.',
+      'This clears that pause so automatic restores start again, within the normal limits. It talks to the Orca running on this machine and never starts a server.'
+    ],
+    examples: ['orca serve restore resume', 'orca serve restore resume --json']
   }
 ]

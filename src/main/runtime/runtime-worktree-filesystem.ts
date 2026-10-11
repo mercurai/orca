@@ -4,6 +4,7 @@ import { FOLDER_WORKSPACE_INSTANCE_SEPARATOR } from '../../shared/worktree/id'
 import type { Repo } from '../../shared/repo-types'
 import type { Worktree } from '../../shared/worktree/types'
 import { gitExecFileAsync } from '../git/runner'
+import { getSshFilesystemProvider } from '../providers/ssh-filesystem-dispatch'
 import { isENOENT } from '../ipc/filesystem-auth'
 import {
   getLocalWorktreePathAccess,
@@ -44,7 +45,7 @@ export async function isRuntimeWorktreePathMissing(
       access.statPath
     )
   }
-  const fsProvider = route.provider
+  const fsProvider = getSshFilesystemProvider(route.connectionId)
   return fsProvider ? isWorktreePathMissing(worktreePath, (path) => fsProvider.stat(path)) : false
 }
 

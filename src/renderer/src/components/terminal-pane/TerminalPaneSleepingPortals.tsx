@@ -17,7 +17,11 @@ function SleepingPanePortal({
     return null
   }
   return createPortal(
-    <TerminalSleepingPaneOverlay reason={deferral.reason} onResume={deferral.resume} />,
+    <TerminalSleepingPaneOverlay
+      reason={deferral.reason}
+      onResume={deferral.resume}
+      onResumeAutomaticRestores={deferral.resumeAutomaticRestores}
+    />,
     pane.container,
     `sleeping-pane-${pane.id}`
   )

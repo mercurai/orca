@@ -105,7 +105,7 @@ export class WebSocketTransport implements RpcTransport {
     this.messageHandler = handler
   }
 
-  // Why: pass the closing `ws` and whether other sockets share its deviceToken, so client-scoped teardown fires only on the last disconnect.
+  // Why: pass the closing `ws` and whether other sockets share its client id (the device id), so client-scoped teardown fires only on the last disconnect.
   onConnectionClose(handler: WebSocketConnectionCloseHandler): void {
     this.connectionCloseHandler = handler
   }

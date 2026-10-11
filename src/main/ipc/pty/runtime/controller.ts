@@ -1,3 +1,8 @@
+import { localProvider } from '../provider/registry'
+import {
+  getLocalAutomaticWorkStatus,
+  resumeLocalAutomaticWork
+} from '../../../daemon/daemon-automatic-work-resume'
 import { makePaneKey } from '../../../../shared/stable-pane-id'
 import { claimRuntimePaneCreate, makePaneSpawnReservationKey } from '../pane/spawn-reservation'
 import type { PtyRuntimeControllerDeps } from './controller-deps'
@@ -45,6 +50,9 @@ export function installPtyRuntimeController(deps: PtyRuntimeControllerDeps): voi
     },
     adoptStablePane,
     spawn: async (args) => spawnPtyFromRuntimeController(deps, args),
+    // Why the local owner only: an SSH host's gate belongs to that host's own runtime.
+    getAutomaticWorkStatus: () => getLocalAutomaticWorkStatus(localProvider),
+    resumeAutomaticWork: () => resumeLocalAutomaticWork(localProvider),
     write: (ptyId, data, inputKind) => writePtyFromRuntimeController(deps, ptyId, data, inputKind),
     writeWithSettlement: (ptyId, data, inputKind) =>
       writePtyFromRuntimeController(deps, ptyId, data, inputKind, { waitForSettlement: true }),

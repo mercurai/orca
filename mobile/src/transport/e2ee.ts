@@ -28,6 +28,10 @@ export function generateKeyPair(): { publicKey: Uint8Array; secretKey: Uint8Arra
   return { publicKey: u8(kp.publicKey), secretKey: u8(kp.secretKey) }
 }
 
+export function randomBytes(length: number): Uint8Array {
+  return u8(nacl.randomBytes(length))
+}
+
 export function deriveSharedKey(ourSecretKey: Uint8Array, peerPublicKey: Uint8Array): Uint8Array {
   return u8(nacl.box.before(u8(peerPublicKey), u8(ourSecretKey)))
 }

@@ -25,6 +25,7 @@ import type {
 import type { RuntimeCapability } from '../../../shared/protocol-version'
 import type { EventProps } from '../../../shared/telemetry-events'
 import { track } from '../../telemetry/client'
+import type { DevicePrincipal } from '../device-principal'
 
 type OutboundBudgetEmitter = EventProps<'remote_outbound_budget_close'>['emitter']
 
@@ -41,10 +42,8 @@ export type E2EEChannelOptions = {
   outboundMemoryBudget?: MobileE2EEOutboundMemoryBudget
 }
 
-export type E2EEAuthenticatedDevice = {
-  deviceId: string
+export type E2EEAuthenticatedDevice = DevicePrincipal & {
   deviceToken: string
-  scope: 'mobile' | 'runtime'
 }
 
 export class E2EEChannel {
