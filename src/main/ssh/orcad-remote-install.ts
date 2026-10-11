@@ -53,7 +53,7 @@ export async function installOrcadBundle(
   }
   // Its token lets a relaunch prove a lock its own quit left mid-upload (BUG-23).
   const token = randomUUID()
-  rememberHeldOrcadFence(token)
+  await rememberHeldOrcadFence(token)
   try {
     await acquireInstallLock(options.conn, remoteDir, options.host, {
       signal: options.signal,
@@ -66,7 +66,7 @@ export async function installOrcadBundle(
     })
   } catch (error) {
     if (!isUnconfirmedSshCommandTermination(error)) {
-      forgetHeldOrcadFence(token)
+      await forgetHeldOrcadFence(token)
     }
     throw error
   }
@@ -111,7 +111,7 @@ export async function installOrcadBundle(
     if (!preserveInstallLock) {
       // A removal a quit cut short keeps the token, so the relaunch can prove the lock its own.
       if (await abandonInstall(options.conn, remoteDir, options.host)) {
-        forgetHeldOrcadFence(token)
+        await forgetHeldOrcadFence(token)
       }
     }
   }

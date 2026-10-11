@@ -10,11 +10,11 @@ import {
 } from './orcad-migration-cutover-journal'
 
 /** Marks a committed migration as finished for this build while its source rows stay. */
-export function retainOrcadMigrationSource(
+export async function retainOrcadMigrationSource(
   userDataPath: string,
   migrationId: string,
   now: () => Date = () => new Date()
-): OrcadMigrationSourceCutover {
+): Promise<OrcadMigrationSourceCutover> {
   const cutover = listOrcadMigrationSourceCutovers(userDataPath).find(
     (entry) => entry.migrationId === migrationId
   )
@@ -27,6 +27,6 @@ export function retainOrcadMigrationSource(
   // Why no baseline here: the source may have changed since the commit (a crash, then an older
   // build); only the fence's pre-commit baseline proves what the server holds.
   const retained = { ...cutover, sourceRetainedAt: now().toISOString() }
-  writeOrcadMigrationSourceCutover(userDataPath, retained)
+  await writeOrcadMigrationSourceCutover(userDataPath, retained)
   return retained
 }
