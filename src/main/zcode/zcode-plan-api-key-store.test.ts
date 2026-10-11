@@ -128,14 +128,18 @@ describe('zcode-plan-api-key-store', () => {
   it('rejects saving an empty key', async () => {
     const store = await loadStore()
 
-    await expect(store.saveZcodePlanApiKey('   ')).rejects.toThrow('GLM Coding Plan API key is required')
+    await expect(store.saveZcodePlanApiKey('   ')).rejects.toThrow(
+      'GLM Coding Plan API key is required'
+    )
     expect(writeSecureFileMock).not.toHaveBeenCalled()
   })
 
   it('rejects a key with an interior newline instead of saving it', async () => {
     const store = await loadStore()
 
-    await expect(store.saveZcodePlanApiKey('glm\r\nsecret')).rejects.toThrow('must be a single line')
+    await expect(store.saveZcodePlanApiKey('glm\r\nsecret')).rejects.toThrow(
+      'must be a single line'
+    )
     expect(writeSecureFileMock).not.toHaveBeenCalled()
   })
 
