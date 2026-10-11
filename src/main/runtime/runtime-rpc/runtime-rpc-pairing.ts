@@ -52,7 +52,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return this.pushUnregisterOutbox
   }
 
-  setMobileRelayBinding(deviceId: string, binding: RelayDeviceBinding): boolean {
+  async setMobileRelayBinding(deviceId: string, binding: RelayDeviceBinding): Promise<boolean> {
     const current = this.deviceRegistry?.getDevice(deviceId)
     if (
       current?.scope !== 'mobile' ||
@@ -66,11 +66,11 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
         current.relayBinding.ownerIdentityKey !== binding.ownerIdentityKey)
     ) {
       // Why: switching the owning account/host must not strand the old cloud credential family, even if that account is offline.
-      if (!this.queueRelayDeviceRevoke(current.relayBinding)) {
+      if (!(await this.queueRelayDeviceRevoke(current.relayBinding))) {
         return false
       }
     }
-    const updated = this.deviceRegistry?.setRelayBinding(deviceId, binding) ?? false
+    const updated = (await this.deviceRegistry?.setRelayBinding(deviceId, binding)) ?? false
     if (updated) {
       this.mobileRelayPairingProvider?.onDemandStateChanged?.()
     }
@@ -88,19 +88,23 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
 
   async revokeMobileDevice(deviceId: string): Promise<boolean> {
     const device = this.deviceRegistry?.getDevice(deviceId)
-    if (device?.scope !== 'mobile') {
+    if (device?.scope !== 'mobile' || !this.deviceRegistry) {
       return false
     }
-    if (device.relayBinding) {
-      if (!this.queueRelayDeviceRevoke(device.relayBinding)) {
+    // Why: the outbox writes below are async; the phone must be refused from the start, not the end.
+    const release = this.deviceRegistry.beginRevocation(deviceId)
+    try {
+      if (device.relayBinding && !(await this.queueRelayDeviceRevoke(device.relayBinding))) {
         return false
       }
-    }
-    // Why: unpairing must delete the phone's push token at the gateway too, and the
-    // registration id is only readable while the device row still exists.
-    this.queuePushUnregister(deviceId, device.pushRegistration?.registrationId)
-    if (!this.deviceRegistry?.removeDevice(deviceId)) {
-      return false
+      // Why: unpairing must delete the phone's push token at the gateway too, and the
+      // registration id is only readable while the device row still exists.
+      await this.queuePushUnregister(deviceId, device.pushRegistration?.registrationId)
+      if (!(await this.deviceRegistry.removeDevice(deviceId))) {
+        return false
+      }
+    } finally {
+      release()
     }
     this.mobileRelayPairingProvider?.onDemandStateChanged?.()
     this.runtime.forgetClientNavigationState(deviceId)
@@ -108,9 +112,9 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return true
   }
 
-  revokeRuntimeAccess(deviceId: string): boolean {
+  async revokeRuntimeAccess(deviceId: string): Promise<boolean> {
     const device = this.deviceRegistry?.getDevice(deviceId)
-    if (device?.scope !== 'runtime' || !this.deviceRegistry?.removeDevice(deviceId)) {
+    if (device?.scope !== 'runtime' || !(await this.deviceRegistry?.removeDevice(deviceId))) {
       return false
     }
     this.runtime.forgetClientNavigationState(deviceId)
@@ -123,7 +127,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return ws?.endpoint ?? null
   }
 
-  createPairingOffer(args: {
+  async createPairingOffer(args: {
     address?: string | null
     name?: string
     rotate?: boolean
@@ -133,7 +137,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     reach?: RuntimePairingReach
     // Why: administrative permissions exist only when granted here, never added to a paired device later.
     grants?: readonly RuntimeDeviceGrant[]
-  }):
+  }): Promise<
     | PairingOfferUnavailable
     | {
         available: true
@@ -141,7 +145,8 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
         endpoint: string
         deviceId: string
         webClientUrl: string | null
-      } {
+      }
+  > {
     if (this.pairingInitializationFailure) {
       return this.pairingInitializationFailure
     }
@@ -172,8 +177,8 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
       const reach = args.reach ?? 'network'
       const grants = args.grants ?? []
       device = args.rotate
-        ? this.deviceRegistry.rotatePendingDevice(deviceName, scope, reach, grants)
-        : this.deviceRegistry.getOrCreatePendingDevice(deviceName, scope, reach, grants)
+        ? await this.deviceRegistry.rotatePendingDevice(deviceName, scope, reach, grants)
+        : await this.deviceRegistry.getOrCreatePendingDevice(deviceName, scope, reach, grants)
     } catch (error) {
       console.error('[runtime] Failed to persist pairing credential:', error)
       return pairingUnavailable('device_registry_unavailable', DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE)
@@ -197,12 +202,15 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
   }
 
   /** Best-effort: a failed enqueue must never block the revoke the user asked for. */
-  protected queuePushUnregister(deviceId: string, registrationId: string | undefined): void {
+  protected async queuePushUnregister(
+    deviceId: string,
+    registrationId: string | undefined
+  ): Promise<void> {
     if (!registrationId) {
       return
     }
     try {
-      this.pushUnregisterOutbox.enqueue({ registrationId, deviceId })
+      await this.pushUnregisterOutbox.enqueue({ registrationId, deviceId })
       this.onPushUnregisterQueued?.()
     } catch (error) {
       console.error('[runtime] Failed to persist a push token cleanup:', error)
@@ -213,21 +221,24 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     this.onPushUnregisterQueued = callback ?? undefined
   }
 
-  protected queueOrRetainRelayDeviceRevoke(deviceId: string, binding: RelayDeviceBinding): void {
-    if (this.queueRelayDeviceRevoke(binding)) {
+  protected async queueOrRetainRelayDeviceRevoke(
+    deviceId: string,
+    binding: RelayDeviceBinding
+  ): Promise<void> {
+    if (await this.queueRelayDeviceRevoke(binding)) {
       return
     }
     try {
-      this.deviceRegistry?.setRelayBinding(deviceId, binding)
+      await this.deviceRegistry?.setRelayBinding(deviceId, binding)
     } catch (error) {
       console.error('[runtime] Failed to retain an unrevoked Relay binding:', error)
     }
   }
 
-  protected queueRelayDeviceRevoke(binding: RelayDeviceBinding): boolean {
+  protected async queueRelayDeviceRevoke(binding: RelayDeviceBinding): Promise<boolean> {
     let item: RelayRevokeOutboxItem
     try {
-      item = this.relayRevokeOutbox.enqueue(binding)
+      item = await this.relayRevokeOutbox.enqueue(binding)
     } catch (error) {
       console.error('[runtime] Failed to persist Relay device cleanup:', error)
       return false

@@ -179,6 +179,7 @@ async function startOrcadRuntime(
 
   const { disposeWatcherProcessAndWait } = await import('../ipc/parcel-watcher-process')
 
+  let runtimeForShutdown: { flushNotificationDismissals?: () => Promise<void> } | null = null
   let profileStoreForShutdown:
     | { flushFinalOrThrowAsync(): Promise<void>; freezeWritesAsync(): Promise<void> }
     | undefined
@@ -194,6 +195,9 @@ async function startOrcadRuntime(
   // restart goes back to killing every running terminal.
   registerCleanup(() => stopOrcadDaemon())
   registerCleanup(async () => {
+    // Why: the dismissal store debounces its writes by 5 s; flush so SIGTERM does not lose that tail.
+    // This cleanup runs after rpc.stop() (registered later), so no new dismissal can follow it.
+    await runtimeForShutdown?.flushNotificationDismissals?.().catch(() => {})
     // A SQLite-backed orcad has no JSON mirror to absorb a debounced write after SIGTERM.
     if (profileStoreForShutdown) {
       await flushOrcadProfileStoreForShutdown(profileStoreForShutdown)
@@ -295,6 +299,7 @@ async function startOrcadRuntime(
       }
     }
   })
+  runtimeForShutdown = runtime
 
   const { installOrcadSessionSearchService } = await import('./orcad-session-search')
   sessionSearch = await installOrcadSessionSearchService({

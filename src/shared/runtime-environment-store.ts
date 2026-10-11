@@ -6,12 +6,14 @@ import {
   getPreferredPairingOffer,
   type KnownRuntimeEnvironment,
   type PersistedRuntimeEnvironment,
-  type RuntimeEnvironmentSource
+  type RuntimeEnvironmentSource,
+  type RuntimeEnvironmentStore
 } from './runtime-environments'
 import {
   readEnvironmentStore,
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
+  runEnvironmentStoreMutation,
   writeEnvironmentStore
 } from './runtime-environment-store-file'
 import { writeRuntimeEnvironmentSidecarEntry } from './runtime-environment-sidecar'
@@ -30,7 +32,7 @@ export function listEnvironments(
   return readEnvironmentStore(userDataPath, options).environments
 }
 
-export function addEnvironmentFromPairingCode(
+export async function addEnvironmentFromPairingCode(
   userDataPath: string,
   args: {
     name: string
@@ -39,7 +41,7 @@ export function addEnvironmentFromPairingCode(
     source?: RuntimeEnvironmentSource
     connectionDependency?: 'ssh-tunnel'
   }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const offer = parsePairingCode(args.pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError(
@@ -47,52 +49,60 @@ export function addEnvironmentFromPairingCode(
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
     )
   }
-  const store = readPersistedEnvironmentStore(userDataPath)
-  const now = args.now ?? Date.now()
-  const existing = store.environments.find((entry) => entry.name === args.name)
-  if (existing) {
-    throw new RuntimeEnvironmentStoreError(
-      'invalid_argument',
-      `A server named "${args.name}" already exists.`
-    )
-  }
-  const environment = createEnvironmentFromPairingOffer({
-    id: randomUUID(),
-    name: args.name,
-    now,
-    offer,
-    runtimeId: null,
-    ...(args.source ? { source: args.source } : {}),
-    ...getPairingConnectionDependency(args.connectionDependency, offer)
+  // Why validated before the lane: a bad code fails fast without queueing behind other writes.
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const store = readPersistedEnvironmentStore(userDataPath)
+    const now = args.now ?? Date.now()
+    const existing = store.environments.find((entry) => entry.name === args.name)
+    if (existing) {
+      throw new RuntimeEnvironmentStoreError(
+        'invalid_argument',
+        `A server named "${args.name}" already exists.`
+      )
+    }
+    const environment = createEnvironmentFromPairingOffer({
+      id: randomUUID(),
+      name: args.name,
+      now,
+      offer,
+      runtimeId: null,
+      ...(args.source ? { source: args.source } : {}),
+      ...getPairingConnectionDependency(args.connectionDependency, offer)
+    })
+    const next = {
+      version: 1 as const,
+      environments: [
+        ...store.environments.filter((entry) => entry.id !== environment.id),
+        environment
+      ].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    await writeEnvironmentStore(userDataPath, next)
+    return environment
   })
-  const next = {
-    version: 1 as const,
-    environments: [
-      ...store.environments.filter((entry) => entry.id !== environment.id),
-      environment
-    ].sort((a, b) => a.name.localeCompare(b.name))
-  }
-  writeEnvironmentStore(userDataPath, next)
-  return environment
 }
 
-export function removeEnvironment(userDataPath: string, selector: string): KnownRuntimeEnvironment {
-  const environment = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), selector)
-  assertNoIndependentSshAccess(environment)
-  const store = readPersistedEnvironmentStore(userDataPath)
-  const persisted = resolveEnvironmentFromStore(store, environment.id)
-  const remaining = store.environments.filter((entry) => entry.id !== environment.id)
-  writeEnvironmentStore(userDataPath, { version: 1, environments: remaining })
-  // A leftover entry would read as stale anyway; dropping it keeps the sidecar from growing.
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, remaining, persisted, null)
-  return environment
+export async function removeEnvironment(
+  userDataPath: string,
+  selector: string
+): Promise<KnownRuntimeEnvironment> {
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    const environment = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), selector)
+    assertNoIndependentSshAccess(environment)
+    const store = readPersistedEnvironmentStore(userDataPath)
+    const persisted = resolveEnvironmentFromStore(store, environment.id)
+    const remaining = store.environments.filter((entry) => entry.id !== environment.id)
+    await writeEnvironmentStore(userDataPath, { version: 1, environments: remaining })
+    // A leftover entry would read as stale anyway; dropping it keeps the sidecar from growing.
+    await writeRuntimeEnvironmentSidecarEntry(userDataPath, remaining, persisted, null)
+    return environment
+  })
 }
 
-export function updateEnvironmentFromPairingCode(
+export async function updateEnvironmentFromPairingCode(
   userDataPath: string,
   selector: string,
   args: { pairingCode: string; now?: number }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const offer = parsePairingCode(args.pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError(
@@ -100,36 +110,38 @@ export function updateEnvironmentFromPairingCode(
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
     )
   }
-  assertNoIndependentSshAccess(
-    resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), selector)
-  )
-  const store = readPersistedEnvironmentStore(userDataPath)
-  const existing = resolveEnvironmentFromStore(store, selector)
-  const now = args.now ?? Date.now()
-  const previousPairingRevision = existing.pairingRevision ?? existing.createdAt
-  const environment = createEnvironmentFromPairingOffer({
-    id: existing.id,
-    name: existing.name,
-    now: existing.createdAt,
-    offer,
-    runtimeId: existing.runtimeId,
-    ...(existing.source ? { source: existing.source } : {}),
-    ...getPairingConnectionDependency(existing.connectionDependency, offer)
+  return await runEnvironmentStoreMutation(userDataPath, async () => {
+    assertNoIndependentSshAccess(
+      resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), selector)
+    )
+    const store = readPersistedEnvironmentStore(userDataPath)
+    const existing = resolveEnvironmentFromStore(store, selector)
+    const now = args.now ?? Date.now()
+    const previousPairingRevision = existing.pairingRevision ?? existing.createdAt
+    const environment = createEnvironmentFromPairingOffer({
+      id: existing.id,
+      name: existing.name,
+      now: existing.createdAt,
+      offer,
+      runtimeId: existing.runtimeId,
+      ...(existing.source ? { source: existing.source } : {}),
+      ...getPairingConnectionDependency(existing.connectionDependency, offer)
+    })
+    const next = {
+      ...environment,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+      pairingRevision: Math.max(now, previousPairingRevision + 1),
+      lastUsedAt: existing.lastUsedAt
+    }
+    await writeEnvironmentStore(userDataPath, {
+      version: 1,
+      environments: store.environments
+        .map((entry) => (entry.id === existing.id ? next : entry))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    })
+    return next
   })
-  const next = {
-    ...environment,
-    createdAt: existing.createdAt,
-    updatedAt: now,
-    pairingRevision: Math.max(now, previousPairingRevision + 1),
-    lastUsedAt: existing.lastUsedAt
-  }
-  writeEnvironmentStore(userDataPath, {
-    version: 1,
-    environments: store.environments
-      .map((entry) => (entry.id === existing.id ? next : entry))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  })
-  return next
 }
 
 function getPairingConnectionDependency(
@@ -168,7 +180,9 @@ export function resolveEnvironmentPairingOffer(
 // Windows. lastUsedAt only needs coarse freshness, so skip writes within this window.
 const LAST_USED_PERSIST_INTERVAL_MS = 60_000
 
-export function markEnvironmentUsed(
+/** What `markEnvironmentUsed` would write, or null while `lastUsedAt` is fresh. Reads synchronously,
+ *  so an unknown environment (or an identity change under SSH access) throws as it always did. */
+export function planEnvironmentUsedUpdate(
   userDataPath: string,
   selector: string,
   args: {
@@ -179,7 +193,7 @@ export function markEnvironmentUsed(
     pairingDeviceToken?: string
     now?: number
   } = {}
-): void {
+): { store: RuntimeEnvironmentStore; environmentId: string } | null {
   const store = readPersistedEnvironmentStore(userDataPath)
   const environment = resolveEnvironmentFromStore(store, selector)
   const now = args.now ?? Date.now()
@@ -200,7 +214,7 @@ export function markEnvironmentUsed(
     now >= environment.lastUsedAt &&
     now - environment.lastUsedAt < LAST_USED_PERSIST_INTERVAL_MS
   if (!runtimeIdChanged && !pairedDeviceIdChanged && lastUsedIsFresh) {
-    return
+    return null
   }
   if (runtimeIdChanged || pairedDeviceIdChanged) {
     const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environment.id)
@@ -224,7 +238,23 @@ export function markEnvironmentUsed(
         }
       : entry
   )
-  writeEnvironmentStore(userDataPath, { version: 1, environments: next })
+  return { store: { version: 1, environments: next }, environmentId: environment.id }
+}
+
+
+export type EnvironmentUsageArgs = Parameters<typeof planEnvironmentUsedUpdate>[2]
+
+export async function markEnvironmentUsed(
+  userDataPath: string,
+  selector: string,
+  args: EnvironmentUsageArgs = {}
+): Promise<void> {
+  await runEnvironmentStoreMutation(userDataPath, async () => {
+    const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
+    if (plan) {
+      await writeEnvironmentStore(userDataPath, plan.store)
+    }
+  })
 }
 
 function preferredDeviceToken(environment: PersistedRuntimeEnvironment): string | undefined {

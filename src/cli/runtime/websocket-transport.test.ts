@@ -168,7 +168,7 @@ describe('CLI remote WebSocket transport', () => {
     const runtime = await startTestRuntime('runtime-env-1')
     servers.push(runtime)
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-cli-env-'))
-    addEnvironmentFromPairingCode(userDataPath, {
+    await addEnvironmentFromPairingCode(userDataPath, {
       name: 'remote-dev',
       pairingCode: encodePairingOffer({
         v: 2,

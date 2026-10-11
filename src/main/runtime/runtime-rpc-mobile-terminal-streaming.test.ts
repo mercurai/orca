@@ -176,7 +176,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
     await server.start()
 
-    const phoneOffer = server.createPairingOffer({
+    const phoneOffer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'phone',
       scope: 'mobile'
@@ -342,7 +342,7 @@ describe('OrcaRuntimeRpcServer', () => {
     runtime.onPtyData('pty-1', `wrote ${artifactPath}\n`, 100)
 
     await server.start()
-    const offer = server.createPairingOffer({
+    const offer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'phone',
       scope: 'mobile'
@@ -428,7 +428,7 @@ describe('OrcaRuntimeRpcServer', () => {
     })
 
     await server.start()
-    const offer = server.createPairingOffer({
+    const offer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'remote',
       scope: 'runtime'
@@ -481,7 +481,7 @@ describe('OrcaRuntimeRpcServer', () => {
 
     await server.start()
 
-    const phoneOffer = server.createPairingOffer({
+    const phoneOffer = await server.createPairingOffer({
       address: '127.0.0.1',
       name: 'phone',
       scope: 'mobile'

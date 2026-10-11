@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { writeSecureJsonFile } from '../../shared/secure-file'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 import type { OrcaProfileCloudSummary } from '../../shared/orca-profiles'
 import { getOrcaProfileDirectory } from './profile-storage-paths'
 
@@ -64,12 +65,21 @@ function readState(profileId: string, userDataPath: string): CloudSessionMutatio
   }
 }
 
-function saveState(
+async function saveState(
   profileId: string,
   userDataPath: string,
   state: CloudSessionMutationState
-): void {
-  writeSecureJsonFile(statePath(profileId, userDataPath), state)
+): Promise<void> {
+  await writeSecureJsonFileAsync(statePath(profileId, userDataPath), state)
+}
+
+// Why: every mutation reads, modifies, then awaits a write; that unit must not interleave.
+export function withCloudSessionMutationLock<T>(
+  profileId: string,
+  userDataPath: string,
+  run: () => Promise<T>
+): Promise<T> {
+  return serializePathWrite(`${statePath(profileId, userDataPath)}#read-modify-write`, run)
 }
 
 export function cloudSessionIdentity(
@@ -87,43 +97,47 @@ export function cloudSessionIdentity(
 export function captureCloudSessionMutation(
   identity: CloudSessionIdentity,
   userDataPath: string
-): CloudSessionMutationSnapshot {
-  const key = identityKey(identity)
-  let state = readState(identity.localProfileId, userDataPath)
-  if (!state) {
-    state = {
-      version: MUTATION_STATE_VERSION,
-      epoch: 0,
-      expectedIdentityKey: key,
-      tombstonedIdentityKeys: []
+): Promise<CloudSessionMutationSnapshot> {
+  return withCloudSessionMutationLock(identity.localProfileId, userDataPath, async () => {
+    const key = identityKey(identity)
+    let state = readState(identity.localProfileId, userDataPath)
+    if (!state) {
+      state = {
+        version: MUTATION_STATE_VERSION,
+        epoch: 0,
+        expectedIdentityKey: key,
+        tombstonedIdentityKeys: []
+      }
+      await saveState(identity.localProfileId, userDataPath, state)
     }
-    saveState(identity.localProfileId, userDataPath, state)
-  }
-  return { epoch: state.epoch, identityKey: key }
+    return { epoch: state.epoch, identityKey: key }
+  })
 }
 
 export function recordSuccessfulCloudSessionLogin(
   identity: CloudSessionIdentity,
   userDataPath: string
-): CloudSessionMutationSnapshot {
-  const key = identityKey(identity)
-  const previous = readState(identity.localProfileId, userDataPath)
-  const state: CloudSessionMutationState = {
-    version: MUTATION_STATE_VERSION,
-    epoch: (previous?.epoch ?? -1) + 1,
-    expectedIdentityKey: key,
-    tombstonedIdentityKeys: (previous?.tombstonedIdentityKeys ?? []).filter(
-      (candidate) => candidate !== key
-    )
-  }
-  saveState(identity.localProfileId, userDataPath, state)
-  return { epoch: state.epoch, identityKey: key }
+): Promise<CloudSessionMutationSnapshot> {
+  return withCloudSessionMutationLock(identity.localProfileId, userDataPath, async () => {
+    const key = identityKey(identity)
+    const previous = readState(identity.localProfileId, userDataPath)
+    const state: CloudSessionMutationState = {
+      version: MUTATION_STATE_VERSION,
+      epoch: (previous?.epoch ?? -1) + 1,
+      expectedIdentityKey: key,
+      tombstonedIdentityKeys: (previous?.tombstonedIdentityKeys ?? []).filter(
+        (candidate) => candidate !== key
+      )
+    }
+    await saveState(identity.localProfileId, userDataPath, state)
+    return { epoch: state.epoch, identityKey: key }
+  })
 }
 
-export function recordCloudSessionIdentityMutation(
+async function recordIdentityMutationUnserialized(
   identity: CloudSessionIdentity,
   userDataPath: string
-): CloudSessionMutationSnapshot {
+): Promise<CloudSessionMutationSnapshot> {
   const key = identityKey(identity)
   const previous = readState(identity.localProfileId, userDataPath)
   const state: CloudSessionMutationState = {
@@ -132,20 +146,34 @@ export function recordCloudSessionIdentityMutation(
     expectedIdentityKey: key,
     tombstonedIdentityKeys: previous?.tombstonedIdentityKeys ?? []
   }
-  saveState(identity.localProfileId, userDataPath, state)
+  await saveState(identity.localProfileId, userDataPath, state)
   return { epoch: state.epoch, identityKey: key }
 }
 
-export function tombstoneCloudSession(identity: CloudSessionIdentity, userDataPath: string): void {
-  const key = identityKey(identity)
-  const previous = readState(identity.localProfileId, userDataPath)
-  const tombstones = new Set(previous?.tombstonedIdentityKeys ?? [])
-  tombstones.add(key)
-  saveState(identity.localProfileId, userDataPath, {
-    version: MUTATION_STATE_VERSION,
-    epoch: (previous?.epoch ?? -1) + 1,
-    expectedIdentityKey: key,
-    tombstonedIdentityKeys: [...tombstones]
+export function recordCloudSessionIdentityMutation(
+  identity: CloudSessionIdentity,
+  userDataPath: string
+): Promise<CloudSessionMutationSnapshot> {
+  return withCloudSessionMutationLock(identity.localProfileId, userDataPath, () =>
+    recordIdentityMutationUnserialized(identity, userDataPath)
+  )
+}
+
+export function tombstoneCloudSession(
+  identity: CloudSessionIdentity,
+  userDataPath: string
+): Promise<void> {
+  return withCloudSessionMutationLock(identity.localProfileId, userDataPath, async () => {
+    const key = identityKey(identity)
+    const previous = readState(identity.localProfileId, userDataPath)
+    const tombstones = new Set(previous?.tombstonedIdentityKeys ?? [])
+    tombstones.add(key)
+    await saveState(identity.localProfileId, userDataPath, {
+      version: MUTATION_STATE_VERSION,
+      epoch: (previous?.epoch ?? -1) + 1,
+      expectedIdentityKey: key,
+      tombstonedIdentityKeys: [...tombstones]
+    })
   })
 }
 
@@ -167,9 +195,11 @@ export function recordCloudSessionIdentityMutationIfCurrent(
   identity: CloudSessionIdentity,
   userDataPath: string,
   snapshot: CloudSessionMutationSnapshot
-): CloudSessionMutationSnapshot | null {
-  if (!isCloudSessionMutationCurrent(identity.localProfileId, userDataPath, snapshot)) {
-    return null
-  }
-  return recordCloudSessionIdentityMutation(identity, userDataPath)
+): Promise<CloudSessionMutationSnapshot | null> {
+  return withCloudSessionMutationLock(identity.localProfileId, userDataPath, async () => {
+    if (!isCloudSessionMutationCurrent(identity.localProfileId, userDataPath, snapshot)) {
+      return null
+    }
+    return recordIdentityMutationUnserialized(identity, userDataPath)
+  })
 }
