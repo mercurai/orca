@@ -1,6 +1,6 @@
 // A built orcad must start git on the spawn worker; a slot without the entry falls back silently.
 import { build } from 'esbuild'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { SHARE_ENV, Worker } from 'node:worker_threads'
@@ -35,7 +35,7 @@ function entryPathIn(moduleDir) {
 
 /** The production factory's contract, pointed at one slot directory. */
 function useSlot(moduleDir) {
-  const seen = { started: 0, log: [] }
+  const seen = { started: 0, log: [], workerMessages: [] }
   setGitSpawnWorkerFactoryForTests(
     () => {
       const workerPath = entryPathIn(moduleDir)
@@ -43,7 +43,11 @@ function useSlot(moduleDir) {
         throw new Error(`Git spawn worker entry not found: ${workerPath}`)
       }
       seen.started += 1
-      return new Worker(workerPath, { env: SHARE_ENV })
+      const worker = new Worker(workerPath, { env: SHARE_ENV })
+      // Why: a worker that dies at load is retried in-process without a log line, so only
+      // the worker's own replies prove the child was started on its thread.
+      worker.on('message', (message) => seen.workerMessages.push(message.type))
+      return worker
     },
     (message) => seen.log.push(message)
   )
@@ -61,6 +65,10 @@ beforeAll(async () => {
     format: 'cjs',
     external: ORCAD_EXTERNAL_MODULES,
     plugins: [externalNativeAddons],
+    // Same output shape as build-orcad.mjs's child build, so the minified artifact is what loads.
+    minify: true,
+    sourcemap: false,
+    define: { 'process.env.NODE_ENV': '"production"' },
     logLevel: 'silent'
   })
 }, 60_000)
@@ -88,6 +96,19 @@ it('runs git on the worker thread from an orcad slot', async () => {
   expect(stdout).toMatch(/^git version /)
   expect(seen.started).toBe(1)
   expect(seen.log).toEqual([])
+  expect(seen.workerMessages).toEqual(expect.arrayContaining(['spawned', 'result']))
+}, 60_000)
+
+it('does not count a slot whose entry cannot load as running git on the worker', async () => {
+  const broken = directory()
+  writeFileSync(entryPathIn(broken), "throw new Error('entry failed to load')")
+  const seen = useSlot(broken)
+
+  const { stdout } = await gitExecFileAsync(['--version'], { cwd: slot })
+
+  // The client retries in-process, so git still answers; no reply came from the worker.
+  expect(stdout).toMatch(/^git version /)
+  expect(seen.workerMessages).not.toContain('spawned')
 }, 60_000)
 
 it('falls back in-process, and says so, when a slot lacks the entry', async () => {

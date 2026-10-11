@@ -178,7 +178,7 @@ export const ORCAD_ARTIFACTS: readonly OrcadArtifact[] = [
   // Worker thread that reads other apps' SQLite (the OpenCode binder and history) off the event loop.
   { filename: ORCAD_FOREIGN_SQLITE_READER_ENTRY },
   { filename: ORCAD_PORT_SCAN_COMMAND_WORKER_ENTRY },
-  // Its absence is silent: every spawn falls back onto the server's loop thread.
+  // Its absence is silent: git spawns fall back onto the server's loop thread.
   { filename: ORCAD_GIT_SPAWN_WORKER_ENTRY },
   // Forked so transcript parsing stays off the server's event loop; session search stays in-process.
   { filename: ORCAD_SESSION_SCANNER_SERVICE_ENTRY },
