@@ -174,7 +174,6 @@ export type { SubscriptionRegistration } from './runtime-subscription-registry'
 export type {
   OrchestrationCompatibilityCallerAuthority,
   OrchestrationCompatibilityTerminalAuthority,
-  RuntimePtyDataAdmission,
   RuntimeTerminalAgentStatusEvent
 } from './runtime-terminal-contracts'
 export type { MessageWaitResult } from './runtime-message-waiters'

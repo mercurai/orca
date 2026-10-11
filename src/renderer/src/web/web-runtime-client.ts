@@ -1,3 +1,4 @@
+import type { PairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
 import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import { RuntimeHostStatusOwner } from '../../../shared/runtime-host-status-owner'
 import type {
@@ -219,12 +220,12 @@ export class WebRuntimeClient {
     this.transport.ws = socket
   }
 
-  protected get sharedKey(): Uint8Array | null {
-    return this.transport.sharedKey
+  protected get handshake(): PairedE2EEClientHandshake | null {
+    return this.transport.handshake
   }
 
-  protected set sharedKey(key: Uint8Array | null) {
-    this.transport.sharedKey = key
+  protected set handshake(handshake: PairedE2EEClientHandshake | null) {
+    this.transport.handshake = handshake
   }
 
   protected get state(): WebRuntimeConnectionState {

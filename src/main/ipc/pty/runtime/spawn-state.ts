@@ -34,7 +34,6 @@ export type RuntimePtySpawnState = {
   callerRequestedSessionId: string | undefined
   requestedSessionId: string | undefined
   sessionId: string | undefined
-  effectiveSessionRelayId: string | undefined
   effectiveSessionAppId: string | undefined
   isNewDaemonSession: boolean
   expectedWslDistro: string | null
@@ -157,7 +156,6 @@ export function createRuntimePtySpawnState(
     callerRequestedSessionId: undefined,
     requestedSessionId: undefined,
     sessionId: undefined,
-    effectiveSessionRelayId: undefined,
     effectiveSessionAppId: undefined,
     isNewDaemonSession: false,
     expectedWslDistro: null,

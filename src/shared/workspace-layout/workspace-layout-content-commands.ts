@@ -2,6 +2,7 @@
 
 import { applied, type Applied } from './workspace-layout-command-steps'
 import type { CommandOf, LayoutContext } from './workspace-layout-command-types'
+import { admitsInitialSurface } from './workspace-layout-initial-surface'
 import type { LayoutContentTab, WorkspaceLayoutModel } from './workspace-layout-model'
 import { withWorkspace } from './workspace-layout-removal'
 import { placeContentTab } from './workspace-layout-tab-commands'
@@ -84,6 +85,9 @@ export function openAgentSessionTab(
   command: CommandOf<'openAgentSessionTab'>,
   context: LayoutContext
 ): Applied {
+  if (command.initial && !admitsInitialSurface(model, command.workspace, command.initial)) {
+    return applied(model)
+  }
   const tab = contentTab(context, {
     kind: 'agent-session',
     entityId: command.sessionId,

@@ -4,13 +4,7 @@ import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import type { PairingOffer } from './pairing'
 import {
-  deriveSharedKey,
-  encryptBytes,
-  generateKeyPair,
-  publicKeyFromBase64,
-  publicKeyToBase64
-} from './e2ee-crypto'
-import {
+  createRemoteRuntimeClientHandshake,
   formatRemoteRuntimeCloseMessage,
   ignoreSettledRemoteRuntimeSocketError
 } from './remote-runtime-client-handshake'
@@ -22,7 +16,6 @@ import {
 import {
   isRemoteRuntimeBinaryFrameWithinLimit,
   REMOTE_RUNTIME_MAX_WEBSOCKET_FRAME_BYTES,
-  serializeRemoteRuntimePayload,
   serializeRemoteRuntimeRpcRequest
 } from './remote-runtime-memory-limits'
 import { remoteRuntimeClientCapabilities } from './remote-runtime-client-capabilities'
@@ -66,15 +59,8 @@ export async function subscribeRemoteRuntimeTransport<TResult>(
     method,
     params
   })
-  const serializedAuth = serializeRemoteRuntimePayload({
-    type: 'e2ee_auth',
-    deviceToken: pairing.deviceToken,
-    clientCapabilities: remoteRuntimeClientCapabilities(options?.clientCapabilities)
-  })
   return await new Promise((resolve, reject) => {
-    const keyPair = generateKeyPair()
-    const serverPublicKey = publicKeyFromBase64(pairing.publicKeyB64)
-    const sharedKey = deriveSharedKey(keyPair.secretKey, serverPublicKey)
+    const handshake = createRemoteRuntimeClientHandshake(pairing.publicKeyB64)
     let settled = false
     let closing = false
     let terminalFailure = false
@@ -87,15 +73,20 @@ export async function subscribeRemoteRuntimeTransport<TResult>(
     })
     const requestChannel = new RemoteRuntimeSubscriptionRequestChannel({
       pairing,
-      sharedKey,
+      channel: handshake.channel,
       resolveWritableSocket: () =>
         frameRouter.state === 'ready' && ws && ws.readyState === WebSocket.OPEN ? ws : null,
       enqueue: (socket, frame) => outbound.enqueueRequest(socket, frame),
       fail: (error) => fail(error)
     })
     const frameRouter = new RemoteRuntimeSubscriptionFrameRouter({
-      sharedKey,
-      serializedAuth,
+      handshake,
+      sealAuth: () =>
+        handshake.sealAuth(
+          { kind: 'token', deviceToken: pairing.deviceToken },
+          { clientCapabilities: remoteRuntimeClientCapabilities(options?.clientCapabilities) }
+        ),
+      isSettled: () => terminalFailure || closing,
       serializedRequest,
       requestId,
       send: (frame) => ws?.send(frame),
@@ -174,7 +165,7 @@ export async function subscribeRemoteRuntimeTransport<TResult>(
       ) {
         return false
       }
-      return outbound.enqueueBinary(ws, Buffer.from(encryptBytes(bytes, sharedKey)))
+      return outbound.enqueueBinary(ws, Buffer.from(handshake.channel.sealBinary(bytes)))
     }
 
     const succeed = (): void => {
@@ -235,9 +226,7 @@ export async function subscribeRemoteRuntimeTransport<TResult>(
     }
 
     function onOpen(): void {
-      ws?.send(
-        JSON.stringify({ type: 'e2ee_hello', publicKeyB64: publicKeyToBase64(keyPair.publicKey) })
-      )
+      ws?.send(handshake.helloText())
     }
 
     function onError(error: Error): void {

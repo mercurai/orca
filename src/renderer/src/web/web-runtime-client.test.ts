@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+import type { PairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
+import { createFixedKeyLegacyHandshakeForTest } from '../../../shared/paired-e2ee-fixed-key-test-fixture'
 import WebSocket, { WebSocketServer } from 'ws'
 import { WebRuntimeClient } from './web-runtime-client'
 import { encryptBytes } from './web-e2ee'
@@ -110,12 +112,10 @@ describe('WebRuntimeClient', () => {
       publicKeyB64: expect.any(String)
     })
     socket.onmessage?.({ data: JSON.stringify({ type: 'e2ee_ready' }) })
-    const sharedKey = (
-      client as unknown as {
-        sharedKey: Uint8Array
-      }
-    ).sharedKey
-    const auth = decrypt(String(socket.send.mock.calls[1]?.[0]), sharedKey)
+    await vi.waitFor(() => expect(socket.send).toHaveBeenCalledTimes(2))
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
+    const handshake = (client as unknown as { handshake: PairedE2EEClientHandshake }).handshake
+    const auth = handshake.channel.openText(String(socket.send.mock.calls[1]?.[0]))
     expect(JSON.parse(auth!)).toEqual({
       type: 'e2ee_auth',
       deviceToken: 'token',
@@ -306,9 +306,10 @@ describe('WebRuntimeClient', () => {
     try {
       const keyPair = generateKeyPair()
       const sharedKey = deriveSharedKey(keyPair.secretKey, keyPair.publicKey)
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
       const internals = client as unknown as {
         state: string
-        sharedKey: Uint8Array | null
+        handshake: PairedE2EEClientHandshake | null
         subscriptions: Map<
           string,
           { callbacks: { onResponse: (response: unknown) => void; onClose?: () => void } }
@@ -316,7 +317,7 @@ describe('WebRuntimeClient', () => {
         handleSocketMessage: (rawData: unknown, sourceWs?: unknown) => Promise<void>
       }
       internals.state = 'connected'
-      internals.sharedKey = sharedKey
+      internals.handshake = createFixedKeyLegacyHandshakeForTest(sharedKey)
       const onResponse = vi.fn()
       internals.subscriptions.set('req-1', { callbacks: { onResponse } })
 
@@ -679,14 +680,15 @@ describe('WebRuntimeClient', () => {
     })
     const sharedKey = new Uint8Array(32).fill(7)
     const onBinary = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const internals = client as unknown as {
       state: 'connected'
-      sharedKey: Uint8Array
+      handshake: PairedE2EEClientHandshake | null
       subscriptions: Map<string, { callbacks: { onBinary: typeof onBinary } }>
       handleSocketMessage: (rawData: unknown) => Promise<void>
     }
     internals.state = 'connected'
-    internals.sharedKey = sharedKey
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(sharedKey)
     internals.subscriptions.set('stream-1', { callbacks: { onBinary } })
 
     const frame = new Uint8Array([1, 2, 3, 4])

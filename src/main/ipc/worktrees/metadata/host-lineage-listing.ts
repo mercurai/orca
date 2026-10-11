@@ -5,8 +5,6 @@ import type {
   HostLineageSnapshot
 } from '../../../../shared/host-lineage-contract'
 import { parseExecutionHostId, LOCAL_EXECUTION_HOST_ID } from '../../../../shared/execution-host'
-import { getSshGitProvider } from '../../../providers/ssh-git-dispatch'
-import type { SshGitProvider } from '../../../providers/ssh-git-provider'
 import { isCurrentSshProviderAuthority } from '../../../ssh/ssh-provider-authority'
 import { hasValidLineageSshAuthority } from '../listing/detected-provider-listing'
 import { filterLineageForHost } from './workspace-lineage-filtering'
@@ -49,62 +47,31 @@ export async function listDesktopLineageForHost(
   if (!parsedHost || parsedHost.kind === 'runtime') {
     return rejected('rejected')
   }
-  let provider: SshGitProvider | undefined
-  let authority:
-    | Extract<ListDesktopLineageForHostArgs, { expectedAuthority: unknown }>['expectedAuthority']
-    | null = null
-  if (parsedHost.kind === 'local') {
-    if ('expectedAuthority' in args) {
-      return rejected('rejected')
-    }
-  } else {
+  if (parsedHost.kind === 'ssh') {
     if (
       !hasValidLineageSshAuthority(args) ||
       args.expectedAuthority.targetId !== parsedHost.targetId
     ) {
       return rejected('rejected')
     }
-    authority = { ...args.expectedAuthority }
-    if (!isCurrentSshProviderAuthority(authority)) {
-      return rejected('stale')
-    }
-    provider = getSshGitProvider(parsedHost.targetId)
-    if (!provider) {
-      return rejected('unavailable')
-    }
+    // An `ssh:` host is not served here, so its lineage is never answered from this machine.
+    return rejected(
+      isCurrentSshProviderAuthority({ ...args.expectedAuthority }) ? 'unavailable' : 'stale'
+    )
+  }
+  if ('expectedAuthority' in args) {
+    return rejected('rejected')
   }
   if (!(await hydrateLineageWithinDeadline(runtime))) {
     return rejected('unavailable')
-  }
-  if (
-    parsedHost.kind === 'ssh' &&
-    (!authority ||
-      getSshGitProvider(parsedHost.targetId) !== provider ||
-      !isCurrentSshProviderAuthority(authority))
-  ) {
-    return rejected('stale')
   }
   const lineage = filterLineageForHost(store, parsedHost.id)
   if (!lineage) {
     return rejected('ambiguous-owner')
   }
-  if (parsedHost.kind === 'local') {
-    return {
-      authoritative: true,
-      authority: { kind: 'local', executionHostId: LOCAL_EXECUTION_HOST_ID },
-      ...lineage
-    }
-  }
-  if (!authority) {
-    return rejected('authority-unknown')
-  }
   return {
     authoritative: true,
-    authority: {
-      kind: 'direct-ssh',
-      executionHostId: parsedHost.id,
-      ...authority
-    },
+    authority: { kind: 'local', executionHostId: LOCAL_EXECUTION_HOST_ID },
     ...lineage
   }
 }

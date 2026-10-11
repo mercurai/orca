@@ -159,11 +159,6 @@ export type HookLiveAgentRow = Pick<
   'payload' | 'updatedAt' | 'evidenceObservedAt' | 'stateStartedAt' | 'worktreeId'
 >
 
-export type RuntimePtyDataAdmission = Readonly<{
-  sequence: number
-  completion: Promise<void>
-}>
-
 export type TerminalHandleRecord = {
   handle: string
   runtimeId: string

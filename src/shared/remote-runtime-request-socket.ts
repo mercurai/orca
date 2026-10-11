@@ -1,17 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { abortSignalReason, throwIfSignalAborted } from './abort-signal-reason'
-import {
-  deriveSharedKey,
-  encrypt,
-  generateKeyPair,
-  publicKeyFromBase64,
-  publicKeyToBase64
-} from './e2ee-crypto'
 import type { PairingOffer } from './pairing'
 import type { RuntimeCapability } from './protocol-version'
 import { remoteRuntimeClientCapabilities } from './remote-runtime-client-capabilities'
 import {
+  createRemoteRuntimeClientHandshake,
   formatRemoteRuntimeCloseMessage,
   ignoreSettledRemoteRuntimeSocketError
 } from './remote-runtime-client-handshake'
@@ -61,11 +55,6 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
         method: 'status.get'
       })
     : null
-  const serializedAuth = serializeRemoteRuntimePayload({
-    type: 'e2ee_auth',
-    deviceToken: pairing.deviceToken,
-    clientCapabilities: remoteRuntimeClientCapabilities(clientCapabilities)
-  })
   const pendingRequest = {
     preparedRequest: prepareRemoteRuntimeRequest(new Map(), () =>
       serializeRemoteRuntimeRpcRequest({
@@ -79,8 +68,7 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
   }
   let serializedRequest = takeRemoteRuntimePreparedRequest(pendingRequest)
   return await new Promise<RuntimeRpcResponse<TResult>>((resolve, reject) => {
-    const keyPair = generateKeyPair()
-    const sharedKey = deriveSharedKey(keyPair.secretKey, publicKeyFromBase64(pairing.publicKeyB64))
+    const handshake = createRemoteRuntimeClientHandshake(pairing.publicKeyB64)
     let settled = false
     let ws: WebSocket | null = null
     let router: RemoteRuntimeRequestResponseRouter<TResult>
@@ -163,12 +151,17 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
         )
         return
       }
-      ws?.send(encrypt(request, sharedKey))
+      ws?.send(handshake.channel.sealText(request))
     }
 
     router = new RemoteRuntimeRequestResponseRouter({
-      sharedKey,
-      serializedAuth,
+      handshake,
+      sealAuth: () =>
+        handshake.sealAuth(
+          { kind: 'token', deviceToken: pairing.deviceToken },
+          { clientCapabilities: remoteRuntimeClientCapabilities(clientCapabilities) }
+        ),
+      isSettled: () => settled,
       serializedStatusRequest,
       requestId,
       statusRequestId,
@@ -200,12 +193,7 @@ export async function sendRemoteRuntimeRequestOnSocket<TResult>(
     }
 
     function onOpen(): void {
-      ws?.send(
-        JSON.stringify({
-          type: 'e2ee_hello',
-          publicKeyB64: publicKeyToBase64(keyPair.publicKey)
-        })
-      )
+      ws?.send(handshake.helloText())
     }
 
     function onError(error: Error): void {

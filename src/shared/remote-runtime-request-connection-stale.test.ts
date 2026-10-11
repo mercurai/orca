@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WebSocket from 'ws'
 import type { PairingOffer } from './pairing'
 import { decrypt, encrypt } from './e2ee-crypto'
+import { createFixedKeyLegacyHandshakeForTest } from './paired-e2ee-fixed-key-test-fixture'
 import { getRemoteRuntimeRequestAdmissionEvidence } from './remote-runtime-prepared-request-admission'
 import type { RemoteRuntimeWebSocketCallbacks } from './remote-runtime-request-websocket'
 
@@ -16,7 +17,11 @@ vi.mock('./remote-runtime-request-websocket', () => ({
     opens.push(socket)
     return {
       ok: true,
-      socket: { ws: socket.ws, sharedKey: socket.sharedKey, cleanup: socket.cleanup }
+      socket: {
+        ws: socket.ws,
+        handshake: createFixedKeyLegacyHandshakeForTest(socket.sharedKey),
+        cleanup: socket.cleanup
+      }
     }
   }
 }))
@@ -47,8 +52,17 @@ function createFakeOpenedSocket(callbacks: RemoteRuntimeWebSocketCallbacks): Fak
   }
 }
 
-function authenticate(socket: FakeOpenedSocket): void {
+async function authenticate(
+  socket: FakeOpenedSocket,
+  beforeAuthenticated?: () => void
+): Promise<void> {
   socket.callbacks.onTextFrame(socket.ws, JSON.stringify({ type: 'e2ee_ready' }))
+  // The auth step is async; a host answers only after the auth frame is on the wire.
+  for (let tick = 0; tick < 20 && socket.sent.length === 0; tick++) {
+    await Promise.resolve()
+  }
+  expect(socket.sent).toHaveLength(1)
+  beforeAuthenticated?.()
   socket.callbacks.onTextFrame(
     socket.ws,
     encrypt(JSON.stringify({ type: 'e2ee_authenticated' }), socket.sharedKey)
@@ -99,10 +113,11 @@ describe('RemoteRuntimeRequestConnection stale socket callbacks', () => {
     })
     const request = connection.request('status.get', undefined, 1000)
     const socket = opens[0]!
-    authenticate(socket)
-    socket.ws.send = (() => {
-      throw new Error('send failed')
-    }) as WebSocket['send']
+    await authenticate(socket, () => {
+      socket.ws.send = (() => {
+        throw new Error('send failed')
+      }) as WebSocket['send']
+    })
 
     await expect(request).rejects.toThrow('send failed')
     expect(
@@ -128,7 +143,7 @@ describe('RemoteRuntimeRequestConnection stale socket callbacks', () => {
       })
 
       const first = connection.request('slow.method', undefined, 10)
-      authenticate(opens[0]!)
+      await authenticate(opens[0]!)
       const firstRejected = expect(first).rejects.toThrow('Timed out')
       await vi.advanceTimersByTimeAsync(11)
       await firstRejected
@@ -138,7 +153,7 @@ describe('RemoteRuntimeRequestConnection stale socket callbacks', () => {
       })
 
       const second = connection.request('status.get', undefined, 1000)
-      authenticate(opens[1]!)
+      await authenticate(opens[1]!)
       await vi.waitFor(() => expect(opens[1]!.sent.length).toBeGreaterThan(1))
 
       opens[0]!.callbacks.onError(opens[0]!.ws, new Error('stale socket error') as never)

@@ -1,5 +1,4 @@
-import { beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
-import { resetWorktreeTestSshHostHome } from '../../worktree-removal-test-ssh-host-home'
+import { describe, expect, it, vi, type MockInstance } from 'vitest'
 import { _settlePendingWorktreeRemovalsForTests } from '../../worktree-background-removal'
 
 import {
@@ -14,20 +13,17 @@ import {
   lstat,
   mkdir,
   mkdtemp,
-  registerSshGitProvider,
   removeWorktree,
   rm,
   runHook,
   setPlatform,
   tmpdir,
-  unregisterSshGitProvider,
   writeFile
 } from '../orca-runtime-test-mocks.spec'
 import {
   TEST_REPO_ID,
   TEST_REPO_PATH,
   TEST_WORKTREE_ID,
-  TEST_WORKTREE_PATH,
   createStaleRuntimeWorktreeStore,
   deferred,
   store
@@ -36,7 +32,6 @@ import { createWorktreeRemovalRuntime } from '../orca-runtime-test-scenario-buil
 
 // Why: these fixtures register an SSH provider, which models a connected relay session — and a
 // connected session has always read the host's `$HOME`. The removal guards refuse without it.
-beforeEach(resetWorktreeTestSshHostHome)
 
 describe('OrcaRuntimeService', () => {
   it('routes runtime preserved-branch force-delete through the selected WSL project runtime', async () => {
@@ -134,53 +129,26 @@ describe('OrcaRuntimeService', () => {
       return {}
     }
     vi.mocked(removeWorktree).mockImplementation(startRemoval)
-    const provider = {
-      exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
-      listWorktrees: vi.fn().mockResolvedValue([
-        {
-          path: remoteRepo.path,
-          head: 'main',
-          branch: 'main',
-          isBare: false,
-          isMainWorktree: true
-        },
-        {
-          path: TEST_WORKTREE_PATH,
-          head: 'def456',
-          branch: 'feature/test',
-          isBare: false,
-          isMainWorktree: false
-        }
-      ]),
-      removeWorktree: vi.fn().mockImplementation(startRemoval)
-    }
-    registerSshGitProvider('host-b', provider as never)
+    const local = runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
+      force: true,
+      runHooks: false,
+      allowUnverifiedPtyStop: false,
+      hostId: 'local'
+    })
+    const remote = runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
+      force: true,
+      runHooks: false,
+      allowUnverifiedPtyStop: false,
+      hostId: 'ssh:host-b'
+    })
 
-    try {
-      const local = runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-        force: true,
-        runHooks: false,
-        allowUnverifiedPtyStop: false,
-        hostId: 'local'
-      })
-      const remote = runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-        force: true,
-        runHooks: false,
-        allowUnverifiedPtyStop: false,
-        hostId: 'ssh:host-b'
-      })
+    await localStarted.promise
+    // Joining the local removal would have resolved; the unserved host's catalog refuses instead.
+    await expect(remote).rejects.toThrow('selector_not_found')
 
-      await localStarted.promise
-      // Joining the local removal would have resolved; its own host refuses instead.
-      await expect(remote).rejects.toThrow('PTY provider unavailable for worktree deletion')
-      expect(provider.removeWorktree).not.toHaveBeenCalled()
-
-      finishRemovals.resolve()
-      await expect(local).resolves.toEqual({})
-      expect(removeWorktree).toHaveBeenCalledTimes(1)
-    } finally {
-      unregisterSshGitProvider('host-b')
-    }
+    finishRemovals.resolve()
+    await expect(local).resolves.toEqual({})
+    expect(removeWorktree).toHaveBeenCalledTimes(1)
   })
 
   it('joins a runtime removal Git is already deleting, even with different options', async () => {

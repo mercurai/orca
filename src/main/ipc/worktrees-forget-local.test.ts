@@ -19,6 +19,7 @@ import {
 } from './worktrees-test-module-mocks'
 import { handlers, mainWindow, setupWorktreeHandlers, store } from './worktrees-test-harness'
 import type { WorktreeRuntimeStub } from './worktrees-test-runtime-stub'
+import { SshHostNotServedError } from '../providers/ssh-host-not-served-error'
 
 vi.mock('electron', async () =>
   (await import('./worktrees-test-module-mocks')).electronModuleMock()
@@ -349,38 +350,18 @@ describe('worktree execution-host disambiguation', () => {
       displayName: 'ssh',
       connectionId: 'conn-1'
     }
-    const provider = {
-      listWorktrees: vi.fn().mockResolvedValue([
-        {
-          path: sshRepo.path,
-          head: 'main',
-          branch: 'main',
-          isBare: false,
-          isMainWorktree: true
-        },
-        {
-          path: '/remote/feature-wt',
-          head: 'feature',
-          branch: 'feature',
-          isBare: false,
-          isMainWorktree: false
-        }
-      ]),
-      removeWorktree: vi.fn().mockResolvedValue(undefined),
-      worktreeIsClean: vi.fn().mockResolvedValue({ clean: true })
-    }
     store.getRepo.mockReturnValue(localRepo)
     store.getRepos.mockReturnValue([localRepo, sshRepo])
-    getSshGitProviderMock.mockReturnValue(provider)
 
+    // The SSH owner is selected, so the delete refuses as not served rather than running here.
     await expect(
       handlers['worktrees:remove'](null, {
         worktreeId: 'repo-shared::/remote/feature-wt',
         hostId: 'ssh:conn-1'
       })
-    ).rejects.toThrow('PTY provider unavailable for worktree deletion')
+    ).rejects.toThrow(SshHostNotServedError)
 
-    expect(provider.removeWorktree).not.toHaveBeenCalled()
+    expect(listWorktreesMock).not.toHaveBeenCalled()
     expect(removeWorktreeMock).not.toHaveBeenCalled()
   })
 
@@ -483,37 +464,15 @@ describe('worktree execution-host disambiguation', () => {
       connectionId: 'conn one',
       executionHostId: 'ssh:conn one' as const
     }
-    const provider = {
-      listWorktrees: vi.fn().mockResolvedValue([
-        {
-          path: repo.path,
-          head: 'main',
-          branch: 'main',
-          isBare: false,
-          isMainWorktree: true
-        },
-        {
-          path: '/remote/feature-wt',
-          head: 'feature',
-          branch: 'feature',
-          isBare: false,
-          isMainWorktree: false
-        }
-      ]),
-      removeWorktree: vi.fn().mockResolvedValue(undefined),
-      worktreeIsClean: vi.fn().mockResolvedValue({ clean: true })
-    }
     store.getRepo.mockReturnValue(repo)
     store.getRepos.mockReturnValue([repo])
-    getSshGitProviderMock.mockReturnValue(provider)
 
+    // Past the spelling check, the host is refused only because it is not served here.
     await expect(
       handlers['worktrees:remove'](null, {
         worktreeId: 'repo-escaped::/remote/feature-wt'
       })
-    ).rejects.toThrow('PTY provider unavailable for worktree deletion')
-
-    expect(provider.removeWorktree).not.toHaveBeenCalled()
+    ).rejects.toThrow(SshHostNotServedError)
   })
 
   it('fails closed when duplicate repo ids are deleted without a host', async () => {

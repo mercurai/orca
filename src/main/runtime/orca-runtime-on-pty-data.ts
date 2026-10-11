@@ -31,7 +31,6 @@ export class OrcaRuntimeWithOnPtyData extends OrcaRuntimeWithPreparePtyExecution
     at: number,
     sequenceChars = data.length,
     transformed = false,
-    captureModelReceipt?: (completion: Promise<void>) => void,
     sourceRanges?: readonly TerminalOutputSourceRange[]
   ): number {
     const outputSequence = (this.ptyOutputSequenceById.get(ptyId) ?? 0) + sequenceChars
@@ -65,13 +64,7 @@ export class OrcaRuntimeWithOnPtyData extends OrcaRuntimeWithPreparePtyExecution
     // applyTrackedPtyTitle) in byte order, superseding main's inline
     // extractLastOscTitleForPty block (#7880/#7852 title/status semantics are
     // preserved via the tracker + detectAgentStatusFromTitle path).
-    const modelCompletion = this.trackHeadlessTerminalData(
-      ptyId,
-      data,
-      outputSequence,
-      forwardQueryReplies
-    )
-    captureModelReceipt?.(modelCompletion)
+    this.trackHeadlessTerminalData(ptyId, data, outputSequence, forwardQueryReplies)
 
     const pty = this.getOrCreatePtyWorktreeRecord(ptyId)
     const ptyTailBefore = pty

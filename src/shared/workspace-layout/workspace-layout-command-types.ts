@@ -10,6 +10,7 @@ import type { AiVaultSessionTitle } from '../ai-vault-session-title'
 import type { TabContentType, TabGroupLayoutNode } from '../tab-types'
 import type { TerminalPaneLayoutNode, TerminalPaneSplitDirection } from '../terminal-tab-types'
 import type { PaneSide } from './terminal-pane-tree'
+import type { PaneOutcomeChanges } from './workspace-layout-pane-outcomes'
 import type { LayoutEditorFile, LayoutTerminalCreation } from './workspace-layout-model'
 
 type On = { workspace: string }
@@ -27,6 +28,7 @@ export type LayoutCommand =
       color?: string
       viewMode?: 'terminal' | 'chat'
       creation?: Partial<LayoutTerminalCreation>
+      initial?: InitialSurfaceReason
     })
   | (On & {
       type: 'splitPane'
@@ -84,11 +86,23 @@ export type LayoutCommand =
     })
   | (On & { type: 'promotePreviewTab'; tabId: string })
   | (On & { type: 'openBrowserTab'; profileId?: string | null; groupId?: string })
-  | (On & { type: 'openAgentSessionTab'; sessionId: string; agent: AgentType; groupId?: string })
+  | (On & {
+      type: 'openAgentSessionTab'
+      sessionId: string
+      agent: AgentType
+      groupId?: string
+      initial?: InitialSurfaceReason
+    })
   | (On & { type: 'startPane'; paneKey: string })
   | (On & { type: 'restartPane'; paneKey: string })
   | (On & { type: 'sleep'; paneKeys?: string[]; records: SleepingAgentSessionRecord[] })
   | (On & { type: 'wake'; paneKeys?: string[] })
+
+/**
+ * Why a workspace's first surface is asked for: `restore` at relaunch, `activation` when a user
+ * opens the workspace. Either is a no-op once the workspace has a tab.
+ */
+export type InitialSurfaceReason = 'restore' | 'activation'
 
 export type CommandOf<T extends LayoutCommand['type']> = Extract<LayoutCommand, { type: T }>
 
@@ -127,6 +141,8 @@ export type LayoutCommandResult = {
   refused?: { tabId: string; code: 'tab_pinned' | 'editor_tab_has_unsaved_draft' }[]
   slept?: string[]
   woken?: string[]
+  /** Old tab-bar id → new, for tabs a file rename re-ided; views move their selection with it. */
+  renamedTabIds?: Record<string, string>
 }
 
 export type LayoutContext = {
@@ -134,8 +150,17 @@ export type LayoutContext = {
   /** Pane ids must be UUIDs (pane keys and PTY env carry them). */
   mintLeafId: () => string
   now: () => number
+  /** True while a start of this pane is in flight; such a pane is not started again. */
+  isStarting?: (leafId: string) => boolean
 }
 
 export type LayoutApplyResult<Model> =
-  | { ok: true; model: Model; result: LayoutCommandResult; effects: LayoutEffects }
+  | {
+      ok: true
+      model: Model
+      result: LayoutCommandResult
+      effects: LayoutEffects
+      /** Leaf id → its new last outcome; null clears it. */
+      outcomes?: PaneOutcomeChanges
+    }
   | { ok: false; code: LayoutRefusalCode }

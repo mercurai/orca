@@ -39,6 +39,7 @@ jobs:
       mobile_web_app: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.mobile_web_app }}
       static_analysis: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.static_analysis }}
       typecheck: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.typecheck }}
+      mobile_ci_tools: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.mobile_ci_tools }}
       git_compatibility: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.git_compatibility }}
       codex_index_heal_contract: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.codex_index_heal_contract }}
       xterm_patch_sync: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.xterm_patch_sync }}
@@ -115,7 +116,11 @@ jobs:
           CHANGED="$(git diff --name-only --no-renames --diff-filter=ACDMR "$DIFF_BASE" HEAD)"
           echo "Changed paths:"
           printf '%s\n' "$CHANGED"
-          printf '%s\n' "$CHANGED" | node config/scripts/pr-code-change-scope.mjs | tee -a "$GITHUB_OUTPUT"
+          MOBILE_CI_ARGS=()
+          if git diff --quiet --no-renames --diff-filter=ACDRTUXB "$DIFF_BASE" HEAD; then
+            MOBILE_CI_ARGS=(--mobile-ci-tools)
+          fi
+          printf '%s\n' "$CHANGED" | node config/scripts/pr-code-change-scope.mjs "${MOBILE_CI_ARGS[@]}" | tee -a "$GITHUB_OUTPUT"
 
       # Reuse the path-detector checkout instead of queuing another runner.
       - name: Filter changed E2E specs
@@ -331,6 +336,10 @@ jobs:
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: pnpm run check:focus-read-ratchet
 
+      - name: Enforce layout-writer ratchets
+        if: needs.code_paths.outputs.static_analysis == 'true'
+        run: pnpm run check:layout-writer-ratchets
+
       - name: Check Node runtime pin
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: pnpm run check:node-runtime-pin
@@ -460,6 +469,28 @@ jobs:
           name: unit-selection-attempt-${{ github.run_attempt }}
           path: ci-shards/unit-selection.json
           retention-days: 14
+
+      - name: Set up Bun for Mobile CI tool tests
+        if: needs.code_paths.outputs.mobile_ci_tools == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: config/.bun-version
+
+      - name: Test Mobile CI tools and runtime routing
+        if: needs.code_paths.outputs.mobile_ci_tools == 'true'
+        env:
+          ORCA_BACKGROUND_LAUNCH: '1'
+          ORCA_BALANCE_UNIT_SHARDS: '1'
+        run: >-
+          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts
+          --maxWorkers=4 --isolate --retry=0 --bail=0
+          config/scripts/mobile-release-check-scope.test.mjs
+          config/scripts/mobile-test-change-scope.test.mjs
+          config/scripts/pr-ready-check-reuse.test.mjs
+          config/scripts/ci-dependency-download-cache.test.mjs
+          config/scripts/win32-test-lane-registration.test.mjs
+          config/scripts/vitest-node-runtime-boundary.test.ts
+          config/scripts/vitest-sqlite-runtime-boundary.test.ts
 
   git_compatibility:
     name: Git compatibility
@@ -811,6 +842,7 @@ jobs:
       node_versions: '["24"]'
       runner: ubuntu-24.04-arm
       shards: ${{ needs.preflight.outputs.shards }}
+      run_shards: ${{ needs.code_paths.outputs.mobile_ci_tools != 'true' }}
       browser_contract: ${{ needs.code_paths.outputs.orcad_browser == 'true' }}
 
   # Why a sibling and not part of the test workflow: it is advisory, so it must not delay the

@@ -4645,9 +4645,8 @@
         "The Electron journey drives the store create action, so the composer's automatic self-navigation on create is proved by worktree-creation-flow.test.ts and worktree.spec.ts rather than by this journey.",
         "Headless coverage is a modeled runtime shape; CLI bootstrap and argument parsing for orca serve are not exercised here.",
         "Host-first rollout: the fix is enforced by the host, so a NEW client paired to an OLD always-on server still sees the original cross-client jump. Shipping clients alone fixes nothing for anyone; the runtime/server must be updated. Nothing breaks under that skew — the old host simply keeps its old behavior — but release notes and support triage must check the host version, not the client version. No skew combination is worse than pre-fix main: an old CLI is recognized by its cliProvenanceRequest marker so its --activate reveal survives an updated host.",
-        "A future contributor could still hardcode a wrong navigation target at a call site: the required object key makes omission a compile error, but not substitution. Only the folder/no-startup branch has a behavioral test that would catch it; adding one for the remote/SSH branch needs new SSH provider scaffolding and was judged not worth the surface.",
+        "A future contributor could still hardcode a wrong navigation target at a call site: the required object key makes omission a compile error, but not substitution. Only the folder/no-startup branch has a behavioral test that would catch it.",
         "Out of scope, host-only and unreachable from the product UI: a paired caller that explicitly requests terminal.create with presentation 'focused' still navigates the host renderer (the Orca client always sends 'background'); agent-session already downgrades that presentation for paired callers.",
-        "The remote/SSH create branch (createManagedRemoteWorktree) has compile-time propagation coverage but no behavioral navigation test; the folder branch is covered by the integration suite and the git branch by the Electron journey.",
         "Out of scope: browser.tabCreate/tabSwitch carry no paired-client navigation policy, so they can change the host's active browser tab when the host is already on that worktree. They never cross worktrees, and the paired web client sends activate:true deliberately."
       ],
       "demotionRule": "Demote if a create, activate, or reveal path can move a viewer that did not request it, or if scoping regresses the in-process/CLI reveal that a headless server's only remote viewer depends on."
@@ -20712,6 +20711,92 @@
         "Collect cross-platform and provider soak evidence with no weakened identity, transaction or bounded-work assertions."
       ],
       "demotionRule": "Keep experimental until soak and platform evidence; investigate failures without weakening ownership, late recovery, or zero-write retry evidence."
+    },
+    {
+      "id": "terminal.macos-tcc-update-identity",
+      "title": "Protected terminal reads survive macOS app-bundle replacement",
+      "maturity": "experimental",
+      "protection": "partial",
+      "owner": "terminal-runtime",
+      "layer": "daemon-native-signing-and-provider-contract",
+      "surfaces": ["packaged macOS daemon launch", "signed bundle retirement"],
+      "platforms": ["macos", "linux", "windows"],
+      "providers": ["local", "daemon", "ssh", "wsl", "remote-runtime", "mobile"],
+      "coveredPlatforms": ["macos"],
+      "coveredProviders": ["daemon"],
+      "coverageNotes": "Signed arm64 macOS evidence; other platforms and hosts keep the existing launcher. See docs/reference/macos-daemon-tcc-attribution.md.",
+      "motivatingLinks": ["https://github.com/stablyai/orca/issues/13921"],
+      "invariant": "A packaged macOS daemon runs from the verified signed helper copy for its build, which the updater never touches, and never beside a job that may own the endpoint; the fork fallback still fits the startup gate. A copy is deleted only when lsof proves it unused.",
+      "oracle": "Deterministic launch, fallback-deadline and retirement tests, plus the signed launcher validation recorded in #25848.",
+      "commands": [
+        "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/daemon/macos-daemon-bundle.test.ts src/main/daemon/macos-daemon-launchd.test.ts src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts src/main/daemon/macos-daemon-job-state.test.ts src/main/daemon/macos-daemon-bundle-retirement.test.ts config/scripts/macos-folder-usage-descriptions.test.mjs"
+      ],
+      "testFiles": [
+        "src/main/daemon/macos-daemon-bundle.test.ts",
+        "src/main/daemon/macos-daemon-launchd.test.ts",
+        "src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts",
+        "src/main/daemon/macos-daemon-job-state.test.ts",
+        "src/main/daemon/macos-daemon-bundle-retirement.test.ts",
+        "config/scripts/macos-folder-usage-descriptions.test.mjs"
+      ],
+      "assertionRefs": [
+        {
+          "file": "src/main/daemon/macos-daemon-launchd.test.ts",
+          "assertions": [
+            "stops only its own job and hands the endpoint to the fork launcher when another daemon owns it",
+            "forks without submitting a job whose own readiness wait would overrun the deadline",
+            "never starts beside an earlier job that reads running"
+          ]
+        },
+        {
+          "file": "src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts",
+          "assertions": [
+            "hands off to the fork early enough for its readiness wait and adapter to fit the gate"
+          ]
+        },
+        {
+          "file": "src/main/daemon/macos-daemon-bundle-retirement.test.ts",
+          "assertions": ["keeps a copy whose lsof scan lists a process even though lsof exits 1"]
+        },
+        {
+          "file": "src/main/daemon/macos-daemon-bundle.test.ts",
+          "assertions": ["reuses a published copy without copying or verifying again"]
+        }
+      ],
+      "evidenceRuns": [
+        {
+          "date": "2026-10-10",
+          "runner": "local",
+          "platform": "macos",
+          "command": "ORCA_BACKGROUND_LAUNCH=1 pnpm test src/main/daemon/macos-daemon-bundle.test.ts src/main/daemon/macos-daemon-launchd.test.ts src/main/daemon/daemon-init-macos-stable-launch-fallback.test.ts src/main/daemon/macos-daemon-job-state.test.ts src/main/daemon/macos-daemon-bundle-retirement.test.ts config/scripts/macos-folder-usage-descriptions.test.mjs",
+          "result": "passed",
+          "durationSeconds": 1.53,
+          "summary": "All 64 focused launch, fallback-deadline, per-build copy, retirement and packaging tests passed."
+        }
+      ],
+      "runtimeBudget": {
+        "p95Seconds": 60,
+        "scope": "Deterministic focused tests."
+      },
+      "flakeHistory": {
+        "status": "not-started",
+        "evidence": "Local deterministic tests only."
+      },
+      "redGreenEvidence": {
+        "status": "partial",
+        "evidence": "Signed native experiment reproduced the update-gap denial and its absence under the stable copy (#25848); it predates the per-build copy and fixed label."
+      },
+      "performanceBudget": {
+        "required": true,
+        "evidence": "Adoption skips copying; each helper build is cloned and verified once, and later daemons reuse that copy with no copy or verify; retirement runs once per launch in the background."
+      },
+      "knownGaps": [
+        "x64, older macOS, real ShipIt relaunch, notarized release and non-APFS copies are untested."
+      ],
+      "promotionCriteria": [
+        "Signed release journeys on supported macOS versions with soak history."
+      ],
+      "demotionRule": "Keep experimental until release and soak evidence; retain code on unexplained inspection failures."
     }
   ]
 }

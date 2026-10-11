@@ -1,6 +1,17 @@
-import { readFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { runProcessSync } from '@orca/process-host'
 import { parse } from 'yaml'
 import { classifyPrJobs } from './pr-code-change-scope.mjs'
 
@@ -28,8 +39,8 @@ function evaluate(expression, context) {
   )
 }
 
-function routedOutputs(files, reused) {
-  const scope = classifyPrJobs(files)
+function routedOutputs(files, reused, options) {
+  const scope = classifyPrJobs(files, options)
   const context = {
     steps: {
       readiness: { outputs: { reused } },
@@ -41,10 +52,9 @@ function routedOutputs(files, reused) {
     }
   }
   return Object.fromEntries(
-    ['test', 'static_analysis', 'typecheck', ...routes.map(([job]) => job)].map((name) => [
-      name,
-      String(evaluate(workflow.jobs.code_paths.outputs[name], context))
-    ])
+    ['test', 'static_analysis', 'typecheck', 'mobile_ci_tools', ...routes.map(([job]) => job)].map(
+      (name) => [name, String(evaluate(workflow.jobs.code_paths.outputs[name], context))]
+    )
   )
 }
 
@@ -206,4 +216,184 @@ it('guards both browser steps after setup or discovery failure and for default c
   context.inputs.browser_contract = unit.on.workflow_call.inputs.browser_contract.default
   expect(evaluate(chrome.if, context)).toBe(false)
   expect(evaluate(browser.if, context)).toBe(false)
+})
+
+describe('Mobile CI tool preflight routing', () => {
+  const verified = { allowMobileCiTools: true }
+
+  it.each([
+    { files: ['config/scripts/run-mobile-ci-tests.mjs', 'config/mobile-ci.vitest.config.mjs'] },
+    { files: ['config/scripts/mobile-release-check-scope.test.mjs'] },
+    { files: ['config/scripts/mobile-test-change-scope.test.mjs'] }
+  ])('keeps affected controls required without starting root shards for $files', ({ files }) => {
+    const outputs = routedOutputs(files, 'false', verified)
+    expect(outputs.mobile_ci_tools).toBe('true')
+    expect(outputs.test).toBe('true')
+    const context = { needs: { code_paths: { outputs } } }
+    expect(evaluate(workflow.jobs.preflight.if, context)).toBe(true)
+    expect(evaluate(workflow.jobs.test.with.run_shards, context)).toBe(false)
+    expect(evaluate(unit.jobs.test.if, { inputs: { run_shards: false } })).toBe(false)
+    const required = workflow.jobs.verify.steps.find(
+      (step) => step.name === 'Require successful checks'
+    )
+    expect(evaluate(required.env.PREFLIGHT_SHOULD_RUN, context)).toBe(true)
+  })
+
+  it('keeps workflow-only changes on their original skipped root route', () => {
+    const outputs = routedOutputs(['.github/workflows/mobile.yml'], 'false', verified)
+    expect(outputs.mobile_ci_tools).toBe('false')
+    expect(outputs.test).toBe('false')
+    expect(outputs.static_analysis).toBe('false')
+    expect(outputs.typecheck).toBe('false')
+    expect(evaluate(workflow.jobs.preflight.if, { needs: { code_paths: { outputs } } })).toBe(false)
+  })
+
+  it('keeps root shard execution enabled for callers that do not opt out', () => {
+    expect(unit.on.workflow_call.inputs.run_shards.default).toBe(true)
+    expect(evaluate(unit.jobs.test.if, { inputs: { run_shards: true } })).toBe(true)
+    expect(unit.jobs.relay_integration.if).toBeUndefined()
+    expect(unit.jobs.relay_integration.needs).toBeUndefined()
+  })
+
+  it('requires complete modification evidence and an exact path scope', () => {
+    const tool = 'config/scripts/run-mobile-ci-tests.mjs'
+    expect(classifyPrJobs([tool]).test).toBe(true)
+    expect(classifyPrJobs([tool]).mobile_ci_tools).toBe(false)
+    for (const files of [
+      [],
+      [tool, 'src/main/runtime/orca-runtime.ts'],
+      [tool, 'pnpm-lock.yaml'],
+      [tool, 'package.json'],
+      [tool, 'config/vitest.config.ts'],
+      [tool, 'config/scripts/pr-code-change-scope.mjs'],
+      [tool, 'config/scripts/new-mobile-tool.mjs'],
+      [tool, 'README.md'],
+      [tool, 'mobile/vitest.config.ts']
+    ]) {
+      const selected = classifyPrJobs(files, verified)
+      expect(selected.mobile_ci_tools).toBe(false)
+      expect(selected.test).toBe(true)
+    }
+  })
+
+  it('reuses only identical successful checks for the focused preflight gate', () => {
+    const files = ['config/scripts/run-mobile-ci-tests.mjs']
+    expect(routedOutputs(files, 'true', verified).mobile_ci_tools).toBe('false')
+    expect(routedOutputs(files, 'false', verified).mobile_ci_tools).toBe('true')
+  })
+})
+
+const mobileCiScopeDirectories = []
+afterEach(() => {
+  for (const directory of mobileCiScopeDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+function createMobileCiScopeRepository(withTool = true) {
+  const directory = mkdtempSync(join(tmpdir(), 'orca-mobile-ci-scope-'))
+  mobileCiScopeDirectories.push(directory)
+  const root = resolve(import.meta.dirname, '../..')
+  for (const file of [
+    'package.json',
+    'config/scripts/pr-code-change-scope.mjs',
+    'config/scripts/git-pull-request-diff-base.mjs'
+  ]) {
+    mkdirSync(dirname(join(directory, file)), { recursive: true })
+    copyFileSync(join(root, file), join(directory, file))
+  }
+  const git = (...args) => {
+    const result = runProcessSync({ program: 'git', args, cwd: directory })
+    expect(result.code, result.stderr).toBe(0)
+    return result.stdout.trim()
+  }
+  const commit = () => {
+    git('add', '-A')
+    git(
+      '-c',
+      'commit.gpgsign=false',
+      '-c',
+      'core.hooksPath=/dev/null',
+      'commit',
+      '-qm',
+      'scope input'
+    )
+    return git('rev-parse', 'HEAD')
+  }
+  git('init', '--quiet')
+  git('config', 'user.name', 'Scope control')
+  git('config', 'user.email', 'scope@example.invalid')
+  const tool = join(directory, 'config/scripts/run-mobile-ci-tests.mjs')
+  if (withTool) {
+    writeFileSync(tool, 'export const revision = 1\n')
+  }
+  const base = commit()
+  const detect = () => {
+    const output = join(directory, 'github-output')
+    const step = workflow.jobs.code_paths.steps.find((candidate) => candidate.id === 'filter')
+    const result = runProcessSync({
+      program: 'bash',
+      args: ['-e', '-c', step.run],
+      cwd: directory,
+      env: {
+        ...process.env,
+        BASE_SHA: base,
+        GITHUB_EVENT_NAME: 'pull_request',
+        GITHUB_OUTPUT: output,
+        ORCA_BACKGROUND_LAUNCH: '1'
+      }
+    })
+    return { result, output }
+  }
+  return { directory, tool, git, commit, detect }
+}
+
+describe.skipIf(process.platform === 'win32')('Mobile CI complete Git change evidence', () => {
+  it('admits an actual modification through the workflow detector', () => {
+    const repo = createMobileCiScopeRepository()
+    writeFileSync(repo.tool, 'export const revision = 2\n')
+    repo.commit()
+    const { result, output } = repo.detect()
+    expect(result.code, result.stderr).toBe(0)
+    expect(readFileSync(output, 'utf8')).toContain('mobile_ci_tools=true\n')
+    expect(readFileSync(output, 'utf8')).toContain('test=true\n')
+  })
+
+  it.each(['addition', 'deletion', 'rename', 'type change'])(
+    'retains full root units for an actual %s',
+    (change) => {
+      const repo = createMobileCiScopeRepository(change !== 'addition')
+      if (change === 'addition') {
+        writeFileSync(repo.tool, 'export const revision = 1\n')
+      } else if (change === 'deletion') {
+        rmSync(repo.tool)
+      } else if (change === 'rename') {
+        repo.git(
+          'mv',
+          'config/scripts/run-mobile-ci-tests.mjs',
+          'config/mobile-ci.vitest.config.mjs'
+        )
+      } else {
+        rmSync(repo.tool)
+        symlinkSync('pr-code-change-scope.mjs', repo.tool)
+      }
+      repo.commit()
+      const { result, output } = repo.detect()
+      expect(result.code, result.stderr).toBe(0)
+      expect(readFileSync(output, 'utf8')).toContain('mobile_ci_tools=false\n')
+      expect(readFileSync(output, 'utf8')).toContain('test=true\n')
+    }
+  )
+
+  it('does not emit a passing classification when the Git evidence is unavailable', () => {
+    const repo = createMobileCiScopeRepository()
+    writeFileSync(repo.tool, 'export const revision = 2\n')
+    repo.commit()
+    expect(repo.detect().result.code).toBe(0)
+    rmSync(join(repo.directory, 'github-output'))
+    rmSync(join(repo.directory, '.git'), { recursive: true, force: true })
+    const { result } = repo.detect()
+    expect(result.code).not.toBe(0)
+    expect(result.stderr).toContain('not a git repository')
+  })
 })

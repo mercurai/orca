@@ -98,140 +98,18 @@ describe('registerWorktreeHandlers', () => {
     runtimeStub = setupWorktreeHandlers()
   })
 
-  it('filters worktree and folder lineage to one exact SSH host', async () => {
-    const repos = [
-      {
-        id: 'duplicate',
-        path: '/a/repo',
-        displayName: 'a',
-        badgeColor: '#000',
-        addedAt: 0,
-        connectionId: 'target-a',
-        projectGroupId: 'group-a'
-      },
-      {
-        id: 'duplicate',
-        path: '/b/repo',
-        displayName: 'b',
-        badgeColor: '#000',
-        addedAt: 0,
-        connectionId: 'target-b',
-        projectGroupId: 'group-b'
-      }
-    ]
-    const aParent = 'duplicate::/a/repo'
-    const aChild = 'duplicate::/a/child'
-    const bParent = 'duplicate::/b/repo'
-    const bChild = 'duplicate::/b/child'
-    const runtimeParent = 'duplicate::/runtime/parent'
-    const runtimeChild = 'duplicate::/runtime/child'
-    const worktreeLineage = {
-      [aChild]: {
-        worktreeId: aChild,
-        worktreeInstanceId: 'a-child',
-        parentWorktreeId: aParent,
-        parentWorktreeInstanceId: 'a-parent',
-        origin: 'cli',
-        capture: { source: 'explicit-cli-flag', confidence: 'explicit' },
-        createdAt: 1
-      },
-      [bChild]: {
-        worktreeId: bChild,
-        worktreeInstanceId: 'b-child',
-        parentWorktreeId: bParent,
-        parentWorktreeInstanceId: 'b-parent',
-        origin: 'cli',
-        capture: { source: 'explicit-cli-flag', confidence: 'explicit' },
-        createdAt: 2
-      },
-      [runtimeChild]: {
-        worktreeId: runtimeChild,
-        worktreeInstanceId: 'runtime-child',
-        parentWorktreeId: runtimeParent,
-        parentWorktreeInstanceId: 'runtime-parent',
-        origin: 'cli',
-        capture: { source: 'explicit-cli-flag', confidence: 'explicit' },
-        createdAt: 3
-      }
-    }
-    const folderLineage = {
-      'folder:folder-a-child': {
-        childWorkspaceKey: 'folder:folder-a-child',
-        parentWorkspaceKey: 'folder:folder-a-parent',
-        origin: 'manual',
-        capture: { source: 'manual-action', confidence: 'explicit' },
-        createdAt: 3
-      },
-      'folder:folder-b-child': {
-        childWorkspaceKey: 'folder:folder-b-child',
-        parentWorkspaceKey: 'folder:folder-b-parent',
-        origin: 'manual',
-        capture: { source: 'manual-action', confidence: 'explicit' },
-        createdAt: 4
-      }
-    }
-    store.getRepos.mockReturnValue(repos)
-    store.getWorktreeMeta.mockImplementation((id: string) =>
-      id.includes('/runtime/')
-        ? { hostId: 'ssh:target-a', runtimeOwnerEnvironmentId: 'environment-a' }
-        : {
-            hostId: id.includes('/a/') || id.endsWith('/a/repo') ? 'ssh:target-a' : 'ssh:target-b'
-          }
-    )
-    store.getAllWorktreeLineage.mockReturnValue(worktreeLineage)
-    store.getAllWorkspaceLineage.mockReturnValue(folderLineage)
-    store.getProjectGroups.mockReturnValue([
-      { id: 'group-a', connectionId: 'target-a' },
-      { id: 'group-b', connectionId: 'target-b' }
-    ])
-    store.getFolderWorkspaces.mockReturnValue([
-      {
-        id: 'folder-a-child',
-        projectGroupId: 'group-a',
-        folderPath: '/a/child',
-        connectionId: 'target-a'
-      },
-      {
-        id: 'folder-a-parent',
-        projectGroupId: 'group-a',
-        folderPath: '/a',
-        connectionId: 'target-a'
-      },
-      {
-        id: 'folder-b-child',
-        projectGroupId: 'group-b',
-        folderPath: '/b/child',
-        connectionId: 'target-b'
-      },
-      {
-        id: 'folder-b-parent',
-        projectGroupId: 'group-b',
-        folderPath: '/b',
-        connectionId: 'target-b'
-      }
-    ])
-    const provider = { listWorktrees: vi.fn() }
-    getSshGitProviderMock.mockImplementation((targetId: string) =>
-      targetId === 'target-a' ? provider : undefined
-    )
-
+  it('answers SSH lineage as unavailable without reading this machine', async () => {
     const result = await handlers['worktrees:listLineageForHost'](ipcEvent, {
       executionHostId: toSshExecutionHostId('target-a'),
       expectedAuthority: getSshProviderAuthority('target-a')
     })
 
-    expect(result).toMatchObject({
-      authoritative: true,
-      authority: {
-        kind: 'direct-ssh',
-        executionHostId: 'ssh:target-a',
-        targetId: 'target-a'
-      },
-      worktreeLineageById: { [aChild]: worktreeLineage[aChild] },
-      workspaceLineageByChildKey: {
-        'folder:folder-a-child': folderLineage['folder:folder-a-child']
-      }
+    expect(result).toEqual({
+      authoritative: false,
+      executionHostId: 'ssh:target-a',
+      reason: 'unavailable'
     })
+    expect(runtimeStub.hydrateInferredWorktreeLineage).not.toHaveBeenCalled()
     expect(store.removeWorktreeLineage).not.toHaveBeenCalled()
   })
 
@@ -316,7 +194,7 @@ describe('registerWorktreeHandlers', () => {
     expect(store.removeWorktreeLineage).not.toHaveBeenCalled()
   })
 
-  it('rejects runtime lineage reads and stale SSH authority after hydration', async () => {
+  it('rejects runtime lineage reads and stale SSH authority', async () => {
     await expect(
       handlers['worktrees:listLineageForHost'](ipcEvent, {
         executionHostId: 'runtime:environment-a'
@@ -324,36 +202,24 @@ describe('registerWorktreeHandlers', () => {
     ).resolves.toMatchObject({ authoritative: false, reason: 'rejected' })
     expect(runtimeStub.hydrateInferredWorktreeLineage).not.toHaveBeenCalled()
 
-    let finishHydration: () => void = () => {}
-    runtimeStub.hydrateInferredWorktreeLineage.mockImplementation(
-      () =>
-        new Promise<void>((resolve) => {
-          finishHydration = resolve
-        })
-    )
-    getSshGitProviderMock.mockReturnValue({ listWorktrees: vi.fn() })
     const authority = getSshProviderAuthority('target-a')
-    const pending = handlers['worktrees:listLineageForHost'](ipcEvent, {
-      executionHostId: toSshExecutionHostId('target-a'),
-      expectedAuthority: authority
-    })
-    await Promise.resolve()
     rotateSshProviderAuthority('target-a')
-    finishHydration()
 
-    await expect(pending).resolves.toMatchObject({ authoritative: false, reason: 'stale' })
+    await expect(
+      handlers['worktrees:listLineageForHost'](ipcEvent, {
+        executionHostId: toSshExecutionHostId('target-a'),
+        expectedAuthority: authority
+      })
+    ).resolves.toMatchObject({ authoritative: false, reason: 'stale' })
     expect(store.removeWorktreeLineage).not.toHaveBeenCalled()
   })
 
-  it('bounds noncooperative lineage hydration and permits a later same-authority read', async () => {
+  it('bounds noncooperative lineage hydration and permits a later read', async () => {
     vi.useFakeTimers()
     try {
       runtimeStub.hydrateInferredWorktreeLineage.mockReturnValue(new Promise<void>(() => {}))
-      getSshGitProviderMock.mockReturnValue({ listWorktrees: vi.fn() })
-      const authority = getSshProviderAuthority('target-a')
       const pending = handlers['worktrees:listLineageForHost'](ipcEvent, {
-        executionHostId: toSshExecutionHostId('target-a'),
-        expectedAuthority: authority
+        executionHostId: 'local'
       })
       await vi.advanceTimersByTimeAsync(LINEAGE_HYDRATION_TIMEOUT_MS - 1)
       let settled = false
@@ -371,10 +237,7 @@ describe('registerWorktreeHandlers', () => {
 
       runtimeStub.hydrateInferredWorktreeLineage.mockResolvedValue(undefined)
       await expect(
-        handlers['worktrees:listLineageForHost'](ipcEvent, {
-          executionHostId: toSshExecutionHostId('target-a'),
-          expectedAuthority: authority
-        })
+        handlers['worktrees:listLineageForHost'](ipcEvent, { executionHostId: 'local' })
       ).resolves.toMatchObject({ authoritative: true })
     } finally {
       vi.useRealTimers()
@@ -542,65 +405,6 @@ describe('registerWorktreeHandlers', () => {
       '/workspace/repo',
       linkedCheckoutPath
     ])
-  })
-
-  it('prunes stale child lineage after a successful SSH worktree scan proves the child is missing', async () => {
-    const repo = {
-      id: 'repo-ssh',
-      path: '/remote/repo',
-      displayName: 'ssh',
-      badgeColor: '#000',
-      addedAt: 0,
-      connectionId: 'conn-1'
-    }
-    const provider = {
-      listWorktrees: vi.fn().mockResolvedValue([
-        {
-          path: '/remote/live',
-          head: 'abc123',
-          branch: 'refs/heads/live',
-          isBare: false,
-          isMainWorktree: false
-        },
-        {
-          path: '/remote/live-child',
-          head: 'def456',
-          branch: 'refs/heads/live-child',
-          isBare: false,
-          isMainWorktree: false
-        }
-      ])
-    }
-    store.getRepos.mockReturnValue([repo])
-    store.getRepo.mockReturnValue(repo)
-    getSshGitProviderMock.mockReturnValue(provider)
-    store.getAllWorktreeLineage.mockReturnValue({
-      'repo-ssh::/remote/missing-child': {
-        parentWorktreeId: 'repo-ssh::/remote/live'
-      },
-      'repo-ssh::/remote/live-child': {
-        parentWorktreeId: 'repo-ssh::/remote/missing-parent',
-        parentWorktreeInstanceId: 'old-parent-instance'
-      },
-      'repo-ssh::/remote/live': {
-        parentWorktreeId: 'other-repo::/elsewhere'
-      }
-    })
-    store.getWorktreeMeta.mockImplementation((worktreeId: string) =>
-      worktreeId === 'repo-ssh::/remote/missing-parent'
-        ? { instanceId: 'old-parent-instance' }
-        : undefined
-    )
-
-    await handlers['worktrees:list'](null, { repoId: 'repo-ssh' })
-
-    expect(store.removeWorktreeLineage).toHaveBeenCalledWith('repo-ssh::/remote/missing-child')
-    expect(store.removeWorktreeLineage).not.toHaveBeenCalledWith('repo-ssh::/remote/live-child')
-    expect(store.removeWorktreeLineage).not.toHaveBeenCalledWith('repo-ssh::/remote/live')
-    expect(store.setWorktreeMeta).toHaveBeenCalledWith(
-      'repo-ssh::/remote/missing-parent',
-      expect.objectContaining({ instanceId: expect.any(String) })
-    )
   })
 
   it('does not repeatedly rotate already-invalid missing parent metadata', async () => {

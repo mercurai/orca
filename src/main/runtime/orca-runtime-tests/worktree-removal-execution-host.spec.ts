@@ -1,42 +1,12 @@
-import {
-  listWorktrees,
-  listWorktreesStrict,
-  registerSshFilesystemProvider,
-  registerSshGitProvider,
-  removeWorktree,
-  unregisterSshFilesystemProvider,
-  unregisterSshGitProvider
-} from '../orca-runtime-test-mocks.spec'
+import { listWorktrees, listWorktreesStrict, removeWorktree } from '../orca-runtime-test-mocks.spec'
 import type { WorktreeMeta } from '../orca-runtime-test-mocks.spec'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetWorktreeTestSshHostHome } from '../../worktree-removal-test-ssh-host-home'
 
-import {
-  TEST_WORKTREE_ID,
-  TEST_WORKTREE_PATH,
-  makeWorktreeMeta,
-  store
-} from '../orca-runtime-test-fixtures.spec'
+import { TEST_WORKTREE_ID, makeWorktreeMeta, store } from '../orca-runtime-test-fixtures.spec'
 import { createWorktreeRemovalRuntime } from '../orca-runtime-test-scenario-builders.spec'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 
-// Why: these fixtures register an SSH provider, which models a connected relay session — and a
-// connected session has always read the host's `$HOME`. The removal guards refuse without it.
-beforeEach(resetWorktreeTestSshHostHome)
-
 const REMOTE_REPO_PATH = '/remote/repo'
-
-function missingPath(): never {
-  throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
-}
-
-function makeGitProvider(worktrees: readonly unknown[]) {
-  return {
-    exec: vi.fn().mockResolvedValue({ stdout: '', stderr: '' }),
-    listWorktrees: vi.fn().mockResolvedValue(worktrees),
-    removeWorktree: vi.fn().mockResolvedValue({})
-  }
-}
 
 function makeRemoteRepoStore(
   executionHostId: ExecutionHostId,
@@ -76,86 +46,11 @@ function makeRemoteRepoStore(
   }
 }
 
-const REPO_ROOT_ENTRY = {
-  path: REMOTE_REPO_PATH,
-  head: 'main',
-  branch: 'main',
-  isBare: false,
-  isMainWorktree: true
-}
-
-const REGISTERED_ENTRY = {
-  path: TEST_WORKTREE_PATH,
-  head: 'def456',
-  branch: 'feature/test',
-  isBare: false,
-  isMainWorktree: false
-}
-
 describe('OrcaRuntimeService worktree removal execution host', () => {
   beforeEach(() => {
     vi.mocked(listWorktrees).mockClear()
     vi.mocked(listWorktreesStrict).mockClear()
     vi.mocked(removeWorktree).mockClear()
-  })
-
-  it('refuses a migrated-spelling SSH row it cannot stop terminals for, never deleting here', async () => {
-    // No `connectionId` at all: the row names its owner only as `executionHostId: 'ssh:target-a'`.
-    const { runtimeStore, metaById } = makeRemoteRepoStore('ssh:target-a')
-    const provider = makeGitProvider([REPO_ROOT_ENTRY, REGISTERED_ENTRY])
-    registerSshGitProvider('target-a', provider as never)
-    const runtime = createWorktreeRemovalRuntime(runtimeStore)
-    vi.spyOn(runtime, 'acquireFileWatcherRemoval').mockResolvedValue({ finish: vi.fn() })
-
-    try {
-      await expect(
-        runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-          force: true,
-          runHooks: false,
-          allowUnverifiedPtyStop: false,
-          hostId: 'ssh:target-a'
-        })
-      ).rejects.toThrow('PTY provider unavailable for worktree deletion')
-
-      expect(provider.removeWorktree).not.toHaveBeenCalled()
-      expect(listWorktreesStrict).not.toHaveBeenCalled()
-      expect(removeWorktree).not.toHaveBeenCalled()
-      expect(metaById[TEST_WORKTREE_ID]).toBeDefined()
-    } finally {
-      unregisterSshGitProvider('target-a')
-    }
-  })
-
-  it('runs the cleanup path for a migrated-spelling row entirely on its host', async () => {
-    // #18358 made an `executionHostId`-only row a removable cleanup candidate. Every step of the
-    // removal it starts — list, existence probe, delete, prune — must name the same host.
-    const { runtimeStore, removeWorktreeMeta } = makeRemoteRepoStore('ssh:target-a')
-    const provider = makeGitProvider([REPO_ROOT_ENTRY])
-    const fsProvider = { stat: vi.fn(missingPath), deletePath: vi.fn() }
-    registerSshGitProvider('target-a', provider as never)
-    registerSshFilesystemProvider('target-a', fsProvider as never)
-    const runtime = createWorktreeRemovalRuntime(runtimeStore)
-
-    try {
-      await expect(
-        runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-          force: true,
-          runHooks: false,
-          allowUnverifiedPtyStop: false,
-          hostId: 'ssh:target-a'
-        })
-      ).resolves.toEqual({})
-
-      expect(provider.listWorktrees).toHaveBeenCalledWith(REMOTE_REPO_PATH)
-      expect(fsProvider.stat).toHaveBeenCalledWith(TEST_WORKTREE_PATH)
-      expect(listWorktreesStrict).not.toHaveBeenCalled()
-      expect(removeWorktree).not.toHaveBeenCalled()
-      expect(fsProvider.deletePath).not.toHaveBeenCalled()
-      expect(removeWorktreeMeta).toHaveBeenCalledWith(TEST_WORKTREE_ID, 'ssh:target-a')
-    } finally {
-      unregisterSshFilesystemProvider('target-a')
-      unregisterSshGitProvider('target-a')
-    }
   })
 
   it('refuses an SSH row whose host is unreachable instead of deleting here', async () => {
@@ -194,33 +89,23 @@ describe('OrcaRuntimeService worktree removal execution host', () => {
     expect(metaById[TEST_WORKTREE_ID]).toBeDefined()
   })
 
-  it('refuses a runtime row whose nested SSH target is dialable in this namespace', async () => {
-    // `connectionId: 'target-a'` names a target inside env-1, not the one registered here. The raw
-    // read dialled this client's same-named host and removed a worktree on the wrong machine.
+  it('refuses a runtime row that also names a nested SSH target', async () => {
+    // `connectionId: 'target-a'` names a target inside env-1, never one on this machine.
     const { runtimeStore, metaById } = makeRemoteRepoStore('runtime:env-1', {
       connectionId: 'target-a'
     })
-    const provider = makeGitProvider([REPO_ROOT_ENTRY, REGISTERED_ENTRY])
-    registerSshGitProvider('target-a', provider as never)
     const runtime = createWorktreeRemovalRuntime(runtimeStore)
 
-    try {
-      await expect(
-        runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-          force: true,
-          runHooks: false,
-          allowUnverifiedPtyStop: false,
-          hostId: 'runtime:env-1'
-        })
-      ).rejects.toThrow('not dispatched by this process')
+    await expect(
+      runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
+        force: true,
+        runHooks: false,
+        allowUnverifiedPtyStop: false,
+        hostId: 'runtime:env-1'
+      })
+    ).rejects.toThrow('not dispatched by this process')
 
-      // Selector resolution still lists through the raw field before removal begins — a read on
-      // the wrong namespace, tracked separately. Nothing destructive reaches it.
-      expect(provider.removeWorktree).not.toHaveBeenCalled()
-      expect(removeWorktree).not.toHaveBeenCalled()
-      expect(metaById[TEST_WORKTREE_ID]).toBeDefined()
-    } finally {
-      unregisterSshGitProvider('target-a')
-    }
+    expect(removeWorktree).not.toHaveBeenCalled()
+    expect(metaById[TEST_WORKTREE_ID]).toBeDefined()
   })
 })

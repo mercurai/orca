@@ -1,3 +1,5 @@
+import type { PairedE2EEClientHandshake } from './paired-e2ee-client-handshake'
+import { createFixedKeyLegacyHandshakeForTest } from './paired-e2ee-fixed-key-test-fixture'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -89,10 +91,11 @@ describe('RemoteRuntimeSharedControlConnection', () => {
       deviceToken: 'token',
       publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
     })
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const unsafe = connection as unknown as {
       state: string
       ws: { readyState: number; send: () => void; close: () => void } | null
-      sharedKey: Uint8Array | null
+      handshake: PairedE2EEClientHandshake | null
       pendingRequests: Map<string, unknown>
     }
     unsafe.state = 'ready'
@@ -103,7 +106,7 @@ describe('RemoteRuntimeSharedControlConnection', () => {
       },
       close: vi.fn()
     }
-    unsafe.sharedKey = new Uint8Array(32).fill(2)
+    unsafe.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32).fill(2))
 
     await expect(connection.request('worktree.ps', undefined, 1000)).rejects.toMatchObject({
       code: 'remote_runtime_unavailable'

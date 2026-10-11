@@ -35,6 +35,14 @@ export const PR_CHECK_JOBS = [
 
 const ALWAYS_ON_CODE_JOBS = new Set(['static_analysis', 'typecheck', 'test'])
 
+const MOBILE_CI_TOOL_FILES = new Set([
+  '.github/workflows/mobile.yml',
+  'config/mobile-ci.vitest.config.mjs',
+  'config/scripts/run-mobile-ci-tests.mjs',
+  'config/scripts/mobile-release-check-scope.test.mjs',
+  'config/scripts/mobile-test-change-scope.test.mjs'
+])
+
 const GLOBAL_FORCE_PREFIXES = [
   '.github/workflows/pr.yml',
   '.github/actions/install-node-dependencies/',
@@ -491,7 +499,7 @@ export function needsMobileDependencies(changedFiles) {
   return changedFiles.length === 0 || changedFiles.some((file) => file.startsWith('mobile/'))
 }
 
-export function classifyPrJobs(changedFiles) {
+export function classifyPrJobs(changedFiles, { allowMobileCiTools = false } = {}) {
   const emptyDiff = changedFiles.length === 0
   const shouldRun = shouldRunPrChecks(changedFiles)
   const forceAll = emptyDiff || changedFiles.some(isGlobalForcePath)
@@ -509,8 +517,15 @@ export function classifyPrJobs(changedFiles) {
   // that is exactly the diff that changes the page this job builds. Gated on should_run it would
   // skip on every PR that can break it and run on none.
   jobs.mobile_web_app = jobs.mobile_web_app || changesMobileWebApp(changedFiles)
+  const mobileCiTools =
+    allowMobileCiTools &&
+    !emptyDiff &&
+    jobs.test &&
+    (jobs.static_analysis || jobs.typecheck) &&
+    changedFiles.every((file) => MOBILE_CI_TOOL_FILES.has(file))
   return {
     should_run: shouldRun,
+    mobile_ci_tools: mobileCiTools,
     native_cache_changed: shouldRun && (emptyDiff || changedFiles.some(isNativeCacheInputPath)),
     mobile_dependencies:
       (shouldRun || jobs.static_analysis) && needsMobileDependencies(changedFiles),
@@ -618,7 +633,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     input += chunk
   }
   const files = input.split(/\r?\n/).filter(Boolean)
-  const classification = classifyPrJobs(files)
+  const classification = classifyPrJobs(files, {
+    allowMobileCiTools: process.argv.includes('--mobile-ci-tools')
+  })
   for (const [name, value] of Object.entries(classification)) {
     process.stdout.write(`${name}=${value ? 'true' : 'false'}\n`)
   }

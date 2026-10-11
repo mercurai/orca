@@ -2,6 +2,8 @@
 // watches: a replayed files.watch reports changes only from its own native
 // setup, so consumers must receive a conservative overflow once it is ready.
 import { describe, expect, it, vi, afterEach, beforeEach } from 'vitest'
+import type { PairedE2EEClientHandshake } from '../../../shared/paired-e2ee-client-handshake'
+import { createFixedKeyLegacyHandshakeForTest } from '../../../shared/paired-e2ee-fixed-key-test-fixture'
 import { WebRuntimeClient } from './web-runtime-client'
 import { encrypt } from '../../../shared/e2ee-crypto'
 
@@ -52,9 +54,10 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     const initialSocket = fakeSockets[0]!
     initialSocket.readyState = FakeWebSocket.OPEN
     const onResponse = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const internals = client as unknown as {
       ws: FakeWebSocket | null
-      sharedKey: Uint8Array | null
+      handshake: PairedE2EEClientHandshake | null
       state: string
       subscriptions: Map<
         string,
@@ -65,7 +68,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
       >
       setState(next: string): void
     }
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.state = 'connected'
 
     await client.subscribe('files.watch', { worktree: 'wt-1' }, { onResponse })
@@ -84,7 +87,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     const replacementSocket = new FakeWebSocket('ws://127.0.0.1:6768')
     replacementSocket.readyState = FakeWebSocket.OPEN
     internals.ws = replacementSocket
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.setState('connected')
 
     const [replacementId, replacement] = Array.from(internals.subscriptions.entries())[0]!
@@ -121,9 +124,10 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     initialSocket.readyState = FakeWebSocket.OPEN
     const onResponse = vi.fn()
     const onClose = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const internals = client as unknown as {
       ws: FakeWebSocket | null
-      sharedKey: Uint8Array | null
+      handshake: PairedE2EEClientHandshake | null
       state: string
       subscriptions: Map<
         string,
@@ -135,7 +139,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
       setState(next: string): void
       handleSocketClosed(socket: FakeWebSocket): void
     }
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.state = 'connected'
 
     const handle = await client.subscribe(
@@ -154,7 +158,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     const replacementSocket = new FakeWebSocket('ws://127.0.0.1:6768')
     replacementSocket.readyState = FakeWebSocket.OPEN
     internals.ws = replacementSocket
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.setState('connected')
 
     const [replacementId, replacement] = Array.from(internals.subscriptions.entries())[0]!
@@ -175,7 +179,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     const secondReplacementSocket = new FakeWebSocket('ws://127.0.0.1:6768')
     secondReplacementSocket.readyState = FakeWebSocket.OPEN
     internals.ws = secondReplacementSocket
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.setState('connected')
     expect(secondReplacementSocket.send).not.toHaveBeenCalled()
     client.close()
@@ -191,14 +195,15 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     })
     const initialSocket = fakeSockets[0]!
     initialSocket.readyState = FakeWebSocket.OPEN
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const internals = client as unknown as {
       ws: FakeWebSocket | null
-      sharedKey: Uint8Array | null
+      handshake: PairedE2EEClientHandshake | null
       state: string
       subscriptions: Map<string, { needsReplay: boolean }>
       setState(next: string): void
     }
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.state = 'connected'
     const handle = await client.subscribe(
       'files.watch',
@@ -214,7 +219,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     const replacementSocket = new FakeWebSocket('ws://127.0.0.1:6768')
     replacementSocket.readyState = FakeWebSocket.OPEN
     internals.ws = replacementSocket
-    internals.sharedKey = new Uint8Array(32)
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(new Uint8Array(32))
     internals.setState('connected')
     expect(replacementSocket.send).not.toHaveBeenCalled()
     client.close()
@@ -231,15 +236,16 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     initialSocket.readyState = FakeWebSocket.OPEN
     const sharedKey = new Uint8Array(32)
     const onResponse = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the test reaches the client's private transport state; a renamed field fails the test.
     const internals = client as unknown as {
       ws: FakeWebSocket | null
-      sharedKey: Uint8Array | null
+      handshake: PairedE2EEClientHandshake | null
       state: string
       subscriptions: Map<string, unknown>
       handleSocketMessage(rawData: unknown): Promise<void>
       setState(next: string): void
     }
-    internals.sharedKey = sharedKey
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(sharedKey)
     internals.state = 'connected'
     await client.subscribe('files.watch', { worktree: 'wt-1' }, { onResponse })
     const subscriptionId = Array.from(internals.subscriptions.keys())[0]!
@@ -261,7 +267,7 @@ describe('WebRuntimeClient file-watch replay resync', () => {
     const replacementSocket = new FakeWebSocket('ws://127.0.0.1:6768')
     replacementSocket.readyState = FakeWebSocket.OPEN
     internals.ws = replacementSocket
-    internals.sharedKey = sharedKey
+    internals.handshake = createFixedKeyLegacyHandshakeForTest(sharedKey)
     internals.setState('connected')
     expect(replacementSocket.send).not.toHaveBeenCalled()
     client.close()
