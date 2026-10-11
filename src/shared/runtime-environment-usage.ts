@@ -1,10 +1,12 @@
 import {
   bumpEnvironmentWriteGeneration,
+  getEnvironmentWriteGeneration,
   readEnvironmentStore,
   resolveEnvironmentFromStore,
   writeEnvironmentStoreAsync
 } from './runtime-environment-store'
 import type { RuntimeEnvironmentStore } from './runtime-environments'
+import { SecureWriteSupersededError } from './secure-file-async-write'
 
 // Why: markEnvironmentUsed runs on every runtime round-trip; lastUsedAt only needs coarse freshness.
 const LAST_USED_PERSIST_INTERVAL_MS = 60_000
@@ -14,14 +16,29 @@ export async function markEnvironmentUsed(
   selector: string,
   args: { runtimeId?: string | null; pairedDeviceId?: string; now?: number } = {}
 ): Promise<void> {
-  const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
-  if (plan) {
-    await writeEnvironmentStoreAsync(userDataPath, plan.store, {
-      shouldPublish: () => {
-        bumpEnvironmentWriteGeneration()
-        return true
+  // Same generation guard as the detached stamp, so a mutation published meanwhile is never overwritten.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const generation = getEnvironmentWriteGeneration()
+    const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
+    if (!plan) {
+      return
+    }
+    try {
+      await writeEnvironmentStoreAsync(userDataPath, plan.store, {
+        shouldPublish: () => {
+          if (getEnvironmentWriteGeneration() !== generation) {
+            return false
+          }
+          bumpEnvironmentWriteGeneration()
+          return true
+        }
+      })
+      return
+    } catch (error) {
+      if (!(error instanceof SecureWriteSupersededError)) {
+        throw error
       }
-    })
+    }
   }
 }
 

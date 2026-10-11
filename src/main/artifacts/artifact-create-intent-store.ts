@@ -45,7 +45,10 @@ async function ensureIntentDirectory(profileId: string, userDataPath: string): P
   const directory = intentDirectory(profileId, userDataPath)
   mkdirSync(directory, { recursive: true, mode: 0o700 })
   if (!hardenedIntentDirectories.has(directory)) {
-    await hardenSecureDirectoryAsync(directory)
+    // Why: a failed hardening is retried on the next create instead of cached for the process.
+    if (!(await hardenSecureDirectoryAsync(directory))) {
+      return directory
+    }
     if (hardenedIntentDirectories.size >= MAX_HARDENED_INTENT_DIRECTORIES) {
       const oldest = hardenedIntentDirectories.values().next().value
       if (oldest !== undefined) {
