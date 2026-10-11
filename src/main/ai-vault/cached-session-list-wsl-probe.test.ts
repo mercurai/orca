@@ -1,15 +1,15 @@
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as childProcess from 'node:child_process'
+import type { ProcessResult, ProcessSpec } from '../../shared/child-process/run-process'
 
-const { execFileMock, scanAiVaultSessionsInService } = vi.hoisted(() => ({
-  execFileMock: vi.fn(),
+const { runProcessMock, scanAiVaultSessionsInService } = vi.hoisted(() => ({
+  runProcessMock: vi.fn<(spec: ProcessSpec) => Promise<ProcessResult>>(),
   scanAiVaultSessionsInService: vi.fn()
 }))
 
-vi.mock('child_process', async (importOriginal) => ({
-  ...(await importOriginal<typeof childProcess>()),
-  execFile: execFileMock
+vi.mock('../../shared/child-process/run-process', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  runProcess: runProcessMock
 }))
 vi.mock('./session-scanner-service-spawn', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -31,10 +31,15 @@ import {
 const NATIVE_CODEX_HOME = 'C:\\Users\\ada\\.codex'
 const WSL_HOME = '\\\\wsl.localhost\\Ubuntu\\home\\ada'
 
+/** A wsl.exe run that printed `stdout` and exited cleanly. */
+function exited(stdout: string): ProcessResult {
+  return { code: 0, signal: null, stdout, stderr: '', timedOut: false }
+}
+
 function wslSpawns(): string[][] {
-  return execFileMock.mock.calls
-    .filter(([command]) => command === 'wsl.exe')
-    .flatMap(([, args]) => (Array.isArray(args) ? [args.map(String)] : []))
+  return runProcessMock.mock.calls
+    .filter(([spec]) => spec.program === 'wsl.exe')
+    .flatMap(([spec]) => (spec.args ? [spec.args.map(String)] : []))
 }
 
 // Why the real wsl module: the point is the wsl.exe spawn count across the WHOLE
@@ -47,7 +52,7 @@ describe('AI Vault listing wsl.exe probes', () => {
     scanAiVaultSessionsInService.mockResolvedValue({ sessions: [], issues: [], scannedAt: 'scan' })
   })
   afterEach(() => {
-    execFileMock.mockReset()
+    runProcessMock.mockReset()
     _resetWslCachesForTests()
     resetAiVaultSessionListCacheForTests()
     vi.restoreAllMocks()
@@ -70,9 +75,9 @@ describe('AI Vault listing wsl.exe probes', () => {
 
   it('still probes running distros when one is installed, so a later outage keeps the last-known-good list', async () => {
     _setWslCachesForTests({ distros: ['Ubuntu'] })
-    execFileMock.mockImplementation((_command, args, _options, callback) => {
-      callback(null, args.includes('--running') ? 'Ubuntu\n' : '/home/ada\n')
-    })
+    runProcessMock.mockImplementation((spec: ProcessSpec) =>
+      Promise.resolve(exited(spec.args?.includes('--running') ? 'Ubuntu\n' : '/home/ada\n'))
+    )
 
     await listAiVaultSessions()
 
@@ -85,9 +90,7 @@ describe('AI Vault listing wsl.exe probes', () => {
       expect.anything()
     )
 
-    execFileMock.mockImplementation((_command, _args, _options, callback) => {
-      callback(new Error('wsl unavailable'), '')
-    })
+    runProcessMock.mockRejectedValue(new Error('wsl unavailable'))
     await expect(filterPathsToRunningWslDistrosAsync([`${WSL_HOME}\\.codex`])).resolves.toEqual([
       `${WSL_HOME}\\.codex`
     ])
@@ -96,14 +99,13 @@ describe('AI Vault listing wsl.exe probes', () => {
   // Why: a rejected `--list --quiet` yields [] without caching. Treating that as "no distro
   // installed" would narrow the allowed roots delete/subagent validation trusts.
   it('still discovers WSL homes after the installed-distro probe was rejected', async () => {
-    execFileMock.mockImplementation((_command, args, _options, callback) => {
-      if (args.includes('--running')) {
-        callback(null, 'Ubuntu\n')
-      } else if (args.includes('--list')) {
-        callback(new Error('wsl.exe transient failure'), '')
-      } else {
-        callback(null, '/home/ada\n')
+    runProcessMock.mockImplementation((spec: ProcessSpec) => {
+      if (spec.args?.includes('--running')) {
+        return Promise.resolve(exited('Ubuntu\n'))
       }
+      return spec.args?.includes('--list')
+        ? Promise.reject(new Error('wsl.exe transient failure'))
+        : Promise.resolve(exited('/home/ada\n'))
     })
     await expect(listWslDistrosAsync()).resolves.toEqual([])
 
