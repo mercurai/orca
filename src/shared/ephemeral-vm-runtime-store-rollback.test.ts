@@ -21,6 +21,7 @@ import {
   EphemeralVmRuntimeStoreError,
   getEphemeralVmRuntimeStorePath,
   listEphemeralVmRuntimes,
+  upsertEphemeralVmRuntimeRollbackRecovery,
   updateEphemeralVmRuntimeStatus,
   upsertEphemeralVmRuntime
 } from './ephemeral-vm-runtime-store'
@@ -206,6 +207,25 @@ describe('ephemeral VM runtime store rollback projection', () => {
         JSON.parse(readFileSync(getEphemeralVmRuntimeStorePath(userDataPath), 'utf8'))
       ).success
     ).toBe(true)
+  })
+
+  it('keeps the features of poisoned bytes through a rollback-recovery upsert', async () => {
+    const userDataPath = makeUserDataPath()
+    const provisioned = provisionedRootRecord()
+    writeFileSync(
+      getEphemeralVmRuntimeStorePath(userDataPath),
+      JSON.stringify(
+        EphemeralVmRuntimeStoreSchema.parse({
+          version: 1,
+          runtimes: [provisioned, runtimeRecord()]
+        })
+      )
+    )
+
+    await upsertEphemeralVmRuntimeRollbackRecovery(userDataPath, runtimeRecord())
+
+    // The provisioned-root runtime keeps its checkout mode after the projection stripped it.
+    expect(listEphemeralVmRuntimes(userDataPath)).toContainEqual(provisioned)
   })
 
   it('carries rollback lifecycle mutations through re-upgrade', async () => {
