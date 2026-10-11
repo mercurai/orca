@@ -95,8 +95,9 @@ test.skipIf(!targetRoot || !operation)(`STA-4274 ${operation ?? 'disabled'}`, as
     return
   }
   if (operation === 'write-mixed') {
-    store.upsertEphemeralVmRuntime(userDataPath, ordinary)
-    store.upsertEphemeralVmRuntime(userDataPath, provisionedRoot)
+    // Why: the candidate's store mutators are async; awaiting a baseline's sync return is a no-op.
+    await store.upsertEphemeralVmRuntime(userDataPath, ordinary)
+    await store.upsertEphemeralVmRuntime(userDataPath, provisionedRoot)
     return
   }
   if (operation === 'read') {
@@ -115,7 +116,7 @@ test.skipIf(!targetRoot || !operation)(`STA-4274 ${operation ?? 'disabled'}`, as
     return
   }
   if (operation === 'mutate-lifecycle') {
-    store.updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', {
+    await store.updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', {
       status: 'suspended',
       updatedAt: 3_000
     })
