@@ -72,7 +72,10 @@ export class RemoteRuntimeCompatGate {
       })
       throw error
     }
-    await this.recordUsed(observed)
+    // Why: the request already succeeded; a failed usage stamp must not turn it into an error.
+    await this.recordUsed(observed).catch((writeError) => {
+      console.warn('[runtime] failed to record environment usage:', writeError)
+    })
     return response
   }
 
