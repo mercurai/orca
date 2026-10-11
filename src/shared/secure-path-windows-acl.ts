@@ -2,13 +2,13 @@ import { randomBytes } from 'node:crypto'
 import { readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 as pathWin32 } from 'node:path'
-import { runProcess, runProcessSync } from './child-process/run-process'
+import { runProcess } from './child-process/run-process'
 import { windowsSystem32Binary } from './child-process/windows-system-binary'
 import {
   reportSecurePathHardening,
   type SecurePathHardeningReport
 } from './secure-path-hardening-report'
-import { getCurrentWindowsUserSid, getCurrentWindowsUserSidAsync } from './windows-current-user-sid'
+import { getCurrentWindowsUserSidAsync } from './windows-current-user-sid'
 import { localDomainSidOf, parseSddlDacl } from './windows-security-descriptor'
 
 const ACL_TIMEOUT_MS = 5000
@@ -263,13 +263,16 @@ async function verifyAsync(plan: AclPlan): Promise<string | null> {
  * post-check only re-reads what a successful grant just wrote; each cost a spawn on a loop thread
  * where spawn creation alone takes 0.2-3.8 s on affected hosts.
  */
-export async function restrictNewFileAsync(targetPath: string): Promise<boolean> {
+export async function restrictNewFileAsync(
+  targetPath: string,
+  isDirectory = false
+): Promise<boolean> {
   const currentUserSid = await getCurrentWindowsUserSidAsync()
   if (!currentUserSid) {
     report(targetPath, 'sid-lookup', 'could not resolve the current user SID')
     return false
   }
-  const plan = buildAclPlan(targetPath, currentUserSid, false)
+  const plan = buildAclPlan(targetPath, currentUserSid, isDirectory)
   for (const [stage, args] of [
     ['reset', plan.resetArgs],
     ['grant', plan.grantArgs]
@@ -296,47 +299,12 @@ export async function restrictNewFileAsync(targetPath: string): Promise<boolean>
   return true
 }
 
-/** Blocking twin of `restrictNewFileAsync` for the sync writer; same two spawns, same arguments. */
-export function restrictWindowsPathSync(targetPath: string, isDirectory: boolean): boolean {
-  const plan = planFor(targetPath, isDirectory)
-  if (!plan) {
-    return false
-  }
-  // Why sync: the file must not be published until its ACL is actually restricted (read path stays async, #4901).
-  for (const [stage, args] of [
-    ['reset', plan.resetArgs],
-    ['grant', plan.grantArgs]
-  ] as const) {
-    try {
-      const result = runProcessSync({ program: plan.program, args, timeoutMs: ACL_TIMEOUT_MS })
-      if (result.code !== 0) {
-        report(targetPath, stage, describeIcaclsFailure(result))
-        return false
-      }
-    } catch (error) {
-      // Why not fatal: a failed ACL apply must not crash the write; false leaves the path uncached to retry later.
-      report(targetPath, stage, String(error))
-      return false
-    }
-  }
-  return true
-}
-
 function discard(savePath: string): void {
   try {
     rmSync(savePath, { force: true })
   } catch {
     // The descriptor holds no secrets; a leftover temp file is not worth reporting.
   }
-}
-
-function planFor(targetPath: string, isDirectory: boolean): AclPlan | null {
-  const currentUserSid = getCurrentWindowsUserSid()
-  if (!currentUserSid) {
-    report(targetPath, 'sid-lookup', 'could not resolve the current user SID')
-    return null
-  }
-  return buildAclPlan(targetPath, currentUserSid, isDirectory)
 }
 
 export { resetSecureFileWindowsUserSidForTests } from './windows-current-user-sid'
