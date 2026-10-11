@@ -1,7 +1,8 @@
 /**
  * mercurai fork: which orcad template targets a desktop build ships. Upstream packages every
- * target; a build that sets ORCA_ORCAD_TEMPLATE_TARGETS ships only the listed ones, and a host
- * outside the list is refused by the desktop as unsupported.
+ * target; a build that sets ORCA_ORCAD_TEMPLATE_TARGETS ships only the listed ones. A host
+ * outside the list gets no managed server (OrcadHostUnsupportedError) and its connect falls
+ * back to the relay path, as it does for any target upstream has no build for.
  */
 const { ORCAD_TEMPLATE_TARGETS } = require('../../src/shared/node-runtime-pin.ts')
 
