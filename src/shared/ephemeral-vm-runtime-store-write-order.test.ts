@@ -45,6 +45,15 @@ function userDataPath(): string {
 
 function record(id: string, provisionedRoot: boolean): EphemeralVmRuntimeRecord {
   const recipeId = `${id}-recipe`
+  const connection = {
+    type: 'ssh' as const,
+    projectRoot: `/workspace/${id}`,
+    target: { label: id, host: `${id}.example.com`, port: 22, username: 'developer' }
+  }
+  const userData = { resourceId: `${id}-resource` }
+  const recipeResult: EphemeralVmRuntimeRecord['recipeResult'] = provisionedRoot
+    ? { schemaVersion: 2, checkoutMode: 'provisioned-root', connection, userData }
+    : { schemaVersion: 1, connection, userData }
   return {
     id,
     recipeId,
@@ -59,16 +68,7 @@ function record(id: string, provisionedRoot: boolean): EphemeralVmRuntimeRecord 
     cleanupStatus: 'not_started',
     createdAt: provisionedRoot ? 2_000 : 1_000,
     updatedAt: provisionedRoot ? 2_000 : 1_000,
-    recipeResult: {
-      schemaVersion: provisionedRoot ? 2 : 1,
-      ...(provisionedRoot ? { checkoutMode: 'provisioned-root' as const } : {}),
-      connection: {
-        type: 'ssh',
-        projectRoot: `/workspace/${id}`,
-        target: { label: id, host: `${id}.example.com`, port: 22, username: 'developer' }
-      },
-      userData: { resourceId: `${id}-resource` }
-    }
+    recipeResult
   }
 }
 
