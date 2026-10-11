@@ -101,6 +101,10 @@ export async function upsertEphemeralVmRuntimeRollbackRecovery(
   await serializeStoreMutation(userDataPath, async () => {
     const loaded = readEphemeralVmRuntimeStore(userDataPath)
     const path = getEphemeralVmRuntimeStorePath(userDataPath)
+    // Why: the rollback projection strips features; migrate old-shape bytes into the sidecar first.
+    if (loaded.needsMigration && loaded.features.writable) {
+      await writeEphemeralVmRuntimeStore(userDataPath, loaded.store, loaded.features)
+    }
     try {
       await writeSecureJsonFileWithinLimitAsync(
         path,
@@ -182,6 +186,8 @@ export async function removeEphemeralVmRuntime(
 type LoadedEphemeralVmRuntimeStore = {
   store: EphemeralVmRuntimeStore
   features: EphemeralVmRuntimeFeatureStoreSnapshot
+  /** The file predates the rollback-safe shape; its features are not yet in the sidecar. */
+  needsMigration?: boolean
 }
 
 function readEphemeralVmRuntimeStore(userDataPath: string): LoadedEphemeralVmRuntimeStore {
@@ -207,7 +213,8 @@ function readEphemeralVmRuntimeStore(userDataPath: string): LoadedEphemeralVmRun
         compareRuntimeRecords
       )
     }
-    return { store, features }
+    const needsMigration = !RollbackEphemeralVmRuntimeStoreSchema.safeParse(persisted).success
+    return { store, features, needsMigration }
   } catch {
     throw new EphemeralVmRuntimeStoreError(
       'runtime_error',
