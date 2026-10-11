@@ -6,6 +6,16 @@
 // share a lane; every caller here builds the path from the same resolver, and realpath() would add
 // a syscall to the fast path it exists to protect.
 const pendingByPath = new Map<string, Promise<void>>()
+const discardEpochByPath = new Map<string, number>()
+
+/** Why: a delete must beat every write already queued for the path, or a cleared secret comes back. */
+export function discardPendingPathWrites(finalPath: string): void {
+  discardEpochByPath.set(finalPath, (discardEpochByPath.get(finalPath) ?? 0) + 1)
+}
+
+export function pathDiscardEpoch(finalPath: string): number {
+  return discardEpochByPath.get(finalPath) ?? 0
+}
 
 export async function serializePathWrite<T>(
   finalPath: string,

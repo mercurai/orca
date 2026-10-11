@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { getRuntimeMetadataPath, type RuntimeMetadata } from '../../shared/runtime-bootstrap'
-import { writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
+import { removeSecureFile, writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 
 export async function writeRuntimeMetadata(
   userDataPath: string,
@@ -35,7 +35,7 @@ export async function readRuntimeMetadataAsync(
 }
 
 export function clearRuntimeMetadata(userDataPath: string): void {
-  rmSync(getRuntimeMetadataPath(userDataPath), { force: true })
+  removeSecureFile(getRuntimeMetadataPath(userDataPath))
 }
 
 /**

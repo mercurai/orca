@@ -3,7 +3,11 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { hardenExistingSecureFile } from '../../shared/secure-file'
-import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
+import {
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 
 const ZCODE_PLAN_API_KEY_FILE = 'zcode-plan-api-key.enc'
@@ -86,6 +90,10 @@ export function getZcodePlanApiKeyProtection(): SecretAtRestProtection | null {
 }
 
 export async function saveZcodePlanApiKey(key: string): Promise<void> {
+  await ignoreDiscardedSecureWrite(() => saveZcodePlanApiKeyUnlessCleared(key))
+}
+
+async function saveZcodePlanApiKeyUnlessCleared(key: string): Promise<void> {
   const trimmed = key.trim()
   if (!trimmed) {
     throw new Error('GLM Coding Plan API key is required')
@@ -166,5 +174,5 @@ export function readZcodePlanApiKey(): string | null {
 
 export function clearZcodePlanApiKey(): void {
   cachedZcodePlanApiKey = null
-  rmSync(getZcodePlanApiKeyPath(), { force: true })
+  removeSecureFile(getZcodePlanApiKeyPath())
 }

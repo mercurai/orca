@@ -1,8 +1,8 @@
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { safeStorage } from 'electron'
 import { isUnreadableError } from '../../shared/secure-file'
-import { writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
+import { removeSecureFile, writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 import type {
   OrcaCloudCapabilities,
   OrcaCloudOrgSummary,
@@ -260,7 +260,7 @@ export function readOrcaCloudSession(
 
 export function clearOrcaCloudSession(profileId: string, userDataPath: string): void {
   memorySessions.delete(sessionCacheKey(profileId, userDataPath))
-  rmSync(getOrcaCloudSessionPath(profileId, userDataPath), { force: true })
+  removeSecureFile(getOrcaCloudSessionPath(profileId, userDataPath))
 }
 
 export function getOrcaCloudMemorySessionCountForTests(): number {

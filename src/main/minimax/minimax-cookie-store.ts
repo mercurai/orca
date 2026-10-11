@@ -1,9 +1,13 @@
 import { safeStorage } from 'electron'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { hardenExistingSecureFile } from '../../shared/secure-file'
-import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
+import {
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 
 const MINIMAX_COOKIE_FILE = 'minimax-session-cookie.enc'
@@ -139,6 +143,10 @@ export function hasMiniMaxSessionCookie(): boolean {
 }
 
 export async function saveMiniMaxSessionCookie(cookie: string): Promise<void> {
+  await ignoreDiscardedSecureWrite(() => saveMiniMaxSessionCookieUnlessCleared(cookie))
+}
+
+async function saveMiniMaxSessionCookieUnlessCleared(cookie: string): Promise<void> {
   const trimmed = cookie.trim()
   if (!trimmed) {
     throw new Error('MiniMax session cookie is required')
@@ -187,5 +195,5 @@ export function readMiniMaxSessionCookie(): string | null {
 
 export function clearMiniMaxSessionCookie(): void {
   cachedMiniMaxCookie = null
-  rmSync(getMiniMaxCookiePath(), { force: true })
+  removeSecureFile(getMiniMaxCookiePath())
 }
