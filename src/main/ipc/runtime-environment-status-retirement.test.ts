@@ -7,6 +7,7 @@ import {
   resolveEnvironment
 } from '../../shared/runtime-environment-store'
 import { pairingCode } from './runtime-environments-ipc-test-harness'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../shared/protocol-version'
 import {
   advanceRuntimeEnvironmentCapabilityIncarnation,
@@ -92,6 +93,8 @@ it.each(['success', 'failure', 'throw'] as const)(
       ok: false,
       error: { code: 'runtime_environment_changed' }
     })
+    // The usage stamp is detached: let any that was started land before reading the store.
+    await drainPendingPathWrites()
     expect(resolveEnvironment(directory, envId).runtimeId).toBeNull()
     expect(mocks.ensure).not.toHaveBeenCalled()
     expect(mocks.reconnect).not.toHaveBeenCalled()
