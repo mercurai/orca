@@ -1,3 +1,4 @@
+import type { SpawnDeferralReason } from '../../../../../shared/host-spawn-admission'
 import { isRemoteRuntimePtyId } from '../../../../../shared/remote-runtime-pty-id'
 import { useAppStore } from '@/store'
 import { PROCESS_BOUNDARY_GROUND } from '../../../../../shared/terminal-mode-reset-profiles'
@@ -86,6 +87,8 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
     }
 
     session.transportConnectInFlightSince = Date.now()
+    session.pendingSpawnDeferral = null
+    const visibleAtSpawn = session.deps.isVisibleRef.current === true
     const effectiveStartup = startupOverride === undefined ? session.paneStartup : startupOverride
     const outputCallbacks = session.captureTransportOutputCallbacks(
       session.reportError,
@@ -114,6 +117,7 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
       ...(coldRestoreOverride ? { launchToken: coldRestoreOverride.launchToken } : {}),
       ...(coldRestoreOverride ? { launchAgent: coldRestoreOverride.agent } : {}),
       ...(session.shouldDeclareHiddenAtSpawn() ? { initiallyHidden: true } : {}),
+      resumeSpawnIntent: visibleAtSpawn ? 'user-resume' : 'automatic-restore',
       ...(session.pendingReplacedPtyId
         ? { claimReplacedPtyId: session.claimPendingReplacedPtyId }
         : {}),
@@ -142,6 +146,18 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
             : typeof spawnedPtyId === 'string'
               ? spawnedPtyId
               : session.transport.getPtyId()
+        const deferral: SpawnDeferralReason | null = resolvedPtyId
+          ? null
+          : session.pendingSpawnDeferral
+        session.pendingSpawnDeferral = null
+        if (deferral) {
+          // Why before the launch-config cleanup below: a deferred launch is postponed, not dead.
+          releaseDeferredCwdFence()
+          clearPreSignaledSerializer()
+          session.finishReattachLiveDataDeferral(false, outputCallbacks.generation)
+          session.enterSpawnDeferredSleep(deferral, startupOverride, options, visibleAtSpawn)
+          return null
+        }
         if (resolvedPtyId && !session.claimCapturedDirectSshRetryPty(resolvedPtyId)) {
           releaseDeferredCwdFence()
           session.finishReattachLiveDataDeferral(false, outputCallbacks.generation)
@@ -300,6 +316,11 @@ export function bindStartFreshSpawn(session: ConnectPanePtySession): void {
           session.transport.getPtyId() ||
           pendingSpawnByPaneKey.has(session.pendingSpawnKey)
         ) {
+          return
+        }
+        if (session.deferredSpawn) {
+          // Why no remount: the host would defer the remount's restore again, in a loop.
+          session.settlePaneAttachAttempt?.(session.directSshRetryAttempt, 'failed')
           return
         }
         settleSpawnThatLeftPaneUnbound(session)

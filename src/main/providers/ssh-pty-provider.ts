@@ -26,10 +26,6 @@ import type { PtyProcessInspection } from './pty-process-inspection'
 import { spawnWithTerminalRuntimeRepair, type TerminalRepairHook } from './ssh-pty-spawn-repair'
 import { createSshPtyProviderRpcOperations } from './ssh-pty-provider-rpc-operations'
 import { createSshPtyProcessLister } from './ssh-pty-process-list'
-import {
-  installSshPtyLegacyRelayDelegation,
-  type SshPtyLegacyRelayRouting
-} from './ssh-pty-legacy-relay-delegation'
 
 // Why: sequential relay teardown calls share one absolute budget; convert to the mux-relative timeout only at dispatch.
 function relayTimeoutOptions(deadlineMs: number | undefined): { timeoutMs: number } | undefined {
@@ -126,11 +122,6 @@ export class SshPtyProvider implements IPtyProvider {
   private toRelayPtyId = (id: string): string => toRelaySshPtyId(this.connectionId, id)
 
   private toAppPtyId = (id: string): string => toAppSshPtyId(this.connectionId, id)
-
-  /** Installed by SshRelaySession once per provider, for PTYs an earlier build's relay still runs. */
-  setLegacyRelayRouting(routing: SshPtyLegacyRelayRouting): void {
-    installSshPtyLegacyRelayDelegation(this, routing)
-  }
 
   /** Installed by SshRelaySession, which owns the connection, the repair lock and the reconnect. */
   setTerminalUnavailableRecovery(recover: TerminalRepairHook<SshPtyProvider>): void {

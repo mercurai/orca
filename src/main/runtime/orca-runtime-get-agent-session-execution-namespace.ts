@@ -168,6 +168,7 @@ export class OrcaRuntimeWithGetAgentSessionExecutionNamespace extends OrcaRuntim
       tabId: request.placement?.tabId,
       leafId: request.placement?.leafId,
       agentSessionClaim: claim,
+      ...(request.spawnIntent ? { spawnIntent: request.spawnIntent } : {}),
       signal: _caller.signal
     })
     return {

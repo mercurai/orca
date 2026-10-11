@@ -104,6 +104,7 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       session.claimPendingVisibleRemoteViewport()
       session.ptySizeReassertion.request({ fit: false })
       session.consumeHibernatedAgentWake()
+      session.resumeDeferredSpawnOnReveal()
       session.requestKnownWindowsShiftEnterReconfirmation()
       session.sampleVisiblePaneForegroundAgent()
     },
@@ -174,6 +175,7 @@ export function installSessionReconcileDispose(session: ConnectPanePtySession): 
       session.spawnedFreshPtyId === ptyId && !Number.isFinite(session.lastTerminalInputAt),
     dispose() {
       session.disposed = true
+      session.disposeSpawnDeferral()
       session.startupTiming?.finish('disposed')
       const unsentReplacedPtyId: string | null = session.claimPendingReplacedPtyId()
       if (unsentReplacedPtyId) {

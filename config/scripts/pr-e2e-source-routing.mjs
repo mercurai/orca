@@ -144,7 +144,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-browser-drop-owner',
     specs: ['tests/e2e/ssh-orcad-browser-drop-owner.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target|browser-split-(?:guest-probes|page-server))\.ts$/.test(
+      /^tests\/e2e\/helpers\/(?:orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target|browser-split-(?:guest-probes|page-server))\.ts$/.test(
         file
       ) ||
       (isProductSource(file) &&
@@ -156,7 +156,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-open-in-owner',
     specs: ['tests/e2e/ssh-orcad-open-in-owner.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/.test(
+      /^tests\/e2e\/helpers\/(?:orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/.test(
         file
       ) ||
       (isProductSource(file) &&
@@ -168,7 +168,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-terminal-root-owner',
     specs: ['tests/e2e/ssh-orcad-terminal-root-owner.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:terminal-workspace-root-link|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/.test(
+      /^tests\/e2e\/helpers\/(?:terminal-workspace-root-link|orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/.test(
         file
       ) ||
       (isProductSource(file) &&

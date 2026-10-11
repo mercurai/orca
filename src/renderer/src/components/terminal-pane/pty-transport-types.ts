@@ -1,3 +1,7 @@
+import type {
+  RestoreSpawnIntent,
+  SpawnDeferralReason
+} from '../../../../shared/host-spawn-admission'
 import type { ParsedAgentStatusPayload } from '../../../../shared/agent-status-types'
 import type {
   AgentProviderSessionMetadata,
@@ -138,6 +142,8 @@ type PtyCallbacks = {
   onWriteUnavailable?: () => void
   onRecoveryStateChange?: (state: PtyTransportRecoveryState) => void
   onOutputPauseChanged?: (paused: boolean, supported: boolean) => void
+  /** The host kept this restore asleep; no process started and the resume handle is intact. */
+  onSpawnDeferred?: (reason: SpawnDeferralReason) => void
 }
 
 export type PtyTransportRecoveryState = {
@@ -166,6 +172,8 @@ export type PtyTransport = {
      *  first byte and the gate + model responder own spawn-time queries.
      *  Ignored by remote-runtime transports (not gate-markable). */
     initiallyHidden?: boolean
+    /** Sent only when this connect resumes an agent, and only to hosts that accept it. */
+    resumeSpawnIntent?: RestoreSpawnIntent
     command?: string
     commandDelivery?: 'renderer' | 'provider'
     env?: Record<string, string>

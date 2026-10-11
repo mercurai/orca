@@ -1,3 +1,4 @@
+import type { SpawnIntent } from '../../shared/host-spawn-admission'
 import type {
   AgentSessionClaimedSpawnResult,
   AgentSessionExecutionClaim,
@@ -80,6 +81,7 @@ export type RuntimePtyController = {
       surface: AgentSessionSurfaceBinding
     }
     agentSessionCreateOperationId?: string
+    spawnIntent?: SpawnIntent
     signal?: AbortSignal
     refuseSleptWorktree?: boolean
     onPtySpawnCommitted?: () => void

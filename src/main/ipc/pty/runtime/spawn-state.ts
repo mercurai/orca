@@ -1,3 +1,4 @@
+import type { SpawnIntent } from '../../../../shared/host-spawn-admission'
 import type { IPtyProvider, PtySpawnOptions, PtySpawnResult } from '../../../providers/types'
 import type { CodexPaneHomeRoute } from '../../../codex/codex-pane-account-registry'
 import type { CodexAccountSelectionTarget } from '../../../codex-accounts/runtime-selection'
@@ -119,6 +120,7 @@ export type RuntimePtySpawnArgs = {
     surface: AgentSessionSurfaceBinding
   }
   agentSessionCreateOperationId?: string
+  spawnIntent?: SpawnIntent
   signal?: AbortSignal
   refuseSleptWorktree?: boolean
   onPtySpawnCommitted?: () => void

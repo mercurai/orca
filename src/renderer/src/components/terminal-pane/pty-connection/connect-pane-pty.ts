@@ -1,3 +1,4 @@
+import { installSpawnDeferredSleep } from './spawn-deferred-sleep'
 import type { PaneManager, ManagedPane } from '@/lib/pane-manager/pane-manager'
 import { useAppStore } from '@/store'
 import { TerminalKittyKeyboardModeTracker } from '../../../../../shared/terminal-kitty-keyboard-mode-tracker'
@@ -179,6 +180,7 @@ export function connectPanePty(
   installInterruptInputIntent(session)
   installTerminalKeydownFit(session)
   installPtyExitHibernate(session)
+  installSpawnDeferredSleep(session)
   installTitleSpawnBell(session)
   installAgentTaskCompleteNotify(session)
   installDirectSshRetryStatus(session)

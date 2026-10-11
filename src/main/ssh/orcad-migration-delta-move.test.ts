@@ -112,7 +112,6 @@ async function convertedThenChangedOnOlderBuild(): Promise<void> {
     convertSshTargetToManagedOrcad(userDataPath, {
       sshTargetId: TARGET.id,
       name: 'Managed',
-      listRelayPtyIds: Object.assign(async () => [], { previous: async () => [] }),
       censusHost: async () => ({ verdict: 'exited', count: 0 }),
       destinationFor: () => destination,
       releaseDirectSession: async () => {},
@@ -134,8 +133,6 @@ function deltaMove(at: () => Date = now) {
     target,
     environment: listEnvironments(userDataPath)[0]!,
     destination,
-    // This relay and every earlier-build relay answer that nothing runs.
-    listRelayPtyIds: Object.assign(async () => [], { previous: async () => [] }),
     censusHost: async () => ({ verdict: 'exited', count: 0 }),
     releaseDirectSession: async () => {},
     ensureTunnel: async () => {},
@@ -465,7 +462,6 @@ async function convertKeepingSource(): Promise<void> {
     convertSshTargetToManagedOrcad(userDataPath, {
       sshTargetId: TARGET.id,
       name: 'Managed',
-      listRelayPtyIds: Object.assign(async () => [], { previous: async () => [] }),
       censusHost: async () => ({ verdict: 'exited', count: 0 }),
       destinationFor: () => destination,
       releaseDirectSession: async () => {},

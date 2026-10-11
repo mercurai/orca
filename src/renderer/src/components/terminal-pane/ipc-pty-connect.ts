@@ -1,3 +1,4 @@
+import { readTerminalSpawnDeferral } from '../../../../shared/host-spawn-admission'
 import { isRuntimeOwnedSshTargetId } from '../../../../shared/execution-host'
 import { readIpcErrorDetail } from '@/lib/ipc-error'
 import { ensurePtyDispatcher } from './pty-dispatcher'
@@ -197,6 +198,11 @@ function handleConnectError(
     return { id: options.sessionId, sessionExpired: true }
   }
   if (message.includes('was explicitly killed')) {
+    return undefined
+  }
+  const deferral = readTerminalSpawnDeferral(message)
+  if (deferral) {
+    context.getCallbacks().onSpawnDeferred?.(deferral)
     return undefined
   }
   if (connectionId && options.sessionId && message.includes(SSH_PTY_CONNECTION_MISMATCH_MARKER)) {
