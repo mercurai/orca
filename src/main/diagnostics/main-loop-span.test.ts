@@ -117,8 +117,12 @@ describe('main.loop span', () => {
     terminalInputLatency.noteOutput('pty-1')
     runUntilWindowRolls()
 
-    const span = pushed.filter((s) => s.name === 'main.loop')[0]
+    const span = pushed.find((s) => s.name === 'main.loop')
+    if (!span) {
+      throw new Error('expected a main.loop span')
+    }
     expect(span.attributes['terminalInput.inputCount']).toBe(1)
+    expect(span.attributes['terminalInput.typedPtyCount']).toBe(1)
     expect(span.attributes['terminalInput.echoCount']).toBe(1)
     expect(span.attributes['terminalInput.echoP50Ms']).toBe(80)
     expect(span.attributes['terminalInput.ipcLagMaxMs']).toBeGreaterThanOrEqual(30)
