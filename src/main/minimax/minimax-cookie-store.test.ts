@@ -35,8 +35,13 @@ vi.mock('node:path', () => ({
 }))
 
 vi.mock('../../shared/secure-file', () => ({
-  hardenExistingSecureFile: hardenExistingSecureFileMock,
-  writeSecureFile: writeSecureFileMock
+  hardenExistingSecureFile: hardenExistingSecureFileMock
+}))
+
+vi.mock('../../shared/secure-file-async-write', () => ({
+  writeSecureFileAsync: writeSecureFileMock,
+  ignoreDiscardedSecureWrite: async (save: () => Promise<void>) => await save(),
+  removeSecureFile: (path: string) => rmSyncMock(path, { force: true })
 }))
 
 const storePath = '/home/test/.orca/minimax-session-cookie.enc'
@@ -54,6 +59,7 @@ describe('minimax-cookie-store', () => {
     rmSyncMock.mockReset()
     hardenExistingSecureFileMock.mockReset()
     writeSecureFileMock.mockReset()
+    writeSecureFileMock.mockResolvedValue(true)
     safeStorageMock.isEncryptionAvailable.mockReset()
     safeStorageMock.encryptString.mockReset()
     safeStorageMock.decryptString.mockReset()
@@ -98,7 +104,7 @@ describe('minimax-cookie-store', () => {
   it('writes the cookie using safeStorage when encryption is available', async () => {
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
-    store.saveMiniMaxSessionCookie('_token=abc; minimax_group_id_v2=42')
+    await store.saveMiniMaxSessionCookie('_token=abc; minimax_group_id_v2=42')
     expect(safeStorageMock.encryptString).toHaveBeenCalledWith('_token=abc; minimax_group_id_v2=42')
     expect(writeSecureFileMock).toHaveBeenCalledWith(
       storePath,
@@ -111,7 +117,7 @@ describe('minimax-cookie-store', () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
-    store.saveMiniMaxSessionCookie('_token=abc')
+    await store.saveMiniMaxSessionCookie('_token=abc')
     expect(writeSecureFileMock).toHaveBeenCalledWith(storePath, envelope('plaintext', '_token=abc'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('safeStorage encryption unavailable'))
     warn.mockRestore()
@@ -119,7 +125,7 @@ describe('minimax-cookie-store', () => {
 
   it('refuses empty cookies', async () => {
     const store = await loadStore()
-    expect(() => store.saveMiniMaxSessionCookie('   ')).toThrow(/required/)
+    await expect(store.saveMiniMaxSessionCookie('   ')).rejects.toThrow(/required/)
   })
 
   it('reads decrypted cookie from disk and caches it', async () => {

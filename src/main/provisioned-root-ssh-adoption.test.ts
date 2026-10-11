@@ -36,7 +36,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('adopts the exact primary checkout, persists host metadata, and attaches the runtime', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot)]),
       exec: sparseCheckoutProbe(false)
@@ -74,7 +74,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('pins an explicit label even when it equals the adopted branch', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot)]),
       exec: sparseCheckoutProbe(false)
@@ -101,7 +101,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects a recipe checkout on a branch Orca did not request', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi
         .fn()
@@ -123,7 +123,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects a recipe checkout that did not start from the requested ref', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const exec = sparseCheckoutProbe(false)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot, { head: 'wrong-head' })]),
@@ -149,7 +149,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('accepts an attached requested branch created from a tag or commit ref', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const exec = sparseCheckoutProbe(false)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot)]),
@@ -173,7 +173,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects a requested ref without its source-host commit identity', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot)]),
       exec: sparseCheckoutProbe(false)
@@ -193,7 +193,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('uses an explicit branch override as the requested local branch', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi
         .fn()
@@ -214,7 +214,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects a linked worktree and sparse checkout', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const listWorktrees = vi
       .fn()
       .mockResolvedValue([gitWorktree(projectRoot, { isMainWorktree: false })])
@@ -246,7 +246,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects path and runtime target mismatches', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot)]),
       exec: sparseCheckoutProbe(false)
@@ -274,7 +274,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects provider rotation during verification', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     let resolveList: (value: ReturnType<typeof gitWorktree>[]) => void = () => undefined
     const listWorktrees = vi.fn(
       () =>
@@ -303,7 +303,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
 
   it('compares Windows checkout roots using runtime path semantics', async () => {
     const windowsRoot = 'C:\\Workspace\\Orca'
-    seedRuntime(userDataPath, windowsRoot)
+    await seedRuntime(userDataPath, windowsRoot)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree('c:/workspace/orca/')]),
       exec: sparseCheckoutProbe(false)
@@ -322,7 +322,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects sparse checkout enabled in the remote Git config', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const exec = sparseCheckoutProbe(true)
     registerSshGitProvider(connectionId, {
       listWorktrees: vi.fn().mockResolvedValue([gitWorktree(projectRoot)]),
@@ -347,8 +347,8 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 })
 
-function seedRuntime(userDataPath: string, root: string): void {
-  upsertEphemeralVmRuntime(userDataPath, {
+async function seedRuntime(userDataPath: string, root: string): Promise<void> {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-1',
     recipeId: 'sandbox',
     recipe: {

@@ -15,12 +15,23 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SyncDatabase from '../sqlite/sync-database'
-import * as secureFile from '../../shared/secure-file'
+import * as secureFile from '../../shared/secure-file-async-write'
+import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
 import { ManagedDataAccountService } from './service'
+import type * as runProcessModule from '../../shared/child-process/run-process'
 
 vi.mock('node:fs', async (importOriginal) => ({
   ...(await importOriginal<typeof fileSystem>())
 }))
+
+vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
+  const actual = await importOriginal<typeof runProcessModule>()
+  return {
+    ...actual,
+    runProcess: vi.fn(actual.runProcess),
+    runProcessSync: vi.fn(actual.runProcessSync)
+  }
+})
 
 let root: string
 let source: string
@@ -84,20 +95,22 @@ describe('managed data accounts', () => {
       const metadata = readFileSync(metadataPath)
       const changed = vi.fn()
       service.onChanged(changed)
-      const write = secureFile.writeSecureFile
-      const failingWrite = vi.spyOn(secureFile, 'writeSecureFile').mockImplementation((...args) => {
-        if (args[0] !== metadataPath) {
-          return write(...args)
-        }
-        if (failure === 'before write') {
+      const write = secureFile.writeSecureFileAsync
+      const failingWrite = vi
+        .spyOn(secureFile, 'writeSecureFileAsync')
+        .mockImplementation(async (...args) => {
+          if (args[0] !== metadataPath) {
+            return write(...args)
+          }
+          if (failure === 'before write') {
+            throw new Error('metadata write failed')
+          }
+          await write(...args)
+          if (failure === 'unrestricted') {
+            return false
+          }
           throw new Error('metadata write failed')
-        }
-        write(...args)
-        if (failure === 'unrestricted') {
-          return false
-        }
-        throw new Error('metadata write failed')
-      })
+        })
 
       await expect(service.remove('devin', before.accounts[0].id)).rejects.toThrow(
         failure === 'unrestricted' ? 'metadata permissions' : 'metadata write failed'
@@ -533,5 +546,12 @@ describe('managed data accounts', () => {
     await expect(service.add('devin', source, 'Work')).rejects.toThrow(
       'Unsupported Devin credential format.'
     )
+  })
+
+  it('writes account state on win32 with no synchronous spawn', async () => {
+    await expectNoSyncSpawnOnWin32(async () => {
+      const state = await service.add('devin', source, 'Work')
+      await service.remove('devin', state.accounts[0].id)
+    })
   })
 })

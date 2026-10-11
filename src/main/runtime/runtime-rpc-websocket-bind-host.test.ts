@@ -105,8 +105,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     // Why: a device that has actually connected (lastSeenAt > 0) may reconnect, so the listener must be
     // reachable at startup without waiting for a new pairing action.
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.getOrCreatePendingDevice('Paired phone', 'mobile')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.getOrCreatePendingDevice('Paired phone', 'mobile')
+    await registry.updateLastSeen(device.deviceId)
 
     const server = new OrcaRuntimeRpcServer({
       runtime: new OrcaRuntimeService(),
@@ -135,7 +135,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     // the listener must stay loopback — this distinguishes the reconnect widen from a blanket any-device
     // widen (a revert to listDevices().length > 0 would wrongly expose the LAN here).
     const registry = new DeviceRegistry(userDataPath)
-    registry.getOrCreatePendingDevice('Pending phone', 'mobile')
+    await registry.getOrCreatePendingDevice('Pending phone', 'mobile')
 
     const server = new OrcaRuntimeRpcServer({
       runtime: new OrcaRuntimeService(),
@@ -165,8 +165,12 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     // blanket "any connected device" widen republished the runtime on every interface one launch later —
     // exactly what the user declined by picking "This computer only".
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.getOrCreatePendingDevice('Runtime local', 'runtime', 'this-computer')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.getOrCreatePendingDevice(
+      'Runtime local',
+      'runtime',
+      'this-computer'
+    )
+    await registry.updateLastSeen(device.deviceId)
 
     const server = new OrcaRuntimeRpcServer({
       runtime: new OrcaRuntimeService(),
@@ -228,7 +232,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     await server.start()
     let deviceId: string
     try {
-      const local = server.createPairingOffer({
+      const local = await server.createPairingOffer({
         address: '127.0.0.1',
         scope: 'runtime',
         reach: 'this-computer'
@@ -236,7 +240,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
       expect(local.available).toBe(true)
       // Why: without `rotate` the same pending token is re-advertised, now for off-host reach. The mark must
       // widen with it — keeping it this-computer would leave the LAN link unserved after the next launch.
-      const network = server.createPairingOffer({
+      const network = await server.createPairingOffer({
         address: '100.64.1.20',
         scope: 'runtime',
         reach: 'network'
@@ -244,7 +248,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
       expect(network.available).toBe(true)
       deviceId = network.available ? network.deviceId : ''
       expect(deviceId).toBe(local.available ? local.deviceId : '')
-      server.getDeviceRegistry()?.updateLastSeen(deviceId)
+      await server.getDeviceRegistry()?.updateLastSeen(deviceId)
     } finally {
       await server.stop()
     }
@@ -546,8 +550,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     // network-reach device has connected. A loopback orcad would therefore go wide one
     // restart after its first client paired — silently, and without the operator asking.
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.getOrCreatePendingDevice('CLI', 'runtime', 'network')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.getOrCreatePendingDevice('CLI', 'runtime', 'network')
+    await registry.updateLastSeen(device.deviceId)
 
     const server = new OrcaRuntimeRpcServer({
       runtime: new OrcaRuntimeService(),
