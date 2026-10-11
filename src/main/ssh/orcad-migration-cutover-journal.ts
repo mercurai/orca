@@ -144,8 +144,9 @@ export async function writeOrcadMigrationSourceCutover(
   // Why one lane per journal: the capacity check reads every entry, so it and the write stay atomic.
   await serializePathWrite(`${directory}#journal`, async () => {
     await writeCutoverWithinCapacity(userDataPath, directory, parsed)
+    // Inside the lane: the next writer's capacity check must not read the cache from before this write.
+    parsedJournals.delete(directory)
   })
-  parsedJournals.delete(directory)
   notifyJournalChanged(userDataPath)
 }
 
