@@ -4,7 +4,7 @@ import type * as NodeFsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { settlePathWritesForTests } from '../../shared/path-write-serializer'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { getRuntimeMetadataPath, type RuntimeMetadata } from '../../shared/runtime-bootstrap'
 import { clearRuntimeMetadata, readRuntimeMetadata, writeRuntimeMetadata } from './runtime-metadata'
 import {
@@ -200,7 +200,7 @@ describe('watchRuntimeMetadataOwnership', () => {
     await new Promise((resolve) => setImmediate(resolve))
     await metadataReadGate.whenIdle()
     await new Promise((resolve) => setImmediate(resolve))
-    await settlePathWritesForTests()
+    await drainPendingPathWrites()
     await new Promise((resolve) => setImmediate(resolve))
   }
 

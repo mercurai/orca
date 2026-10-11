@@ -1,4 +1,4 @@
-import { settlePathWritesForTests } from '../../shared/path-write-serializer'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-request-connections'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -119,8 +119,10 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     closeRemoteRuntimeRequestConnectionMock.mockReset()
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     resetRuntimeEnvironmentStatusOwners()
+    // Why: a detached last-used write would otherwise rename into the removed directory.
+    await drainPendingPathWrites()
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
@@ -169,7 +171,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     )
 
     // The last-used bookkeeping is persisted off the IPC thread; let it land before reading it back.
-    await settlePathWritesForTests()
+    await drainPendingPathWrites()
     const resolve = handler<{ selector: string }, { id: string; runtimeId: string | null }>(
       'runtimeEnvironments:resolve'
     )

@@ -32,6 +32,7 @@ import { shouldQuitWhenAllWindowsClosed } from './window-all-closed-quit-policy'
 import { mainProcessState as state } from './main-process-state'
 import { isDevParentShutdownRequested } from './configure-process'
 import { getCanonicalUserDataPath } from '../persistence'
+import { drainPathWritesForQuit } from './path-write-quit-drain'
 
 // Why: will-quit fires twice — first pass preventDefaults and runs teardown; second pass exits.
 let daemonDisconnectDone = false
@@ -230,6 +231,8 @@ function installWillQuitHandler(): void {
       state.openCodeUsage?.flush(),
       state.museUsage?.flush()
     ]).then(() => {})
+    // Why: the store writes went async; the sync baseline never lost one to a quit, so wait (bounded).
+    const pathWriteDrain = drainPathWritesForQuit()
     const browserClientHostShutdown = shutdownPairedRuntimeBrowserClientHosts()
     const skillUploadShutdown = state.runtime?.disposeSkillUploadSessions() ?? Promise.resolve()
     // Why: the dismissal store debounces its writes by 5 s; flush so a quit does not lose that tail.
@@ -276,6 +279,7 @@ function installWillQuitHandler(): void {
       { name: 'structured-agent-session', promise: structuredAgentSessionShutdown },
       { name: 'usage-cache', promise: usageCacheFlush },
       { name: 'stats', promise: statsFlush },
+      { name: 'path-writes', promise: pathWriteDrain },
       { name: 'state', promise: storeFlush }
     ])
       .then((pendingTeardowns) => {
