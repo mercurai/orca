@@ -44,9 +44,14 @@ export function pendingPathWriteCountForTests(): number {
   return pendingByPath.size
 }
 
-/** Test seam for the fire-and-forget callers (`markEnvironmentUsedDetached`), which have no handle
- *  to await before reading the file back. */
-export async function settlePathWritesForTests(): Promise<void> {
+/** Paths with a write queued or running; for the quit-deadline warning (paths only, never contents). */
+export function pendingPathWritePaths(): string[] {
+  return [...pendingByPath.keys()]
+}
+
+/** Why: the sync writers always finished before quit; quit must wait for the async ones too. Also the
+ *  seam for fire-and-forget callers (`markEnvironmentUsedDetached`) that have no handle to await. */
+export async function drainPendingPathWrites(): Promise<void> {
   while (pendingByPath.size > 0) {
     await Promise.all(pendingByPath.values())
   }
