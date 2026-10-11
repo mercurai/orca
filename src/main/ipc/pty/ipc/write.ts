@@ -3,6 +3,7 @@ import { getPtyIpc } from '../../pty-host-bindings'
 import type { OrcaRuntimeService } from '../../../runtime/orca-runtime'
 import { createPtyWriteInput } from './write-input'
 import { terminalInputLatency } from '../../../diagnostics/terminal-input-latency'
+import { ptyOwnership } from '../provider/ownership-state'
 
 export function installPtyWriteIpcHandlers(deps: {
   mainWindow?: PtyRendererDelivery
@@ -24,7 +25,10 @@ export function installPtyWriteIpcHandlers(deps: {
     if (!isPtyWriteEventFromMainWindow(event) || !isPtyWritePayload(args)) {
       return
     }
-    terminalInputLatency.noteInput(args.id, 'sentAt' in args ? args.sentAt : undefined)
+    terminalInputLatency.noteInput(args.id, 'sentAt' in args ? args.sentAt : undefined, {
+      inputKind: args.inputKind,
+      isLocalPty: ptyOwnership.get(args.id) === null
+    })
     const claimTail = hostViewportClaimTails.get(args.id)
     if (claimTail) {
       void claimTail.then((claimed) => (claimed ? writePtyInput(args) : false))
