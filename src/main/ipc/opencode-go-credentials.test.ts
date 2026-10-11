@@ -66,9 +66,7 @@ describe('OpenCode Go write-only credentials', () => {
 
   it.each([null, undefined, 42, {}])('rejects a non-string key', async (key) => {
     registerOpenCodeGoCredentialsHandlers(null)
-    await expect(invoke('saveApiKey', key)).rejects.toThrow(
-      'OpenCode Go API key must be a string'
-    )
+    await expect(invoke('saveApiKey', key)).rejects.toThrow('OpenCode Go API key must be a string')
     expect(mocks.save).not.toHaveBeenCalled()
   })
 

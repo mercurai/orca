@@ -2,7 +2,11 @@ import { randomBytes } from 'node:crypto'
 import { renameSync, rmSync } from 'node:fs'
 import { chmod, mkdir, open, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { discardPendingPathWrites, pathDiscardEpoch, serializePathWrite } from './path-write-serializer'
+import {
+  discardPendingPathWrites,
+  pathDiscardEpoch,
+  serializePathWrite
+} from './path-write-serializer'
 import {
   hardenSecurePathOnce,
   rememberHardenedPath,

@@ -296,7 +296,9 @@ describe('ephemeral VM runtime store rollback projection', () => {
         'provisioned-runtime',
         'ordinary-runtime'
       ])
-      await updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', { status: 'suspended' })
+      await updateEphemeralVmRuntimeStatus(userDataPath, 'ordinary-runtime', {
+        status: 'suspended'
+      })
       expect(readFileSync(featurePath, 'utf8')).toBe(bytes)
     }
   )

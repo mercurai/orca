@@ -720,7 +720,9 @@ describe('registerMobileHandlers', () => {
 
     registerMobileHandlers(rpcServer as never)
 
-    expect(await handlers.get('mobile:revokeRuntimeAccess')?.(null, { deviceId: 'runtime-1' })).toEqual({
+    expect(
+      await handlers.get('mobile:revokeRuntimeAccess')?.(null, { deviceId: 'runtime-1' })
+    ).toEqual({
       revoked: true
     })
     expect(revokeRuntimeAccess).toHaveBeenCalledWith('runtime-1')
