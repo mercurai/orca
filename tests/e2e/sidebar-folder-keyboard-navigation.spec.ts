@@ -23,7 +23,7 @@ test('cycles visible folder workspaces with shortcuts and focused list arrows', 
       parentPath,
       createdFrom: 'folder-scan'
     })
-    await store.getState().fetchProjectGroups({ runtimeEnvironmentId: null })
+    await store.getState().fetchProjectGroups({ runtimeEnvironmentId: null, throwOnError: true })
     const folder = await store.getState().createFolderWorkspace(
       {
         projectGroupId: group.id,

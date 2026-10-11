@@ -164,7 +164,9 @@ for (const delayCreateResponse of [false, true]) {
     }
     await expect(group).toHaveCount(1)
     await orcaPage.evaluate(() =>
-      window.__store!.getState().fetchProjectGroups({ runtimeEnvironmentId: null })
+      window
+        .__store!.getState()
+        .fetchProjectGroups({ runtimeEnvironmentId: null, throwOnError: true })
     )
     await expect(group).toHaveCount(1)
     await group.click()

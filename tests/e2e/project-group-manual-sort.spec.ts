@@ -92,7 +92,7 @@ async function seedProjectHeaderSortScenario(
     let repos = findSeededRepos()
     const deadline = Date.now() + 10_000
     while (repos.some((repo) => !repo) && Date.now() < deadline) {
-      await state.fetchRepos({ runtimeEnvironmentId: null })
+      await state.fetchRepos({ runtimeEnvironmentId: null, throwOnError: true })
       repos = findSeededRepos()
       if (repos.every((repo) => repo)) {
         break

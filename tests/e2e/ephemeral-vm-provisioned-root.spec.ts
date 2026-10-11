@@ -127,8 +127,7 @@ async function addRecipeRepo(page: Parameters<typeof waitForSessionReady>[0], re
       throw new Error(result.error)
     }
     const store = window.__store!
-    const owner = store.getState().settings?.activeRuntimeEnvironmentId ?? null
-    await store.getState().fetchRepos({ runtimeEnvironmentId: owner })
+    await store.getState().fetchRepos({ runtimeEnvironmentId: null, throwOnError: true })
     await store.getState().updateSettings({ experimentalEphemeralVms: true })
     store.getState().setActiveRepo(result.repo.id)
     return result.repo.id

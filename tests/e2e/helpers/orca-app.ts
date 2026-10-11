@@ -340,7 +340,7 @@ export const test = base.extend<OrcaTestFixtures, OrcaWorkerFixtures>({
             if (!store) {
               return false
             }
-            await store.getState().fetchRepos({ runtimeEnvironmentId: null })
+            await store.getState().fetchRepos({ runtimeEnvironmentId: null, throwOnError: true })
             const repo = store.getState().repos.find((candidate) => candidate.id === repoId)
             if (!repo) {
               return false

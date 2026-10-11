@@ -110,8 +110,7 @@ export async function connectSshTestTarget(
             })
           })
         }
-        const owner = store.getState().settings?.activeRuntimeEnvironmentId ?? null
-        await store.getState().fetchRepos({ runtimeEnvironmentId: owner })
+        await store.getState().fetchRepos({ runtimeEnvironmentId: null, throwOnError: true })
         await waitForRepoOwner()
         const currentState = store.getState().sshConnectionStates.get(createdTarget.id)
         if (

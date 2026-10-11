@@ -136,7 +136,9 @@ async function connectFolderOnlyTarget(
           parentPath: folderPath,
           connectionId: added.target.id
         })
-        await store.getState().fetchProjectGroups({ runtimeEnvironmentId: null })
+        await store
+          .getState()
+          .fetchProjectGroups({ runtimeEnvironmentId: null, throwOnError: true })
         const workspace = await store.getState().createFolderWorkspace(
           {
             projectGroupId: group.id,

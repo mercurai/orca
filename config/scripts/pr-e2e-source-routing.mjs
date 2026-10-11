@@ -199,7 +199,7 @@ export const PR_E2E_SOURCE_ROUTES = [
         file
       ) ||
       (isProductSource(file) &&
-        /^src\/(?:main\/ssh\/orcad-managed-|main\/ipc\/ssh-port-forward|renderer\/src\/startup\/(?:ssh-startup-reconnect|startup-ssh-connection-restore)\.ts$|renderer\/src\/runtime\/web-runtime-session|renderer\/src\/components\/terminal-pane\/remote-runtime-)/.test(
+        /^src\/(?:main\/ssh\/orcad-managed-|main\/ipc\/ssh-port-forward|renderer\/src\/startup\/(?:ssh-startup-reconnect|startup-ssh-connection-restore)\.ts$|renderer\/src\/runtime\/(?:web-runtime-session|runtime-terminal-artifact-read\.ts$)|renderer\/src\/components\/terminal-pane\/(?:remote-runtime-|terminal-host-(?:workspace-file|file-link-existence)\.ts$))/.test(
           file
         ))
   },

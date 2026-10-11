@@ -55,7 +55,9 @@ export type ManagedWorkspace = {
 
 /** Leaves the managed repository active; each launch is recorded on `fixture` for teardown. */
 export async function launchManagedWorkspace(
-  fixture: ManagedHostFixture
+  fixture: ManagedHostFixture,
+  /** Overrides the host's folder workspace, e.g. to keep /tmp outside every workspace. */
+  options: { folderPath?: string } = {}
 ): Promise<ManagedWorkspace> {
   const { host, session } = fixture
   // The first launch only creates the profile the saved SSH host is written into.
@@ -66,7 +68,7 @@ export async function launchManagedWorkspace(
   fixture.app = null
   const seeded = seedRelayEraProfile(session.userDataDir, host.input, {
     repoPath: host.remoteRepoPath,
-    folderPath: host.remoteFolderPath
+    folderPath: options.folderPath ?? host.remoteFolderPath
   })
   const { app, page } = await session.launch()
   fixture.app = app

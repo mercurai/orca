@@ -6,6 +6,7 @@ import {
 import { app, ipcMain } from 'electron'
 import { listEnvironments } from '../../shared/runtime-environment-store'
 import type { Store } from '../persistence'
+import { recordRemoteLayoutFrame } from './remote-layout-snapshot-recorder'
 import {
   isRuntimeEnvironmentManuallyDisconnected,
   registerRuntimeEnvironmentConnectivityHandlers,
@@ -147,11 +148,13 @@ export function registerRuntimeEnvironmentHandlers(store: Store): void {
     invalidateTransport: invalidateRuntimeEnvironmentTransport,
     clearHostServerStatus: clearPublishedManagedServer,
     clearHostServerNotes: clearManagedServerNotes,
-    forgetHostSession: (hostId) => store.removeWorkspaceSessionHost(hostId)
+    store
   })
   registerRuntimeEnvironmentSubscriptionHandlers({
     getUserDataPath,
     remoteRuntimeSubscriptions,
-    pendingSubscriptions
+    pendingSubscriptions,
+    recordLayoutFrame: (environmentId, method, response) =>
+      recordRemoteLayoutFrame(store, environmentId, method, response)
   })
 }

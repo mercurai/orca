@@ -143,7 +143,15 @@ it('runs the managed-host journey specs in their own job when routed', () => {
   const job = jobs['orcad-journeys-docker']
   expect(job.needs).toEqual(['build', 'prepare-native-cache'])
   for (const spec of ORCAD_JOURNEY_E2E_SPECS) {
-    expectRouted(['tests/e2e/helpers/orcad-managed-workspace.ts'], spec)
+    expectRouted(
+      [
+        'tests/e2e/helpers/orcad-managed-workspace.ts',
+        'src/renderer/src/components/terminal-pane/terminal-host-workspace-file.ts',
+        'src/renderer/src/components/terminal-pane/terminal-host-file-link-existence.ts',
+        'src/renderer/src/runtime/runtime-terminal-artifact-read.ts'
+      ],
+      spec
+    )
     expect(job.if, spec).toContain(`contains(inputs.test_files, '${spec}')`)
     expect(
       job.steps.some((step) => step.run?.includes(spec)),
