@@ -22,6 +22,9 @@ vi.mock('../git/worktree', () => {
   }
 })
 
+// Why: every registry write is now a real async secure-file write, so waits on it outlive vi.waitFor's 1s default.
+const WRITE_WAIT = { timeout: 10_000 }
+
 describe('OrcaRuntimeRpcServer', () => {
   it('adds only the exact optional relay object to GUI mobile pairing offers', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
@@ -303,7 +306,7 @@ describe('OrcaRuntimeRpcServer', () => {
     try {
       const first = server.createMobilePairingOffer({ address: '100.64.1.20', rotate: true })
       const second = server.createMobilePairingOffer({ address: '100.64.1.20', rotate: true })
-      await vi.waitFor(() => expect(createPairingRelay).toHaveBeenCalledTimes(1))
+      await vi.waitFor(() => expect(createPairingRelay).toHaveBeenCalledTimes(1), WRITE_WAIT)
       resolveFirst?.()
       const [firstOffer, secondOffer] = await Promise.all([first, second])
       expect(firstOffer.available).toBe(true)
@@ -367,7 +370,7 @@ describe('OrcaRuntimeRpcServer', () => {
         address: '100.64.1.20',
         rotate: true
       })
-      await vi.waitFor(() => expect(createPairingRelay).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(createPairingRelay).toHaveBeenCalledOnce(), WRITE_WAIT)
       const second = server.createMobilePairingOffer({
         address: '100.64.1.21',
         rotate: true
@@ -435,7 +438,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
     try {
       const first = server.createMobilePairingOffer({ address: '100.64.1.20' })
-      await vi.waitFor(() => expect(createPairingRelay).toHaveBeenCalledOnce())
+      await vi.waitFor(() => expect(createPairingRelay).toHaveBeenCalledOnce(), WRITE_WAIT)
       const second = server.createMobilePairingOffer({ address: '100.64.1.21' })
       resolveFirst?.()
       await expect(first).resolves.toMatchObject({
@@ -496,8 +499,9 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
     try {
       const relayOffer = server.createMobilePairingOffer({ address: '100.64.1.20' })
-      await vi.waitFor(() =>
-        expect(server.getDeviceRegistry()?.getPendingDevice('mobile')).not.toBeNull()
+      await vi.waitFor(
+        () => expect(server.getDeviceRegistry()?.getPendingDevice('mobile')).not.toBeNull(),
+        WRITE_WAIT
       )
       const localOffer = await server.createMobilePairingOffer({
         address: '100.64.1.20',
@@ -558,9 +562,7 @@ describe('OrcaRuntimeRpcServer', () => {
       if (!registry) {
         throw new Error('Device registry unavailable')
       }
-      vi.spyOn(registry, 'setRelayBinding').mockImplementation(() => {
-        throw new Error('disk full')
-      })
+      vi.spyOn(registry, 'setRelayBinding').mockRejectedValue(new Error('disk full'))
       const offer = await server.createMobilePairingOffer({ address: '100.64.1.20' })
       expect(offer.available).toBe(false)
       expect(onDeviceRevokeQueued).toHaveBeenCalledOnce()
@@ -582,8 +584,10 @@ describe('OrcaRuntimeRpcServer', () => {
     const relayGate = new Promise<void>((resolve) => {
       resolveRelay = resolve
     })
+    const mintStarted = vi.fn()
     server.setMobileRelayPairingProvider({
       createPairingRelay: async (relayDeviceId) => {
+        mintStarted()
         await relayGate
         return {
           relay: {
@@ -611,9 +615,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
     try {
       const offerPromise = server.createMobilePairingOffer({ address: '100.64.1.20' })
-      await vi.waitFor(() =>
-        expect(server.getDeviceRegistry()?.getPendingDevice('mobile')).not.toBeNull()
-      )
+      await vi.waitFor(() => expect(mintStarted).toHaveBeenCalledOnce(), WRITE_WAIT)
       const onDeviceRevokeQueued = vi.fn()
       server.setMobileRelayPairingProvider({
         createPairingRelay: vi.fn(),
@@ -642,8 +644,10 @@ describe('OrcaRuntimeRpcServer', () => {
     const relayGate = new Promise<void>((resolve) => {
       resolveRelay = resolve
     })
+    const mintStarted = vi.fn()
     server.setMobileRelayPairingProvider({
       createPairingRelay: async (relayDeviceId) => {
+        mintStarted()
         await relayGate
         return {
           relay: {
@@ -675,11 +679,9 @@ describe('OrcaRuntimeRpcServer', () => {
         throw new Error('Device registry unavailable')
       }
       const offerPromise = server.createMobilePairingOffer({ address: '100.64.1.20' })
-      await vi.waitFor(() => expect(registry.getPendingDevice('mobile')).not.toBeNull())
+      await vi.waitFor(() => expect(mintStarted).toHaveBeenCalledOnce(), WRITE_WAIT)
       const deviceId = registry.getPendingDevice('mobile')?.deviceId
-      vi.spyOn(server.getRelayRevokeOutbox(), 'enqueue').mockImplementation(() => {
-        throw new Error('disk full')
-      })
+      vi.spyOn(server.getRelayRevokeOutbox(), 'enqueue').mockRejectedValue(new Error('disk full'))
       // Why: swapping the provider supersedes the in-flight mint.
       server.setMobileRelayPairingProvider({
         createPairingRelay: vi.fn(),

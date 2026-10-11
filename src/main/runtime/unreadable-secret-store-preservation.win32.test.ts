@@ -116,7 +116,7 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
     writeFileSync(filePath, original)
     makeUnreadable(filePath)
 
-    expect(() => loadOrCreateE2EEKeypair(dir)).toThrow(/Refusing to (regenerate|overwrite)/)
+    await expect(loadOrCreateE2EEKeypair(dir)).rejects.toThrow(/Refusing to (regenerate|overwrite)/)
 
     // The point: the secret key is still the one every paired phone derived its shared secret from.
     icacls(filePath, '/reset', '/q')
@@ -144,7 +144,7 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
 
     const registry = new DeviceRegistry(dir)
     // Any mutator reaches save(); it must refuse rather than write the empty list it loaded.
-    expect(() => registry.addDevice('Another phone', 'mobile')).toThrow(
+    await expect(registry.addDevice('Another phone', 'mobile')).rejects.toThrow(
       /Refusing to (regenerate|overwrite)/
     )
 
@@ -175,8 +175,11 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
     writeFileSync(filePath, original)
     makeUnreadable(filePath)
 
-    expect(store.set('added', 'value')).toEqual({ ok: false, error: expect.any(String) })
-    store.delete('existing')
+    await expect(store.set('added', 'value')).resolves.toEqual({
+      ok: false,
+      error: expect.any(String)
+    })
+    await store.delete('existing')
 
     icacls(filePath, '/reset', '/q')
     expect(readFileSync(filePath, 'utf8')).toBe(original)
@@ -193,8 +196,11 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
     writeFileSync(filePath, original)
     makeUnreadable(filePath)
 
-    expect(store.set('added', 'value')).toEqual({ ok: false, error: expect.any(String) })
-    store.delete('keep')
+    await expect(store.set('added', 'value')).resolves.toEqual({
+      ok: false,
+      error: expect.any(String)
+    })
+    await store.delete('keep')
 
     icacls(filePath, '/reset', '/q')
     expect(readFileSync(filePath, 'utf8')).toBe(original)
@@ -218,13 +224,13 @@ describeOnWindows('a secure store that exists but cannot be read', () => {
     makeUnreadable(filePath)
 
     const outbox = new RelayRevokeOutbox(dir)
-    expect(() =>
+    await expect(
       outbox.enqueue({
         relayHostId: 'host-2',
         relayDeviceId: 'device-2',
         ownerIdentityKey: 'owner-2'
       })
-    ).toThrow(/Refusing to (regenerate|overwrite)/)
+    ).rejects.toThrow(/Refusing to (regenerate|overwrite)/)
 
     icacls(filePath, '/reset', '/q')
     expect(readFileSync(filePath, 'utf8')).toBe(original)

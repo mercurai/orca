@@ -46,12 +46,12 @@ function createServices(): PluginHostServices {
     },
     secrets: {
       get: vi.fn().mockReturnValue({ ok: true, value: 'secret' }),
-      set: vi.fn().mockReturnValue({ ok: true }),
-      delete: vi.fn()
+      set: vi.fn().mockResolvedValue({ ok: true }),
+      delete: vi.fn().mockResolvedValue(undefined)
     },
     settings: {
       getAll: vi.fn().mockReturnValue({ theme: 'dark' }),
-      set: vi.fn().mockReturnValue({ ok: true })
+      set: vi.fn().mockResolvedValue({ ok: true })
     },
     subscribeEvents: vi.fn().mockImplementation((_pluginKey, events) => events)
   }

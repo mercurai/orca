@@ -156,8 +156,8 @@ export class Store {
   }
 
   /** Moves the #22551 settings-slot OpenCode Go key into `target`; it stays on disk until that succeeds. */
-  migrateLegacyOpenCodeGoApiKey(target: OpenCodeGoApiKeyTarget): void {
-    if (migrateLegacyOpenCodeGoApiKey(this.runtime.protectedSecrets, target)) {
+  async migrateLegacyOpenCodeGoApiKey(target: OpenCodeGoApiKeyTarget): Promise<void> {
+    if (await migrateLegacyOpenCodeGoApiKey(this.runtime.protectedSecrets, target)) {
       scheduleSave(this.domains.scheduling)
     }
   }
