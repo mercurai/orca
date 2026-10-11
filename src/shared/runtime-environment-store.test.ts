@@ -4,15 +4,15 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodePairingOffer } from './pairing'
 import {
-  RuntimeEnvironmentStoreError,
   addEnvironmentFromPairingCode,
   getEnvironmentStorePath,
   listEnvironments,
+  markEnvironmentUsed,
   MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
   removeEnvironment,
+  RuntimeEnvironmentStoreError,
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
-import { markEnvironmentUsed } from './runtime-environment-store'
 import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
 
 vi.mock('./child-process/run-process', () => ({ runProcess: vi.fn(), runProcessSync: vi.fn() }))
@@ -214,11 +214,11 @@ describe('runtime environment store', () => {
     tempDirs.push(userDataPath)
 
     await Promise.all([
-      await addEnvironmentFromPairingCode(userDataPath, {
+      addEnvironmentFromPairingCode(userDataPath, {
         name: 'first box',
         pairingCode: pairingCode('ws://127.0.0.1:6768')
       }),
-      await addEnvironmentFromPairingCode(userDataPath, {
+      addEnvironmentFromPairingCode(userDataPath, {
         name: 'second box',
         pairingCode: pairingCode('ws://192.0.2.10:6768')
       })

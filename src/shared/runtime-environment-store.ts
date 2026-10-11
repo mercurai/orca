@@ -241,7 +241,6 @@ export function planEnvironmentUsedUpdate(
   return { store: { version: 1, environments: next }, environmentId: environment.id }
 }
 
-
 export type EnvironmentUsageArgs = Parameters<typeof planEnvironmentUsedUpdate>[2]
 
 export async function markEnvironmentUsed(

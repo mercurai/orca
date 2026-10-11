@@ -41,12 +41,14 @@ beforeEach(async () => {
   vi.clearAllMocks()
   resetRuntimeEnvironmentCapabilityEvidence()
   directory = mkdtempSync(join(tmpdir(), 'orca-status-retirement-'))
-  envId = (await addEnvironmentFromPairingCode(directory, {
-    name: 'Host',
-    now: 1,
-    pairingCode: pairingCode(),
-    connectionDependency: 'ssh-tunnel'
-  })).id
+  envId = (
+    await addEnvironmentFromPairingCode(directory, {
+      name: 'Host',
+      now: 1,
+      pairingCode: pairingCode(),
+      connectionDependency: 'ssh-tunnel'
+    })
+  ).id
   mocks.diagnostics.mockReturnValue(null)
 })
 afterEach(() => {
