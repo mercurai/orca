@@ -2,7 +2,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
+import { serializePathWrite } from './path-write-serializer'
 import { hardenExistingSecureFile } from './secure-file'
 import {
   featureEntryFromRuntime,
@@ -14,6 +15,10 @@ import {
   type EphemeralVmRuntimeFeatureStoreSnapshot
 } from './ephemeral-vm-runtime-feature-store'
 import {
+  applyEphemeralVmRuntimeStatusUpdate,
+  type EphemeralVmRuntimeStatusUpdate
+} from './ephemeral-vm-runtime-status-update'
+import {
   mergeRuntimeFeatures,
   projectRuntimeForRollback,
   runtimeFeatureListsEqual
@@ -22,9 +27,7 @@ import {
   EphemeralVmRuntimeRecordSchema,
   EphemeralVmRuntimeStoreSchema,
   RollbackEphemeralVmRuntimeStoreSchema,
-  type EphemeralVmCleanupStatus,
   type EphemeralVmRuntimeRecord,
-  type EphemeralVmRuntimeStatus,
   type EphemeralVmRuntimeStore
 } from './ephemeral-vm-runtimes'
 
@@ -51,154 +54,129 @@ export function listEphemeralVmRuntimes(userDataPath: string): EphemeralVmRuntim
   return readEphemeralVmRuntimeStore(userDataPath).store.runtimes
 }
 
-export function upsertEphemeralVmRuntime(
-  userDataPath: string,
-  record: EphemeralVmRuntimeRecord
-): EphemeralVmRuntimeRecord {
-  const parsed = EphemeralVmRuntimeRecordSchema.parse(record)
-  const loaded = readEphemeralVmRuntimeStore(userDataPath)
-  const previous = loaded.store.runtimes.find((entry) => entry.id === parsed.id)
-  if (
-    previous &&
-    featureIdentity(previous) === featureIdentity(parsed) &&
-    !runtimeFeaturesEqual(previous, parsed)
-  ) {
-    throw new EphemeralVmRuntimeStoreError(
-      'invalid_argument',
-      `Cannot change compatibility features for ephemeral VM runtime: ${parsed.id}`
-    )
-  }
-  writeEphemeralVmRuntimeStore(
-    userDataPath,
-    {
-      version: 1,
-      runtimes: [...loaded.store.runtimes.filter((entry) => entry.id !== parsed.id), parsed].sort(
-        compareRuntimeRecords
-      )
-    },
-    loaded.features
-  )
-  return parsed
+/** Why: the lane only serializes the file write, so the read-modify-write spans one queue key. */
+function serializeStoreMutation<T>(userDataPath: string, run: () => Promise<T>): Promise<T> {
+  const key = `${getEphemeralVmRuntimeStorePath(userDataPath)}#read-modify-write`
+  return serializePathWrite(key, run)
 }
 
-export function upsertEphemeralVmRuntimeRollbackRecovery(
+export async function upsertEphemeralVmRuntime(
   userDataPath: string,
   record: EphemeralVmRuntimeRecord
-): void {
+): Promise<EphemeralVmRuntimeRecord> {
   const parsed = EphemeralVmRuntimeRecordSchema.parse(record)
-  const loaded = readEphemeralVmRuntimeStore(userDataPath)
-  const path = getEphemeralVmRuntimeStorePath(userDataPath)
-  try {
-    writeSecureJsonFileWithinLimit(
-      path,
-      RollbackEphemeralVmRuntimeStoreSchema.parse({
-        version: 1,
-        runtimes: [...loaded.store.runtimes.filter((entry) => entry.id !== parsed.id), parsed]
-          .sort(compareRuntimeRecords)
-          .map(projectRuntimeForRollback)
-      }),
-      MAX_EPHEMERAL_VM_RUNTIME_STORE_FILE_BYTES,
-      { durable: true }
-    )
-  } catch (error) {
-    if (error instanceof JsonStringifyByteLimitError) {
+  return serializeStoreMutation(userDataPath, async () => {
+    const loaded = readEphemeralVmRuntimeStore(userDataPath)
+    const previous = loaded.store.runtimes.find((entry) => entry.id === parsed.id)
+    if (
+      previous &&
+      featureIdentity(previous) === featureIdentity(parsed) &&
+      !runtimeFeaturesEqual(previous, parsed)
+    ) {
       throw new EphemeralVmRuntimeStoreError(
-        'runtime_error',
-        `Could not write Orca ephemeral VM runtimes at ${path}; the store exceeds its durable capacity.`
+        'invalid_argument',
+        `Cannot change compatibility features for ephemeral VM runtime: ${parsed.id}`
       )
     }
-    throw error
-  }
+    await writeEphemeralVmRuntimeStore(
+      userDataPath,
+      {
+        version: 1,
+        runtimes: [
+          ...loaded.store.runtimes.filter((entry) => entry.id !== parsed.id),
+          parsed
+        ].sort(compareRuntimeRecords)
+      },
+      loaded.features
+    )
+    return parsed
+  })
 }
 
-export function updateEphemeralVmRuntimeStatus(
+export async function upsertEphemeralVmRuntimeRollbackRecovery(
+  userDataPath: string,
+  record: EphemeralVmRuntimeRecord
+): Promise<void> {
+  const parsed = EphemeralVmRuntimeRecordSchema.parse(record)
+  await serializeStoreMutation(userDataPath, async () => {
+    const loaded = readEphemeralVmRuntimeStore(userDataPath)
+    const path = getEphemeralVmRuntimeStorePath(userDataPath)
+    try {
+      await writeSecureJsonFileWithinLimitAsync(
+        path,
+        RollbackEphemeralVmRuntimeStoreSchema.parse({
+          version: 1,
+          runtimes: [...loaded.store.runtimes.filter((entry) => entry.id !== parsed.id), parsed]
+            .sort(compareRuntimeRecords)
+            .map(projectRuntimeForRollback)
+        }),
+        MAX_EPHEMERAL_VM_RUNTIME_STORE_FILE_BYTES,
+        { durable: true }
+      )
+    } catch (error) {
+      if (error instanceof JsonStringifyByteLimitError) {
+        throw new EphemeralVmRuntimeStoreError(
+          'runtime_error',
+          `Could not write Orca ephemeral VM runtimes at ${path}; the store exceeds its durable capacity.`
+        )
+      }
+      throw error
+    }
+  })
+}
+
+export async function updateEphemeralVmRuntimeStatus(
   userDataPath: string,
   id: string,
-  args: {
-    status?: EphemeralVmRuntimeStatus
-    cleanupStatus?: EphemeralVmCleanupStatus
-    cleanupLastAttemptAt?: number
-    cleanupLastError?: string | null
-    workspaceId?: string
-    workspaceName?: string
-    connectionMode?: EphemeralVmRuntimeRecord['connectionMode'] | null
-    runtimeEnvironmentId?: string
-    sshTargetId?: string | null
-    recipeResult?: EphemeralVmRuntimeRecord['recipeResult']
-    updatedAt?: number
-  }
-): EphemeralVmRuntimeRecord {
-  const loaded = readEphemeralVmRuntimeStore(userDataPath)
-  const existing = loaded.store.runtimes.find((entry) => entry.id === id)
-  if (!existing) {
-    throw new EphemeralVmRuntimeStoreError(
-      'invalid_argument',
-      `Unknown ephemeral VM runtime: ${id}`
+  args: EphemeralVmRuntimeStatusUpdate
+): Promise<EphemeralVmRuntimeRecord> {
+  return serializeStoreMutation(userDataPath, async () => {
+    const loaded = readEphemeralVmRuntimeStore(userDataPath)
+    const existing = loaded.store.runtimes.find((entry) => entry.id === id)
+    if (!existing) {
+      throw new EphemeralVmRuntimeStoreError(
+        'invalid_argument',
+        `Unknown ephemeral VM runtime: ${id}`
+      )
+    }
+    const next = applyEphemeralVmRuntimeStatusUpdate(existing, args)
+    await writeEphemeralVmRuntimeStore(
+      userDataPath,
+      {
+        version: 1,
+        runtimes: loaded.store.runtimes
+          .map((entry) => (entry.id === id ? next : entry))
+          .sort(compareRuntimeRecords)
+      },
+      loaded.features
     )
-  }
-  const next = EphemeralVmRuntimeRecordSchema.parse({
-    ...existing,
-    ...(args.status ? { status: args.status } : {}),
-    ...(args.cleanupStatus ? { cleanupStatus: args.cleanupStatus } : {}),
-    ...(args.cleanupLastAttemptAt !== undefined
-      ? { cleanupLastAttemptAt: args.cleanupLastAttemptAt }
-      : {}),
-    ...(args.cleanupLastError === null
-      ? { cleanupLastError: undefined }
-      : args.cleanupLastError
-        ? { cleanupLastError: args.cleanupLastError }
-        : {}),
-    ...(args.workspaceId ? { workspaceId: args.workspaceId } : {}),
-    ...(args.workspaceName ? { workspaceName: args.workspaceName } : {}),
-    // null explicitly clears the field (e.g. terminal cleanup); undefined leaves it unchanged.
-    ...(args.connectionMode === null
-      ? { connectionMode: undefined }
-      : args.connectionMode
-        ? { connectionMode: args.connectionMode }
-        : {}),
-    ...(args.runtimeEnvironmentId ? { runtimeEnvironmentId: args.runtimeEnvironmentId } : {}),
-    ...(args.sshTargetId === null
-      ? { sshTargetId: undefined }
-      : args.sshTargetId
-        ? { sshTargetId: args.sshTargetId }
-        : {}),
-    ...(args.recipeResult ? { recipeResult: args.recipeResult } : {}),
-    updatedAt: args.updatedAt ?? Date.now()
+    return next
   })
-  writeEphemeralVmRuntimeStore(
-    userDataPath,
-    {
-      version: 1,
-      runtimes: loaded.store.runtimes
-        .map((entry) => (entry.id === id ? next : entry))
-        .sort(compareRuntimeRecords)
-    },
-    loaded.features
-  )
-  return next
 }
 
-export function removeEphemeralVmRuntime(
+export async function removeEphemeralVmRuntime(
   userDataPath: string,
   id: string
-): EphemeralVmRuntimeRecord {
-  const loaded = readEphemeralVmRuntimeStore(userDataPath)
-  const existing = loaded.store.runtimes.find((entry) => entry.id === id)
-  if (!existing) {
-    throw new EphemeralVmRuntimeStoreError(
-      'invalid_argument',
-      `Unknown ephemeral VM runtime: ${id}`
+): Promise<EphemeralVmRuntimeRecord> {
+  return serializeStoreMutation(userDataPath, async () => {
+    const loaded = readEphemeralVmRuntimeStore(userDataPath)
+    const existing = loaded.store.runtimes.find((entry) => entry.id === id)
+    if (!existing) {
+      throw new EphemeralVmRuntimeStoreError(
+        'invalid_argument',
+        `Unknown ephemeral VM runtime: ${id}`
+      )
+    }
+    await writeEphemeralVmRuntimeStore(
+      userDataPath,
+      {
+        version: 1,
+        runtimes: loaded.store.runtimes.filter((entry) => entry.id !== id)
+      },
+      loaded.features
     )
-  }
-  writeEphemeralVmRuntimeStore(
-    userDataPath,
-    {
-      version: 1,
-      runtimes: loaded.store.runtimes.filter((entry) => entry.id !== id)
-    },
-    loaded.features
-  )
-  return existing
+    return existing
+  })
 }
 
 type LoadedEphemeralVmRuntimeStore = {
@@ -229,13 +207,6 @@ function readEphemeralVmRuntimeStore(userDataPath: string): LoadedEphemeralVmRun
         compareRuntimeRecords
       )
     }
-    if (features.writable && !RollbackEphemeralVmRuntimeStoreSchema.safeParse(persisted).success) {
-      try {
-        writeEphemeralVmRuntimeStore(userDataPath, store, features)
-      } catch {
-        // Why: a failed migration must not block cleanup through the still-readable current shape.
-      }
-    }
     return { store, features }
   } catch {
     throw new EphemeralVmRuntimeStoreError(
@@ -245,11 +216,11 @@ function readEphemeralVmRuntimeStore(userDataPath: string): LoadedEphemeralVmRun
   }
 }
 
-function writeEphemeralVmRuntimeStore(
+async function writeEphemeralVmRuntimeStore(
   userDataPath: string,
   store: EphemeralVmRuntimeStore,
   features: EphemeralVmRuntimeFeatureStoreSnapshot
-): void {
+): Promise<void> {
   const path = getEphemeralVmRuntimeStorePath(userDataPath)
   try {
     const parsed = EphemeralVmRuntimeStoreSchema.parse(store)
@@ -261,7 +232,7 @@ function writeEphemeralVmRuntimeStore(
       })
     )
     const preparedFeatures = mergeRuntimeFeatures(features.features, requiredFeatures)
-    writeSecureJsonFileWithinLimit(
+    await writeSecureJsonFileWithinLimitAsync(
       path,
       RollbackEphemeralVmRuntimeStoreSchema.parse({
         version: 1,
@@ -277,11 +248,11 @@ function writeEphemeralVmRuntimeStore(
       )
     }
     if (features.writable && !runtimeFeatureListsEqual(features.features, preparedFeatures)) {
-      writeEphemeralVmRuntimeFeatureStore(userDataPath, features, preparedFeatures)
+      await writeEphemeralVmRuntimeFeatureStore(userDataPath, features, preparedFeatures)
     }
     if (features.writable && !runtimeFeatureListsEqual(preparedFeatures, requiredFeatures)) {
       try {
-        writeEphemeralVmRuntimeFeatureStore(userDataPath, features, requiredFeatures)
+        await writeEphemeralVmRuntimeFeatureStore(userDataPath, features, requiredFeatures)
       } catch {
         // Stale feature records do not match any persisted runtime identity.
       }

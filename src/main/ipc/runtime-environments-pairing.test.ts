@@ -393,7 +393,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
 
   it('returns a structured failure when a verified host cannot be persisted', async () => {
     registerRuntimeEnvironmentHandlers(store as never)
-    environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'desk',
       pairingCode: pairingCode('ws://100.76.32.125:6768')
     })
@@ -433,7 +433,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:remove'
     )
 
-    expect(() => remove(null, { selector: added.environment.id })).toThrow(
+    await expect(remove(null, { selector: added.environment.id })).rejects.toThrow(
       'Choose another Active Server in Advanced'
     )
     expect(activeRuntimeEnvironmentId).toBe(added.environment.id)
@@ -520,7 +520,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     // The ephemeral-VM provision flow persists `source: 'ephemeral-vm'` directly
     // on the environment record (ephemeral-vm.ts), so the public list reads it
     // straight from the record rather than cross-referencing the VM runtime store.
-    const added = environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    const added = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'orca VM abc12345',
       pairingCode: pairingCode(),
       source: 'ephemeral-vm'

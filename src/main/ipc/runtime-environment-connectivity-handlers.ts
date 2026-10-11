@@ -73,11 +73,11 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
   })
   ipcMain.handle(
     'runtimeEnvironments:addFromPairingCode',
-    (
+    async (
       _event,
       args: { name: string; pairingCode: string }
-    ): { environment: PublicKnownRuntimeEnvironment } => {
-      const environment = addEnvironmentFromPairingCode(getUserDataPath(), args)
+    ): Promise<{ environment: PublicKnownRuntimeEnvironment }> => {
+      const environment = await addEnvironmentFromPairingCode(getUserDataPath(), args)
       clearRuntimeEnvironmentManualDisconnect(environment.id)
       return { environment: redactRuntimeEnvironment(environment) }
     }
@@ -103,12 +103,15 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
   )
   ipcMain.handle(
     'runtimeEnvironments:remove',
-    (_event, args: { selector: string }): { removed: PublicKnownRuntimeEnvironment } => {
+    async (
+      _event,
+      args: { selector: string }
+    ): Promise<{ removed: PublicKnownRuntimeEnvironment }> => {
       const environment = resolveEnvironment(getUserDataPath(), args.selector)
       if (store.getSettings().activeRuntimeEnvironmentId === environment.id) {
         throw new Error('Choose another Active Server in Advanced before removing this server.')
       }
-      const removed = removeEnvironment(getUserDataPath(), args.selector)
+      const removed = await removeEnvironment(getUserDataPath(), args.selector)
       clearRuntimeEnvironmentCapabilityEvidence(removed.id)
       clearRuntimeEnvironmentManualDisconnect(removed.id)
       const retiring = Promise.resolve(invalidateTransport(removed.id))

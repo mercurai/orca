@@ -4,6 +4,7 @@ import type * as NodeFsPromises from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { settlePathWritesForTests } from '../../shared/path-write-serializer'
 import { getRuntimeMetadataPath, type RuntimeMetadata } from '../../shared/runtime-bootstrap'
 import { clearRuntimeMetadata, readRuntimeMetadata, writeRuntimeMetadata } from './runtime-metadata'
 import {
@@ -176,7 +177,8 @@ describe('watchRuntimeMetadataOwnership', () => {
     vi.useRealTimers()
   })
 
-  function armWatch(userDataPath: string, pollIntervalMs = 10): RuntimeMetadataOwnershipWatch {
+  // Why: tests without polled timers drive the watch via check(); a live timer would race their own writes.
+  function armWatch(userDataPath: string, pollIntervalMs = 60_000): RuntimeMetadataOwnershipWatch {
     const watch = watchRuntimeMetadataOwnership({
       userDataPath,
       ownedPid: OWNED_PID,
@@ -193,10 +195,12 @@ describe('watchRuntimeMetadataOwnership', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   }
 
-  /** Waits out the tick's real read; everything after it resolves as microtasks. */
+  /** Waits out the tick's real read and any republish write it started. */
   async function settleReads(): Promise<void> {
     await new Promise((resolve) => setImmediate(resolve))
     await metadataReadGate.whenIdle()
+    await new Promise((resolve) => setImmediate(resolve))
+    await settlePathWritesForTests()
     await new Promise((resolve) => setImmediate(resolve))
   }
 
@@ -216,10 +220,10 @@ describe('watchRuntimeMetadataOwnership', () => {
 
   it('republishes after a second instance clobbers the record and exits', async () => {
     const userDataPath = makeUserDataPath()
-    writeRuntimeMetadata(userDataPath, record())
+    await writeRuntimeMetadata(userDataPath, record())
     const watch = armWatch(userDataPath)
 
-    writeRuntimeMetadata(
+    await writeRuntimeMetadata(
       userDataPath,
       record({ pid: FOREIGN_DEAD_PID, runtimeId: 'rt_second_instance' })
     )
@@ -233,7 +237,7 @@ describe('watchRuntimeMetadataOwnership', () => {
 
   it('republishes a record that was deleted underneath the runtime', async () => {
     const userDataPath = makeUserDataPath()
-    writeRuntimeMetadata(userDataPath, record())
+    await writeRuntimeMetadata(userDataPath, record())
     const watch = armWatch(userDataPath)
 
     clearRuntimeMetadata(userDataPath)
@@ -255,7 +259,7 @@ describe('watchRuntimeMetadataOwnership', () => {
   it('leaves a live sibling runtime in place', async () => {
     const userDataPath = makeUserDataPath()
     const watch = armWatch(userDataPath)
-    writeRuntimeMetadata(
+    await writeRuntimeMetadata(
       userDataPath,
       record({ pid: FOREIGN_LIVE_PID, runtimeId: 'rt_second_instance' })
     )
@@ -269,7 +273,7 @@ describe('watchRuntimeMetadataOwnership', () => {
     usePolledTimers()
     const userDataPath = makeUserDataPath()
     armWatch(userDataPath, 1_000)
-    writeRuntimeMetadata(
+    await writeRuntimeMetadata(
       userDataPath,
       record({ pid: FOREIGN_DEAD_PID, runtimeId: 'rt_second_instance' })
     )
@@ -285,7 +289,7 @@ describe('watchRuntimeMetadataOwnership', () => {
     const watch = armWatch(userDataPath, 1_000)
 
     watch.stop()
-    writeRuntimeMetadata(
+    await writeRuntimeMetadata(
       userDataPath,
       record({ pid: FOREIGN_DEAD_PID, runtimeId: 'rt_second_instance' })
     )
@@ -296,7 +300,7 @@ describe('watchRuntimeMetadataOwnership', () => {
 
   it('reads the record off-thread, so the poll tick never blocks the main thread', async () => {
     const userDataPath = makeUserDataPath()
-    writeRuntimeMetadata(userDataPath, record())
+    await writeRuntimeMetadata(userDataPath, record())
     const watch = armWatch(userDataPath)
 
     metadataSyncCalls.state.recording = true
@@ -322,7 +326,7 @@ describe('watchRuntimeMetadataOwnership', () => {
   it('never runs two overlapping ownership checks', async () => {
     usePolledTimers()
     const userDataPath = makeUserDataPath()
-    writeRuntimeMetadata(userDataPath, record())
+    await writeRuntimeMetadata(userDataPath, record())
     armWatch(userDataPath, 1_000)
 
     metadataReadGate.hold = true
@@ -345,9 +349,7 @@ describe('watchRuntimeMetadataOwnership', () => {
     const userDataPath = makeUserDataPath()
     const republish = vi
       .fn()
-      .mockImplementationOnce(() => {
-        throw new Error('disk full')
-      })
+      .mockRejectedValueOnce(new Error('disk full'))
       .mockImplementation(() => writeRuntimeMetadata(userDataPath, record()))
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const watch = watchRuntimeMetadataOwnership({

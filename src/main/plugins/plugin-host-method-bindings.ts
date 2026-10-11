@@ -30,8 +30,12 @@ export type PluginHostServices = {
   }): Promise<{ delivered: boolean }>
   storage: {
     get(pluginId: string, key: string): unknown
-    set(pluginId: string, key: string, value: unknown): { ok: true } | { ok: false; error: string }
-    delete(pluginId: string, key: string): void
+    set(
+      pluginId: string,
+      key: string,
+      value: unknown
+    ): Promise<{ ok: true } | { ok: false; error: string }>
+    delete(pluginId: string, key: string): Promise<void>
     keys(pluginId: string): string[]
   }
   secrets: {
@@ -39,12 +43,20 @@ export type PluginHostServices = {
       pluginId: string,
       key: string
     ): { ok: true; value: string | null } | { ok: false; error: string }
-    set(pluginId: string, key: string, value: string): { ok: true } | { ok: false; error: string }
-    delete(pluginId: string, key: string): void
+    set(
+      pluginId: string,
+      key: string,
+      value: string
+    ): Promise<{ ok: true } | { ok: false; error: string }>
+    delete(pluginId: string, key: string): Promise<void>
   }
   settings: {
     getAll(pluginId: string): Record<string, unknown>
-    set(pluginId: string, key: string, value: unknown): { ok: true } | { ok: false; error: string }
+    set(
+      pluginId: string,
+      key: string,
+      value: unknown
+    ): Promise<{ ok: true } | { ok: false; error: string }>
   }
   subscribeEvents(pluginId: string, events: PluginEventName[]): PluginEventName[]
 }
@@ -118,7 +130,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('storage.set', async (params, { pluginId, services }) => {
     const { key, value } = params as { key: string; value: unknown }
-    const result = services.storage.set(pluginId, key, value)
+    const result = await services.storage.set(pluginId, key, value)
     if (!result.ok) {
       throw new Error(result.error)
     }
@@ -126,7 +138,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('storage.delete', async (params, { pluginId, services }) => {
     const { key } = params as { key: string }
-    services.storage.delete(pluginId, key)
+    await services.storage.delete(pluginId, key)
     return { ok: true }
   }),
   definePluginMethod('storage.keys', async (_params, { pluginId, services }) => {
@@ -142,7 +154,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('secrets.set', async (params, { pluginId, services }) => {
     const { key, value } = params as { key: string; value: string }
-    const result = services.secrets.set(pluginId, key, value)
+    const result = await services.secrets.set(pluginId, key, value)
     if (!result.ok) {
       throw new Error(result.error)
     }
@@ -150,7 +162,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('secrets.delete', async (params, { pluginId, services }) => {
     const { key } = params as { key: string }
-    services.secrets.delete(pluginId, key)
+    await services.secrets.delete(pluginId, key)
     return { ok: true }
   }),
   definePluginMethod('settings.get', async (_params, { pluginId, services }) => {
@@ -158,7 +170,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('settings.set', async (params, { pluginId, services }) => {
     const { key, value } = params as { key: string; value: unknown }
-    const result = services.settings.set(pluginId, key, value)
+    const result = await services.settings.set(pluginId, key, value)
     if (!result.ok) {
       throw new Error(result.error)
     }

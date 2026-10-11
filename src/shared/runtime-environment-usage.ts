@@ -1,21 +1,27 @@
 import {
+  bumpEnvironmentWriteGeneration,
   readEnvironmentStore,
   resolveEnvironmentFromStore,
-  writeEnvironmentStore
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store'
 import type { RuntimeEnvironmentStore } from './runtime-environments'
 
 // Why: markEnvironmentUsed runs on every runtime round-trip; lastUsedAt only needs coarse freshness.
 const LAST_USED_PERSIST_INTERVAL_MS = 60_000
 
-export function markEnvironmentUsed(
+export async function markEnvironmentUsed(
   userDataPath: string,
   selector: string,
   args: { runtimeId?: string | null; pairedDeviceId?: string; now?: number } = {}
-): void {
+): Promise<void> {
   const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
   if (plan) {
-    writeEnvironmentStore(userDataPath, plan.store)
+    await writeEnvironmentStoreAsync(userDataPath, plan.store, {
+      shouldPublish: () => {
+        bumpEnvironmentWriteGeneration()
+        return true
+      }
+    })
   }
 }
 

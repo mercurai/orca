@@ -55,7 +55,7 @@ it('removes the hidden SSH target when provider cleanup cannot start', async () 
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-vm-runtime-handler-'))
   tempDirs.push(userDataPath)
   getPathMock.mockReturnValue(userDataPath)
-  upsertEphemeralVmRuntime(userDataPath, {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-missing-context',
     recipeId: 'cloud-sandbox',
     repoId: 'missing-repo',
@@ -100,7 +100,7 @@ it('stops in-flight cleanup and retains the runtime for retry', async () => {
     destroyPath,
     `require('fs').writeFileSync(${JSON.stringify(destroyStartedPath)}, 'yes'); setInterval(() => {}, 1000)`
   )
-  upsertEphemeralVmRuntime(userDataPath, {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-stop',
     recipeId: 'cloud-sandbox',
     recipe: {

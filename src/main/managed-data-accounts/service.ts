@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } 
 import { join, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { getAppEnvironment } from '../../shared/app-environment'
-import { writeSecureFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import type {
   ManagedDataAccountProvider,
   ManagedDataAccountsState
@@ -92,7 +92,7 @@ export class ManagedDataAccountService {
           sourceDataHome,
           join(directory, 'data')
         )
-        return this.persist(provider, {
+        return await this.persist(provider, {
           accounts: [...state.accounts, { id, label, integrations, createdAt: Date.now() }],
           activeAccountId: id
         })
@@ -249,11 +249,11 @@ export class ManagedDataAccountService {
     return { id: account.id, directory }
   }
 
-  private persist(
+  private async persist(
     provider: ManagedDataAccountProvider,
     state: ManagedDataAccountsState
-  ): ManagedDataAccountsState {
-    const checked = this.writeState(provider, state)
+  ): Promise<ManagedDataAccountsState> {
+    const checked = await this.writeState(provider, state)
     this.notifyChanged()
     return checked
   }
@@ -263,16 +263,16 @@ export class ManagedDataAccountService {
     return stateSchema.parse(JSON.parse(readFileSync(path, 'utf8')))
   }
 
-  private writeState(
+  private async writeState(
     provider: ManagedDataAccountProvider,
     state: ManagedDataAccountsState
-  ): ManagedDataAccountsState {
+  ): Promise<ManagedDataAccountsState> {
     const checked = stateSchema.parse(state)
     const path = join(this.root, provider, 'accounts.json')
     if (existsSync(path)) {
       this.assertOwned(path)
     }
-    if (!writeSecureFile(path, JSON.stringify(checked), { durable: true })) {
+    if (!(await writeSecureFileAsync(path, JSON.stringify(checked), { durable: true }))) {
       throw new Error('Could not restrict account metadata permissions.')
     }
     return checked

@@ -5,11 +5,9 @@ import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
 import { parsePairingCode, type PairingOffer } from './pairing'
 import { classifyRemotePairingHostname } from './remote-pairing-address'
-import {
-  writeSecureJsonFileWithinLimit,
-  writeSecureJsonFileWithinLimitAsync
-} from './bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import { hardenExistingSecureFile } from './secure-file'
+import { SecureWriteSupersededError } from './secure-file-async-write'
 import {
   createEnvironmentFromPairingOffer,
   getPreferredPairingOffer,
@@ -46,7 +44,7 @@ export function listEnvironments(
   return readEnvironmentStore(userDataPath, options).environments
 }
 
-export function addEnvironmentFromPairingCode(
+export async function addEnvironmentFromPairingCode(
   userDataPath: string,
   args: {
     name: string
@@ -55,7 +53,7 @@ export function addEnvironmentFromPairingCode(
     source?: RuntimeEnvironmentSource
     connectionDependency?: 'ssh-tunnel'
   }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const offer = parsePairingCode(args.pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError(
@@ -63,50 +61,48 @@ export function addEnvironmentFromPairingCode(
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
     )
   }
-  const store = readEnvironmentStore(userDataPath)
-  const now = args.now ?? Date.now()
-  const existing = store.environments.find((entry) => entry.name === args.name)
-  if (existing) {
-    throw new RuntimeEnvironmentStoreError(
-      'invalid_argument',
-      `A server named "${args.name}" already exists.`
-    )
-  }
-  const environment = createEnvironmentFromPairingOffer({
-    id: randomUUID(),
-    name: args.name,
-    now,
-    offer,
-    runtimeId: null,
-    ...(args.source ? { source: args.source } : {}),
-    ...getPairingConnectionDependency(args.connectionDependency, offer)
-  })
-  const next = {
-    version: 1 as const,
-    environments: [
+  const id = randomUUID()
+  return await mutateEnvironmentStore(userDataPath, (store) => {
+    const existing = store.environments.find((entry) => entry.name === args.name)
+    if (existing) {
+      throw new RuntimeEnvironmentStoreError(
+        'invalid_argument',
+        `A server named "${args.name}" already exists.`
+      )
+    }
+    const environment = createEnvironmentFromPairingOffer({
+      id,
+      name: args.name,
+      now: args.now ?? Date.now(),
+      offer,
+      runtimeId: null,
+      ...(args.source ? { source: args.source } : {}),
+      ...getPairingConnectionDependency(args.connectionDependency, offer)
+    })
+    const environments = [
       ...store.environments.filter((entry) => entry.id !== environment.id),
       environment
     ].sort((a, b) => a.name.localeCompare(b.name))
-  }
-  writeEnvironmentStore(userDataPath, next)
-  return environment
-}
-
-export function removeEnvironment(userDataPath: string, selector: string): KnownRuntimeEnvironment {
-  const store = readEnvironmentStore(userDataPath)
-  const environment = resolveEnvironmentFromStore(store, selector)
-  writeEnvironmentStore(userDataPath, {
-    version: 1,
-    environments: store.environments.filter((entry) => entry.id !== environment.id)
+    return { store: { version: 1, environments }, result: environment }
   })
-  return environment
 }
 
-export function updateEnvironmentFromPairingCode(
+export async function removeEnvironment(
+  userDataPath: string,
+  selector: string
+): Promise<KnownRuntimeEnvironment> {
+  return await mutateEnvironmentStore(userDataPath, (store) => {
+    const environment = resolveEnvironmentFromStore(store, selector)
+    const environments = store.environments.filter((entry) => entry.id !== environment.id)
+    return { store: { version: 1, environments }, result: environment }
+  })
+}
+
+export async function updateEnvironmentFromPairingCode(
   userDataPath: string,
   selector: string,
   args: { pairingCode: string; now?: number }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const offer = parsePairingCode(args.pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError(
@@ -114,33 +110,31 @@ export function updateEnvironmentFromPairingCode(
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
     )
   }
-  const store = readEnvironmentStore(userDataPath)
-  const existing = resolveEnvironmentFromStore(store, selector)
-  const now = args.now ?? Date.now()
-  const previousPairingRevision = existing.pairingRevision ?? existing.createdAt
-  const environment = createEnvironmentFromPairingOffer({
-    id: existing.id,
-    name: existing.name,
-    now: existing.createdAt,
-    offer,
-    runtimeId: existing.runtimeId,
-    ...(existing.source ? { source: existing.source } : {}),
-    ...getPairingConnectionDependency(existing.connectionDependency, offer)
-  })
-  const next = {
-    ...environment,
-    createdAt: existing.createdAt,
-    updatedAt: now,
-    pairingRevision: Math.max(now, previousPairingRevision + 1),
-    lastUsedAt: existing.lastUsedAt
-  }
-  writeEnvironmentStore(userDataPath, {
-    version: 1,
-    environments: store.environments
+  return await mutateEnvironmentStore(userDataPath, (store) => {
+    const existing = resolveEnvironmentFromStore(store, selector)
+    const now = args.now ?? Date.now()
+    const previousPairingRevision = existing.pairingRevision ?? existing.createdAt
+    const environment = createEnvironmentFromPairingOffer({
+      id: existing.id,
+      name: existing.name,
+      now: existing.createdAt,
+      offer,
+      runtimeId: existing.runtimeId,
+      ...(existing.source ? { source: existing.source } : {}),
+      ...getPairingConnectionDependency(existing.connectionDependency, offer)
+    })
+    const next = {
+      ...environment,
+      createdAt: existing.createdAt,
+      updatedAt: now,
+      pairingRevision: Math.max(now, previousPairingRevision + 1),
+      lastUsedAt: existing.lastUsedAt
+    }
+    const environments = store.environments
       .map((entry) => (entry.id === existing.id ? next : entry))
       .sort((a, b) => a.name.localeCompare(b.name))
+    return { store: { version: 1, environments }, result: next }
   })
-  return next
 }
 
 function getPairingConnectionDependency(
@@ -235,7 +229,7 @@ function translateStoreWriteError(path: string, error: unknown): unknown {
     : error
 }
 
-// Bumped by every synchronous write: an async read-modify-write compares it before publishing.
+// Bumped by every publish: a read-modify-write compares it before publishing and re-reads when stale.
 let environmentWriteGeneration = 0
 
 export function bumpEnvironmentWriteGeneration(): void {
@@ -246,14 +240,33 @@ export function getEnvironmentWriteGeneration(): number {
   return environmentWriteGeneration
 }
 
-export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
-  environmentWriteGeneration += 1
-  const path = getEnvironmentStorePath(userDataPath)
-  try {
-    const parsed = RuntimeEnvironmentStoreSchema.parse(store)
-    writeSecureJsonFileWithinLimit(path, parsed, MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES)
-  } catch (error) {
-    throw translateStoreWriteError(path, error)
+const MAX_MUTATION_ATTEMPTS = 5
+
+/** Read-modify-write on the async lane; `compute` runs on a fresh snapshot per attempt and may throw. */
+async function mutateEnvironmentStore<TResult>(
+  userDataPath: string,
+  compute: (store: RuntimeEnvironmentStore) => { store: RuntimeEnvironmentStore; result: TResult }
+): Promise<TResult> {
+  for (let attempt = 1; ; attempt += 1) {
+    const generation = environmentWriteGeneration
+    const { store, result } = compute(readEnvironmentStore(userDataPath))
+    try {
+      await writeEnvironmentStoreAsync(userDataPath, store, {
+        // A publish landing since our read (pairing edit, usage stamp) voids the snapshot.
+        shouldPublish: () => {
+          if (environmentWriteGeneration !== generation) {
+            return false
+          }
+          environmentWriteGeneration += 1
+          return true
+        }
+      })
+      return result
+    } catch (error) {
+      if (!(error instanceof SecureWriteSupersededError) || attempt >= MAX_MUTATION_ATTEMPTS) {
+        throw error
+      }
+    }
   }
 }
 
