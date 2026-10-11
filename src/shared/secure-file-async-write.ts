@@ -20,13 +20,20 @@ export async function writeSecureJsonFileAsync(
   return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2))
 }
 
+/** Async lane for the stores that fsync before they report a write as committed. */
+export async function writeDurableSecureJsonFileAsync(
+  targetPath: string,
+  value: unknown
+): Promise<boolean> {
+  return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2), { durable: true })
+}
+
 /**
- * `writeSecureFile` off the event loop, and the lane every IPC-reachable caller should use: the
+ * The only secure-file write lane: it keeps spawns and fsyncs off the event loop. The
  * durable variant's fsync costs tens of milliseconds on NTFS behind a filter driver, and it runs on
  * the single thread answering every pending `ipcRenderer.invoke`.
  *
- * Syscall order, flags, modes and error/cleanup paths are identical to the synchronous twin —
- * mkdir(0o700) → harden dir → write tmp(0o600) → fsync file → ACL the staged file → rename →
+ * Syscall order: mkdir(0o700) → harden dir → write tmp(0o600) → fsync file → ACL the staged file → rename →
  * fsync directory, with the temp removed on every throwing path.
  *
  * The Windows ACL apply moves to the async icacls lane too — the ordering guarantee was never
@@ -94,8 +101,17 @@ export async function writeSecureFileAsync(
   })
 }
 
+/** Restricts a directory to the current user, off the event loop; false when the ACL did not take. */
+export async function hardenSecureDirectoryAsync(directory: string): Promise<boolean> {
+  if (process.platform !== 'win32') {
+    await chmod(directory, 0o700)
+    return true
+  }
+  return await restrictNewFileAsync(directory, true)
+}
+
 /**
- * The write path's ACL apply, off the event loop. Budget-exempt like its synchronous twin: the
+ * The write path's ACL apply, off the event loop. Budget-exempt: the
  * write path is user-driven rather than polled, so a failed apply must still be retried on the next
  * write of the same credential instead of falling under the read path's backoff.
  */

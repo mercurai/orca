@@ -46,7 +46,7 @@ export async function persistProvisionedEphemeralVmRuntime(
   const now = compatibility?.createdAt ?? args.now ?? Date.now()
   const connection = getEphemeralVmRecipeResultConnection(start.result)
   try {
-    return upsertEphemeralVmRuntime(args.userDataPath, {
+    return await upsertEphemeralVmRuntime(args.userDataPath, {
       id: start.context.instanceId ?? start.context.recipeId,
       recipeId: args.recipe.id,
       recipe: args.recipe,
@@ -74,7 +74,7 @@ export async function persistProvisionedEphemeralVmRuntime(
           (runtime) => runtime.id === compatibility.instanceId
         )
       ) {
-        removeEphemeralVmRuntime(args.userDataPath, compatibility.instanceId)
+        await removeEphemeralVmRuntime(args.userDataPath, compatibility.instanceId)
       }
     }
     throw error

@@ -77,8 +77,11 @@ async function setup(sharingEnabled: { value: boolean } = { value: true }): Prom
   const userDataPath = await mkdtemp(join(tmpdir(), 'orca-artifact-service-'))
   createdPaths.push(userDataPath)
   const active = ensureActiveOrcaProfile(userDataPath)
-  linkOrcaProfileToCloud(active.profile.id, cloudA, userDataPath)
-  recordSuccessfulCloudSessionLogin(cloudSessionIdentity(active.profile.id, cloudA), userDataPath)
+  await linkOrcaProfileToCloud(active.profile.id, cloudA, userDataPath)
+  await recordSuccessfulCloudSessionLogin(
+    cloudSessionIdentity(active.profile.id, cloudA),
+    userDataPath
+  )
   return {
     userDataPath,
     profileId: active.profile.id,
@@ -315,7 +318,7 @@ describe('ArtifactCloudService record authorization', () => {
     const { service, profileId, userDataPath } = await setup()
     vi.stubEnv('ORCA_CLOUD_API_URL', 'http://localhost:4100')
     vi.stubEnv('ORCA_CLOUD_CLIENT_ID', 'desktop-client')
-    saveOrcaCloudSession(profileId, userDataPath, {
+    await saveOrcaCloudSession(profileId, userDataPath, {
       accessToken: 'access-old',
       refreshToken: 'refresh-old',
       expiresAt: Date.now() + 120_000,
@@ -366,10 +369,10 @@ describe('ArtifactCloudService record authorization', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createResponse()))
     await service.share(writeRequest)
 
-    tombstoneCloudSession(cloudSessionIdentity(profileId, cloudA), userDataPath)
-    unlinkOrcaProfileFromCloud(profileId, userDataPath)
-    linkOrcaProfileToCloud(profileId, cloudB, userDataPath)
-    recordSuccessfulCloudSessionLogin(cloudSessionIdentity(profileId, cloudB), userDataPath)
+    await tombstoneCloudSession(cloudSessionIdentity(profileId, cloudA), userDataPath)
+    await unlinkOrcaProfileFromCloud(profileId, userDataPath)
+    await linkOrcaProfileToCloud(profileId, cloudB, userDataPath)
+    await recordSuccessfulCloudSessionLogin(cloudSessionIdentity(profileId, cloudB), userDataPath)
 
     await expect(service.update({ ...writeRequest, authToken: 'token-b' })).rejects.toThrow(
       /has not been shared/
@@ -394,10 +397,10 @@ describe('ArtifactCloudService record authorization', () => {
     const pending = service.share(writeRequest)
     await vi.waitFor(() => expect(resolvePost).toBeTypeOf('function'))
 
-    tombstoneCloudSession(cloudSessionIdentity(profileId, cloudA), userDataPath)
-    unlinkOrcaProfileFromCloud(profileId, userDataPath)
-    linkOrcaProfileToCloud(profileId, cloudB, userDataPath)
-    recordSuccessfulCloudSessionLogin(cloudSessionIdentity(profileId, cloudB), userDataPath)
+    await tombstoneCloudSession(cloudSessionIdentity(profileId, cloudA), userDataPath)
+    await unlinkOrcaProfileFromCloud(profileId, userDataPath)
+    await linkOrcaProfileToCloud(profileId, cloudB, userDataPath)
+    await recordSuccessfulCloudSessionLogin(cloudSessionIdentity(profileId, cloudB), userDataPath)
     resolvePost?.(createResponse())
 
     await expect(pending).rejects.toThrow(/account changed/)
@@ -421,7 +424,7 @@ describe('ArtifactCloudService record authorization', () => {
     const pending = service.share(writeRequest)
     await vi.waitFor(() => expect(resolvePost).toBeTypeOf('function'))
 
-    linkOrcaProfileToCloud(
+    await linkOrcaProfileToCloud(
       profileId,
       { ...cloudA, displayName: 'Updated name', linkedAt: 99 },
       userDataPath

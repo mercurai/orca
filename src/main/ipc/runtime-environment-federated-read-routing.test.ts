@@ -41,9 +41,9 @@ describe('federated read RPC transport routing', () => {
   let userDataPath: string
   let environmentId: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-federated-read-routing-'))
-    environmentId = addEnvironmentFromPairingCode(userDataPath, {
+    environmentId = (await addEnvironmentFromPairingCode(userDataPath, {
       name: 'worker',
       pairingCode: encodePairingOffer({
         v: 2,
@@ -51,7 +51,7 @@ describe('federated read RPC transport routing', () => {
         deviceToken: 'device-token',
         publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
       })
-    }).id
+    })).id
     resetSharedControlSupport()
     sendRemoteRuntimeRequestMock.mockReset()
     sendRemoteRuntimeSharedControlRequestMock.mockReset()
