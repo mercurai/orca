@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { upsertEphemeralVmRuntime } from '../../shared/ephemeral-vm-runtime-store'
 
@@ -136,6 +137,8 @@ it('stops in-flight cleanup and retains the runtime for retry', async () => {
   const cleanup = handlers.get('ephemeralVm:cleanup')?.(null, {
     runtimeId: 'runtime-stop'
   }) as Promise<{ status: string }>
+  // Why: the status write before the spawn is async now; settle it so the wait covers only the spawn.
+  await drainPendingPathWrites()
   await vi.waitFor(() => expect(existsSync(destroyStartedPath)).toBe(true))
   const stopped = await handlers.get('ephemeralVm:stopCleanup')?.(null, {
     runtimeId: 'runtime-stop'

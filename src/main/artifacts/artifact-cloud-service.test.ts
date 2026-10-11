@@ -114,6 +114,15 @@ afterEach(async () => {
   )
 })
 
+/** Settles when the held fetch is first called; the service reaches it only after async secure writes. */
+function fetchCallSignal(): { called: Promise<void>; signal: () => void } {
+  let signal!: () => void
+  const called = new Promise<void>((resolve) => {
+    signal = resolve
+  })
+  return { called, signal }
+}
+
 describe('ArtifactCloudService record authorization', () => {
   it('passes an opaque cursor and returns the complete list page', async () => {
     const { service } = await setup()
@@ -202,12 +211,14 @@ describe('ArtifactCloudService record authorization', () => {
   it('serializes concurrent publishes for the same source', async () => {
     const { service } = await setup()
     let resolveCreate: ((response: Response) => void) | undefined
+    const resolveCreateCalled = fetchCallSignal()
     const fetchMock = vi
       .fn()
       .mockImplementationOnce(
         () =>
           new Promise<Response>((resolve) => {
             resolveCreate = resolve
+            resolveCreateCalled.signal()
           })
       )
       .mockResolvedValueOnce(createResponse())
@@ -215,7 +226,7 @@ describe('ArtifactCloudService record authorization', () => {
 
     const first = service.publish(writeRequest)
     const second = service.publish(writeRequest)
-    await vi.waitFor(() => expect(resolveCreate).toBeTypeOf('function'))
+    await resolveCreateCalled.called
     expect(fetchMock).toHaveBeenCalledOnce()
     resolveCreate?.(createResponse())
 
@@ -230,12 +241,14 @@ describe('ArtifactCloudService record authorization', () => {
   it('serializes manual publish with CLI share for the same source', async () => {
     const { service } = await setup()
     let resolvePublish: ((response: Response) => void) | undefined
+    const resolvePublishCalled = fetchCallSignal()
     const fetchMock = vi
       .fn()
       .mockImplementationOnce(
         () =>
           new Promise<Response>((resolve) => {
             resolvePublish = resolve
+            resolvePublishCalled.signal()
           })
       )
       .mockResolvedValueOnce(createResponse('artifact-b'))
@@ -243,7 +256,7 @@ describe('ArtifactCloudService record authorization', () => {
 
     const publish = service.publish(writeRequest)
     const share = service.share(writeRequest)
-    await vi.waitFor(() => expect(resolvePublish).toBeTypeOf('function'))
+    await resolvePublishCalled.called
     expect(fetchMock).toHaveBeenCalledOnce()
     resolvePublish?.(createResponse('artifact-a'))
 
@@ -257,6 +270,7 @@ describe('ArtifactCloudService record authorization', () => {
   it('serializes account deletion with a mapped source update', async () => {
     const { service } = await setup()
     let resolveUpdate: ((response: Response) => void) | undefined
+    const resolveUpdateCalled = fetchCallSignal()
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(createResponse())
@@ -264,6 +278,7 @@ describe('ArtifactCloudService record authorization', () => {
         () =>
           new Promise<Response>((resolve) => {
             resolveUpdate = resolve
+            resolveUpdateCalled.signal()
           })
       )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
@@ -271,7 +286,7 @@ describe('ArtifactCloudService record authorization', () => {
     await service.share(writeRequest)
 
     const update = service.update(writeRequest)
-    await vi.waitFor(() => expect(resolveUpdate).toBeTypeOf('function'))
+    await resolveUpdateCalled.called
     const deletion = service.delete('artifact-a', { apiUrl, authToken: 'token-a' })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     resolveUpdate?.(createResponse())
@@ -385,17 +400,19 @@ describe('ArtifactCloudService record authorization', () => {
   it('does not persist an edit token when a POST completes after relink', async () => {
     const { userDataPath, profileId, service } = await setup()
     let resolvePost: ((response: Response) => void) | undefined
+    const resolvePostCalled = fetchCallSignal()
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(
         () =>
           new Promise<Response>((resolve) => {
             resolvePost = resolve
+            resolvePostCalled.signal()
           })
       )
     )
     const pending = service.share(writeRequest)
-    await vi.waitFor(() => expect(resolvePost).toBeTypeOf('function'))
+    await resolvePostCalled.called
 
     await tombstoneCloudSession(cloudSessionIdentity(profileId, cloudA), userDataPath)
     await unlinkOrcaProfileFromCloud(profileId, userDataPath)
@@ -412,17 +429,19 @@ describe('ArtifactCloudService record authorization', () => {
   it('allows a POST to finish across a same-account metadata refresh', async () => {
     const { userDataPath, profileId, service } = await setup()
     let resolvePost: ((response: Response) => void) | undefined
+    const resolvePostCalled = fetchCallSignal()
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation(
         () =>
           new Promise<Response>((resolve) => {
             resolvePost = resolve
+            resolvePostCalled.signal()
           })
       )
     )
     const pending = service.share(writeRequest)
-    await vi.waitFor(() => expect(resolvePost).toBeTypeOf('function'))
+    await resolvePostCalled.called
 
     await linkOrcaProfileToCloud(
       profileId,
@@ -465,6 +484,7 @@ describe('ArtifactCloudService record authorization', () => {
     vi.setSystemTime('2026-08-07T00:00:00.000Z')
     const { service } = await setup()
     let resolveUpdate: ((response: Response) => void) | undefined
+    const resolveUpdateCalled = fetchCallSignal()
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(createResponse('artifact-a', '2026-09-06T00:00:00.000Z'))
@@ -472,6 +492,7 @@ describe('ArtifactCloudService record authorization', () => {
         () =>
           new Promise<Response>((resolve) => {
             resolveUpdate = resolve
+            resolveUpdateCalled.signal()
           })
       )
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
@@ -480,7 +501,7 @@ describe('ArtifactCloudService record authorization', () => {
     await service.share(writeRequest)
     vi.setSystemTime('2026-09-05T00:00:00.000Z')
     const update = service.update(writeRequest)
-    await vi.waitFor(() => expect(resolveUpdate).toBeTypeOf('function'))
+    await resolveUpdateCalled.called
     vi.setSystemTime('2026-09-07T00:00:00.000Z')
     resolveUpdate?.(createResponse('artifact-a', '2026-10-06T00:00:00.000Z'))
     await update
