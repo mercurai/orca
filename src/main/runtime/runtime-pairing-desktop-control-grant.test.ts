@@ -99,7 +99,7 @@ describe('pairing-time grants on the device registry', () => {
     ])
     expect(granted.token).not.toBe(plain.token)
     expect(registry.getDevice(plain.deviceId)?.grants).toBeUndefined()
-    expect(registry.getOrCreatePendingDevice('cli', 'runtime').token).toBe(plain.token)
+    expect((await registry.getOrCreatePendingDevice('cli', 'runtime')).token).toBe(plain.token)
   })
 })
 
