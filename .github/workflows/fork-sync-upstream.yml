@@ -103,8 +103,12 @@ jobs:
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
         if: ${{ steps.mode.outputs.push == 'true' && steps.fetch.outputs.rebase_tag != '' }}
         run: |
+          set -euo pipefail
           echo "dispatching rebase onto ${{ steps.fetch.outputs.rebase_tag }}"
-          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=${{ steps.fetch.outputs.rebase_tag }}"
+          tag="${{ steps.fetch.outputs.rebase_tag }}"
+          # Hand over the commit this run saw: a tag upstream re-cuts in between fails the rebase instead of moving it.
+          tag_sha=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$tag_sha"
 
       - name: Mirror upstream branches under upstream/*
         if: ${{ steps.mode.outputs.push == 'true' && inputs.mirror_branches == true }}
