@@ -24,9 +24,18 @@ vi.mock('node:os', async (importOriginal) => ({
   homedir: () => dirs.home
 }))
 
+// Why: real icacls takes seconds on Windows; a one-turn fake keeps the ACL await (and its failure
+// path, which retries on the published file after the rename) without the cost.
 vi.mock('../../shared/child-process/run-process', async (importOriginal) => {
   const actual = await importOriginal<typeof runProcessModule>()
-  return { ...actual, runProcess: vi.fn(actual.runProcess), runProcessSync: vi.fn() }
+  return {
+    ...actual,
+    runProcess: vi.fn(async () => {
+      await new Promise((resolve) => setImmediate(resolve))
+      return { code: 1, signal: null, stdout: '', stderr: 'fake', timedOut: false }
+    }),
+    runProcessSync: vi.fn()
+  }
 })
 
 dirs.home = mkdtempSync(join(tmpdir(), 'orca-clear-interleave-home-'))
