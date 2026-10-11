@@ -107,7 +107,7 @@ describe('main.loop span', () => {
     })
   })
 
-  it('carries the window's terminal input latency on the span', () => {
+  it('carries the terminal input latency of the window on the span', () => {
     startMainThreadChurnProbe()
     terminalInputLatency.noteInput('pty-1', Date.now() - 30)
     fakeNow += 80
