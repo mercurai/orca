@@ -18,7 +18,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 type Step = 'fsync:file' | 'fsync:directory' | 'rename' | 'write'
 const steps = vi.hoisted((): Step[] => [])
-const onDirectoryFsync = vi.hoisted(() => ({ run: null as (() => void) | null }))
+const onDirectoryFsync = vi.hoisted((): { run: (() => void) | null } => ({ run: null }))
 
 // secure-file opens through fs/promises only to fsync, so the open is the fsync for ordering.
 vi.mock('node:fs/promises', async () => {
