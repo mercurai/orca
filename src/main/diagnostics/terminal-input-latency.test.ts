@@ -3,7 +3,13 @@ import { createTerminalInputLatencyProbe } from './terminal-input-latency'
 
 const KEY = { inputKind: 'driving', isLocalPty: true }
 
-function fakeClock(): { advance: (ms: number) => void; wall: () => number; clock: { wallNow: () => number; monoNow: () => number } } {
+type FakeClock = {
+  advance: (ms: number) => void
+  wall: () => number
+  clock: { wallNow: () => number; monoNow: () => number }
+}
+
+function fakeClock(): FakeClock {
   const state = { wall: 1_000_000, mono: 0 }
   return {
     advance: (ms) => {
@@ -77,6 +83,34 @@ describe('terminal input latency probe', () => {
     t.advance(6_000)
     probe.noteOutput('a') // unrelated output long after the key
     t.advance(1_000)
+    probe.noteInput('a', t.wall(), KEY)
+    t.advance(30)
+    probe.noteOutput('a')
+    const w = probe.drain()
+    expect(w.echoCount).toBe(1)
+    expect(w.echoMaxMs).toBe(30)
+  })
+
+  it('does not mark a fast typist busy because of their own echoes', () => {
+    const t = fakeClock()
+    const probe = createTerminalInputLatencyProbe(t.clock)
+    probe.noteInput('a', t.wall(), KEY)
+    t.advance(20)
+    probe.noteOutput('a')
+    t.advance(60) // next key 60 ms after the echo
+    probe.noteInput('a', t.wall(), KEY)
+    t.advance(25)
+    probe.noteOutput('a')
+    const w = probe.drain()
+    expect(w.echoCount).toBe(2)
+    expect(w.echoSkippedBusy).toBe(0)
+  })
+
+  it('re-arms over a pending echo older than 5 s', () => {
+    const t = fakeClock()
+    const probe = createTerminalInputLatencyProbe(t.clock)
+    probe.noteInput('a', t.wall(), KEY)
+    t.advance(6_000)
     probe.noteInput('a', t.wall(), KEY)
     t.advance(30)
     probe.noteOutput('a')
