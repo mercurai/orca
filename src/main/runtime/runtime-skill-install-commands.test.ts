@@ -25,7 +25,6 @@ function createHost(): RuntimeSkillCommandHost {
     showManagedWorktree: async () => {
       throw new Error('unused')
     },
-    getSshProvider: () => ({ requestHostRpc: vi.fn() }) as never,
     skillTransactionRecovery: Promise.resolve()
   }
 }

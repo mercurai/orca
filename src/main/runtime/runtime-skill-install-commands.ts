@@ -4,7 +4,6 @@ import { executeSkillInstallRequest } from '../skills/skill-install-request-serv
 import { executeSkillBundleInstallRequest } from '../skills/skill-bundle-install-request-service'
 import { SkillUploadSessionService } from '../skills/skill-upload-session-service'
 import { SKILL_UPLOAD_STAGING_ROOT_NAME } from '../skills/skill-upload-staging-ownership'
-import type { IPtyProvider } from '../providers/types'
 import type {
   SkillBundleInstallProgress,
   SkillBundleInstallRequest,
@@ -48,12 +47,9 @@ export class RuntimeSkillInstallCommands {
     this.skillUploadSessions = null
     await sessions?.dispose()
   }
-  protected requireSsh(connectionId: string): IPtyProvider {
-    const provider = this.host.getSshProvider(connectionId)
-    if (!provider?.requestHostRpc) {
-      throw new Error('skill-install-ssh-relay-unavailable')
-    }
-    return provider
+  // Why: this process holds no SSH PTY provider; a managed host installs skills as a paired runtime.
+  protected requireSsh(_connectionId: string): never {
+    throw new Error('skill-install-ssh-relay-unavailable')
   }
   protected sshTarget(destination: SkillInstallRequest['destination']) {
     return resolveSkillSshTarget(this.host, destination, (id) => this.requireSsh(id))

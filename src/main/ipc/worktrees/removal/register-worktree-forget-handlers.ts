@@ -9,7 +9,7 @@ import { getRepoExecutionHostId, parseExecutionHostId } from '../../../../shared
 import type { ExecutionHostId } from '../../../../shared/execution-host'
 import type { Repo } from '../../../../shared/repo-types'
 import { isFolderRepo } from '../../../../shared/repo-kind'
-import { getSshPtyProvider, getLocalPtyProvider, clearProviderPtyState } from '../../pty'
+import { getLocalPtyProvider, clearProviderPtyState } from '../../pty'
 import { killAllProcessesForWorktree } from '../../../runtime/worktree-teardown'
 import { invalidateAuthorizedRootsCache } from '../../registered-worktree-roots-cache'
 import { preservedBranchCleanupScopeKey } from '../../../../shared/preserved-branch-cleanup'
@@ -90,8 +90,6 @@ export function registerWorktreeForgetHandlers(context: WorktreeIpcContext): voi
           args.hostId
         )
         const ownerHost = parseExecutionHostId(ownerHostId)
-        const sshPtyProvider =
-          ownerHost?.kind === 'ssh' ? getSshPtyProvider(ownerHost.targetId) : undefined
         const externalHost = ownerHost?.kind === 'ssh' || ownerHost?.kind === 'runtime'
         // External host inventories must never sweep a same-id local workspace.
         await killAllProcessesForWorktree(args.worktreeId, {
@@ -101,17 +99,12 @@ export function registerWorktreeForgetHandlers(context: WorktreeIpcContext): voi
           ...(ownerHost?.kind === 'runtime'
             ? { resolvedRuntimeEnvironmentId: ownerHost.environmentId }
             : {}),
-          localProvider: sshPtyProvider ?? getLocalPtyProvider(),
+          localProvider: getLocalPtyProvider(),
           onPtyStopped: clearProviderPtyState,
           // Forgetting an orphan still purges its workspace metadata, so retire structured chat
           // tabs even when no provider child is attached to the workspace.
           closeStructuredSessions: true,
-          ...(externalHost
-            ? {
-                includeProviderInventory: ownerHost?.kind === 'ssh' && Boolean(sshPtyProvider),
-                includeLocalRegistry: false
-              }
-            : {})
+          ...(externalHost ? { includeProviderInventory: false, includeLocalRegistry: false } : {})
         }).catch((err) => {
           console.warn(`[worktree-teardown] forget-local failed for ${args.worktreeId}:`, err)
         })

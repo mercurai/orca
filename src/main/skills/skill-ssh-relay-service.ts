@@ -5,10 +5,8 @@ import {
   SKILL_UPLOAD_CAPABILITY
 } from '../../shared/skill-install-capability'
 import {
-  ManagedSkillInstallListSchema,
   SkillInstallPreviewSchema,
   SkillInstallResultSchema,
-  type ManagedSkillInstall,
   type SkillInstallPreview,
   type SkillInstallPreviewRequest,
   type SkillInstallRequest,
@@ -18,7 +16,6 @@ import {
 import {
   SKILL_SSH_RELAY_CANCEL_UPLOAD_METHOD,
   SKILL_SSH_RELAY_INSTALL_METHOD,
-  SKILL_SSH_RELAY_LIST_METHOD,
   SKILL_SSH_RELAY_PREVIEW_METHOD,
   SKILL_SSH_RELAY_REMOVE_METHOD,
   type SkillSshWorkspaceAuthority
@@ -166,31 +163,4 @@ export async function removeSkillInstallOnSshHost(input: {
       { timeoutMs: SKILL_SSH_REQUEST_TIMEOUT_MS }
     )
   )
-}
-
-export async function listSkillInstallsOnSshHost(input: {
-  provider: SkillSshProviderSource
-  connectionId: string
-  workspaces: SkillSshWorkspaceAuthority[]
-}): Promise<ManagedSkillInstall[]> {
-  const client = requireSkillSshRelayClient(input.provider)
-  if (!(await skillSshRelayCapabilities(client)).includes(SKILL_MANAGEMENT_CAPABILITY)) {
-    throw new Error('skill-install-ssh-update-required')
-  }
-  return ManagedSkillInstallListSchema.parse(
-    await client(
-      SKILL_SSH_RELAY_LIST_METHOD,
-      { workspaces: input.workspaces },
-      { timeoutMs: 30_000 }
-    )
-  ).map((install) => ({
-    ...install,
-    destination:
-      install.destination.scope === 'global'
-        ? {
-            scope: 'global' as const,
-            executionTarget: { kind: 'ssh' as const, connectionId: input.connectionId }
-          }
-        : install.destination
-  }))
 }

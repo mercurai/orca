@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../pty', () => ({ getSshPtyProvider: () => undefined }))
 vi.mock('../../worktree-remote', () => ({
   cleanupUnusedWorktreePushTargetRemote: vi.fn(async () => {}),
   cleanupUnusedWorktreePushTargetRemoteSsh: vi.fn(async () => {}),

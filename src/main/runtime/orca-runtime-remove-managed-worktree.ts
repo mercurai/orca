@@ -30,7 +30,6 @@ import { cleanupUnusedWorktreePushTargetRemote } from '../ipc/worktree-remote'
 import { removeRuntimeRegisteredRemoteWorktree } from './runtime-registered-remote-worktree-removal'
 import { removeRuntimeRegisteredLocalWorktree } from './runtime-registered-local-worktree-removal'
 import { removeOrphanOrFolderWorktree } from './orca-runtime-remove-orphan-or-folder-worktree'
-import { deleteRemoteWorktreeHistory } from '../remote-worktree-history-cleanup'
 
 export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateManagedRemoteWorktree {
   async removeManagedWorktree(
@@ -152,11 +151,6 @@ export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateM
                 ...(connectionId ? { connectionId } : {}),
                 allowUnverifiedStop: allowUnverifiedPtyStop
               }),
-            deleteHistory: () =>
-              deleteRemoteWorktreeHistory(
-                route.kind === 'ssh' ? this.getSshProviderFn?.(route.connectionId) : undefined,
-                removalTarget.id
-              ),
             finishRemoval: () => {
               this.preservedBranchCleanup.delete(removalTarget.id, cleanupHostId)
               purgeRemovedWorktree()
@@ -230,11 +224,6 @@ export class OrcaRuntimeWithRemoveManagedWorktree extends OrcaRuntimeWithCreateM
                 connectionId: route.connectionId,
                 allowUnverifiedStop: allowUnverifiedPtyStop
               }),
-            deleteHistory: () =>
-              deleteRemoteWorktreeHistory(
-                this.getSshProviderFn?.(route.connectionId),
-                removalTarget.id
-              ),
             preserveBranchHead: (result, fallbackHead) =>
               this.preservedBranchCleanup.preserveHead(result, fallbackHead),
             finishRemoval: (result) => {

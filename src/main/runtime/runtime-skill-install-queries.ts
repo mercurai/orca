@@ -5,7 +5,6 @@ import { listManagedSkillInstalls } from '../skills/skill-install-provenance'
 import { WslSkillInstallFilesystem } from '../skills/skill-wsl-install-filesystem'
 import { nativeSkillInstallFilesystem } from '../skills/skill-install-filesystem'
 import {
-  listSkillInstallsOnSshHost,
   previewSkillInstallOnSshHost,
   removeSkillInstallOnSshHost
 } from '../skills/skill-ssh-relay-service'
@@ -16,8 +15,6 @@ import {
   removeSharedSkillInstall
 } from '../skills/skill-install-management-service'
 import { toLinuxPath } from '../wsl'
-import { getRepoExecutionHostId, toSshExecutionHostId } from '../../shared/execution-host'
-import { getRepoIdFromWorktreeId } from '../../shared/worktree/id'
 import type {
   SkillBundleInstallPreviewRequest,
   SkillInstallPreviewRequest,
@@ -93,45 +90,7 @@ export class RuntimeSkillInstallQueries extends RuntimeSkillInstallCommands {
   }
   async listManagedSkillInstalls(connectionId?: string): Promise<ManagedSkillInstall[]> {
     if (connectionId) {
-      const executionHostId = toSshExecutionHostId(connectionId)
-      const repos = this.host.listRepos()
-      const remoteRepoIds = new Set(
-        repos
-          .filter((repo) => getRepoExecutionHostId(repo) === executionHostId)
-          .map((repo) => repo.id)
-      )
-      const repoHostIds = new Map<string, Set<string>>()
-      for (const repo of repos) {
-        const hostIds = repoHostIds.get(repo.id) ?? new Set<string>()
-        hostIds.add(getRepoExecutionHostId(repo))
-        repoHostIds.set(repo.id, hostIds)
-      }
-      const worktrees = (await this.host.listResolvedWorktrees())
-        .filter((worktree) => {
-          const repoId = getRepoIdFromWorktreeId(worktree.id)
-          if (!remoteRepoIds.has(repoId)) {
-            return false
-          }
-          if (worktree.hostId) {
-            return worktree.hostId === executionHostId
-          }
-          const owners = repoHostIds.get(repoId)
-          return owners?.size === 1 && owners.has(executionHostId)
-        })
-        .map((worktree) => ({ kind: 'worktree' as const, id: worktree.id, path: worktree.path }))
-      const folders = this.host
-        .listFolderWorkspaces()
-        .filter((workspace) => this.folderExecutionHostId(workspace) === executionHostId)
-        .map((workspace) => ({
-          kind: 'folder' as const,
-          id: workspace.id,
-          path: workspace.folderPath
-        }))
-      return listSkillInstallsOnSshHost({
-        provider: this.requireSsh(connectionId),
-        connectionId,
-        workspaces: [...worktrees, ...folders]
-      })
+      return this.requireSsh(connectionId)
     }
     await this.host.skillTransactionRecovery
     const runtimeId = this.host.getRuntimeId()

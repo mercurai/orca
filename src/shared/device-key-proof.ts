@@ -1,11 +1,5 @@
 import nacl from 'tweetnacl'
 
-// Why: an older host refuses the key-auth shape with bad_auth and has no
-// pairing.registerDeviceKey; clients migrate or present a key only when this is advertised.
-export const DEVICE_KEY_RUNTIME_CAPABILITY = 'pairing.device-key.v1' as const
-
-export const REGISTER_DEVICE_KEY_METHOD = 'pairing.registerDeviceKey' as const
-
 export type DeviceProofPurpose = 'auth' | 'redeem' | 'register'
 
 const DOMAIN = 'orca-device-proof/v1'

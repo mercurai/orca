@@ -1,6 +1,5 @@
 import { vi } from 'vitest'
 import type { SshIpcMockModules, SshIpcMockState, SshIpcMocks } from './ssh-ipc-mock-shapes'
-import { errorMessage } from '../../shared/error-message'
 
 export type { SshIpcMocks }
 
@@ -49,16 +48,6 @@ export function createSshIpcMocks(): SshIpcMocks {
       notify: vi.fn(),
       probeLiveness: vi.fn().mockResolvedValue(false)
     },
-    mockPtyProvider: {
-      onData: vi.fn(),
-      onExit: vi.fn(),
-      onReplay: vi.fn(),
-      attach: vi.fn(),
-      attachForReconnect: vi.fn().mockResolvedValue({}),
-      shutdown: vi.fn(),
-      listProcesses: vi.fn(async () => []),
-      providerGeneration: 0
-    },
     mockFsProvider: {},
     mockGitProvider: {},
     mockRegisterSshGitProvider: vi.fn(),
@@ -94,7 +83,6 @@ export function createSshIpcMocks(): SshIpcMocks {
     mockAcceptSshPtyOutputData,
     mockAcceptSshPtyOutputExit,
     mockMux,
-    mockPtyProvider,
     mockFsProvider,
     mockGitProvider,
     mockRegisterSshGitProvider,
@@ -190,15 +178,6 @@ export function createSshIpcMocks(): SshIpcMocks {
         }
       }
     },
-    sshPtyProvider: {
-      isSshPtyNotFoundError: (err: unknown) => errorMessage(err).includes('not found'),
-      SshPtyProvider: class MockSshPtyProvider {
-        constructor(_targetId: unknown, _mux: unknown, _env: unknown, providerGeneration: number) {
-          mockPtyProvider.providerGeneration = providerGeneration
-          return mockPtyProvider
-        }
-      }
-    },
     sshFilesystemProvider: {
       SshFilesystemProvider: class MockSshFilesystemProvider {
         constructor() {
@@ -207,13 +186,10 @@ export function createSshIpcMocks(): SshIpcMocks {
       }
     },
     pty: {
-      registerSshPtyProvider: vi.fn(),
-      unregisterSshPtyProvider: vi.fn(),
       clearPtyOwnershipForConnection: vi.fn(),
       clearProviderPtyState: vi.fn(),
       deletePtyOwnership: vi.fn(),
       setPtyOwnership: vi.fn(),
-      getSshPtyProvider: vi.fn(),
       getPtyIdsForConnection: vi.fn().mockReturnValue([]),
       isCurrentPtyExit: vi.fn().mockReturnValue(true),
       isRendererPtyOutputPaused: vi.fn().mockReturnValue(false)

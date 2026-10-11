@@ -19,7 +19,6 @@ import {
 } from '../orca-runtime-test-fixtures.spec'
 import { createWorktreeRemovalRuntime } from '../orca-runtime-test-scenario-builders.spec'
 import type { ExecutionHostId } from '../../../shared/execution-host'
-import { getLocalWorktreeScanGeneration } from '../../local-worktree-scan-generation'
 
 // Why: these fixtures register an SSH provider, which models a connected relay session — and a
 // connected session has always read the host's `$HOME`. The removal guards refuse without it.
@@ -100,28 +99,28 @@ describe('OrcaRuntimeService worktree removal execution host', () => {
     vi.mocked(removeWorktree).mockClear()
   })
 
-  it('removes a migrated-spelling SSH row on its own host, never this machine', async () => {
+  it('refuses a migrated-spelling SSH row it cannot stop terminals for, never deleting here', async () => {
     // No `connectionId` at all: the row names its owner only as `executionHostId: 'ssh:target-a'`.
-    const { runtimeStore, removeWorktreeMeta, metaById } = makeRemoteRepoStore('ssh:target-a')
+    const { runtimeStore, metaById } = makeRemoteRepoStore('ssh:target-a')
     const provider = makeGitProvider([REPO_ROOT_ENTRY, REGISTERED_ENTRY])
     registerSshGitProvider('target-a', provider as never)
     const runtime = createWorktreeRemovalRuntime(runtimeStore)
     vi.spyOn(runtime, 'acquireFileWatcherRemoval').mockResolvedValue({ finish: vi.fn() })
 
     try {
-      await runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-        force: true,
-        runHooks: false,
-        allowUnverifiedPtyStop: false,
-        hostId: 'ssh:target-a'
-      })
+      await expect(
+        runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
+          force: true,
+          runHooks: false,
+          allowUnverifiedPtyStop: false,
+          hostId: 'ssh:target-a'
+        })
+      ).rejects.toThrow('PTY provider unavailable for worktree deletion')
 
-      expect(provider.listWorktrees).toHaveBeenCalledWith(REMOTE_REPO_PATH)
-      expect(provider.removeWorktree).toHaveBeenCalledWith(TEST_WORKTREE_PATH, true)
+      expect(provider.removeWorktree).not.toHaveBeenCalled()
       expect(listWorktreesStrict).not.toHaveBeenCalled()
       expect(removeWorktree).not.toHaveBeenCalled()
-      expect(removeWorktreeMeta).toHaveBeenCalledWith(TEST_WORKTREE_ID, 'ssh:target-a')
-      expect(metaById[TEST_WORKTREE_ID]).toBeUndefined()
+      expect(metaById[TEST_WORKTREE_ID]).toBeDefined()
     } finally {
       unregisterSshGitProvider('target-a')
     }
@@ -155,32 +154,6 @@ describe('OrcaRuntimeService worktree removal execution host', () => {
       expect(removeWorktreeMeta).toHaveBeenCalledWith(TEST_WORKTREE_ID, 'ssh:target-a')
     } finally {
       unregisterSshFilesystemProvider('target-a')
-      unregisterSshGitProvider('target-a')
-    }
-  })
-
-  it('keeps two simultaneously registered SSH hosts off each other paths', async () => {
-    const { runtimeStore } = makeRemoteRepoStore('ssh:target-b')
-    const providerA = makeGitProvider([REPO_ROOT_ENTRY, REGISTERED_ENTRY])
-    const providerB = makeGitProvider([REPO_ROOT_ENTRY, REGISTERED_ENTRY])
-    registerSshGitProvider('target-a', providerA as never)
-    registerSshGitProvider('target-b', providerB as never)
-    const runtime = createWorktreeRemovalRuntime(runtimeStore)
-    vi.spyOn(runtime, 'acquireFileWatcherRemoval').mockResolvedValue({ finish: vi.fn() })
-
-    try {
-      await runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-        force: true,
-        runHooks: false,
-        allowUnverifiedPtyStop: false,
-        hostId: 'ssh:target-b'
-      })
-
-      expect(providerB.removeWorktree).toHaveBeenCalledWith(TEST_WORKTREE_PATH, true)
-      expect(providerA.listWorktrees).not.toHaveBeenCalled()
-      expect(providerA.removeWorktree).not.toHaveBeenCalled()
-    } finally {
-      unregisterSshGitProvider('target-b')
       unregisterSshGitProvider('target-a')
     }
   })
@@ -246,38 +219,6 @@ describe('OrcaRuntimeService worktree removal execution host', () => {
       expect(provider.removeWorktree).not.toHaveBeenCalled()
       expect(removeWorktree).not.toHaveBeenCalled()
       expect(metaById[TEST_WORKTREE_ID]).toBeDefined()
-    } finally {
-      unregisterSshGitProvider('target-a')
-    }
-  })
-
-  it('moves the scan generation before the first step after an SSH git worktree remove', async () => {
-    const { runtimeStore, repo } = makeRemoteRepoStore('ssh:target-a', { connectionId: 'target-a' })
-    const provider = makeGitProvider([REPO_ROOT_ENTRY, REGISTERED_ENTRY])
-    const witness: { during?: number; after?: number } = {}
-    provider.removeWorktree.mockImplementationOnce(async () => {
-      witness.during = getLocalWorktreeScanGeneration(repo.id)
-      return {}
-    })
-    registerSshGitProvider('target-a', provider as never)
-    const runtime = createWorktreeRemovalRuntime(runtimeStore)
-    // Why the watcher gate: releasing it is the first awaited step after the git removal.
-    vi.spyOn(runtime, 'acquireFileWatcherRemoval').mockResolvedValue({
-      finish: vi.fn(async () => {
-        witness.after ??= getLocalWorktreeScanGeneration(repo.id)
-      })
-    })
-
-    try {
-      await runtime.removeManagedWorktree(TEST_WORKTREE_ID, {
-        force: true,
-        runHooks: false,
-        allowUnverifiedPtyStop: false,
-        hostId: 'ssh:target-a'
-      })
-
-      expect(provider.removeWorktree).toHaveBeenCalledOnce()
-      expect(witness.after).toBeGreaterThan(witness.during ?? Infinity)
     } finally {
       unregisterSshGitProvider('target-a')
     }

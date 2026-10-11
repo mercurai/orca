@@ -4,7 +4,7 @@ import {
   DelegatedMobileDeviceSyncParamsSchema
 } from '../../../../shared/delegated-mobile-device-contract'
 import { RegisterDeviceKeyParamsSchema } from '../../../../shared/device-key-registration-contract'
-import { REGISTER_DEVICE_KEY_METHOD } from '../../../../shared/device-key-proof'
+import { REGISTER_DEVICE_KEY_METHOD } from '../../../../shared/device-key-capability'
 import {
   PairingGetEndpointsParamsSchema,
   PairingProvisionRelayParamsSchema

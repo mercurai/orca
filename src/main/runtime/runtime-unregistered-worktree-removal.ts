@@ -48,7 +48,6 @@ export async function removeRuntimeUnregisteredWorktree(args: {
   store: RuntimeStore
   acquireWatcherRemoval: (path: string, connectionId?: string) => Promise<RemovalGate>
   stopPtys: (worktreeId: string, connectionId: string | undefined, allow: boolean) => Promise<void>
-  deleteHistory: () => Promise<void>
   finishRemoval: () => void
 }): Promise<{}> {
   const { repo, target, registeredWorktrees, removedMeta, route } = args
@@ -122,7 +121,6 @@ export async function removeRuntimeUnregisteredWorktree(args: {
       throw new Error(UNREGISTERED_MISSING_WORKTREE_MESSAGE)
     }
     await cleanupPushTarget(args)
-    await args.deleteHistory()
     args.finishRemoval()
     return {}
   }
@@ -150,7 +148,6 @@ async function deleteUnregisteredDirectory(
     await gate.finish(completed)
   }
   await cleanupPushTarget(args)
-  await args.deleteHistory()
 }
 
 async function cleanupPushTarget(

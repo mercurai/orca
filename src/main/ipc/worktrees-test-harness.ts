@@ -65,8 +65,7 @@ import {
   recordRemovalSnapshotPruneMock,
   killAllProcessesForWorktreeMock,
   clearProviderPtyStateMock,
-  getLocalPtyProviderMock,
-  getSshPtyProviderMock
+  getLocalPtyProviderMock
 } from './worktrees-test-module-mocks'
 
 export {
@@ -164,7 +163,6 @@ export function setupWorktreeHandlers(): WorktreeRuntimeStub {
     killAllProcessesForWorktreeMock,
     clearProviderPtyStateMock,
     getLocalPtyProviderMock,
-    getSshPtyProviderMock,
     deleteWorktreeHistoryDirMock,
     advertisedUrlWatcherForgetWorktreeMock,
     pruneCleanupScanSnapshotMock,
@@ -186,7 +184,6 @@ export function setupWorktreeHandlers(): WorktreeRuntimeStub {
   assertWorktreeCleanForRemovalMock.mockResolvedValue(undefined)
   findExistingWorktreeSymlinkPathsMock.mockResolvedValue([])
   getLocalPtyProviderMock.mockReturnValue({} as never)
-  getSshPtyProviderMock.mockReturnValue({} as never)
 
   for (const key of Object.keys(handlers)) {
     delete handlers[key]

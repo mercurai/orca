@@ -1,11 +1,9 @@
-import type { IPtyProvider } from '../../../providers/types'
 import { SshPtyOutputIntake } from '../../ssh-pty-output-intake'
 import {
   cancelSshPtySourceDelivery,
   installSshPtyOutputIntake,
   publishSshPtySourceAck
 } from '../../ssh-pty-output-intake-registry'
-import { sshProvidersByGeneration } from '../provider/registry'
 import { setSshOutputIntakeCleanup, sshOutputIntakeCleanup } from '../provider/listener-lifecycle'
 import type { PtyIpcSession } from '../session'
 
@@ -50,24 +48,10 @@ export function installSessionSshOutputIntake(session: PtyIpcSession): void {
       })
       session.finalizePtyExitForRenderer(event)
     },
-    pauseProvider: (generation, id) => {
-      const provider = sshProvidersByGeneration.get(generation) as
-        | (IPtyProvider & { hasPtyDeliveryPauseAdapter?: () => boolean })
-        | undefined
-      if (!provider?.hasPtyDeliveryPauseAdapter?.()) {
-        return false
-      }
-      provider.pauseProducer?.(id)
-      return true
-    },
-    resumeProvider: (generation, id) =>
-      sshProvidersByGeneration.get(generation)?.resumeProducer?.(id),
-    closeProvider: (generation, reason) => {
-      const provider = sshProvidersByGeneration.get(generation)
-      ;(
-        provider as (IPtyProvider & { closeOutputIntake?: (reason: string) => void }) | undefined
-      )?.closeOutputIntake?.(reason)
-    },
+    // Why: this process registers no SSH PTY provider, so no generation names a live producer.
+    pauseProvider: () => false,
+    resumeProvider: () => {},
+    closeProvider: () => {},
     resetModelForMigration: (_generation, id) =>
       session.runtime?.resetPtyModelAfterMigrationFailure(id),
     onGenerationClosed: (providerGeneration) => {
@@ -85,7 +69,6 @@ export function installSessionSshOutputIntake(session: PtyIpcSession): void {
           session.pendingOverflowMarkedPtys.delete(id)
         }
       }
-      sshProvidersByGeneration.delete(providerGeneration)
     },
     publishSourceAck: publishSshPtySourceAck,
     cancelSourceDelivery: cancelSshPtySourceDelivery

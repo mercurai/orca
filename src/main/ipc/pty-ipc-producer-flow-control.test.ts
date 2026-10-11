@@ -1,17 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { makeDeferred } from './pty-ipc-test-constants'
 import { setupPtyIpcSuite } from './pty-ipc-test-harness'
-import {
-  acceptSshPtyOutputData,
-  acceptSshPtyOutputExit,
-  closeSshPtyOutputGeneration
-} from './ssh-pty-output-intake-registry'
-import {
-  registerPtyHandlers,
-  registerSshPtyProvider,
-  getPtyRendererDeliveryDebugSnapshot,
-  unregisterSshPtyProvider
-} from './pty'
+import { acceptSshPtyOutputData, acceptSshPtyOutputExit } from './ssh-pty-output-intake-registry'
+import { registerPtyHandlers, getPtyRendererDeliveryDebugSnapshot } from './pty'
 
 vi.mock('electron', () => import('./pty-ipc-mock-registry').then((m) => m.electronModuleMock()))
 vi.mock('fs', () => import('./pty-ipc-mock-registry').then((m) => m.fsModuleMock()))
@@ -65,76 +55,6 @@ describe('registerPtyHandlers', () => {
     getPtyDataSendCalls
   } = setupPtyIpcSuite()
 
-  it('pauses and resumes the exact SSH provider generation across reconnect replacement', async () => {
-    vi.useFakeTimers()
-    const completion = makeDeferred()
-    let sequence = 0
-    let captures = 0
-    const runtime = {
-      setPtyController: vi.fn(),
-      setRemoteTerminalSourceRangeConsumerHooks: vi.fn(),
-      getPtyOutputSequence: vi.fn(() => sequence),
-      acceptPtyDataBounded: vi.fn((_id: string, _data: string, _at: number, rawLength: number) => {
-        sequence += rawLength
-        captures++
-        return {
-          sequence,
-          completion: captures === 1 ? completion.promise : Promise.resolve()
-        }
-      })
-    }
-    const original = {
-      providerGeneration: 41,
-      hasPtyDeliveryPauseAdapter: () => true,
-      pauseProducer: vi.fn(),
-      resumeProducer: vi.fn()
-    }
-    const replacement = {
-      providerGeneration: 42,
-      hasPtyDeliveryPauseAdapter: () => true,
-      pauseProducer: vi.fn(),
-      resumeProducer: vi.fn()
-    }
-    const id = 'ssh:ssh-generation-replacement@@relay-pty'
-    const receipts: Promise<unknown>[] = []
-
-    try {
-      registerPtyHandlers(mainWindow as never, runtime as never)
-      registerSshPtyProvider('ssh-generation-replacement', original as never)
-      const running = acceptSshPtyOutputData({
-        id,
-        data: 'a'.repeat(256 * 1024),
-        providerGeneration: 41,
-        ptyIncarnation: 'incarnation-41',
-        rawLength: 256 * 1024,
-        transformed: false
-      })
-      receipts.push(running)
-      registerSshPtyProvider('ssh-generation-replacement', replacement as never)
-      const pressured = acceptSshPtyOutputData({
-        id,
-        data: 'b',
-        providerGeneration: 41,
-        ptyIncarnation: 'incarnation-41',
-        rawLength: 1,
-        transformed: false
-      })
-      receipts.push(pressured)
-
-      expect(original.pauseProducer).toHaveBeenCalledWith(id)
-      expect(replacement.pauseProducer).not.toHaveBeenCalled()
-
-      completion.resolve()
-      await Promise.all([running, pressured])
-      expect(original.resumeProducer).toHaveBeenCalledWith(id)
-      expect(replacement.resumeProducer).not.toHaveBeenCalled()
-    } finally {
-      completion.resolve()
-      await Promise.allSettled(receipts)
-      closeSshPtyOutputGeneration(41, 'test-cleanup')
-      unregisterSshPtyProvider('ssh-generation-replacement')
-    }
-  })
   it('rejects local data while an SSH renderer exit waits for projection settlement', async () => {
     const provider = installObservableDaemonTestProvider()
     let sequence = 0

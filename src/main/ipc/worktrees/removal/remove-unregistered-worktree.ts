@@ -6,7 +6,6 @@ import type { WorktreeMeta } from '../../../../shared/worktree/meta-types'
 import type { LocalProjectWorktreeGitOptions } from '../../../project-runtime-git-options'
 import type { SshGitProvider } from '../../../providers/ssh-git-provider'
 import { getSshFilesystemProvider } from '../../../providers/ssh-filesystem-dispatch'
-import { deleteRemoteWorktreeHistory } from '../../../remote-worktree-history-cleanup'
 import { preservedBranchCleanupScopeKey } from '../../../../shared/preserved-branch-cleanup'
 import {
   assertWorktreeDoesNotContainRegisteredWorktree,
@@ -28,7 +27,6 @@ import {
   cleanupUnusedWorktreePushTargetRemoteSsh,
   notifyWorktreesChanged
 } from '../../worktree-remote'
-import { getSshPtyProvider } from '../../pty'
 import { invalidateAuthorizedRootsCache } from '../../registered-worktree-roots-cache'
 import type { RemoveWorktreeArgs } from '../ipc-context-schemas'
 import type { WorktreeIpcContext } from '../worktree-ipc-context'
@@ -106,11 +104,6 @@ export async function removeUnregisteredWorktree(
       } finally {
         await removalGate.finish(removalCompleted)
       }
-      // Why history first: the worktree is already gone from git and
-      // disk by here, so a rejecting push-target cleanup must not be
-      // able to skip history removal and leave the user's commands on
-      // the remote host.
-      await deleteRemoteWorktreeHistory(getSshPtyProvider(repo.connectionId), args.worktreeId)
       await cleanupUnusedWorktreePushTargetRemoteSsh(
         provider!,
         repo.path,
@@ -217,11 +210,6 @@ export async function removeUnregisteredWorktree(
     }
     // Why: a manually deleted worktree is already gone; persisted metadata proves it was an Orca-known row, so no force is needed.
     if (repo.connectionId) {
-      // Why history first: the worktree is already gone from git and
-      // disk by here, so a rejecting push-target cleanup must not be
-      // able to skip history removal and leave the user's commands on
-      // the remote host.
-      await deleteRemoteWorktreeHistory(getSshPtyProvider(repo.connectionId), args.worktreeId)
       await cleanupUnusedWorktreePushTargetRemoteSsh(
         provider!,
         repo.path,

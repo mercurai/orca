@@ -16,10 +16,26 @@ export type AutomaticWorkMode =
       since: number
     }
 
+/** An automatic restore from a client that predates `spawnIntent`, which the host refused.
+ *  That client already cleared its own resume record, so this is the only copy left. */
+export type LegacyRestoreRecord = {
+  sessionId: string
+  reason: 'pressure' | 'host_cap'
+  refusedAt: number
+  agent: string | null
+  cwd: string | null
+  worktreeId: string | null
+  /** The resume command line the client sent; running it in `cwd` resumes the agent. */
+  command: string | null
+  identityDigest: string | null
+}
+
 /** What a daemon reports about automatic restores; `admission` says whether its gate enforces. */
 export type AutomaticWorkStatus = {
   admission: 'observe' | 'enforce'
   mode: AutomaticWorkMode
+  /** Absent from daemons that predate the record; clients treat absence as none. */
+  legacyRestores?: readonly LegacyRestoreRecord[]
 }
 
 /** `cleared` is the pause the resume lifted, or null when automatic restores were running. */

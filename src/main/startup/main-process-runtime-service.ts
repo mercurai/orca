@@ -7,7 +7,7 @@ import { sessionSearchScopeCatalogFromStore } from '../ai-vault-search/session-s
 import { getCanonicalUserDataPath } from '../persistence/loading-store/user-data-path'
 import { app } from 'electron'
 import { OrcaRuntimeService } from '../runtime/orca-runtime'
-import { getLocalPtyProvider, getSshPtyProvider, clearProviderPtyState } from '../ipc/pty'
+import { getLocalPtyProvider, clearProviderPtyState } from '../ipc/pty'
 import { agentHookServer } from '../agent-hooks/server'
 import { browserManager } from '../browser/browser-manager'
 import { loadAgentSessionClaimSigner } from '../runtime/agent-session-claim-identity'
@@ -89,8 +89,6 @@ export function initializeMainProcessRuntime(): OrcaRuntimeService {
     ),
     // Why: resolve the PTY provider lazily — a daemon swap happens later, so an eager reference would freeze the pre-daemon provider (design §4.3).
     getLocalProvider: () => getLocalPtyProvider(),
-    // Why: SSH relay providers register after construction and may reconnect, so destructive cleanup must resolve the current generation.
-    getSshProvider: (connectionId) => getSshPtyProvider(connectionId),
     onPtyStopped: clearProviderPtyState,
     onTerminalAgentStatus: (event) => agentHookServer.ingestTerminalStatus(event),
     onClaudeTerminalEvidence: (paneKey, evidence) =>

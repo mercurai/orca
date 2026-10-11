@@ -5,9 +5,7 @@ import type { GitPushTarget, GitWorktreeInfo } from '../../../../shared/worktree
 import type { SshGitProvider } from '../../../providers/ssh-git-provider'
 import { previewNestedWorktreeRemoval } from './nested-worktree-removal'
 import { assertNestedWorktreeRemovalApproval } from '../../../nested-worktree-removal-plan'
-import { deleteRemoteWorktreeHistory } from '../../../remote-worktree-history-cleanup'
 import { withWorktreeRemoveStageSpan } from '../../../observability/instrumentation'
-import { getSshPtyProvider } from '../../pty'
 import {
   cleanupUnusedWorktreePushTargetRemoteSsh,
   notifyWorktreesChanged
@@ -89,7 +87,6 @@ export async function removeRegisteredRemoteWorktree(
     removedPushTarget,
     store
   )
-  await deleteRemoteWorktreeHistory(getSshPtyProvider(remoteConnectionId), args.worktreeId)
   rememberPreservedBranchCleanupTarget(
     args.worktreeId,
     removalHostId,

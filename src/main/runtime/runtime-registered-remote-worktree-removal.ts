@@ -29,7 +29,6 @@ export async function removeRuntimeRegisteredRemoteWorktree(args: {
     connectionId: string
   ) => Promise<{ finish: (removed: boolean) => Promise<void> }>
   stopPtys: () => Promise<void>
-  deleteHistory: () => Promise<void>
   preserveBranchHead: (
     result: RemoveWorktreeResult | undefined,
     fallbackHead: string | undefined
@@ -69,7 +68,6 @@ export async function removeRuntimeRegisteredRemoteWorktree(args: {
     args.removedPushTarget,
     args.store
   )
-  await args.deleteHistory()
   args.finishRemoval(result)
   return {
     ...result,

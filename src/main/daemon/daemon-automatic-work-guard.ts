@@ -9,6 +9,7 @@ import { AutomaticWorkRunMarker } from './automatic-work-run-marker-store'
 import type { AutomaticWorkRequestType } from './daemon-automatic-work-protocol'
 import { DaemonProcessGrowthMonitor } from './daemon-process-growth-monitor'
 import { HostTerminalLedger, resolveMaxHostTerminals } from './host-terminal-ledger'
+import { LegacyRestoreRecords, legacyRestoreRecordsPathFor } from './legacy-restore-records'
 import { TerminalSpawnGate, type TerminalSpawnAdmissionMode } from './terminal-spawn-gate'
 
 type DaemonAutomaticWorkGuardOptions = {
@@ -30,11 +31,16 @@ type DaemonAutomaticWorkGuardOptions = {
 export class DaemonAutomaticWorkGuard {
   readonly gate: TerminalSpawnGate
   private readonly marker: AutomaticWorkRunMarker
+  private readonly legacyRestores: LegacyRestoreRecords
   private readonly monitor: DaemonProcessGrowthMonitor
   private pressurePausedSince: number | null = null
 
   constructor(private readonly options: DaemonAutomaticWorkGuardOptions) {
     this.marker = new AutomaticWorkRunMarker(options.markerPath, options.log, options.ownsEndpoint)
+    this.legacyRestores = new LegacyRestoreRecords(
+      options.markerPath ? legacyRestoreRecordsPathFor(options.markerPath) : undefined,
+      options.log
+    )
     this.monitor =
       options.monitor ??
       new DaemonProcessGrowthMonitor({
@@ -50,6 +56,7 @@ export class DaemonAutomaticWorkGuard {
       pressure: () => this.monitor.level,
       automaticWorkMode: () => this.automaticWorkMode(),
       armAutomaticWork: () => this.marker.arm(),
+      legacyRestores: this.legacyRestores,
       hostTerminals: new HostTerminalLedger({
         dir: options.hostTerminalLedgerDir ?? null,
         maxTerminals: resolveMaxHostTerminals(),
@@ -80,7 +87,11 @@ export class DaemonAutomaticWorkGuard {
   }
 
   status(): AutomaticWorkStatus {
-    return { admission: this.options.mode, mode: this.automaticWorkMode() }
+    return {
+      admission: this.options.mode,
+      mode: this.automaticWorkMode(),
+      legacyRestores: this.legacyRestores.list()
+    }
   }
 
   handle(type: AutomaticWorkRequestType): AutomaticWorkStatus | AutomaticWorkResumeResult {

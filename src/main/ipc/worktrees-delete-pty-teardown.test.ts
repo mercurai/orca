@@ -9,12 +9,10 @@ import {
   getSshGitProviderMock,
   deleteWorktreeHistoryDirMock,
   killAllProcessesForWorktreeMock,
-  clearProviderPtyStateMock,
-  getSshPtyProviderMock
+  clearProviderPtyStateMock
 } from './worktrees-test-module-mocks'
 import { handlers, mainWindow, setupWorktreeHandlers, store } from './worktrees-test-harness'
 import { mockKnownFeatureWorktree } from './worktrees-test-fixtures'
-import type { WorktreeRuntimeStub } from './worktrees-test-runtime-stub'
 
 vi.mock('electron', async () =>
   (await import('./worktrees-test-module-mocks')).electronModuleMock()
@@ -102,10 +100,8 @@ vi.mock('./pty', async () => (await import('./worktrees-test-module-mocks')).pty
 const anyCatalogVersion = { epoch: expect.any(String), sequence: expect.any(Number) }
 
 describe('registerWorktreeHandlers', () => {
-  let runtimeStub: WorktreeRuntimeStub
-
   beforeEach(() => {
-    runtimeStub = setupWorktreeHandlers()
+    setupWorktreeHandlers()
   })
 
   it('coalesces concurrent deletes for the same worktree id', async () => {
@@ -295,9 +291,9 @@ describe('registerWorktreeHandlers', () => {
     expect(callOrder).toEqual(['preflight', 'kill', 'git'])
   })
 
-  // Regression: `repoId::path` ids repeat across hosts, so an SSH delete used to reach the
-  // runtime's same-id local (or other-connection) terminals and stop them.
-  it('fences an SSH worktree delete PTY sweep to the owning connection', async () => {
+  // Why: this process holds no SSH PTY provider, so an SSH delete must refuse rather than sweep
+  // the same-id local workspace's terminals.
+  it('refuses an SSH worktree delete it cannot stop terminals for', async () => {
     const repo = {
       id: 'repo-ssh',
       path: '/remote/repo',
@@ -307,7 +303,6 @@ describe('registerWorktreeHandlers', () => {
       connectionId: 'conn-1',
       worktreeBaseRef: null
     }
-    const sshPtyProvider = { id: 'ssh-pty-provider' } as never
     store.getRepos.mockReturnValue([repo])
     store.getRepo.mockReturnValue(repo)
     getSshGitProviderMock.mockReturnValue({
@@ -324,20 +319,13 @@ describe('registerWorktreeHandlers', () => {
       removeWorktree: vi.fn().mockResolvedValue({}),
       worktreeIsClean: vi.fn().mockResolvedValue({ clean: true })
     })
-    getSshPtyProviderMock.mockReturnValue(sshPtyProvider)
     getEffectiveHooksFromConfigMock.mockReturnValue(null)
 
-    await handlers['worktrees:remove'](null, { worktreeId: 'repo-ssh::/remote/feature-wt' })
+    await expect(
+      handlers['worktrees:remove'](null, { worktreeId: 'repo-ssh::/remote/feature-wt' })
+    ).rejects.toThrow('PTY provider unavailable for worktree deletion')
 
-    expect(killAllProcessesForWorktreeMock).toHaveBeenCalledWith('repo-ssh::/remote/feature-wt', {
-      runtime: runtimeStub,
-      resolvedWorktreeId: 'repo-ssh::/remote/feature-wt',
-      resolvedConnectionId: 'conn-1',
-      localProvider: sshPtyProvider,
-      onPtyStopped: clearProviderPtyStateMock,
-      requirePhysicalStop: true,
-      includeLocalRegistry: false
-    })
+    expect(killAllProcessesForWorktreeMock).not.toHaveBeenCalled()
   })
 
   // The local counterpart still identifies itself by exact id so a selector that resolves
@@ -519,49 +507,6 @@ describe('registerWorktreeHandlers', () => {
       })
     ).rejects.toThrow(/cannot prove process stop/)
     expect(removeWorktreeMock).not.toHaveBeenCalled()
-  })
-  it('deletes nested SSH worktrees only through their owning provider', async () => {
-    const { approved } = mockNestedWorktrees()
-    const repo = {
-      id: 'repo-ssh',
-      path: '/remote/repo',
-      displayName: 'remote',
-      badgeColor: '#000',
-      addedAt: 0,
-      connectionId: 'conn-1',
-      worktreeBaseRef: null
-    }
-    store.getRepos.mockReturnValue([repo])
-    store.getRepo.mockReturnValue(repo)
-    const remotePlan = approved.map((item) => ({
-      ...item,
-      path: item.path.replace('/workspace', '/remote')
-    }))
-    let remaining = [...remotePlan]
-    const remoteRemove = vi.fn(async (path: string) => {
-      remaining = remaining.filter((item) => item.path !== path)
-      return {}
-    })
-    getSshGitProviderMock.mockReturnValue({
-      listWorktrees: vi.fn(async () => remaining),
-      removeWorktree: remoteRemove,
-      worktreeIsClean: vi.fn().mockResolvedValue({ clean: true })
-    })
-    getEffectiveHooksFromConfigMock.mockReturnValue(null)
-    await handlers['worktrees:remove'](null, {
-      worktreeId: 'repo-ssh::/remote/parent',
-      hostId: 'ssh:conn-1',
-      force: true,
-      approvedNestedWorktrees: remotePlan
-    })
-    expect(remoteRemove.mock.calls.map(([path]) => path)).toEqual(
-      remotePlan.map((item) => item.path)
-    )
-    expect(removeWorktreeMock).not.toHaveBeenCalled()
-    expect(listWorktreesMock).not.toHaveBeenCalled()
-    for (const call of killAllProcessesForWorktreeMock.mock.calls) {
-      expect(call[1]).toMatchObject({ resolvedConnectionId: 'conn-1', includeLocalRegistry: false })
-    }
   })
   it('waits for background checkout deletion before starting any ancestor', async () => {
     const { approved } = mockNestedWorktrees()

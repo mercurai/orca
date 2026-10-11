@@ -12,8 +12,7 @@ import {
   gitExecFileAsyncMock,
   getSshGitProviderMock,
   getSshFilesystemProviderMock,
-  killAllProcessesForWorktreeMock,
-  getSshPtyProviderMock
+  killAllProcessesForWorktreeMock
 } from './worktrees-test-module-mocks'
 import { handlers, setupWorktreeHandlers, store } from './worktrees-test-harness'
 import { mockKnownFeatureWorktree } from './worktrees-test-fixtures'
@@ -324,7 +323,6 @@ describe('registerWorktreeHandlers', () => {
     getSshFilesystemProviderMock.mockReturnValue({
       readFile: vi.fn().mockRejectedValue(new Error('missing'))
     })
-    getSshPtyProviderMock.mockReturnValue(undefined)
 
     await expect(
       handlers['worktrees:remove'](null, {

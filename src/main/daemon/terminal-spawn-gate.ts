@@ -19,6 +19,9 @@ import {
 import { withOtherDaemonsAutomaticWork } from '../../shared/host-automatic-work-budget'
 import { DEFAULT_MAX_HOST_TERMINALS, HostTerminalLedger } from './host-terminal-ledger'
 import { TerminalSpawnDeferredError } from './terminal-spawn-deferred-error'
+import type { LegacyRestoreDetails, LegacyRestoreRecords } from './legacy-restore-records'
+import { admitRecordingLegacyRestore } from './legacy-restore-admission'
+import { TerminalSpawnWaiters } from './terminal-spawn-waiters'
 import { hostTerminalCapRefusal, TerminalSpawnHostShare } from './terminal-spawn-host-share'
 
 export type TerminalSpawnAdmissionMode = 'observe' | 'enforce'
@@ -67,6 +70,8 @@ type TerminalSpawnGateOptions = {
   armAutomaticWork?: () => void
   /** The execution host's terminal cap; defaults to capping this daemon alone. */
   hostTerminals?: HostTerminalLedger
+  /** The host's copy of old-client restores it refused (owner decision Q9). */
+  legacyRestores?: LegacyRestoreRecords
 }
 
 /**
@@ -84,7 +89,7 @@ export class TerminalSpawnGate {
   private readonly state: SpawnAdmissionState
   private readonly liveAutomaticSessions = new Set<string>()
   private readonly host: TerminalSpawnHostShare
-  private readonly waiters = new Set<() => void>()
+  private readonly waiters: TerminalSpawnWaiters
   private waited = 0
   private lastAutomaticAdmitAt: number | null = null
   private deferred = 0
@@ -98,6 +103,7 @@ export class TerminalSpawnGate {
     this.pressure = options.pressure ?? (() => 'unknown')
     this.automaticWorkMode = options.automaticWorkMode ?? (() => ({ kind: 'normal' }))
     this.state = createSpawnAdmissionState(this.limits, this.now())
+    this.waiters = new TerminalSpawnWaiters(this.now)
     this.host = new TerminalSpawnHostShare(
       options.hostTerminals ??
         new HostTerminalLedger({
@@ -112,10 +118,21 @@ export class TerminalSpawnGate {
    *  today's timing against the host's shutdown fence. */
   admit(
     facts: SpawnRequestFacts,
-    cancel?: { signal: AbortSignal; error: () => Error }
+    cancel?: { signal: AbortSignal; error: () => Error },
+    /** What the request would resume; recorded if an old client's restore is refused. */
+    restore?: LegacyRestoreDetails
   ): TerminalSpawnLease | Promise<TerminalSpawnLease> {
-    const attempt = this.attempt(facts, cancel, false)
-    return attempt.kind === 'lease' ? attempt.lease : this.admitAfterWait(facts, cancel, attempt)
+    return admitRecordingLegacyRestore(
+      () => {
+        const attempt = this.attempt(facts, cancel, false)
+        return attempt.kind === 'lease'
+          ? attempt.lease
+          : this.admitAfterWait(facts, cancel, attempt)
+      },
+      this.options.legacyRestores,
+      facts,
+      restore
+    )
   }
 
   private async admitAfterWait(
@@ -125,7 +142,7 @@ export class TerminalSpawnGate {
   ): Promise<TerminalSpawnLease> {
     let attempt: ReturnType<TerminalSpawnGate['attempt']> = first
     while (attempt.kind === 'wait') {
-      await this.waitForChange(attempt.untilMs, cancel?.signal)
+      await this.waiters.waitForChange(attempt.untilMs, cancel?.signal)
       attempt = this.attempt(facts, cancel, true)
     }
     return attempt.lease
@@ -193,7 +210,7 @@ export class TerminalSpawnGate {
 
   /** A pressure change can let a waiter through, or make it give up. */
   onPressureChanged(): void {
-    this.wakeWaiters()
+    this.waiters.wakeAll()
   }
 
   hasRecentAutomaticWork(now: number = this.now()): boolean {
@@ -211,7 +228,7 @@ export class TerminalSpawnGate {
     }
     if (wasLive || wasLiveAutomatic) {
       this.host.publish(this.state)
-      this.wakeWaiters()
+      this.waiters.wakeAll()
     }
   }
 
@@ -279,34 +296,12 @@ export class TerminalSpawnGate {
         this.host.addLive(sessionId)
       }
       this.host.publish(this.state)
-      this.wakeWaiters()
+      this.waiters.wakeAll()
     }
     return {
       charge,
       commit: (sessionId, isAlive) => settle(sessionId, isAlive),
       abandon: () => settle(null, false)
-    }
-  }
-
-  private waitForChange(untilMs: number, signal: AbortSignal | undefined): Promise<void> {
-    return new Promise<void>((resolve) => {
-      const done = (): void => {
-        clearTimeout(timer)
-        signal?.removeEventListener('abort', done)
-        this.waiters.delete(done)
-        resolve()
-      }
-      const delayMs = Number.isFinite(untilMs) ? Math.max(0, untilMs - this.now()) : 2_147_483_647
-      const timer = setTimeout(done, Math.min(delayMs, 2_147_483_647))
-      timer.unref?.()
-      this.waiters.add(done)
-      signal?.addEventListener('abort', done, { once: true })
-    })
-  }
-
-  private wakeWaiters(): void {
-    for (const wake of this.waiters) {
-      wake()
     }
   }
 

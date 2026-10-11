@@ -61,7 +61,6 @@ function removalArgs(worktreePath: string, fsProvider: ReturnType<typeof provenO
     store: {} as never,
     acquireWatcherRemoval: async () => ({ finish: async () => {} }),
     stopPtys: async () => {},
-    deleteHistory: async () => {},
     finishRemoval: () => {}
   }
 }
