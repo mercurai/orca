@@ -41,7 +41,7 @@ describe('desktop control for paired runtime clients', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('laptop', 'runtime')
+    const device = await server['deviceRegistry']!.addDevice('laptop', 'runtime')
     const reply = await dispatchOverWebSocket(server, device.token, 'computer.click')
     expect(errorCode(reply)).toBe('forbidden')
   })
@@ -54,7 +54,7 @@ describe('desktop control for paired runtime clients', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('laptop', 'runtime', 'network', [
+    const device = await server['deviceRegistry']!.addDevice('laptop', 'runtime', 'network', [
       'desktop-control'
     ])
     const reply = await dispatchOverWebSocket(server, device.token, 'computer.click')
@@ -71,7 +71,7 @@ describe('pairing and push administration for paired runtime clients', () => {
     const runtime = new OrcaRuntimeService()
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('laptop', 'runtime')
+    const device = await server['deviceRegistry']!.addDevice('laptop', 'runtime')
     const registerPush = vi.spyOn(runtime, 'registerMobilePushDevice')
     const reply = await dispatchOverWebSocket(server, device.token, method, params)
     expect(errorCode(reply)).toBe('forbidden')
@@ -80,21 +80,21 @@ describe('pairing and push administration for paired runtime clients', () => {
 })
 
 describe('pairing-time grants on the device registry', () => {
-  it('persist across a reload and are dropped for mobile devices', () => {
+  it('persist across a reload and are dropped for mobile devices', async () => {
     const userDataPath = tempDir()
     const registry = new DeviceRegistry(userDataPath)
-    const runtime = registry.addDevice('laptop', 'runtime', 'network', ['desktop-control'])
-    const phone = registry.addDevice('phone', 'mobile', 'network', ['desktop-control'])
+    const runtime = await registry.addDevice('laptop', 'runtime', 'network', ['desktop-control'])
+    const phone = await registry.addDevice('phone', 'mobile', 'network', ['desktop-control'])
 
     const reloaded = new DeviceRegistry(userDataPath)
     expect(reloaded.getDevice(runtime.deviceId)?.grants).toEqual(['desktop-control'])
     expect(reloaded.getDevice(phone.deviceId)?.grants).toBeUndefined()
   })
 
-  it('never widen a pending offer that was advertised without them', () => {
+  it('never widen a pending offer that was advertised without them', async () => {
     const registry = new DeviceRegistry(tempDir())
-    const plain = registry.getOrCreatePendingDevice('cli', 'runtime')
-    const granted = registry.getOrCreatePendingDevice('cli', 'runtime', 'network', [
+    const plain = await registry.getOrCreatePendingDevice('cli', 'runtime')
+    const granted = await registry.getOrCreatePendingDevice('cli', 'runtime', 'network', [
       'desktop-control'
     ])
     expect(granted.token).not.toBe(plain.token)

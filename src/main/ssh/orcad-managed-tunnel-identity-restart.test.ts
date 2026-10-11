@@ -37,8 +37,8 @@ async function startOrcad(userDataPath: string): Promise<OrcaRuntimeRpcServer> {
   return server
 }
 
-function pairingOffer(server: OrcaRuntimeRpcServer): PairingOffer {
-  const offer = server.createPairingOffer({ address: '127.0.0.1', name: 'Desktop A' })
+async function pairingOffer(server: OrcaRuntimeRpcServer): Promise<PairingOffer> {
+  const offer = await server.createPairingOffer({ address: '127.0.0.1', name: 'Desktop A' })
   if (!offer.available) {
     throw new Error('pairing unavailable')
   }
@@ -75,8 +75,11 @@ function managedEnvironment(pairing: PairingOffer, runtimeId: string): KnownRunt
 }
 
 /** The restarted process listens on a new port; the tunnel's local endpoint reaches it. */
-function reachedThrough(pairing: PairingOffer, server: OrcaRuntimeRpcServer): PairingOffer {
-  const port = new URL(pairingOffer(server).endpoint).port
+async function reachedThrough(
+  pairing: PairingOffer,
+  server: OrcaRuntimeRpcServer
+): Promise<PairingOffer> {
+  const port = new URL((await pairingOffer(server)).endpoint).port
   const endpoint = new URL(pairing.endpoint)
   endpoint.port = port
   return { ...pairing, endpoint: endpoint.toString() }
@@ -86,14 +89,14 @@ describe('reopening a managed tunnel after orcad restarted elsewhere', () => {
   it('accepts the same host under a new runtime id, and its status recovers', async () => {
     const hostProfile = mkdtempSync(join(tmpdir(), 'orcad-host-'))
     const first = await startOrcad(hostProfile)
-    const paired = pairingOffer(first)
+    const paired = await pairingOffer(first)
     const recorded = (await verifyRuntimePairingIdentity(paired, { runtimeId: null }))
       .verifiedRuntimeId
     await first.stop()
 
     // Another desktop updated or woke the host while this one was away.
     const restarted = await startOrcad(hostProfile)
-    const pairing = reachedThrough(paired, restarted)
+    const pairing = await reachedThrough(paired, restarted)
 
     await expect(
       verifyManagedOrcadTunnelIdentity(managedEnvironment(pairing, recorded))
@@ -115,12 +118,12 @@ describe('reopening a managed tunnel after orcad restarted elsewhere', () => {
   })
 
   it('still refuses a different host that answers on the tunnel', async () => {
-    const paired = pairingOffer(await startOrcad(mkdtempSync(join(tmpdir(), 'orcad-host-'))))
+    const paired = await pairingOffer(await startOrcad(mkdtempSync(join(tmpdir(), 'orcad-host-'))))
     const other = await startOrcad(mkdtempSync(join(tmpdir(), 'orcad-other-')))
 
     await expect(
       verifyManagedOrcadTunnelIdentity(
-        managedEnvironment(reachedThrough(paired, other), 'runtime-recorded')
+        managedEnvironment(await reachedThrough(paired, other), 'runtime-recorded')
       )
     ).resolves.toMatchObject({ verdict: 'foreign' })
   })

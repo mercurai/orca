@@ -61,13 +61,13 @@ export function withManagedOrcadLifecycle<T>(
   })
 }
 
-function refreshPairing(
+async function refreshPairing(
   userDataPath: string,
   environment: KnownRuntimeEnvironment,
   readiness: ServeReadiness,
   localPort: number
-): KnownRuntimeEnvironment {
-  return refreshManagedOrcadPairing(
+): Promise<KnownRuntimeEnvironment> {
+  return await refreshManagedOrcadPairing(
     userDataPath,
     environment.id,
     tunneledOrcadPairingCode(readiness, localPort)
@@ -150,7 +150,7 @@ export async function runManagedOrcadUpdate(
     activeVersion: result.fullVersion,
     readiness
   })
-  const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+  const updated = await refreshPairing(userDataPath, environment, readiness, deployment.localPort)
   return {
     outcome: result.outcome === 'already-active' ? 'already-current' : 'updated',
     environment: redactRuntimeEnvironment(updated),
@@ -221,7 +221,12 @@ export function rollbackManagedOrcadEnvironment(
         { ...slot, remoteInstallDir: targetDir },
         { buildHash: targetBuildHash, fullVersion: result.target }
       )
-      const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+      const updated = await refreshPairing(
+        userDataPath,
+        environment,
+        readiness,
+        deployment.localPort
+      )
       return {
         outcome: 'rolled-back',
         environment: redactRuntimeEnvironment(updated),
@@ -250,7 +255,7 @@ export function recoverManagedOrcadEnvironment(
         return result
       }
       const updated = result.readiness
-        ? refreshPairing(userDataPath, environment, result.readiness, deployment.localPort)
+        ? await refreshPairing(userDataPath, environment, result.readiness, deployment.localPort)
         : environment
       if (result.activeVersion) {
         await ensureOrcadManagedTunnel(userDataPath, environment.id)
