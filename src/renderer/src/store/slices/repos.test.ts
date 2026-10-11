@@ -15,7 +15,6 @@ import {
   remoteRepo,
   reposAdd,
   reposClone,
-  reposCloneRemote,
   reposList,
   reposPickFolder,
   reposRemoveForHost,
@@ -568,7 +567,6 @@ describe('repo slice runtime routing', () => {
       })
     ).resolves.toBeNull()
 
-    expect(reposCloneRemote).not.toHaveBeenCalled()
     expect(reposClone).not.toHaveBeenCalled()
     expect(projectsSetupExistingFolder).not.toHaveBeenCalled()
     expect(toast.error).toHaveBeenCalledWith('Failed to add project', {
