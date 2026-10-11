@@ -119,7 +119,7 @@ describe('independent paired runtime SSH access persistence', () => {
   it('permits unrelated last-used timestamp updates during verification', async () => {
     const original = await seed()
     await markEnvironmentUsed(userDataPath, original.id, { now: 200 })
-    expect(await link(original).lastUsedAt).toBe(200)
+    expect((await link(original)).lastUsedAt).toBe(200)
   })
 
   it('keeps orca-environments.json in the shape shipped builds read while SSH access is linked', async () => {

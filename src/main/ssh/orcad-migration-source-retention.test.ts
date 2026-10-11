@@ -56,6 +56,6 @@ describe('retaining a committed migration source', () => {
     }
     await expect(
       writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-new', 'ssh-9'))
-    ).rejects.not.toThrow()
+    ).resolves.toBeUndefined()
   })
 })
