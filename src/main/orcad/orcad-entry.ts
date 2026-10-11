@@ -135,6 +135,7 @@ async function startOrcadRuntime(
   const { createOrcadProfileStateStartup } = await import('./orcad-profile-state-startup')
   const { startOrcadDaemon, stopOrcadDaemon } = await import('./orcad-daemon-supervision')
   const { daemonOwnsFreshPersistentPtys } = await import('../daemon/daemon-init')
+  const { drainPathWritesForQuit } = await import('../startup/path-write-quit-drain')
   const { collectOrcadHealth } = await import('./orcad-health')
   // Why importable here: the singleton's module tree never reaches Electron, and orcad supplies
   // its persistence and endpoint paths explicitly below.
@@ -159,6 +160,9 @@ async function startOrcadRuntime(
     } finally {
       // Why: the dismissal store debounces its writes by 5 s; flush so SIGTERM does not lose that tail.
       await runtimeForShutdown?.flushNotificationDismissals?.().catch(() => {})
+      // Why: secure-file writes are async now (device registry, outboxes, stores); the synchronous ones
+      // finished before a signal could end the process. After rpc.stop no new one starts; wait (bounded).
+      await drainPathWritesForQuit()
       try {
         // Stop accepting RPC writes before the final persistence barrier. A SQLite-backed
         // orcad has no JSON mirror to absorb a debounced write after SIGTERM.
