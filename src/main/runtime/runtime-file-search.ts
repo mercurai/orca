@@ -1,42 +1,52 @@
-// @ts-nocheck -- mechanically split class members.
 import {
   QUICK_OPEN_SEARCH_VERSION,
   isQuickOpenQueryTooLarge
 } from '../../shared/quick-open-path-search'
-import {
-  RuntimeFileCommandsWithActiveRuntimeTextSearches,
-  RuntimeFileCommandsWithActiveRuntimeTextSearches as RuntimeFileCommands
-} from './runtime-file-commands-active-runtime-text-searches'
-import type { RuntimeFileCommandHost } from './runtime-file-command-host'
-import {
-  isMobileBinaryPath,
-  isMobileMarkdownPath,
-  isSafeMobileRelativePath
-} from './runtime-file-command-host'
-import { basenameFromRelativePath } from './runtime-file-paths'
-import type { RuntimeFileListResult, RuntimeFileOpenResult } from '../../shared/runtime-types'
-import type { RuntimeNavigationTarget } from '../../shared/runtime-navigation'
+import type { RuntimeFileListResult } from '../../shared/runtime-types'
+import type { SearchOptions, SearchResult } from '../../shared/code-search-types'
+import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
+import { QUICK_OPEN_LISTING_MAX_RESULTS } from '../../shared/quick-open-listing-limits'
+import { limitQuickOpenFilesBySerializedBytes } from '../../shared/quick-open-transport-budget'
 import { listQuickOpenFiles } from '../ipc/filesystem-list-files'
+import { searchQuickOpenFilePaths as searchHostQuickOpenFilePaths } from '../ipc/filesystem-search-file-paths'
+import type { IFilesystemProvider } from '../providers/types'
+import { isMobileBinaryPath, isSafeMobileRelativePath } from './runtime-file-command-host'
+import {
+  requireRuntimeFileProvider,
+  runtimeFileRouteForTarget,
+  type RuntimeLocalFileHost,
+  type ResolvedRuntimeFileTarget
+} from './runtime-file-command-target'
 import {
   MOBILE_FILE_LIST_LIMIT,
   MOBILE_FILE_PATH_SEARCH_CACHE_LIMIT,
-  isMobilePreviewableImagePath
+  MOBILE_FILE_PATH_SEARCH_CACHE_ENTRIES,
+  MOBILE_FILE_PATH_SEARCH_CACHE_TTL_MS
 } from './runtime-file-commands-mobile-file-list-limit'
-import { rankRuntimeMobileFilePaths } from './runtime-mobile-file-path-search'
-import { searchQuickOpenFilePaths as searchHostQuickOpenFilePaths } from '../ipc/filesystem-search-file-paths'
-import { joinWorktreeRelativePath } from './runtime-relative-paths'
-import { isENOENT } from '../ipc/filesystem-path-containment'
+import { basenameFromRelativePath } from './runtime-file-paths'
 import {
-  requireRuntimeFileProvider,
-  runtimeFileRouteForTarget
-} from './runtime-file-command-target'
-import { parseExecutionHostId, type ExecutionHostId } from '../../shared/execution-host'
-import type { FileStat } from '../providers/types'
+  RuntimeMobileFilePathSearchCache,
+  rankRuntimeMobileFilePaths
+} from './runtime-mobile-file-path-search'
+import { searchRemoteQuickOpenFilePaths } from './runtime-remote-quick-open-search'
 
-export class RuntimeFileCommandsWithConstructor extends RuntimeFileCommandsWithActiveRuntimeTextSearches {
-  constructor(private readonly host: RuntimeFileCommandHost) {
-    super()
-  }
+type RuntimeFileSearchTarget = {
+  worktree: Pick<ResolvedRuntimeFileTarget['worktree'], 'id' | 'path'>
+  executionHostId: ResolvedRuntimeFileTarget['executionHostId']
+}
+
+export type RuntimeFileSearchHost = {
+  requireStore: RuntimeLocalFileHost['requireStore']
+  resolveRuntimeFileTarget(selector: string): Promise<RuntimeFileSearchTarget>
+}
+
+export class RuntimeFileSearch {
+  private readonly mobileFilePathSearchCache = new RuntimeMobileFilePathSearchCache(
+    MOBILE_FILE_PATH_SEARCH_CACHE_ENTRIES,
+    MOBILE_FILE_PATH_SEARCH_CACHE_TTL_MS
+  )
+
+  constructor(private readonly host: RuntimeFileSearchHost) {}
 
   async listMobileFiles(
     worktreeSelector: string,
@@ -159,7 +169,7 @@ export class RuntimeFileCommandsWithConstructor extends RuntimeFileCommandsWithA
       !query.trim() || isQuickOpenQueryTooLarge(query)
         ? { paths: [], totalCount: 0, truncated: false }
         : route.kind === 'ssh'
-          ? await this.searchRemoteQuickOpenFilePaths(
+          ? await searchRemoteQuickOpenFilePaths(
               worktree.path,
               route.provider,
               query,
@@ -189,90 +199,95 @@ export class RuntimeFileCommandsWithConstructor extends RuntimeFileCommandsWithA
     }
   }
 
-  async openMobileFile(
+  async searchRuntimeFiles(
     worktreeSelector: string,
-    relativePath: string,
-    navigation?: RuntimeNavigationTarget
-  ): Promise<RuntimeFileOpenResult> {
-    const target = await this.host.resolveRuntimeFileTarget(worktreeSelector)
-    const { worktree } = target
-    if (!isSafeMobileRelativePath(relativePath)) {
-      throw new Error('invalid_relative_path')
-    }
-    const kind = isMobilePreviewableImagePath(relativePath)
-      ? 'image'
-      : isMobileBinaryPath(relativePath)
-        ? 'binary'
-        : isMobileMarkdownPath(relativePath)
-          ? 'markdown'
-          : 'text'
-    // Why: `kind` only describes the file; the desktop editor opens binaries (e.g. PDFs) like the File Explorer.
-    const filePath = joinWorktreeRelativePath(worktree.path, relativePath)
-    // Why: CLI/agents treat opened:true as success; stat first so missing paths and directories fail the RPC instead of opening a ghost tab.
-    await this.assertOpenTargetIsFile(filePath, target)
-    this.host.openFile(
-      worktree.id,
-      filePath,
-      relativePath,
-      runtimeOwnerForTarget(target),
-      navigation
+    options: Omit<SearchOptions, 'rootPath'>,
+    requestOptions: { signal?: AbortSignal } = {}
+  ): Promise<SearchResult> {
+    throwIfSignalAborted(requestOptions.signal)
+    const target = await waitForPromiseWithSignal(
+      this.host.resolveRuntimeFileTarget(worktreeSelector),
+      requestOptions.signal
     )
-    return { worktree: worktree.id, relativePath, kind, opened: true }
+    throwIfSignalAborted(requestOptions.signal)
+    const provider = requireRuntimeFileProvider(target, {
+      requireStore: () => this.host.requireStore()
+    })
+    return provider.search({ ...options, rootPath: target.worktree.path }, requestOptions)
   }
 
-  protected async assertOpenTargetIsFile(
-    filePath: string,
-    target: { executionHostId: ExecutionHostId }
-  ): Promise<void> {
+  async listRuntimeFiles(
+    worktreeSelector: string,
+    options: {
+      candidatePaths?: string[]
+      includeIgnored?: boolean
+      followSymlinks?: boolean
+      excludePaths?: string[]
+      maxContentBytes?: number
+      maxResults?: number
+      signal?: AbortSignal
+    } = {}
+  ): Promise<string[]> {
+    const target = await this.host.resolveRuntimeFileTarget(worktreeSelector)
     const route = runtimeFileRouteForTarget(target)
-    let stats: FileStat
-    try {
-      stats = await requireRuntimeFileProvider(target, this.host, route).stat(filePath)
-    } catch (error) {
-      if (
-        isENOENT(error) ||
-        (route.kind === 'ssh' && RuntimeFileCommands.isRemoteNotFoundErrorMessage(error))
-      ) {
-        throw new Error(`ENOENT: no such file or directory, open '${filePath}'`)
+    if (route.kind === 'ssh') {
+      // Why: quick-open listings degrade to empty for an unreachable host rather than throwing.
+      const provider = route.provider
+      if (!provider) {
+        return []
       }
-      throw error
+      const maxResults =
+        options.maxResults ??
+        (options.maxContentBytes === undefined ? undefined : QUICK_OPEN_LISTING_MAX_RESULTS)
+      if (
+        (options.candidatePaths !== undefined ||
+          options.includeIgnored === false ||
+          options.followSymlinks) &&
+        !(await provider.supportsQuickOpenSearch?.({
+          signal: options.signal,
+          minimumVersion: options.candidatePaths !== undefined ? 3 : 2
+        }))
+      ) {
+        throw new Error(
+          options.candidatePaths !== undefined
+            ? 'Update the remote host to validate Quick Open recent files.'
+            : 'Update the remote host to use Quick Open listing options.'
+        )
+      }
+      const files = await provider.listFiles(target.worktree.path, {
+        excludePaths: options.excludePaths,
+        ...(options.candidatePaths === undefined ? {} : { candidatePaths: options.candidatePaths }),
+        includeIgnored: options.includeIgnored,
+        followSymlinks: options.followSymlinks,
+        maxResults,
+        signal: options.signal
+      })
+      return options.maxContentBytes === undefined
+        ? files
+        : limitQuickOpenFilesBySerializedBytes(files, options.maxContentBytes)
     }
-    if (stats.type === 'directory') {
-      throw new Error(`EISDIR: illegal operation on a directory, open '${filePath}'`)
-    }
-  }
-
-  async openMobileDiff(
-    worktreeSelector: string,
-    relativePath: string,
-    staged: boolean,
-    navigation?: RuntimeNavigationTarget
-  ): Promise<RuntimeFileOpenResult> {
-    const target = await this.host.resolveRuntimeFileTarget(worktreeSelector)
-    const { worktree } = target
-    if (!isSafeMobileRelativePath(relativePath)) {
-      throw new Error('invalid_relative_path')
-    }
-    const kind = isMobileBinaryPath(relativePath)
-      ? 'binary'
-      : isMobileMarkdownPath(relativePath)
-        ? 'markdown'
-        : 'text'
-    const filePath = joinWorktreeRelativePath(worktree.path, relativePath)
-    this.host.openDiff(
-      worktree.id,
-      filePath,
-      relativePath,
-      staged,
-      runtimeOwnerForTarget(target),
-      navigation
+    return listQuickOpenFiles(
+      target.worktree.path,
+      this.host.requireStore(),
+      options.excludePaths,
+      options.signal,
+      options.maxResults,
+      options.maxContentBytes,
+      undefined,
+      options
     )
-    return { worktree: worktree.id, relativePath, kind, opened: true }
   }
-}
 
-// Why: name the resolved owner; undefined would let the renderer fall back to the focused server.
-function runtimeOwnerForTarget(target: { executionHostId: ExecutionHostId }): string | null {
-  const host = parseExecutionHostId(target.executionHostId)
-  return host?.kind === 'runtime' ? host.environmentId : null
+  // `null` provider is the caller's "this host is unreachable" answer, not "list it here".
+  private async listRemoteMobileFiles(
+    rootPath: string,
+    provider: IFilesystemProvider | null,
+    maxResults?: number,
+    signal?: AbortSignal
+  ): Promise<string[]> {
+    if (!provider) {
+      return []
+    }
+    return provider.listFiles(rootPath, { maxResults, signal })
+  }
 }

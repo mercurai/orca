@@ -59,7 +59,7 @@ on:
         required: true
         type: string
       orcad_template:
-        description: Ship the orcad-template artifact the calling run built (adhoc does; hourly and daily do not yet)
+        description: Ship the orcad-template artifact the calling run built
         required: false
         type: boolean
         default: false

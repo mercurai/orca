@@ -28,24 +28,24 @@ export type LocalFilesystemProviderOptions = {
  * Contract methods with a runtime-command local twin. Reads, listing and watching keep
  * their existing local call sites: their local limits and result shapes differ from the contract.
  */
-export type LocalFilesystemProvider = Pick<
-  IFilesystemProvider,
-  | 'readDir'
-  | 'readDocPreviewFile'
-  | 'writeFile'
-  | 'writeFileBase64'
-  | 'writeFileBase64Chunk'
-  | 'pathsExist'
-  | 'stat'
-  | 'deletePath'
-  | 'createFile'
-  | 'createDir'
-  | 'createDirNoClobber'
-  | 'renameNoClobber'
-  | 'copy'
-  | 'search'
-  | 'listMarkdownDocuments'
->
+export type LocalFilesystemProvider = Required<Pick<IFilesystemProvider, 'listMarkdownDocuments'>> &
+  Pick<
+    IFilesystemProvider,
+    | 'readDir'
+    | 'readDocPreviewFile'
+    | 'writeFile'
+    | 'writeFileBase64'
+    | 'writeFileBase64Chunk'
+    | 'pathsExist'
+    | 'stat'
+    | 'deletePath'
+    | 'createFile'
+    | 'createDir'
+    | 'createDirNoClobber'
+    | 'renameNoClobber'
+    | 'copy'
+    | 'search'
+  >
 
 /** This machine's file operations behind the store's path authorization; build one per call. */
 export function createLocalFilesystemProvider(

@@ -19,7 +19,9 @@ export type { RuntimeDeviceGrant }
 
 export type RpcCallerScope =
   | { kind: 'owner' }
-  | { kind: 'mobile' }
+  /** `delegated`: a phone a paired desktop holds a child device for; it reaches no further than that
+   *  desktop, which is never granted `pairing-admin`. */
+  | { kind: 'mobile'; delegated?: boolean }
   | { kind: 'runtime-paired'; grants: readonly RuntimeDeviceGrant[] }
   /** The `orca` CLI of a remote SSH host, relayed through this host's bridge. `remoteCliControl`
    *  is the per-target opt-in that lets that host's CLI act outside its own terminals. */
@@ -51,9 +53,12 @@ export function denyRpcMethodForCaller(
   permission: RpcMethodPermission | undefined
 ): string | null {
   if (scope.kind === 'mobile') {
-    return MOBILE_RPC_METHOD_ALLOWLIST.has(methodName)
-      ? null
-      : `Method '${methodName}' is not available to mobile clients`
+    if (!MOBILE_RPC_METHOD_ALLOWLIST.has(methodName)) {
+      return `Method '${methodName}' is not available to mobile clients`
+    }
+    return scope.delegated && permission === 'pairing-admin'
+      ? `Method '${methodName}' is not available to a phone connected through a paired desktop`
+      : null
   }
   if (scope.kind === 'owner' || permission === undefined) {
     return null

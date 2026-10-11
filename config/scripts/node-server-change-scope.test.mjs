@@ -400,6 +400,7 @@ it('keeps every host when the modified SSH production module is an actual consum
     { modifiedFiles: changed }
   )
   expect(scope.shouldRun).toBe(true)
+  expect(scope).toMatchObject({ graphResolved: true, matchedFiles: [registry, ssh] })
   expect(nodeServerQualification(changed, scope)).toEqual({
     qualification: true,
     runners: NODE_SERVER_RUNNERS
