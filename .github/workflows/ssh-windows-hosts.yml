@@ -157,8 +157,6 @@ jobs:
           arches: ${{ matrix.arch }}
       - name: Build the win32 template and the relay
         shell: bash
-        env:
-          ORCA_REQUIRE_RELAY_NATIVE_ADDONS: ${{ matrix.arch }}
         run: |
           pnpm build:orcad-prebuilds --require-slots "win32-${{ matrix.arch }}"
           node config/scripts/build-orcad-template.mjs --targets "win32-${{ matrix.arch }}"

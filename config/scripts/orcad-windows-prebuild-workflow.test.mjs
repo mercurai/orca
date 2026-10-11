@@ -203,7 +203,6 @@ describe('SSH Windows consumers of qualified server slots', () => {
     expect(addon).toBeLessThan(sshSteps.indexOf(sshPrepare))
     expect(sshSteps.indexOf(sshPrepare)).toBeLessThan(template)
     expect(template).toBeLessThan(hosts)
-    expect(sshSteps[template].env.ORCA_REQUIRE_RELAY_NATIVE_ADDONS).toBe('${{ matrix.arch }}')
     expect(sshSteps[template].run).toContain('--require-slots "win32-${{ matrix.arch }}"')
     expect(sshSteps[hosts].run).toContain("@('orcad-cmd','orcad-powershell')")
     for (const workflowPaths of [

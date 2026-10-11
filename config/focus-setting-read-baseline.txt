@@ -2,7 +2,7 @@
 # activeRuntimeEnvironmentId) plus calls of exported functions that read it, per file.
 # This is a RATCHET: counts may only go DOWN. Only creation flows with no source row may read
 # the default host, through defaultCreationHost. Everything else routes by the owner.
-# Prune after removing reads: pnpm check:owner-routing-ratchet --prune
+# Prune after removing reads: pnpm check:focus-read-ratchet --prune
 2 src/renderer/src/App.tsx
 5 src/renderer/src/app-shell/use-app-shell-services.ts
 9 src/renderer/src/components/JiraIssueWorkspace.tsx

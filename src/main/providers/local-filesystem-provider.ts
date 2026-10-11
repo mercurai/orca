@@ -1,7 +1,6 @@
 import { constants, copyFile, lstat, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { throwIfSignalAborted, waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
-import type { ChildProcessHandle } from '@orca/process-host/process-spec'
 import { readAuthorizedDocPreviewFile } from '../../shared/doc-preview-file-access'
 import { renameLocalPathSerializedByDestination } from '../destination-serialized-local-rename'
 import type { resolveAuthorizedPath as ResolveAuthorizedPath } from '../ipc/filesystem-auth'
@@ -20,8 +19,6 @@ export type LocalFilesystemProviderOptions = {
   requireStore(): Store
   /** Injected: the auth layer reaches the host router, so importing it here would be a cycle. */
   resolveAuthorizedPath: typeof ResolveAuthorizedPath
-  /** Registers a running text search for cancellation; returns its release. */
-  onTextSearchSpawn?: (child: ChildProcessHandle) => () => void
 }
 
 /**
@@ -149,7 +146,8 @@ export function createLocalFilesystemProvider(
         wslDistro,
         wslDistroForOutput: parseWslPath(rootPath)?.distro ?? wslDistro,
         signal,
-        onSpawn: options.onTextSearchSpawn ?? (() => () => undefined)
+        // Why: request abort owns cancellation; only the renderer IPC search keeps a by-id registry.
+        onSpawn: () => () => undefined
       })
     },
     listMarkdownDocuments: (rootPath) =>

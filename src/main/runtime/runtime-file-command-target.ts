@@ -83,8 +83,7 @@ export function requireRuntimeFileProvider(
   }
   return route.createProvider({
     requireStore: () => host.requireStore(),
-    resolveAuthorizedPath,
-    onTextSearchSpawn: host.onTextSearchSpawn
+    resolveAuthorizedPath
   })
 }
 

@@ -37,7 +37,6 @@ describe.each(channels)('$name build ships the orcad template', (channel) => {
     expect(template.permissions).toEqual({ contents: 'read' })
     expect(template.secrets).toBeUndefined()
     expect(mac.steps.find((step) => step.name === 'Checkout').with.ref).toBe(channel.pinnedSha)
-    expect(jobs['relay-windows-process-tree'].with.ref).toBe(channel.pinnedSha)
   })
 
   it('packages the macOS build only with the template present', () => {

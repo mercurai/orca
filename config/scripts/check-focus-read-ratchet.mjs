@@ -4,23 +4,29 @@ import path from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
 
-// Two ratchets for renderer code that routes host-owned work by the "Active Server" setting
-// instead of by the resource's own host. Per-file counts may only go down.
-// - Owner routing: the three focus-routing helpers, counted together so renaming one into another
-//   never lowers the count.
-// - Focus reads: every read of the setting plus every call of an exported function that reads it
-//   for the caller (discovered, not hand-listed), so swapping one form for another never lowers it.
+// Ratchet for renderer code that routes host-owned work by the "Active Server" setting instead of
+// by the resource's own host. Per file it counts every read of the setting plus every call of an
+// exported function that reads it for the caller (discovered, not hand-listed), so swapping one
+// form for another never lowers it. Counts may only go down. The deleted focus-routing helpers
+// are banned outright.
 
 const SCAN_ROOT = 'src/renderer/src'
-const HELPER_NAMES = 'getActiveRuntimeTarget|legacyRouteFromSettings|settingsForRuntimeOwner'
-const HELPERS = `(?:${HELPER_NAMES})`
+const BASELINE_PATH = 'config/focus-setting-read-baseline.txt'
+const FORBIDDEN_HELPERS = [
+  'getActiveRuntimeTarget',
+  'legacyRouteFromSettings',
+  'settingsForRuntimeOwner'
+]
 const IMPORT_EXPORT_LIST = /\b(?:import|export)\s+(?:type\s+)?\{[^}]*\}/g
 // Calls and value uses (`.map(helper)`); definitions and type queries are not routing.
-const FOCUS_ROUTING_USE = new RegExp(`(?<!(?:function|typeof)\\s+)\\b${HELPERS}\\b`, 'g')
+const FORBIDDEN_HELPER_USE = new RegExp(
+  `(?<!(?:function|typeof)\\s+)\\b(?:${FORBIDDEN_HELPERS.join('|')})\\b`,
+  'g'
+)
 // Seed readers; every function that reads the setting or calls a reader joins them by discovery.
 // The sanctioned readers are seeds too: their bodies reach the setting through a private helper.
 const SEED_FOCUS_READERS = [
-  ...HELPER_NAMES.split('|'),
+  ...FORBIDDEN_HELPERS,
   'defaultCreationHost',
   'defaultScopeHost',
   'defaultScopeSource',
@@ -29,8 +35,8 @@ const SEED_FOCUS_READERS = [
 const FOCUS_SCAN_ROOTS = [SCAN_ROOT, 'src/shared']
 
 /** Imports and re-exports are not uses; an aliased one is reported by {@link hasFocusRoutingAlias}. */
-export function countFocusRoutingCalls(sourceText) {
-  return sourceText.replace(IMPORT_EXPORT_LIST, '').match(FOCUS_ROUTING_USE)?.length ?? 0
+export function countForbiddenHelperUses(sourceText) {
+  return sourceText.replace(IMPORT_EXPORT_LIST, '').match(FORBIDDEN_HELPER_USE)?.length ?? 0
 }
 
 // Element reads after a PascalCase name or `>` are indexed types (`GlobalSettings['…']`), not reads.
@@ -332,36 +338,15 @@ export function hasFocusRoutingAlias(sourceText) {
   return (sourceText.match(IMPORT_EXPORT_LIST) ?? []).some((list) => alias.test(list))
 }
 
-export const RATCHETS = [
-  {
-    name: 'owner-routing',
-    baselinePath: 'config/owner-routing-baseline.txt',
-    count: (text) => countFocusRoutingCalls(text),
-    header: [
-      '# Renderer call sites that route by the Active Server focus setting:',
-      '# getActiveRuntimeTarget( + legacyRouteFromSettings( + settingsForRuntimeOwner(, per file.',
-      '# The helpers are deleted and this list is empty: any new use fails lint. Route by the',
-      "# resource's owner; only a creation flow with no source row may use defaultCreationHost."
-    ],
-    advice:
-      "Route by the resource's owner (resolveOwner + callHostRoute) instead of the Active Server setting."
-  },
-  {
-    name: 'focus-setting-read',
-    baselinePath: 'config/focus-setting-read-baseline.txt',
-    count: (text, rel, readers) =>
-      countFocusSettingReads(text, readers.namesFor(rel), readers.memberNames),
-    header: [
-      '# Renderer reads of the Active Server setting (member, element and destructuring reads of',
-      '# activeRuntimeEnvironmentId) plus calls of exported functions that read it, per file.',
-      '# This is a RATCHET: counts may only go DOWN. Only creation flows with no source row may read',
-      '# the default host, through defaultCreationHost. Everything else routes by the owner.',
-      '# Prune after removing reads: pnpm check:owner-routing-ratchet --prune'
-    ],
-    advice:
-      "Route by the resource's owner. Only a creation flow with no source row may use defaultCreationHost."
-  }
+const BASELINE_HEADER = [
+  '# Renderer reads of the Active Server setting (member, element and destructuring reads of',
+  '# activeRuntimeEnvironmentId) plus calls of exported functions that read it, per file.',
+  '# This is a RATCHET: counts may only go DOWN. Only creation flows with no source row may read',
+  '# the default host, through defaultCreationHost. Everything else routes by the owner.',
+  '# Prune after removing reads: pnpm check:focus-read-ratchet --prune'
 ]
+const ADVICE =
+  "Route by the resource's owner. Only a creation flow with no source row may use defaultCreationHost."
 
 export function isScannedPath(rel) {
   return /\.(ts|tsx)$/.test(rel) && !/\.(test|spec)\.tsx?$/.test(rel)
@@ -393,7 +378,7 @@ export function parseBaselineNotes(text) {
   return notes
 }
 
-export function formatBaseline(counts, header = RATCHETS[0].header, notes = new Map()) {
+export function formatBaseline(counts, header = BASELINE_HEADER, notes = new Map()) {
   const rows = [...counts]
     .filter(([, count]) => count > 0)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -452,82 +437,84 @@ function scanSources(root) {
   return scanCache.get(root)
 }
 
-export function collectCurrentCounts(root = process.cwd(), count = RATCHETS[0].count) {
+export function collectCurrentCounts(root = process.cwd()) {
   const { sources, readers } = scanSources(root)
   const counts = new Map()
+  const forbidden = []
   const aliased = []
   for (const [rel, source] of sources) {
     if (!rel.startsWith(`${SCAN_ROOT}/`)) {
       continue
     }
-    const found = count(source, rel, readers)
+    const found = countFocusSettingReads(source, readers.namesFor(rel), readers.memberNames)
     if (found > 0) {
       counts.set(rel, found)
+    }
+    if (countForbiddenHelperUses(source) > 0) {
+      forbidden.push(rel)
     }
     if (hasFocusRoutingAlias(source)) {
       aliased.push(rel)
     }
   }
-  return { counts, aliased, readers }
+  return { counts, forbidden, aliased }
 }
 
 function total(counts) {
   return [...counts.values()].reduce((sum, count) => sum + count, 0)
 }
 
-function checkRatchet(root, ratchet) {
-  const baselineFile = path.join(root, ratchet.baselinePath)
+export function main(root = process.cwd()) {
+  const baselineFile = path.join(root, BASELINE_PATH)
   if (!fs.existsSync(baselineFile)) {
-    console.error(`::error::Missing ${ratchet.baselinePath}.`)
-    return { ok: false, total: 0 }
+    console.error(`::error::Missing ${BASELINE_PATH}.`)
+    return 1
   }
-  const baseline = parseBaseline(fs.readFileSync(baselineFile, 'utf8'))
-  const { counts: current } = collectCurrentCounts(root, ratchet.count)
-  const { grown, shrunk } = diffCounts(current, baseline)
+  const { counts: current, forbidden, aliased } = collectCurrentCounts(root)
+  for (const file of forbidden) {
+    console.error(
+      `::error file=${file}::${FORBIDDEN_HELPERS.join(', ')} are deleted focus-routing helpers; do not reintroduce them. ${ADVICE}`
+    )
+  }
+  for (const file of aliased) {
+    console.error(
+      `::error file=${file}::A focus reader is imported or exported under another name, which hides its calls from this ratchet. Use the original name.`
+    )
+  }
+  const { grown, shrunk } = diffCounts(
+    current,
+    parseBaseline(fs.readFileSync(baselineFile, 'utf8'))
+  )
   for (const { file, now, allowed } of grown) {
     console.error(
-      `::error file=${file}::${ratchet.name}: ${now} use(s), baseline allows ${allowed}. ${ratchet.advice}`
+      `::error file=${file}::${now} focus read(s), baseline allows ${allowed}. ${ADVICE}`
     )
   }
   for (const { file, now, allowed } of shrunk) {
     console.error(
-      `::error file=${file}::${ratchet.name}: ${now} use(s), baseline still allows ${allowed}. Run: pnpm check:owner-routing-ratchet --prune`
+      `::error file=${file}::${now} focus read(s), baseline still allows ${allowed}. Run: pnpm check:focus-read-ratchet --prune`
     )
   }
-  return { ok: grown.length === 0 && shrunk.length === 0, total: total(current) }
-}
-
-export function main(root = process.cwd()) {
-  const { aliased } = collectCurrentCounts(root)
-  for (const file of aliased) {
-    console.error(
-      `::error file=${file}::A focus-routing helper is imported or exported under another name, which hides its calls from this ratchet. Use the original name.`
-    )
+  if (forbidden.length + aliased.length + grown.length + shrunk.length > 0) {
+    return 1
   }
-  let ok = aliased.length === 0
-  for (const ratchet of RATCHETS) {
-    const result = checkRatchet(root, ratchet)
-    ok = ok && result.ok
-    if (result.ok) {
-      console.log(`${ratchet.name} ratchet OK — ${result.total} use(s).`)
-    }
-  }
-  return ok ? 0 : 1
+  console.log(`Focus-read ratchet OK — ${total(current)} read(s).`)
+  return 0
 }
 
 export function prune(root = process.cwd()) {
-  for (const ratchet of RATCHETS) {
-    const baselineFile = path.join(root, ratchet.baselinePath)
-    const text = fs.existsSync(baselineFile) ? fs.readFileSync(baselineFile, 'utf8') : ''
-    const baseline = parseBaseline(text)
-    const { counts: current } = collectCurrentCounts(root, ratchet.count)
-    // Lowers entries only; growth still has to be fixed in the code.
-    const pruned = new Map(
-      [...baseline].map(([file, allowed]) => [file, Math.min(allowed, current.get(file) ?? 0)])
-    )
-    fs.writeFileSync(baselineFile, formatBaseline(pruned, ratchet.header, parseBaselineNotes(text)))
-    console.log(`Pruned ${ratchet.baselinePath} to ${total(pruned)} use(s).`)
-  }
+  const baselineFile = path.join(root, BASELINE_PATH)
+  const text = fs.existsSync(baselineFile) ? fs.readFileSync(baselineFile, 'utf8') : ''
+  const { counts: current } = collectCurrentCounts(root)
+  // Lowers entries only; growth still has to be fixed in the code.
+  const pruned = new Map(
+    [...parseBaseline(text)].map(([file, allowed]) => [
+      file,
+      Math.min(allowed, current.get(file) ?? 0)
+    ])
+  )
+  fs.writeFileSync(baselineFile, formatBaseline(pruned, BASELINE_HEADER, parseBaselineNotes(text)))
+  console.log(`Pruned ${BASELINE_PATH} to ${total(pruned)} read(s).`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

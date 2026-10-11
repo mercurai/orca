@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { isWindowsServerTarget, type WindowsServerTarget } from '../../shared/node-runtime-pin'
 import type { SshRemoteRuntime, SshTarget } from '../../shared/ssh-types'
-import { FORBIDDEN_TOOLS, type HostileHostCellCore } from './ssh-hostile-host-cells'
+import { FORBIDDEN_TOOLS } from './ssh-hostile-host-cells'
 
 /** `cmd` is stock sshd (no DefaultShell value); `powershell` sets DefaultShell to Windows PowerShell. */
 export const WINDOWS_SSH_DEFAULT_SHELLS = ['cmd', 'powershell'] as const
@@ -22,7 +22,8 @@ export const WINDOWS_FORBIDDEN_TOOLS = [
   'cmake'
 ] as const
 
-export type WindowsHostCell = HostileHostCellCore & {
+export type WindowsHostCell = {
+  id: string
   defaultShell: WindowsSshDefaultShell
   remoteRuntime: SshRemoteRuntime
 }
@@ -34,32 +35,25 @@ export function isWindowsHostCellId(id: string): id is WindowsHostCellId {
   return WINDOWS_HOST_CELL_IDS.some((candidate) => candidate === id)
 }
 
-export function windowsHostCell(
-  id: WindowsHostCellId,
-  target: WindowsServerTarget
-): WindowsHostCell {
-  const launched = { outcome: 'launched', rung: 'A', target } as const
+export function windowsHostCell(id: WindowsHostCellId): WindowsHostCell {
   switch (id) {
     case 'pinned-cmd':
       return {
         id,
         defaultShell: 'cmd',
-        remoteRuntime: 'pinned-node',
-        expect: launched
+        remoteRuntime: 'pinned-node'
       }
     case 'pinned-powershell':
       return {
         id,
         defaultShell: 'powershell',
-        remoteRuntime: 'pinned-node',
-        expect: launched
+        remoteRuntime: 'pinned-node'
       }
     case 'legacy-opt-out':
       return {
         id,
         defaultShell: 'cmd',
-        remoteRuntime: 'legacy',
-        expect: { outcome: 'legacy_opt_out' }
+        remoteRuntime: 'legacy'
       }
   }
 }

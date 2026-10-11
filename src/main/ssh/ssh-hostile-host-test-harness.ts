@@ -1,7 +1,6 @@
 /**
- * The host-agnostic hostile-host driver: the real client-side relay deploy through a real
- * SshConnection, observed through the ladder's own calls and a {@link HostileHostObserver}.
- * The Docker matrix and the Windows SSH-host lanes both run cells through it.
+ * The host-agnostic hostile-host setup: app environment and a real SshConnection. The Docker
+ * matrix and the Windows SSH-host lanes both run cells through it.
  */
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  countFocusRoutingCalls,
   countFocusSettingReads,
+  countForbiddenHelperUses,
   diffCounts,
   discoverFocusReaders,
   formatBaseline,
@@ -10,35 +10,20 @@ import {
   isScannedPath,
   parseBaseline,
   parseBaselineNotes
-} from './check-owner-routing-ratchet.mjs'
+} from './check-focus-read-ratchet.mjs'
 
-describe('countFocusRoutingCalls', () => {
-  it('counts the three focus-routing helpers together', () => {
+describe('countForbiddenHelperUses', () => {
+  it('counts calls and value uses of the deleted helpers, not definitions, types or imports', () => {
     const src = [
-      'const a = getActiveRuntimeTarget(settings)',
-      'const b = legacyRouteFromSettings(settings)',
-      'const c = getActiveRuntimeTarget(settingsForRuntimeOwner(settings, id))'
-    ].join('\n')
-    expect(countFocusRoutingCalls(src)).toBe(4)
-  })
-
-  it('ignores definitions, type queries and longer names', () => {
-    const src = [
+      "import { callRuntimeRpc, getActiveRuntimeTarget } from './rpc'",
+      "export {\n  settingsForRuntimeOwner,\n  type RuntimeClientTarget\n} from './target'",
+      'const a = getActiveRuntimeTarget (settingsForRuntimeOwner(settings, id))',
+      'const b = list.map(legacyRouteFromSettings)',
       'export function getActiveRuntimeTarget(settings) {}',
       'type T = ReturnType<typeof getActiveRuntimeTarget>',
       'mygetActiveRuntimeTarget(settings)'
     ].join('\n')
-    expect(countFocusRoutingCalls(src)).toBe(0)
-  })
-
-  it('counts spaced calls and value uses but not import or export lists', () => {
-    const src = [
-      "import { callRuntimeRpc, getActiveRuntimeTarget } from './rpc'",
-      "export {\n  settingsForRuntimeOwner,\n  type RuntimeClientTarget\n} from './target'",
-      'const a = getActiveRuntimeTarget (settings)',
-      'const b = list.map(getActiveRuntimeTarget)'
-    ].join('\n')
-    expect(countFocusRoutingCalls(src)).toBe(2)
+    expect(countForbiddenHelperUses(src)).toBe(3)
   })
 })
 

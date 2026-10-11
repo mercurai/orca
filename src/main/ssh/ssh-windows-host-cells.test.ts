@@ -21,8 +21,8 @@ const DESCRIPTOR = {
 }
 
 describe('Windows SSH-host cells', () => {
-  it('expects rung A for both DefaultShell cases and the ladder skipped when opted out', () => {
-    const cells = WINDOWS_HOST_CELL_IDS.map((id) => windowsHostCell(id, 'win32-x64'))
+  it('pairs each relay cell with its DefaultShell and remote runtime', () => {
+    const cells = WINDOWS_HOST_CELL_IDS.map((id) => windowsHostCell(id))
     expect(
       cells.map(({ id, defaultShell, remoteRuntime }) => [id, defaultShell, remoteRuntime])
     ).toEqual([
@@ -30,12 +30,6 @@ describe('Windows SSH-host cells', () => {
       ['pinned-powershell', 'powershell', 'pinned-node'],
       ['legacy-opt-out', 'cmd', 'legacy']
     ])
-    expect(cells[0].expect).toEqual({
-      outcome: 'launched',
-      rung: 'A',
-      target: 'win32-x64'
-    })
-    expect(cells[2].expect).toEqual({ outcome: 'legacy_opt_out' })
   })
 
   it('shims the Windows compilers alongside the Linux toolchain list', () => {
@@ -52,7 +46,7 @@ describe('Windows SSH-host cells', () => {
     if (!isWindowsHostCellId(parsed.cell)) {
       throw new Error(`expected a relay cell, got ${parsed.cell}`)
     }
-    const target = windowsHostSshTarget(parsed, windowsHostCell(parsed.cell, parsed.target), 'r1')
+    const target = windowsHostSshTarget(parsed, windowsHostCell(parsed.cell), 'r1')
     expect(target).toMatchObject({
       id: 'windows-host-pinned-powershell-r1',
       host: '127.0.0.1',

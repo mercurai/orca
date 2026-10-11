@@ -89,16 +89,6 @@ jobs:
           [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Could not resolve main"; exit 1; }
           echo "head_sha=$head_sha" >>"$GITHUB_OUTPUT"
 
-  # Why its own job: this package ships relays for Windows SSH hosts, and only a
-  # Windows runner compiles the addon that launches one outside sshd's job.
-  relay-windows-process-tree:
-    needs: resolve-main
-    permissions:
-      contents: read
-    uses: ./.github/workflows/relay-windows-process-tree.yml
-    with:
-      ref: ${{ needs.resolve-main.outputs.head_sha }}
-
   # As release-cut does: every SSH host runs orcad, deployed from the template this build ships.
   orcad-template:
     needs: resolve-main
@@ -112,7 +102,6 @@ jobs:
   build-daily-mac:
     needs:
       - resolve-main
-      - relay-windows-process-tree
       - orcad-template
     if: github.repository == 'stablyai/orca'
     outputs:
@@ -290,15 +279,6 @@ jobs:
           fi
           cat "$RUNNER_TEMP/daily-identity.txt" >>"$GITHUB_OUTPUT"
 
-      # Only a Windows runner compiles these; the relay-windows-process-tree job
-      # built them for this run.
-      - name: Collect the Windows process-table addons for the relay
-        if: steps.freshness.outputs.should_build == 'true'
-        uses: actions/download-artifact@v8
-        with:
-          name: relay-windows-process-tree
-          path: .build/windows-process-tree
-
       - name: Build app
         if: steps.freshness.outputs.should_build == 'true'
         run: pnpm build:release
@@ -308,9 +288,6 @@ jobs:
           # gate accepts only 'stable' or 'rc', so leaving this unset keeps them
           # silent, which is correct for unvetted dev artifacts.
           ORCA_DIAGNOSTICS_TOKEN_URL: https://www.onorca.dev/diagnostics/token
-          # Fail the build rather than ship a relay that cannot launch outside
-          # sshd's job for a standard user on a Windows SSH host.
-          ORCA_REQUIRE_RELAY_NATIVE_ADDONS: x64,arm64
 
       # After the app build so nothing that cleans out/ can drop it; electron-builder ships it.
       - name: Download the orcad deployment template

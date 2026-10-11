@@ -205,14 +205,26 @@ jobs:
         env:
           ORCA_BUN_ORCAD_SLOT: ${{ steps.bun-orcad.outputs.slot }}
           BUN_EXECUTABLE: ${{ steps.bun-orcad.outputs.executable }}
-      # Only a Windows runner compiles it; arm64 cross-compiles here, as release-cut does for the relay.
+      # Only a Windows runner compiles it; arm64 cross-compiles here.
       # Before the Node 18 check below: the build script imports TypeScript, which Node 18 cannot load.
+      # orcad's instance lock and stop proof read a PID's creation time through it; the x64 binary this
+      # runner loads must answer it, and answer nothing for a missing PID rather than a stale time.
       - name: Build the Windows process-table addons for the desktop template
         if: inputs.build_template && matrix.os == 'windows-2022'
         shell: bash
         run: |
           node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=x64
           node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=arm64
+          node -e "
+          const { assertWindowsProcessTreeCreationTime } = require('./config/scripts/windows-process-tree-creation-time.cjs')
+          const addon = require('./.build/windows-process-tree/x64/windows-process-tree.node')
+          assertWindowsProcessTreeCreationTime({ module: addon })
+          const own = addon.getProcessCreationTime(process.pid)
+          const started = Date.now() - process.uptime() * 1000
+          if (typeof own !== 'number' || Math.abs(own - started) > 5000) throw new Error('creation time ' + own + ' vs ' + started)
+          if (addon.getProcessCreationTime(0x7ffffff0) !== undefined) throw new Error('a missing PID must read undefined')
+          console.log('creation time ok:', own)
+          "
       - name: Keep the Windows process-table addons for the desktop template
         if: inputs.build_template && matrix.os == 'windows-2022'
         uses: actions/upload-artifact@v7

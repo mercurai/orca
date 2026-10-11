@@ -68,9 +68,6 @@ const EXPECTED_MATRIX = {
     contents: 'read'
   },
   [`${RELEASE_WORKFLOW}#release-preflight`]: { contents: 'read' },
-  [`${RELEASE_WORKFLOW}#relay-windows-process-tree`]: { contents: 'read' },
-  [`${RELEASE_WORKFLOW}#relay-windows-process-tree -> .github/workflows/relay-windows-process-tree.yml#build`]:
-    { contents: 'read' },
   [`${RELEASE_WORKFLOW}#skill-sharing-linux-floor-release-gate`]: { contents: 'read' },
   [`${RELEASE_WORKFLOW}#skill-sharing-release-gate`]: { contents: 'read' },
   [`${RELEASE_WORKFLOW}#terminal-rendering-golden`]: { contents: 'read' },

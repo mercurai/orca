@@ -1,9 +1,9 @@
-// Design D5/D6 hostile-host matrix: the real client-side relay deploy against container SSH
-// targets, and against a macOS runner's own loopback sshd, asserting which rung of the runtime
-// ladder each host lands on, and for cells naming one, the runtime managed orcad deploys on.
+// Hostile-host matrix: the real client-side managed orcad deploy against container SSH targets,
+// and against a macOS runner's own loopback sshd, asserting the runtime each host resolves and
+// whether orcad activates there or fails with the classified reason.
 //
 // Run: ORCA_RUN_SSH_HOSTILE_HOSTS=1 pnpm test src/main/ssh/ssh-hostile-hosts.docker.test.ts
-// Needs `pnpm build:relay` and an orcad template holding each selected cell's slot. Docker cells
+// Needs an orcad template holding each selected cell's slot. Docker cells
 // need Linux Docker (the no-egress cell dials an internal bridge directly) and
 //   node config/scripts/build-orcad-template.mjs --targets linux-x64-glibc,linux-x64-musl
 // macOS cells need /usr/sbin/sshd and this runner's slot (`pnpm build:orcad-prebuilds`, then
@@ -31,6 +31,7 @@ const CELL_TIMEOUT_MS = 15 * 60_000
 
 describe('SSH hostile-host managed orcad matrix', () => {
   let cleanupAppEnvironment: (() => void) | null = null
+  let executed = 0
 
   beforeAll(() => {
     cleanupAppEnvironment = installHostileHostAppEnvironment()
@@ -38,18 +39,22 @@ describe('SSH hostile-host managed orcad matrix', () => {
 
   afterAll(() => {
     cleanupAppEnvironment?.()
+    // Why: a job whose cells were all skipped would otherwise pass having deployed nothing.
+    if (RUN) {
+      expect(executed).toBe(SELECTED.size)
+    }
   })
 
-  // Why: with every cell skipped the job would pass having deployed nothing.
   it.runIf(RUN)('selects at least one cell this machine can host', () => {
     expect(SELECTED.size).toBeGreaterThan(0)
   })
 
   // A fresh host per cell.
-  for (const cell of HOSTILE_HOST_CELLS.filter((candidate) => candidate.managed)) {
+  for (const cell of HOSTILE_HOST_CELLS) {
     it.skipIf(!SELECTED.has(cell.id))(
-      `${cell.id} deploys managed orcad on ${cell.managed?.runtime} (${cell.managed?.outcome})`,
+      `${cell.id} deploys managed orcad on ${cell.managed.runtime} (${cell.managed.outcome})`,
       async () => {
+        executed += 1
         let target: HostileHostTarget | null = null
         try {
           target = await startHostileHostTarget(cell)
