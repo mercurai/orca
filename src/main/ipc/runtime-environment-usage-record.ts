@@ -1,3 +1,4 @@
+import type { EnvironmentUsageArgs } from '../../shared/runtime-environment-store'
 import { markEnvironmentUsedDetached } from '../../shared/runtime-environment-usage-detached'
 
 /**
@@ -13,7 +14,7 @@ import { markEnvironmentUsedDetached } from '../../shared/runtime-environment-us
 export function recordRuntimeEnvironmentUsage(
   userDataPath: string,
   selector: string,
-  args: Parameters<typeof markEnvironmentUsed>[2] = {}
+  args: EnvironmentUsageArgs = {}
 ): void {
   try {
     markEnvironmentUsedDetached(userDataPath, selector, args)
