@@ -2,8 +2,9 @@
 # With a `tag` input (dispatched by fork-sync-upstream for the newest release tag): rebase each
 # active branch from its recorded base onto the tag in local refs and run its tests. Only when
 # every patch rebased, push all patch branches (each leased on its pre-rebase sha) and the
-# manifest base in one atomic push, so a conflict leaves the whole series on its old base. On the daily schedule, with no tag, it dry-rebases onto
-# upstream/main and only reports, so a conflict shows days before the tag that would carry it.
+# manifest base in one atomic push, so a conflict leaves the whole series on its old base.
+# On the daily schedule, with no tag, it dry-rebases onto upstream/main and only reports, so a
+# conflict shows days before the tag that would carry it.
 # Dispatched from a non-default branch it only reports. Lives in the fork only.
 name: fork-rebase-patches
 
@@ -158,6 +159,8 @@ jobs:
             # Nothing left after the rebase means the base already carries the patch.
             if [ "$(git rev-list --count "$BASE..HEAD")" = 0 ]; then
               echo "$branch" >> /tmp/merged
+              # Leased unchanged: new work pushed to it meanwhile rejects the series push instead of being retired.
+              echo "$branch $before $before" >> /tmp/rebased
               echo "$branch: no commits beyond $BASE -> merged-upstream"
               continue
             fi
@@ -202,7 +205,7 @@ jobs:
       # the patch, which is what gets assembled. A merge with the default branch is not that and conflicts.
       # After the series push, and also when a patch conflicted: the lane resolving it needs the base.
       - name: Publish the CI base branch for the tag
-        if: ${{ !cancelled() && steps.mode.outputs.mode == 'real' }}
+        if: ${{ !cancelled() && steps.mode.outputs.mode == 'real' && steps.fetch.outputs.base_sha != '' && steps.patches.outcome == 'success' }}
         run: |
           set -euo pipefail
           # Carry the fork-CI commits of the old ci-base instead of publishing the bare tag (#1107).
@@ -210,8 +213,11 @@ jobs:
           if ! bash /tmp/fork-scripts/carry-ci-base.sh "$old_base" "$TARGET" "${{ steps.fetch.outputs.base_sha }}"; then
             title="ci-base: ci-base/$TARGET could not carry the fork-CI commits of ci-base/$old_base"
             body="fork-rebase-patches run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID could not publish ci-base/$TARGET with the fork-CI commits of ci-base/$old_base. Carry them by hand (see the run log) before opening patch CI PRs against it."
-            gh label create "$CONFLICT_LABEL" --color d93f0b --description 'a patch branch no longer rebases' 2>/dev/null || true
-            gh issue create --label "$CONFLICT_LABEL" --title "$title" --body "$body"
+            existing=$(gh issue list --label "$CONFLICT_LABEL" --state open --search "in:title \"ci-base/$TARGET\"" --json number --jq '.[0].number')
+            if [ -n "$existing" ]; then gh issue comment "$existing" --body "$body"; else
+              gh label create "$CONFLICT_LABEL" --color d93f0b --description 'a patch branch no longer rebases' 2>/dev/null || true
+              gh issue create --label "$CONFLICT_LABEL" --title "$title" --body "$body"
+            fi
             exit 1
           fi
 

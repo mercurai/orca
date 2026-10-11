@@ -20,9 +20,10 @@ for attempt in 1 2 3; do
     git fetch -q "$remote" "$fork_branch"
     fork_base=$(git rev-parse FETCH_HEAD)
     git checkout -q --detach "$fork_base"
-    if ! git cherry-pick "$manifest_commit" >/dev/null 2>&1; then
+    if ! git cherry-pick "$manifest_commit" >/dev/null; then
+      conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
       git cherry-pick --abort 2>/dev/null || true
-      echo "::error::the manifest commit does not apply to $fork_branch at $fork_base; nothing was pushed" >&2
+      echo "::error::the manifest commit does not apply to $fork_branch at $fork_base (conflicts: ${conflicts:-none, empty pick}); nothing was pushed" >&2
       exit 1
     fi
     args+=("--force-with-lease=refs/heads/$fork_branch:$fork_base" "HEAD:refs/heads/$fork_branch")

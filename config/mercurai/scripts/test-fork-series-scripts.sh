@@ -141,10 +141,19 @@ elif [ "$(remote_sha patch/a)" = "$a0" ] && [ "$(remote_sha mercurai)" = "$m1" ]
 setup; rebase_series
 b_before=$(awk '$1 == "patch/b" {print $2}' "$root/rebased")
 awk '$1 == "patch/b" {print $1, $2, $2; next} {print}' "$root/rebased" > "$root/rebased2"   # b unchanged by the run
-a0=$(remote_sha patch/a)
+a0=$(remote_sha patch/a) m0=$(remote_sha mercurai)
 git checkout -q -b mover2 "$b_before"; commit late.txt z "late push"; git push -q origin mover2:patch/b; git checkout -q fork
 if bash "$here/push-rebased-series.sh" "$root/rebased2" mercurai "$manifest" >/dev/null 2>&1; then fail "an unchanged branch is leased too"
-elif [ "$(remote_sha patch/a)" = "$a0" ]; then pass "an unchanged branch is leased too"; else fail "an unchanged branch is leased too"; fi
+elif [ "$(remote_sha patch/a)" = "$a0" ] && [ "$(remote_sha mercurai)" = "$m0" ]; then pass "an unchanged branch is leased too"; else fail "an unchanged branch is leased too"; fi
+
+# 11b. The same unchanged-branch lease when nobody moved it: the other refs and the manifest go through.
+setup; rebase_series
+awk '$1 == "patch/b" {print $1, $2, $2; next} {print}' "$root/rebased" > "$root/rebased3"
+b0=$(remote_sha patch/b)
+bash "$here/push-rebased-series.sh" "$root/rebased3" mercurai "$manifest" >/dev/null
+if remote_has v2 "$(remote_sha patch/a)" && [ "$(remote_sha patch/b)" = "$b0" ] &&
+   [ "$(git --git-dir="$root/origin.git" show mercurai:manifest.yaml)" = "base: v2" ]; then
+  pass "an untouched leased branch lets the rest of the series through"; else fail "an untouched leased branch lets the rest of the series through"; fi
 
 # 12. Patches only, no manifest change.
 setup; rebase_series; m0=$(remote_sha mercurai)

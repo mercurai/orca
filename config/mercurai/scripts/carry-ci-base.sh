@@ -21,10 +21,12 @@ fi
 
 candidates=()
 if git rev-parse -q --verify "$old_ci" >/dev/null; then
-  # The fork-CI commits are what the old ci-base adds to its own fork point; an upstream re-cut of the
-  # old tag cannot widen that range.
-  limit=$(git merge-base "$old_ci" "refs/tags/$old_tag^{commit}")
-  mapfile -t candidates < <(git rev-list --reverse --no-merges "$limit..$old_ci")
+  # An old tag upstream re-cut after ci-base/<old> was made would widen the range to upstream commits.
+  if ! git merge-base --is-ancestor "refs/tags/$old_tag^{commit}" "$old_ci"; then
+    echo "::error::ci-base/$old_tag does not stand on $old_tag (re-cut?); carry its fork-CI commits by hand" >&2
+    exit 1
+  fi
+  mapfile -t candidates < <(git rev-list --reverse --no-merges "refs/tags/$old_tag^{commit}..$old_ci")
 else
   echo "::warning::no ci-base/$old_tag to carry fork-CI commits from; ci-base/$new_tag is the bare tag" >&2
 fi
@@ -36,9 +38,10 @@ for commit in "${candidates[@]}"; do
   # changing the lines around the carried change, which alters the patch id.
   if git log --format=%B "$new_sha..HEAD" | grep -qF "cherry picked from commit $commit"; then continue; fi
   if [ -z "$(git cherry HEAD "$commit" "$commit^" | sed -n 's/^+ //p')" ]; then continue; fi
-  if ! git cherry-pick -x "$commit" >/dev/null 2>&1; then
+  if ! git cherry-pick -x "$commit" >/dev/null; then
+    conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
     git cherry-pick --abort 2>/dev/null || true
-    echo "::error::fork-CI commit $commit from ci-base/$old_tag does not apply to ci-base/$new_tag; carry it by hand" >&2
+    echo "::error::fork-CI commit $commit from ci-base/$old_tag does not apply to ci-base/$new_tag (conflicts: ${conflicts:-none, empty pick}); carry it by hand" >&2
     exit 1
   fi
   carried=$((carried + 1))
