@@ -56,9 +56,13 @@ export class SecureWriteSupersededError extends Error {
 
 /** A delete of the path landed after this write was requested; callers drop it, never retry. */
 export class SecureWriteDiscardedError extends Error {
+  // Why: the path names the OS user; it stays on the error for main-process logs, not in its message.
+  readonly targetPath: string
+
   constructor(path: string) {
-    super(`Secure write to ${path} was discarded by a later delete`)
+    super('Secure write was discarded by a later delete')
     this.name = 'SecureWriteDiscardedError'
+    this.targetPath = path
   }
 }
 

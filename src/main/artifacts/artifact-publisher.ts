@@ -52,7 +52,7 @@ function discardsCreateIntent(error: unknown): boolean {
 type ArtifactPublishAuthContext = {
   profileId: string
   scope: ArtifactShareScope
-  lifecycle?: string
+  lifecycle: string
   assertCurrent: () => void
 }
 

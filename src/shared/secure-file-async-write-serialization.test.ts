@@ -61,6 +61,7 @@ const directories: string[] = []
 
 afterEach(() => {
   steps.length = 0
+  onDirectoryFsync.run = null
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true })
   }
