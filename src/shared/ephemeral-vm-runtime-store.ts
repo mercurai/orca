@@ -82,10 +82,9 @@ export async function upsertEphemeralVmRuntime(
       userDataPath,
       {
         version: 1,
-        runtimes: [
-          ...loaded.store.runtimes.filter((entry) => entry.id !== parsed.id),
-          parsed
-        ].sort(compareRuntimeRecords)
+        runtimes: [...loaded.store.runtimes.filter((entry) => entry.id !== parsed.id), parsed].sort(
+          compareRuntimeRecords
+        )
       },
       loaded.features
     )

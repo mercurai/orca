@@ -44,6 +44,9 @@ describe('removed synchronous secure-file writers', () => {
         )
       )
     )
-    expect(offenders, `removed sync secure-file writers still referenced:\n${offenders.join('\n')}`).toEqual([])
+    expect(
+      offenders,
+      `removed sync secure-file writers still referenced:\n${offenders.join('\n')}`
+    ).toEqual([])
   })
 })

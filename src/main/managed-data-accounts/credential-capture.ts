@@ -97,7 +97,9 @@ export async function captureDataAccountCredentials(
     if (!z.object({ windsurf_api_key: z.string().trim().min(1) }).safeParse(parsed).success) {
       throw new Error('Devin login did not save supported credentials.')
     }
-    if (!(await writeSecureFileAsync(join(destinationDataHome, 'devin', 'credentials.toml'), content))) {
+    if (
+      !(await writeSecureFileAsync(join(destinationDataHome, 'devin', 'credentials.toml'), content))
+    ) {
       throw new Error('Could not restrict Devin credential file permissions.')
     }
     return ['devin']
