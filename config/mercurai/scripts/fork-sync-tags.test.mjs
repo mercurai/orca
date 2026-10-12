@@ -16,8 +16,12 @@ const code = sync
   .filter((line) => !/^\s*#/.test(line))
   .join('\n')
 
+const push = readFileSync(resolve(import.meta.dirname, 'sync-push.sh'), 'utf8').replaceAll('\r\n', '\n')
+
 test('no push is forced and no push sends every tag', () => {
-  for (const line of code.split('\n').filter((l) => /\bgit push\b/.test(l))) {
+  const lines = [...code.split('\n'), ...push.split('\n')].filter((l) => /\bgit push\b/.test(l))
+  assert.ok(lines.length >= 4)
+  for (const line of lines) {
     assert.doesNotMatch(line, /--force|\s-f\b|--tags|--mirror|\s\+/, `forced or bulk push: ${line.trim()}`)
   }
 })
@@ -37,5 +41,6 @@ test('only new upstream release names are pushed: no fork tag, no name that shad
     )
   )
   assert.match(code, /join -1 2 -2 2 -v 1 \/tmp\/upstream-tags \/tmp\/origin-tags/)
-  assert.match(code, /refspecs\+=\("refs\/upstream-tags\/\$tag:refs\/tags\/\$tag"\); done < \/tmp\/tags-new/)
+  assert.ok(push.includes('refspecs+=("refs/upstream-tags/$tag:refs/tags/$tag")'))
+  assert.ok(push.includes('done < "$state/tags-new"'))
 })

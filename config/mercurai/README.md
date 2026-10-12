@@ -43,19 +43,27 @@ series.
 
 ## Workflows (all in the fork only, never sent upstream)
 
-- `fork-sync-upstream`: hourly. Fast-forwards `main` to `upstream/main` (a non-fast-forward push
-  fails the run; `main` never carries fork commits), mirrors new upstream release tags
-  (`vX.Y.Z` and `vX.Y.Z-rc.N` names only; a tag the fork holds is never moved, a moved one warns), dispatches `fork-rebase-patches` for the newest new tag (a stable `vX.Y.Z` wins over an
-  `-rc.N`; one dispatch per run), then merges `main` into `mercurai` (a conflict opens a
-  `fork-sync` issue and fails the run; the tags were already handed on). Before the merge,
-  `scripts/merge-guard.sh` (git only, no token) lists what upstream changed since the merge base
-  under `.github/` (workflows, and the composite actions they run) or `config/mercurai/` (a rename or delete counts): such a range is not
-  merged; the run opens or updates a `fork-sync` issue naming up to 50 of the paths (odd characters
-  shown as `?`) and fails. The run guards, merges and names one pinned upstream commit, and checks
-  the merge result against the branch again before any push. Review the range, then merge it
+- `fork-sync-upstream`: hourly. It pins one upstream commit (`UPSTREAM_SHA`, the tip of
+  `upstream/main`) and guards it before anything is pushed: a pushed workflow file is active at once
+  and runs with the repository secrets. `scripts/merge-guard.sh` (git only, no token) lists what
+  changed under `.github/` (workflows and the composite actions they run) or `config/mercurai/` in
+  the union of two ranges: `origin/main..` (what the main mirror publishes) and the merge base with
+  the fork branch`..` (what the merge-forward brings in); a rename or delete counts. A guarded range
+  pushes nothing and merges nothing: no `main`, no tags, no branches, no merge-forward. The run opens
+  or updates a `fork-sync guard:` issue naming up to 50 of the paths (odd characters shown as `?`)
+  and fails. An unguarded range runs, in order, from `UPSTREAM_SHA` only (`scripts/sync-push.sh`):
+  `main` fast-forwarded to exactly that commit (a non-fast-forward push fails the run; `main` never
+  carries fork commits); new release tags (`vX.Y.Z` and `vX.Y.Z-rc.N` names, never moved) whose
+  commit is inside it, the rest skipped with a warning; the `fork-rebase-patches` dispatch for the
+  newest tag mirrored this run (a stable `vX.Y.Z` wins over an `-rc.N`; one dispatch per run); with
+  `mirror_branches`, the upstream branches whose tip is inside it; then the merge into `mercurai` in
+  `scripts/merge-forward.sh`, which checks the merge result against the branch again and resets a
+  merge that changed a guarded path before anything is pushed. A merge conflict opens a `fork-sync:`
+  issue and fails the run; the tags were already handed on. To release a reviewed range, merge it
   through a reviewed PR, or dispatch the workflow from `mercurai` with `allow_guarded_merge_sha=<the
-  full sha from the issue>`: it allows only that commit, so an upstream push after the review is
-  refused again (the schedule never sets it).
+  full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
+  commit lands even if upstream moved on (newer commits wait for the next run); any other value, a
+  short sha, or a sha not inside `upstream/main` allows nothing (the schedule never sets it).
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
   `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where

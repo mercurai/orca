@@ -6,17 +6,24 @@
 # A workflow or fork script upstream edits runs with the fork's secrets once the fork pushes it, so
 # such a range waits for the owner (claude-code-config#1148).
 #
-# Usage: merge-guard.sh <fork ref> <upstream commit>
+# Usage: merge-guard.sh <fork ref> <upstream commit> [<extra ref>...]
+#        The guarded set is the union of the ranges from the merge base of each ref and the commit: the
+#        fork ref is what a merge-forward brings in, an extra ref (origin/main) is what a mirror publishes.
 # Out:   stdout lists the guarded paths, at most 50, odd characters shown as ? (upstream picks the
 #        names). Exit 0: merge. Exit 3: refused. Exit 4: guarded, but the owner allowed this commit.
 # Env:   ALLOWED_SHA, the full sha of the upstream commit the owner reviewed; any other value, a
 #        short sha, or a sha that is not <upstream commit> allows nothing.
 set -euo pipefail
 fork=$1 upstream=$2
-base=$(git merge-base "$fork" "$upstream")
-paths=$(git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n' | { grep -E '^(\.github/|config/mercurai/)' || true; } | sort -u)
+shift 2
+paths=$(
+  for ref in "$fork" "$@"; do
+    base=$(git merge-base "$ref" "$upstream") || exit 1
+    git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n'
+  done | { grep -E '^(\.github/|config/mercurai/)' || true; } | sort -u
+)
 if [ -z "$paths" ]; then
-  echo "no guarded path in $base..$upstream"
+  echo "no guarded path in the range to $upstream"
   exit 0
 fi
 count=$(printf '%s\n' "$paths" | wc -l)

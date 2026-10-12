@@ -438,10 +438,9 @@ rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || r
 if [ "$rc" = 3 ] && grep -qxF .github/actions/x/action.yml "$root/guard.out"; then pass "result guard: a merge that changed .github/actions is refused"; else fail "result guard: a merge that changed .github/actions is refused"; cat "$root/guard.out"; fi
 
 # 33d. merge-forward.sh: the merge, the result check and the reset, as the workflow runs them (the push stays outside).
-mf_state="$root/mf-state"; mkdir -p "$mf_state"  # its own dir: the rebase cases leave a conflicts/ directory in the shared one
 mf_run() {  # mf_run <GUARD_ALLOWED>: merges `up` into `fork`; prints the exit status
   local rc=0; git checkout -q fork
-  FORK_STATE_DIR=$mf_state UPSTREAM_SHA=$(git rev-parse up) GUARD_ALLOWED=$1 bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || rc=$?
+  UPSTREAM_SHA=$(git rev-parse up) GUARD_ALLOWED=$1 bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || rc=$?
   echo "$rc"
 }
 guard_setup; commit docs/up.md up "upstream docs"
@@ -450,14 +449,87 @@ if [ "$rc" = 0 ] && [ -f docs/up.md ] && git merge-base --is-ancestor up fork; t
 guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
 git checkout -q fork; before=$(git rev-parse HEAD)
 rc=$(mf_run false)
-if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/workflows/evil.yml ] && grep -qxF .github/workflows/evil.yml "$mf_state/guarded"; then
+if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/workflows/evil.yml ] && grep -qxF .github/workflows/evil.yml "$FORK_STATE_DIR/guarded"; then
   pass "merge-forward: an unallowed guarded result is reset and exits 11"; else fail "merge-forward: an unallowed guarded result is reset and exits 11"; cat "$root/mf.out"; fi
 git checkout -q up; rc=$(mf_run true)
 if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ]; then pass "merge-forward: an allowed guarded commit merges"; else fail "merge-forward: an allowed guarded commit merges"; cat "$root/mf.out"; fi
 guard_setup; commit base.txt upside "upstream edits base"; git checkout -q fork; commit base.txt forkside "fork edits base"
 before=$(git rev-parse HEAD); rc=$(mf_run false)
-if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$mf_state/conflicts"; then
+if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$FORK_STATE_DIR/sync-conflicts"; then
   pass "merge-forward: a conflict is aborted and exits 10"; else fail "merge-forward: a conflict is aborted and exits 10"; cat "$root/mf.out"; fi
+# The rebase cases left a conflicts/ directory in this same state dir: the sync list has a name of its own.
+if [ -d "$FORK_STATE_DIR/conflicts" ] && [ -f "$FORK_STATE_DIR/sync-conflicts" ]; then pass "merge-forward: its conflict list does not clash with rebase-series'"; else fail "merge-forward: its conflict list does not clash with rebase-series'"; fi
+
+# 33e. A result guard that fails (not "guarded paths found") is an error: merge-forward exits with its status and the merge does not stay.
+guard_setup; commit docs/up.md up "upstream docs"; git checkout -q fork; before=$(git rev-parse HEAD)
+rm -rf "$root/stub"; mkdir -p "$root/stub"; cp "$here/merge-forward.sh" "$root/stub/"; printf '#!/usr/bin/env bash\nexit 2\n' > "$root/stub/merge-result-guard.sh"
+rc=0; UPSTREAM_SHA=$(git rev-parse up) GUARD_ALLOWED=false bash "$root/stub/merge-forward.sh" > "$root/mf.out" 2>&1 || rc=$?
+if [ "$rc" = 2 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+  pass "merge-forward: a failing result guard exits with its status and leaves no merge"; else fail "merge-forward: a failing result guard exits with its status and leaves no merge"; cat "$root/mf.out"; fi
+
+# 33f. The guard takes the union of the ranges: a range the fork already took in a reviewed merge is clean for the merge-forward
+# but still new for the main mirror, which publishes from where origin/main is.
+guard_setup; git branch mainmirror up; commit .github/workflows/ci.yml A "upstream workflow"; git branch took up
+git checkout -q fork; git merge -q --no-edit took; git checkout -q up; commit docs/later.md later "upstream docs"
+guard_expect "guard: a range the fork already merged is clean for the merge-forward alone" 0
+rc=0; bash "$here/merge-guard.sh" fork up mainmirror > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && grep -qxF .github/workflows/ci.yml "$root/guard.out"; then pass "guard: the main mirror's range is guarded too"; else fail "guard: the main mirror's range is guarded too"; cat "$root/guard.out"; fi
+
+# 33g. pin-upstream-sha.sh: the tip, unless the owner's full sha is inside it (the reviewed commit lands, newer ones wait).
+guard_setup; commit docs/a.md a "a"; second=$(git rev-parse up); commit docs/b.md b "b"; tip=$(git rev-parse up)
+pin() { ALLOWED_SHA=$1 bash "$here/pin-upstream-sha.sh" up; }
+if [ "$(pin '')" = "$tip" ] && [ "$(pin "$second")" = "$second" ] && [ "$(pin "$tip")" = "$tip" ] &&
+   [ "$(pin "${second:0:12}")" = "$tip" ] && [ "$(pin true)" = "$tip" ] && [ "$(pin 0000000000000000000000000000000000000000)" = "$tip" ]; then
+  pass "pin: the owner's full sha inside the tip is pinned, anything else gives the tip"; else fail "pin: the owner's full sha inside the tip is pinned, anything else gives the tip"; fi
+git checkout -q -b side "$(git rev-parse fork)"; commit docs/side.md side "not in up"; sideshot=$(git rev-parse HEAD); git checkout -q up
+if [ "$(pin "$sideshot")" = "$tip" ]; then pass "pin: an owner sha that is not inside the tip gives the tip"; else fail "pin: an owner sha that is not inside the tip gives the tip"; fi
+
+# 33h. sync-push.sh: nothing is pushed unless the guard said false, and only refs inside the pinned commit. The bare origin logs every push.
+sp_setup() {
+  rm -rf "$root/sp"; mkdir -p "$root/sp"; git init -q --bare "$root/sp/origin.git"
+  printf '#!/bin/sh\necho push >> "%s/sp/pushes"\n' "$root" > "$root/sp/origin.git/hooks/pre-receive"; chmod +x "$root/sp/origin.git/hooks/pre-receive"
+  : > "$root/sp/pushes"
+  git init -q -b fork "$root/sp/work"; cd "$root/sp/work"; git remote add origin "$root/sp/origin.git"
+  commit a.txt 1 "u1"; u1=$(git rev-parse HEAD); commit a.txt 2 "u2"; u2=$(git rev-parse HEAD); commit a.txt 3 "u3"; u3=$(git rev-parse HEAD)
+  git checkout -q -b sidebranch "$u1"; commit side.txt s "side"; side=$(git rev-parse HEAD); git checkout -q fork
+  git update-ref refs/upstream-tags/v1.0.0 "$u1"; git update-ref refs/upstream-tags/v1.0.1-rc.1 "$u2"; git update-ref refs/upstream-tags/v1.0.2 "$u3"
+  printf 'v1.0.0\nv1.0.1-rc.1\nv1.0.2\n' > "$FORK_STATE_DIR/tags-new"
+  git update-ref refs/remotes/upstream/rel "$u1"; git update-ref refs/remotes/upstream/main "$u3"; git update-ref refs/remotes/upstream/feat "$side"
+}
+sp_run() {  # sp_run <GUARD_REFUSED or ->; runs main, tags, branches; prints the three exit statuses
+  local r=() k
+  for k in main tags branches; do
+    local rc=0
+    if [ "$1" = - ]; then env -u GUARD_REFUSED UPSTREAM_SHA="$u2" bash "$here/sync-push.sh" "$k" > "$root/sp/out.$k" 2>&1 || rc=$?
+    else GUARD_REFUSED=$1 UPSTREAM_SHA="$u2" bash "$here/sync-push.sh" "$k" > "$root/sp/out.$k" 2>&1 || rc=$?; fi
+    r+=("$rc")
+  done
+  echo "${r[*]}"
+}
+sp_origin() { git --git-dir="$root/sp/origin.git" for-each-ref --format='%(refname)' | tr '\n' ' '; }
+sp_setup
+if [ "$(sp_run true)" = "3 3 3" ] && [ ! -s "$root/sp/pushes" ] && [ -z "$(sp_origin)" ]; then pass "sync-push: a refused guard makes zero pushes"; else fail "sync-push: a refused guard makes zero pushes"; cat "$root/sp/pushes"; fi
+if [ "$(sp_run -)" = "3 3 3" ] && [ ! -s "$root/sp/pushes" ] && [ -z "$(sp_origin)" ]; then pass "sync-push: a guard that did not run makes zero pushes"; else fail "sync-push: a guard that did not run makes zero pushes"; fi
+if [ "$(sp_run 1)" = "3 3 3" ] && [ ! -s "$root/sp/pushes" ]; then pass "sync-push: only the exact word false opens the gate"; else fail "sync-push: only the exact word false opens the gate"; fi
+if [ "$(sp_run false)" = "0 0 0" ] &&
+   [ "$(sp_origin)" = "refs/heads/main refs/heads/upstream/rel refs/tags/v1.0.0 refs/tags/v1.0.1-rc.1 " ] &&
+   [ "$(git --git-dir="$root/sp/origin.git" rev-parse refs/heads/main)" = "$u2" ] &&
+   [ "$(cat "$FORK_STATE_DIR/rebase-tag")" = v1.0.0 ] && [ "$(wc -l < "$root/sp/pushes")" = 3 ]; then
+  pass "sync-push: a clean range pushes main at the pin, the tags and branches inside it, and skips the rest"; else fail "sync-push: a clean range pushes main at the pin, the tags and branches inside it, and skips the rest"; sp_origin; cat "$root/sp/out."*; fi
+if grep -qF "tags not mirrored" "$root/sp/out.tags" && grep -qF "v1.0.2" "$root/sp/out.tags" && grep -qF "branches not mirrored" "$root/sp/out.branches" &&
+   grep -qF "feat" "$root/sp/out.branches"; then pass "sync-push: what is skipped is named in a warning"; else fail "sync-push: what is skipped is named in a warning"; cat "$root/sp/out.tags" "$root/sp/out.branches"; fi
+
+# 33i. The owner's override, end to end: the guard says 4 for the exact sha, which opens the gate; a refused range stays shut.
+guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
+reviewed=$(git rev-parse up)
+rc=0; ALLOWED_SHA=$reviewed bash "$here/merge-guard.sh" fork up > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 4 ]; then refused=false; else refused=true; fi
+sp_setup; u2=$(git -C "$root/sp/work" rev-parse fork~1)
+if [ "$refused" = false ] && [ "$(sp_run "$refused")" = "0 0 0" ] && [ -s "$root/sp/pushes" ]; then pass "sync-push: the exact override sha releases every push"; else fail "sync-push: the exact override sha releases every push"; fi
+cd "$root/g"; rc=0; ALLOWED_SHA=${reviewed:0:12} bash "$here/merge-guard.sh" fork up > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ]; then refused=true; else refused=false; fi
+sp_setup; u2=$(git -C "$root/sp/work" rev-parse fork~1); : > "$root/sp/pushes"
+if [ "$refused" = true ] && [ "$(sp_run "$refused")" = "3 3 3" ] && [ ! -s "$root/sp/pushes" ]; then pass "sync-push: a short override sha leaves every push shut"; else fail "sync-push: a short override sha leaves every push shut"; fi
 
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
