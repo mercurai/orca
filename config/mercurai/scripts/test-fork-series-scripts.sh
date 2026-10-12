@@ -172,8 +172,10 @@ done
 
 # --- assemble-release.sh, rebase-series.sh and fetch-rebase-inputs.sh -------------------------------
 # Fixture: the fork's origin holds the fork's tags and the patch branches; up.git is upstream, a
-# separate repo with its own tags. The scripts keep their state in /tmp and read GITHUB_OUTPUT.
-export GITHUB_OUTPUT="$root/out"
+# separate repo with its own tags. The scripts keep their state in FORK_STATE_DIR (/tmp in the
+# workflows), a directory of this run's own so two runs on one host do not share files.
+export GITHUB_OUTPUT="$root/out" FORK_STATE_DIR="$root/state"
+mkdir -p "$FORK_STATE_DIR"
 fx_setup() {  # tags v1.0.0 and v1.0.1 in both repos; upstream main at v1.0.1
   rm -rf "$root/origin.git" "$root/up.git" "$root/work"
   git init -q --bare "$root/origin.git"; git init -q --bare "$root/up.git"
@@ -203,7 +205,7 @@ run_assemble() {  # run_assemble <tag>
   (cd "$root/work" && TAG=$1 MANIFEST="$root/manifest.yaml" MANIFEST_WORK="$root/manifest-work.yaml" bash "$here/assemble-release.sh") > "$root/log" 2>&1
 }
 run_rebase() {  # run_rebase <base ref> <branch>...
-  printf '%s\n' "${@:2}" > /tmp/active
+  printf '%s\n' "${@:2}" > "$FORK_STATE_DIR/active"
   (cd "$root/work" && BASE=$(git rev-parse "$1") MANIFEST_WORK="$root/manifest-work.yaml" bash "$here/rebase-series.sh") > "$root/log" 2>&1
 }
 run_fetch() {  # run_fetch <target> [tag sha]: upstream is the local up.git, whatever UPSTREAM_REPO names
@@ -272,18 +274,18 @@ fx_setup; fx_patch a v1.0.0; fx_patch b v1.0.0
 fx_manifest v1.0.0 release/mercurai patch/a=v1.0.0 patch/b
 a0=$(git rev-parse origin/patch/a)
 ok=1
-if run_rebase v1.0.1 patch/a patch/b && [ "$(grep -c . /tmp/rebased)" = 2 ] && [ ! -s /tmp/conflicted ] && [ ! -s /tmp/merged ] && [ "$(awk '$1 == "patch/a" {print $2}' /tmp/rebased)" = "$a0" ]; then
+if run_rebase v1.0.1 patch/a patch/b && [ "$(grep -c . "$FORK_STATE_DIR/rebased")" = 2 ] && [ ! -s "$FORK_STATE_DIR/conflicted" ] && [ ! -s "$FORK_STATE_DIR/merged" ] && [ "$(awk '$1 == "patch/a" {print $2}' "$FORK_STATE_DIR/rebased")" = "$a0" ]; then
   while read -r _branch before after; do
     if [ "$before" = "$after" ] || ! git -C "$root/work" merge-base --is-ancestor v1.0.1 "$after"; then ok=0; fi
-  done < /tmp/rebased
+  done < "$FORK_STATE_DIR/rebased"
 else ok=0; fi
 if [ "$ok" = 1 ]; then pass "rebase-series rebases every patch onto the base"; else fail "rebase-series rebases every patch onto the base"; cat "$root/log"; fi
 
 # 21. rebase-series: a conflicting patch is recorded and aborted; the others still rebase and no rebase is left running.
 fx_setup; fx_patch a v1.0.0; fx_patch c v1.0.0 base.txt; fx_patch b v1.0.0
 fx_manifest v1.0.0 release/mercurai patch/a patch/c patch/b
-if run_rebase v1.0.1 patch/a patch/c patch/b && [ "$(cat /tmp/conflicted)" = "patch/c v1.0.0" ] &&
-   grep -qx base.txt /tmp/conflicts/patch__c && [ "$(awk '{print $1}' /tmp/rebased | tr '\n' ' ')" = "patch/a patch/b " ] &&
+if run_rebase v1.0.1 patch/a patch/c patch/b && [ "$(cat "$FORK_STATE_DIR/conflicted")" = "patch/c v1.0.0" ] &&
+   grep -qx base.txt "$FORK_STATE_DIR/conflicts/patch__c" && [ "$(awk '{print $1}' "$FORK_STATE_DIR/rebased" | tr '\n' ' ')" = "patch/a patch/b " ] &&
    [ ! -d "$root/work/.git/rebase-merge" ] && [ ! -d "$root/work/.git/rebase-apply" ]; then
   pass "rebase-series records a conflict and carries on"; else fail "rebase-series records a conflict and carries on"; cat "$root/log"; fi
 
@@ -292,7 +294,7 @@ fx_setup; fx_patch a v1.0.0
 fx_manifest v1.0.0 release/mercurai patch/a
 for bad in mercurai 'patch/../x'; do
   if run_rebase v1.0.1 patch/a "$bad"; then fail "rebase-series refuses '$bad'"
-  elif grep -qF "patch branch '$bad' is not patch/<name>" "$root/log" && [ ! -s /tmp/rebased ]; then
+  elif grep -qF "patch branch '$bad' is not patch/<name>" "$root/log" && [ ! -s "$FORK_STATE_DIR/rebased" ]; then
     pass "rebase-series refuses '$bad'"; else fail "rebase-series refuses '$bad'"; cat "$root/log"; fi
 done
 
@@ -345,8 +347,60 @@ elif grep -qF "::error::patch/q does not apply on v1.0.1" "$root/log" && [ ! -f 
 # 27. rebase-series: a CR in the subject of a conflicting commit never reaches the log; the conflict is still recorded.
 fx_setup; git checkout -q -b patch/crc v1.0.0; commit base.txt crc $'evil\r::error::injected'; git push -q origin patch/crc; git checkout -q fork
 fx_manifest v1.0.0 release/mercurai patch/crc=v1.0.0
-if run_rebase v1.0.1 patch/crc && [ "$(cat /tmp/conflicted)" = "patch/crc v1.0.0" ] && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
+if run_rebase v1.0.1 patch/crc && [ "$(cat "$FORK_STATE_DIR/conflicted")" = "patch/crc v1.0.0" ] && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
   pass "rebase-series strips CR from git's rebase output"; else fail "rebase-series strips CR from git's rebase output"; cat -v "$root/log"; fi
+
+# --- merge-guard.sh ---------------------------------------------------------------------------------
+# `fork` and `up` leave one base; the fork has a file of its own under config/mercurai, which never counts.
+guard_setup() {
+  rm -rf "$root/g"; git init -q -b fork "$root/g"; cd "$root/g"
+  mkdir -p .github/workflows config/mercurai config/mercurai-docs src docs
+  commit base.txt one "base"; commit .github/workflows/ci.yml ci "ci"; commit config/mercurai/keep.md keep "keep"; commit src/a.txt a "a"
+  git branch up; commit config/mercurai/fork-own.md own "the fork's own file"; git checkout -q up
+}
+guard_rc() {  # guard_rc: runs the guard, prints its exit status; the output is left in $root/guard.out
+  local rc=0; bash "$here/merge-guard.sh" fork up > "$root/guard.out" 2>&1 || rc=$?; echo "$rc"
+}
+guard_expect() {  # guard_expect <name> <exit status> [path the output must list]
+  local rc; rc=$(guard_rc)
+  if [ "$rc" = "$2" ] && { [ -z "${3:-}" ] || grep -qxF "$3" "$root/guard.out"; }; then pass "$1"; else fail "$1"; cat "$root/guard.out"; fi
+}
+
+# 28. Upstream changes outside the guarded paths merge, whatever the fork changed under them; a lookalike name is not guarded.
+guard_setup; commit docs/up.md up "upstream docs"; commit config/mercurai-docs/x.md x "lookalike"
+guard_expect "guard: a change outside the guarded paths merges" 0
+
+# 29. A change under .github/workflows/ is refused.
+guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
+guard_expect "guard: a change under .github/workflows is refused" 3 .github/workflows/evil.yml
+
+# 30. A change under config/mercurai/ is refused.
+guard_setup; mkdir -p config/mercurai/scripts; commit config/mercurai/scripts/x.sh x "upstream fork script"
+guard_expect "guard: a change under config/mercurai is refused" 3 config/mercurai/scripts/x.sh
+
+# 31. A rename into a guarded path, and one out of it, are refused.
+guard_setup; git mv src/a.txt config/mercurai/a.txt; git commit -qm "rename in"
+guard_expect "guard: a rename into a guarded path is refused" 3 config/mercurai/a.txt
+guard_setup; git mv .github/workflows/ci.yml docs/ci.yml; git commit -qm "rename out"
+guard_expect "guard: a rename out of a guarded path is refused" 3 .github/workflows/ci.yml
+
+# 32. A delete in a guarded path is refused.
+guard_setup; git rm -q config/mercurai/keep.md; git commit -qm "delete"
+guard_expect "guard: a delete in a guarded path is refused" 3 config/mercurai/keep.md
+
+# 33. The owner's override merges but still lists the paths; any other value does not.
+guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
+export ALLOW_GUARDED_MERGE=true
+guard_expect "guard: ALLOW_GUARDED_MERGE=true lets a reviewed range merge" 0 .github/workflows/evil.yml
+export ALLOW_GUARDED_MERGE=1
+guard_expect "guard: any other override value still refuses" 3 .github/workflows/evil.yml
+unset ALLOW_GUARDED_MERGE
+
+# 34. The list is bounded.
+guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
+git add config; git commit -qm "many"
+guard_expect "guard: many guarded paths are refused" 3
+if [ "$(grep -c . "$root/guard.out")" = 51 ] && grep -qxF "... and 10 more" "$root/guard.out"; then pass "guard: the list is bounded"; else fail "guard: the list is bounded"; cat "$root/guard.out"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
