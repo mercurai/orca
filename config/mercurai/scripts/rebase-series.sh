@@ -13,6 +13,11 @@
 set -euo pipefail
 
 : > /tmp/rebased
+# The push job force-pushes these names: a manifest that names `mercurai` or a traversal is refused.
+while read -r branch; do
+  [ -z "$branch" ] && continue
+  [[ "$branch" =~ ^patch/[A-Za-z0-9._-]+$ && "$branch" != *..* ]] || { echo "::error::patch branch '$branch' is not patch/<name>; nothing was rebased"; exit 1; }
+done < /tmp/active
 : > /tmp/merged
 : > /tmp/conflicted
 rm -rf /tmp/conflicts

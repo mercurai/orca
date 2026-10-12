@@ -10,6 +10,12 @@
 set -euo pipefail
 rebased_file=$1 fork_branch=$2 manifest_commit=${3:-} remote=${4:-origin}
 
+# Every ref pushed with a lease is a patch branch; the fork branch only ever gets the manifest commit.
+while read -r branch _; do
+  [ -z "${branch:-}" ] && continue
+  [[ "$branch" =~ ^patch/[A-Za-z0-9._-]+$ && "$branch" != *..* ]] || { echo "::error::refusing to push '$branch': not patch/<name>; nothing was pushed" >&2; exit 1; }
+done < "$rebased_file"
+
 for attempt in 1 2 3; do
   args=()
   while read -r branch before after; do

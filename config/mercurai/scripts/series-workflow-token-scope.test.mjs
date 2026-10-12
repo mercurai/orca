@@ -125,6 +125,16 @@ test('the push jobs push only what they derived and matched against what was tes
   assert.match(test_, /echo "\$branch merged" >> \/tmp\/trees/)
 })
 
+test('every script that feeds a force push checks the branch prefix first (SEC S7)', () => {
+  const dir = (name) => readFileSync(resolve(import.meta.dirname, name), 'utf8')
+  const prefix = String.raw`^patch/[A-Za-z0-9._-]+$`
+  const variables = { 'rebase-series.sh': 'branch', 'push-rebased-series.sh': 'branch', 'assemble-release.sh': 'patch' }
+  for (const [name, variable] of Object.entries(variables)) {
+    assert.ok(dir(name).includes(`[[ "$${variable}" =~ ${prefix} && `), name)
+  }
+  assert.ok(dir('assemble-release.sh').includes(String.raw`^release/[A-Za-z0-9._-]+$`))
+})
+
 test('a step holding the token never builds a yq expression from shell values', () => {
   for (const [file] of WORKFLOWS) {
     const push = code(jobsOf(read(file)).get('push'))

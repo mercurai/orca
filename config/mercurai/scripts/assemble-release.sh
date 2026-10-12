@@ -21,15 +21,18 @@ cp "$MANIFEST" "$MANIFEST_WORK"
 base=$(yq -r '.base' "$MANIFEST_WORK")
 [ "$base" = "$TAG" ] || { echo "::error::manifest base is $base, not $TAG; run fork-rebase-patches with tag=$TAG first"; exit 1; }
 yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > /tmp/active
+branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
+# The push job force-pushes these names: a manifest that names `mercurai` or a traversal is refused.
+[[ "$branch" =~ ^release/[A-Za-z0-9._-]+$ && "$branch" != *..* ]] || { echo "::error::release_branch '$branch' is not release/<name>; nothing was assembled"; exit 1; }
 while read -r patch; do
   [ -z "$patch" ] && continue
+  [[ "$patch" =~ ^patch/[A-Za-z0-9._-]+$ && "$patch" != *..* ]] || { echo "::error::patch branch '$patch' is not patch/<name>; nothing was assembled"; exit 1; }
   pb=$(yq -r ".patches[] | select(.branch == \"$patch\") | .base // \"\"" "$MANIFEST_WORK")
   [ "$pb" = "$TAG" ] || { echo "::error::$patch is recorded on $pb, not $TAG; it was not rebased"; exit 1; }
   git merge-base --is-ancestor "refs/tags/$TAG" "origin/$patch" || { echo "::error::$patch does not contain $TAG; it was not rebased onto it"; exit 1; }
 done < /tmp/active
 echo "series: $(tr '\n' ' ' < /tmp/active)"
 
-branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
 git checkout -q -B "$branch" "refs/tags/$TAG"
 while read -r patch; do
   [ -z "$patch" ] && continue
