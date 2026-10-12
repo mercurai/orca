@@ -21,7 +21,8 @@ if [[ ! "$TARGET" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
 fi
 # The fork's tag, never upstream's: assemble-release reads the fork's tags only, and upstream
 # re-cut v1.4.224, so one name can mean two commits. Rebase and assembly must agree on the commit.
-git fetch --no-tags origin "+refs/tags/$TARGET:refs/tags/$TARGET"
+git fetch --no-tags origin "+refs/tags/$TARGET:refs/tags/$TARGET" ||
+  { echo "::error::the fork has no tag $TARGET; fork-sync-upstream mirrors it first"; exit 1; }
 # Pin the target once.
 target_sha=$(git rev-parse --verify "refs/tags/$TARGET^{commit}")
 if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$target_sha" ]; then

@@ -312,7 +312,8 @@ if run_fetch v1.0.3 && [ "$(out_of base)" = "$fork3" ] && [ "$fork3" != "$recut3
 # A tag only upstream holds is not a target.
 git push -q "$root/up.git" "$recut3:refs/tags/v1.0.4"
 if run_fetch v1.0.4; then fail "fetch-rebase-inputs refuses a tag the fork does not hold"
-else pass "fetch-rebase-inputs refuses a tag the fork does not hold"; fi
+elif grep -qF "::error::the fork has no tag v1.0.4; fork-sync-upstream mirrors it first" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ]; then
+  pass "fetch-rebase-inputs refuses a tag the fork does not hold"; else fail "fetch-rebase-inputs refuses a tag the fork does not hold"; cat -v "$root/log"; fi
 
 
 # 24. fetch-rebase-inputs: a tag that moved since fork-sync-upstream saw it, or a name that is no release, fails closed.
@@ -328,6 +329,20 @@ fx_setup; git checkout -q -b patch/cr v1.0.1; commit cr.txt cr $'evil\r::error::
 fx_manifest v1.0.1 release/mercurai patch/cr=v1.0.1
 if run_assemble v1.0.1 && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
   pass "assemble strips CR from commit subjects in its log"; else fail "assemble strips CR from commit subjects in its log"; cat -v "$root/log"; fi
+
+# 26. assemble: two patches editing the same lines: the second does not apply; fails, no cherry-pick left running.
+fx_setup; fx_patch p v1.0.1 base.txt; fx_patch q v1.0.1 base.txt
+fx_manifest v1.0.1 release/mercurai patch/p=v1.0.1 patch/q=v1.0.1
+if run_assemble v1.0.1; then fail "assemble fails when a patch does not apply"
+elif grep -qF "::error::patch/q does not apply on v1.0.1" "$root/log" && [ ! -f "$root/work/.git/CHERRY_PICK_HEAD" ] &&
+     [ ! -d "$root/work/.git/sequencer" ] && [ ! -s "$GITHUB_OUTPUT" ]; then
+  pass "assemble fails when a patch does not apply"; else fail "assemble fails when a patch does not apply"; cat -v "$root/log"; fi
+
+# 27. rebase-series: a CR in the subject of a conflicting commit never reaches the log; the conflict is still recorded.
+fx_setup; git checkout -q -b patch/crc v1.0.0; commit base.txt crc $'evil\r::error::injected'; git push -q origin patch/crc; git checkout -q fork
+fx_manifest v1.0.0 release/mercurai patch/crc=v1.0.0
+if run_rebase v1.0.1 patch/crc && [ "$(cat /tmp/conflicted)" = "patch/crc v1.0.0" ] && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
+  pass "rebase-series strips CR from git's rebase output"; else fail "rebase-series strips CR from git's rebase output"; cat -v "$root/log"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

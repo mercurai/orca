@@ -32,7 +32,8 @@ while read -r branch; do
   # the base already, and replaying it from the old base would re-apply upstream's own history.
   if git merge-base --is-ancestor "$BASE" HEAD; then
     echo "$branch already contains $BASE; no rebase needed"
-  elif ! git rebase --onto "$BASE" "$old" </dev/null; then
+  # A CR in a commit subject in git's output must not reach the job log (workflow-command injection).
+  elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then
     git diff --name-only --diff-filter=U | head -50 > "/tmp/conflicts/${branch//\//__}"
     git rebase --abort
     echo "$branch $old" >> /tmp/conflicted

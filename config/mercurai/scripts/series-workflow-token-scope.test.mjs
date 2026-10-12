@@ -141,6 +141,11 @@ test('assemble-release strips CR from the git output it prints', () => {
   assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..origin/$patch" 2>&1 | tr -d '\r' ||`))
 })
 
+test('rebase-series strips CR from the git rebase output it prints', () => {
+  const rebase = readFileSync(resolve(import.meta.dirname, 'rebase-series.sh'), 'utf8')
+  assert.ok(rebase.includes(String.raw`elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then`))
+})
+
 test('the rebase reads the target tag from the fork, never from upstream', () => {
   const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
   assert.doesNotMatch(fetch, /fetch[^\n]*upstream[^\n]*--tags/)
