@@ -62,6 +62,12 @@ test('the workflow starts only by hand: another trigger leaves inputs.dry_run em
   assert.deepEqual(on.match(/^ {2}[A-Za-z_]+:/gm), ['  workflow_dispatch:'])
 })
 
+test('the template workflow can only be called, never started on its own', () => {
+  // A dispatch from the default branch would run a branch's code in the release cache scope.
+  const on = template.slice(template.indexOf('\non:\n'), template.indexOf('\npermissions:\n'))
+  assert.deepEqual(on.match(/^ {2}[A-Za-z_]+:/gm), ['  workflow_call:'])
+})
+
 test('no job hands every secret on, and the called workflow is given none', () => {
   assert.doesNotMatch(code(release), /secrets:\s*inherit/)
   assert.doesNotMatch(releaseJobs.get('orcad-template'), /^\s+secrets:/m)

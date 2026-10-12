@@ -7,25 +7,13 @@
 # The steps mirror the linux_glibc_floor lane of upstream's node-server-tests.yml at the same tag,
 # so the slot is built and qualified the way upstream qualifies it. Lives in the fork only.
 #
-# By hand, against any ref that carries the series:
-#   gh workflow run fork-orcad-template.yml --ref mercurai -f ref=ci-only/v1.4.224/assembly-dry-run
+# Called only, never dispatched: a run saves its pnpm store in the cache scope of the branch it
+# was started from, and the default branch's scope is where a release restores it. The caller,
+# fork-release-win-build, decides which refs may be built from which branch (its preflight).
+# To build a template alone, dry-run the release workflow from a non-default branch.
 name: fork-orcad-template
 
 on:
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: Ref to build the template from (a release tag, or a branch for a dry run)
-        type: string
-        required: true
-      targets:
-        description: Comma-separated template targets; only linux-x64-glibc has a lane here
-        type: string
-        default: linux-x64-glibc
-      require:
-        description: Space-separated files the ref must list for a deployed orcad (empty = none)
-        type: string
-        default: ''
   workflow_call:
     inputs:
       ref:
