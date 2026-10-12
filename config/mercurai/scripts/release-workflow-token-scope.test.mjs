@@ -264,11 +264,21 @@ test('every build checks the manifest and smokes the installer before upload', (
   assert.ok(stepAt(manifest).includes(fields))
   assert.ok(releaseJobs.get('publish').includes(fields))
   const smokeStep = stepAt(smoke)
-  assert.match(smokeStep, /-ArgumentList '\/S', "\/D=\$installDir" -Wait -PassThru/)
+  assert.match(smokeStep, /-ArgumentList '\/S', "\/D=\$installDir" -PassThru\n\s+if \(-not \$setup\.WaitForExit\(300000\)\)/)
   assert.match(smokeStep, /Start-Sleep -Seconds 30/)
-  assert.match(smokeStep, /throw "Orca was not running 30 s after launch/)
-  assert.match(smokeStep, /taskkill \/PID \$process\.ProcessId \/T \/F/)
-  assert.doesNotMatch(smokeStep, /Stop-Process -Name|taskkill \/IM/)
+  assert.match(smokeStep, /\$ErrorActionPreference = 'Stop'/)
+  // Alive means the app's main process, not a helper, daemon or crash handler from the same dir.
+  assert.match(smokeStep, /\$_\.ExecutablePath\.StartsWith\(\$installDir, \[StringComparison\]::OrdinalIgnoreCase\)/)
+  assert.ok(smokeStep.includes(String.raw`$_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '\.[cm]?js\b'`))
+  assert.match(smokeStep, /if \(\$main\.Count -eq 0\) \{/)
+  assert.match(smokeStep, /if \(\$dumps\.Count -gt 0\) \{ throw/)
+  assert.match(smokeStep, /if \(\$werFaults\.Count -gt 0\) \{ throw/)
+  // Stopped by the PIDs it started, whatever happened; a stray survivor or a left install fails.
+  assert.match(smokeStep, /\} finally \{\n[^\n]*\n\s+foreach \(\$process in \(Get-InstalledOrca\)\) \{ taskkill \/PID \$process\.ProcessId \/T \/F/)
+  assert.match(smokeStep, /if \(\$survivors\.Count -gt 0\) \{ throw/)
+  assert.match(smokeStep, /if \(Test-Path \$exe\) \{ throw "the uninstaller left/)
+  assert.match(smokeStep, /\n\s+exit 0\n/)
+  assert.doesNotMatch(smokeStep, /Stop-Process|taskkill \/IM|Get-Process/)
 })
 
 test('a dry run keeps no update manifest and marks the installer', () => {
