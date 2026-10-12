@@ -6,10 +6,10 @@
 //
 //   node check-orcad-template.mjs --repo <checkout of the release tag> \
 //     --resources <dir holding orcad-template> --targets linux-x64-glibc [--require <filename>]...
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /** Problems found, one line each; empty when the template can be shipped. */
 export async function checkOrcadTemplate({ repoRoot, resourcesDir, targets, required = [] }) {
@@ -70,7 +70,18 @@ export function parseArguments(argv) {
   return options
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+/** Compared as real paths: a drive-letter case or symlink difference must not skip the check. */
+function runsAsScript() {
+  try {
+    return (
+      realpathSync.native(fileURLToPath(import.meta.url)) === realpathSync.native(process.argv[1])
+    )
+  } catch {
+    return false
+  }
+}
+
+if (runsAsScript()) {
   try {
     const options = parseArguments(process.argv.slice(2))
     const problems = await checkOrcadTemplate(options)

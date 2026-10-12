@@ -22,6 +22,10 @@ on:
         description: Comma-separated template targets; only linux-x64-glibc has a lane here
         type: string
         default: linux-x64-glibc
+      require:
+        description: Space-separated files the ref must list for a deployed orcad (empty = none)
+        type: string
+        default: ''
   workflow_call:
     inputs:
       ref:
@@ -30,6 +34,9 @@ on:
       targets:
         type: string
         default: linux-x64-glibc
+      require:
+        type: string
+        default: ''
     outputs:
       ships:
         description: "'true' when the ref ships the orcad template and the artifact was uploaded"
@@ -58,6 +65,7 @@ jobs:
       PYTHON: /opt/python/cp312-cp312/bin/python3
       TEMPLATE_REF: ${{ inputs.ref }}
       TEMPLATE_TARGETS: ${{ inputs.targets }}
+      TEMPLATE_REQUIRE: ${{ inputs.require }}
     steps:
       - name: Install glibc 2.28 prerequisites
         run: |
@@ -88,22 +96,32 @@ jobs:
       - name: Trust the checked-out workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # A tag older than the template (the v1.4.223 line) has nothing to build; the release then
-      # packages without one, as it always did.
+      # The fork ships a template exactly when the ref carries patch/orca-partial-orcad-template.
+      # Upstream's template scripts already exist on v1.4.223, so they cannot be the test: that
+      # line has always been released without a template and must keep building that way. From
+      # v1.4.224 a build without one fails every SSH host, so there the patch is mandatory.
       - name: Detect whether the ref ships the orcad template
         id: support
+        env:
+          FIRST_WITH_ORCAD_HOSTS: 1.4.224
         run: |
           set -euo pipefail
-          if [ ! -f config/scripts/packaged-orcad-template.cjs ]; then
-            echo "ships=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::$TEMPLATE_REF predates the orcad template; nothing to build."
+          if [ -f config/scripts/packaged-orcad-template-targets.cjs ]; then
+            echo "ships=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if [ ! -f config/scripts/packaged-orcad-template-targets.cjs ]; then
-            echo "::error::$TEMPLATE_REF ships the orcad template but lacks patch/orca-partial-orcad-template, so packaging would demand every target; assemble it with that patch."
+          version=$(grep -m1 -E '^  "version": "[0-9]+[.][0-9]+[.][0-9]+' package.json | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1)
+          if [ -z "$version" ]; then
+            echo "::error::cannot read the version from package.json at $TEMPLATE_REF"
             exit 1
           fi
-          echo "ships=true" >> "$GITHUB_OUTPUT"
+          oldest=$(printf '%s\n%s\n' "$FIRST_WITH_ORCAD_HOSTS" "$version" | sort -V | head -1)
+          if [ "$oldest" = "$FIRST_WITH_ORCAD_HOSTS" ]; then
+            echo "::error::$TEMPLATE_REF is $version (every SSH host runs orcad from $FIRST_WITH_ORCAD_HOSTS) but lacks patch/orca-partial-orcad-template; a build without the template would fail every SSH host. Assemble it with that patch."
+            exit 1
+          fi
+          echo "ships=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::$TEMPLATE_REF is $version and carries no partial-template patch; it ships no orcad template, as the v1.4.223 line always has."
 
       - uses: ./.github/actions/install-node-dependencies
         if: steps.support.outputs.ships == 'true'
@@ -142,9 +160,14 @@ jobs:
         if: steps.support.outputs.ships == 'true'
         run: |
           set -euo pipefail
-          node .fork/config/mercurai/scripts/check-orcad-template.mjs \
+          require_args=()
+          for file in $TEMPLATE_REQUIRE; do require_args+=(--require "$file"); done
+          report=$(node .fork/config/mercurai/scripts/check-orcad-template.mjs \
             --repo "$GITHUB_WORKSPACE" --resources "$GITHUB_WORKSPACE/out" \
-            --targets "$TEMPLATE_TARGETS" --require git-spawn-worker-entry.js
+            --targets "$TEMPLATE_TARGETS" "${require_args[@]}")
+          echo "$report"
+          # Why: a script that exits 0 without checking must not read as a pass.
+          grep -q '^orcad template ok: ' <<<"$report"
           {
             echo '### orcad template'
             echo '```'

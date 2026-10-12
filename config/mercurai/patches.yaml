@@ -151,7 +151,7 @@ patches:
     notes: async repo detection, runner script and provider contract; wsl, whoami and icacls probes through runProcess; startup grant resolves its identity asynchronously (ported by hand from upstream PR 20498, issue 20497)
   - slug: orca-partial-orcad-template
     branch: patch/orca-partial-orcad-template
-    # planned until the base moves to v1.4.224: the template it narrows does not exist on v1.4.223.
+    # planned until the base moves to v1.4.224: the v1.4.223 line ships no template, so nothing there needs it.
     status: planned
     issue: mercurai/claude-code-config#1128
     owner: harness

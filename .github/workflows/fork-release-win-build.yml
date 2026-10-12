@@ -9,6 +9,14 @@
 # a SignPath step. The first install is by hand (see config/mercurai/README.md, Release channel).
 #
 #   gh workflow run fork-release-win-build.yml --ref mercurai -f tag=v1.4.222-mercurai.1
+#
+# Packaging-only dry run: `-f dry_run=true` builds, packages and checks the installer and keeps it
+# as a run artifact, and stops before the channel repo is touched. `-f ref=<branch>` (dry run
+# only) builds that ref instead of the tag; the tag then only supplies the version. A dispatch
+# from a branch other than the default branch is always a dry run.
+#
+#   gh workflow run fork-release-win-build.yml --ref mercurai -f tag=v1.4.224-mercurai.0 \
+#     -f dry_run=true -f ref=ci-only/v1.4.224/assembly-dry-run-2
 name: fork-release-win-build
 
 on:
@@ -18,13 +26,22 @@ on:
         description: Mercurai release tag to build and publish (for example v1.4.222-mercurai.1)
         type: string
         required: true
+      dry_run:
+        description: Build, package and check only; publish nothing
+        type: boolean
+        default: false
+      ref:
+        description: Dry run only. Build this ref instead of the tag (the tag then only names the version)
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
   # Re-dispatching one tag must not race two uploads into one release; different tags are independent.
-  group: fork-release-win-build-${{ inputs.tag }}
+  # A dry run uploads to no release, so it never waits on, or blocks, a real build of the same tag.
+  group: fork-release-win-build-${{ inputs.tag }}${{ (inputs.dry_run || github.ref_name != (github.event.repository.default_branch || 'mercurai')) && '-dry-run' || '' }}
   cancel-in-progress: false
 
 env:
@@ -32,15 +49,25 @@ env:
   GH_REPO: ${{ github.repository }}
   CHANNEL_REPO: mercurai/orca-mercurai
   TAG: ${{ inputs.tag }}
+  # 'true' only for a real build from the default branch; every step that touches the channel repo
+  # is gated on it, so a dry run or a test dispatch from a PR branch cannot publish.
+  PUBLISH: ${{ !inputs.dry_run && github.ref_name == (github.event.repository.default_branch || 'mercurai') }}
+  # What gets built: the tag, or the dry run's ref.
+  BUILD_REF: ${{ inputs.ref || format('refs/tags/{0}', inputs.tag) }}
+  # Files a deployed orcad must list, when the ref ships the template (claude-code-config#1124).
+  ORCAD_REQUIRED_FILES: git-spawn-worker-entry.js
 
 jobs:
-  # From v1.4.224 every SSH host runs orcad, deployed from a template inside the app; a tag older
-  # than the template skips the build (ships=false) and packages as before (claude-code-config#1125).
+  # From v1.4.224 every SSH host runs orcad, deployed from a template inside the app. A ref without
+  # patch/orca-partial-orcad-template reports ships=false and packages as before, which is the
+  # whole v1.4.223 line (claude-code-config#1125).
   orcad-template:
     if: github.repository == 'mercurai/orca'
     uses: ./.github/workflows/fork-orcad-template.yml
     with:
-      ref: refs/tags/${{ inputs.tag }}
+      ref: ${{ inputs.ref || format('refs/tags/{0}', inputs.tag) }}
+      # `env` is not available in `with`; keep this equal to ORCAD_REQUIRED_FILES above.
+      require: git-spawn-worker-entry.js
 
   build-win:
     if: github.repository == 'mercurai/orca'
@@ -70,12 +97,18 @@ jobs:
             echo "::error::tag '$TAG' is not v<major>.<minor>.<patch>-mercurai.<n>"
             exit 1
           fi
+          # A release is built from its tag and nothing else; another ref is for a dry run only.
+          if [ "$PUBLISH" = "true" ] && [ "$BUILD_REF" != "refs/tags/$TAG" ]; then
+            echo "::error::ref '$BUILD_REF' can only be built as a dry run (dry_run=true); a published build comes from the tag."
+            exit 1
+          fi
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "building $BUILD_REF as ${TAG#v}; publish=$PUBLISH"
 
-      # The token only reads the tag here. It is not handed to the build, which runs repository scripts.
+      # The token only reads the ref here. It is not handed to the build, which runs repository scripts.
       - uses: actions/checkout@v4
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ env.BUILD_REF }}
           token: ${{ secrets.FORK_BOT_TOKEN }}
           persist-credentials: false
 
@@ -161,9 +194,14 @@ jobs:
           ORCAD_TEMPLATE_TARGETS: ${{ needs.orcad-template.outputs.targets }}
         run: |
           set -euo pipefail
-          node .fork/config/mercurai/scripts/check-orcad-template.mjs \
+          require_args=()
+          for file in $ORCAD_REQUIRED_FILES; do require_args+=(--require "$file"); done
+          report=$(node .fork/config/mercurai/scripts/check-orcad-template.mjs \
             --repo "$GITHUB_WORKSPACE" --resources dist/win-unpacked/resources \
-            --targets "$ORCAD_TEMPLATE_TARGETS" --require git-spawn-worker-entry.js
+            --targets "$ORCAD_TEMPLATE_TARGETS" "${require_args[@]}")
+          echo "$report"
+          # Why: a script that exits 0 without checking must not read as a pass.
+          grep -q '^orcad template ok: ' <<<"$report"
 
       - name: Check the build outputs
         shell: bash
@@ -181,7 +219,7 @@ jobs:
       - name: Keep the installer as a run artifact
         uses: actions/upload-artifact@v7
         with:
-          name: orca-windows-${{ inputs.tag }}
+          name: orca-windows-${{ inputs.tag }}${{ env.PUBLISH != 'true' && '-dry-run' || '' }}
           path: |
             dist/orca-windows-setup.exe
             dist/orca-windows-setup.exe.blockmap
@@ -191,6 +229,7 @@ jobs:
 
       # A repo with no commit cannot hold a release tag, so give an empty channel repo its first commit once.
       - name: Make sure the channel repo has a commit
+        if: env.PUBLISH == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
@@ -210,6 +249,7 @@ jobs:
       # Draft first, public last: the updater reads latest.yml from a published release, so it must never see one
       # whose installer is still uploading.
       - name: Publish the release
+        if: env.PUBLISH == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
@@ -229,6 +269,7 @@ jobs:
           out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --latest 2>&1) || deny "$out"
 
       - name: Verify the update manifest is public
+        if: env.PUBLISH == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}

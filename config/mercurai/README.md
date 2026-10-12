@@ -68,10 +68,18 @@ series.
   runners. `fork-release-win-build` calls it for the tag, downloads the template, packages with
   `ORCA_REQUIRE_ORCAD_TEMPLATE=1` and `ORCA_ORCAD_TEMPLATE_TARGETS=<the same list>` (the second
   comes from `patch/orca-partial-orcad-template`), and then checks the template inside the
-  unpacked app with `config/mercurai/scripts/check-orcad-template.mjs`. A tag older than the
-  template (the v1.4.223 line) skips all of it. To add a target: add its build lane to
-  `fork-orcad-template` first, then widen the list; a host on a target outside the list gets no
-  managed server and falls back to the legacy relay.
+  unpacked app with `config/mercurai/scripts/check-orcad-template.mjs`. A ref ships the template
+  exactly when it carries `patch/orca-partial-orcad-template`: the v1.4.223 line does not and
+  builds as before (upstream's template scripts exist there, but that line was always released
+  without one), and a ref at v1.4.224 or later without the patch fails the build. To add a
+  target: add its build lane to `fork-orcad-template` first, then widen the list; a host on a
+  target outside the list gets no managed server and falls back to the legacy relay.
+- `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer,
+  keeps it as a run artifact and stops before the channel repo is touched; `-f ref=<branch>`
+  (dry run only) builds that ref under the tag's version. A dispatch from a branch other than
+  the default branch is always a dry run.
+- `fork-scripts-test`: on a push or PR that touches `config/mercurai/`, runs the fork scripts'
+  own tests (`test-fork-series-scripts.sh`, `node --test config/mercurai/scripts/`).
 
 Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
 fetches, rebases or assembles and reports, but pushes nothing and opens no issue. That is how a
