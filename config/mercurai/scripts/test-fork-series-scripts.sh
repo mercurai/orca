@@ -197,7 +197,7 @@ fx_manifest() {  # fx_manifest <base> <release branch> <branch[=its base]>...
     done; } > "$root/manifest.yaml"
   cp "$root/manifest.yaml" "$root/manifest-work.yaml"
 }
-out_of() { grep "^$1=" "$GITHUB_OUTPUT" | cut -d= -f2-; }
+out_of() { { grep "^$1=" "$GITHUB_OUTPUT" || true; } | cut -d= -f2-; }
 run_assemble() {  # run_assemble <tag>
   : > "$GITHUB_OUTPUT"
   (cd "$root/work" && TAG=$1 MANIFEST="$root/manifest.yaml" MANIFEST_WORK="$root/manifest-work.yaml" bash "$here/assemble-release.sh") > "$root/log" 2>&1
@@ -216,7 +216,7 @@ subjects() { git -C "$root/work" log --reverse --format=%s "$1..HEAD" | tr '\n' 
 
 # 14. assemble: release/<name> is the tag plus the patches in manifest order, and the first fork release is .1.
 fx_setup; fx_patch a v1.0.1; fx_patch b v1.0.1
-fx_manifest v1.0.1 release/mercurai patch/b patch/a
+fx_manifest v1.0.1 release/mercurai patch/b=v1.0.1 patch/a=v1.0.1
 if run_assemble v1.0.1 && [ "$(git -C "$root/work" rev-parse --abbrev-ref HEAD)" = release/mercurai ] &&
    [ "$(subjects v1.0.1)" = "patch b,patch a," ] && [ "$(out_of release_branch)" = release/mercurai ] &&
    [ "$(out_of release_tag)" = v1.0.1-mercurai.1 ] && [ "$(out_of tree)" = "$(git -C "$root/work" rev-parse 'HEAD^{tree}')" ]; then
@@ -238,14 +238,14 @@ elif grep -qF "does not contain v1.0.1" "$root/log" && ! git -C "$root/work" rev
 fx_setup; fx_patch a v1.0.1
 git push -q origin v1.0.1:refs/tags/v1.0.1-mercurai.2 v1.0.1:refs/tags/v1.0.1-mercurai.10
 git push -q "$root/up.git" v1.0.1:refs/tags/v1.0.1-mercurai.50
-fx_manifest v1.0.1 release/mercurai patch/a
+fx_manifest v1.0.1 release/mercurai patch/a=v1.0.1
 if run_assemble v1.0.1 && [ "$(out_of release_tag)" = v1.0.1-mercurai.11 ]; then
   pass "assemble numbers from the fork's tags and ignores upstream-only names"; else fail "assemble numbers from the fork's tags and ignores upstream-only names"; cat "$root/log"; fi
 
 # 18. assemble: a release tag only upstream holds is not one the fork can build.
 fx_setup; fx_patch a v1.0.1
 git push -q "$root/up.git" fork:refs/tags/v1.0.2
-fx_manifest v1.0.2 release/mercurai patch/a
+fx_manifest v1.0.2 release/mercurai patch/a=v1.0.2
 if run_assemble v1.0.2; then fail "assemble refuses a tag the fork does not hold"
 elif [ ! -s "$GITHUB_OUTPUT" ] && ! git -C "$root/work" rev-parse -q --verify refs/heads/release/mercurai >/dev/null; then
   pass "assemble refuses a tag the fork does not hold"; else fail "assemble refuses a tag the fork does not hold"; fi
@@ -257,7 +257,7 @@ for row in "mercurai|patch/a|release_branch 'mercurai' is not release/<name>" \
             "release/x|patch/../x|patch branch 'patch/../x' is not patch/<name>" \
             "release/..|patch/a|release_branch 'release/..' is not release/<name>"; do
   IFS='|' read -r release patch message <<<"$row"
-  fx_manifest v1.0.1 "$release" "$patch"
+  fx_manifest v1.0.1 "$release" "$patch=v1.0.1"
   if run_assemble v1.0.1; then fail "assemble refuses release '$release' with patch '$patch'"
   elif grep -qF "$message" "$root/log" && [ "$(git -C "$root/work" rev-parse --abbrev-ref HEAD)" = fork ] && [ ! -s "$GITHUB_OUTPUT" ]; then
     pass "assemble refuses release '$release' with patch '$patch'"; else fail "assemble refuses release '$release' with patch '$patch'"; cat "$root/log"; fi
