@@ -5,11 +5,9 @@ import type {
 import { markStructuredAgentSessionLaunchesPublished } from '../../lib/structured-agent-session-launch-publication'
 import type { WorktreeRuntimeOwnerState } from '../../lib/worktree-runtime-owner'
 import { getExecutionHostIdForWorktree } from '../../lib/worktree-runtime-owner'
-import {
-  applyWebSessionTabsSnapshot,
-  applyWebSessionTabsStorePatch
-} from '../web-session-tabs-sync'
-import type { WebSessionTabsSyncState } from '../web-session-tabs-sync'
+import { applyWebSessionTabsSnapshot } from '../web-session-tabs-sync/snapshot-api'
+import { applyWebSessionTabsStorePatch } from '../web-session-tabs-sync/store-patch'
+import type { WebSessionTabsSyncState } from '../web-session-tabs-sync/state'
 import {
   admitRetiredValueUnderAuthority,
   noteRetiredValue,

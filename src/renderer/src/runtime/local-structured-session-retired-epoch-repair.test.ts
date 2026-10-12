@@ -17,7 +17,7 @@ import {
   resetLocalStructuredSessionVersionForTests
 } from './local-structured-session-tabs-sync'
 import { localStructuredSessionEpochHistoryByWorktree } from './local-structured-session-tabs-sync/inventory-generation-fence'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync'
+import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
 import { resetWebSessionFocusIntentForTests } from './web-session-focus-intent'
 
 const WORKTREE = 'folder:ws-1'

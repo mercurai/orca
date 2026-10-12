@@ -18,8 +18,8 @@ import {
   applyLocalStructuredSessionTabSnapshots,
   resetLocalStructuredSessionVersionForTests
 } from './local-structured-session-tabs-sync'
-import type { WebSessionTabsSyncState } from './web-session-tabs-sync'
-import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync'
+import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
+import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync/tracking-lifecycle'
 
 const WORKTREE = 'repo-1::/tmp/wt-reveal'
 const HOST_TAB_ID = 'agent-session:codex-reveal-1'

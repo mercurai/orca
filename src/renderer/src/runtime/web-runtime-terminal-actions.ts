@@ -251,7 +251,7 @@ export function setWebRuntimeTabProps(args: {
   }
   const callEnvironment = captureRuntimeEnvironmentCall(environmentId)
   const state = useAppStore.getState()
-  void import('./web-session-tabs-sync')
+  void import('./web-session-tabs-sync/tracking-mappings')
     .then(({ resolveHostSessionTabIdForWebSessionTab }) => {
       const hostTabId =
         resolveHostSessionTabIdForWebSessionTab(state, {

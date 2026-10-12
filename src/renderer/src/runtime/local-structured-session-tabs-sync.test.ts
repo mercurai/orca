@@ -14,11 +14,9 @@ import {
   resetLocalStructuredSessionVersionForTests,
   startLocalStructuredSessionTabsSync
 } from './local-structured-session-tabs-sync'
-import {
-  applyWebSessionTabsSnapshot,
-  resetWebSessionTabsSnapshotFreshnessForTests,
-  type WebSessionTabsSyncState
-} from './web-session-tabs-sync'
+import { applyWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
+import { resetWebSessionTabsSnapshotFreshnessForTests } from './web-session-tabs-sync/tracking-lifecycle'
+import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
 import {
   recordWebSessionFocusIntent,
   resetWebSessionFocusIntentForTests

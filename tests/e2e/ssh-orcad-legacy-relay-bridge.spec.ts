@@ -10,6 +10,7 @@
  * COMPAT(legacy-relay-bridge): revisit 2027-01-15, with src/main/ssh/legacy-relay-bridge/.
  */
 import type { ElectronApplication, Page, TestInfo } from '@stablyai/playwright-test'
+import { z } from 'zod'
 import { expect, test } from './helpers/orca-app'
 import { waitForSessionReady } from './helpers/store'
 import { createRestartSession } from './helpers/orca-restart'
@@ -66,6 +67,24 @@ true
 
 function bridgedPanes(page: Page): Promise<{ ptyId: string; state: string }[]> {
   return page.evaluate(async () => (await window.api.legacyRelayBridge?.listPanes()) ?? [])
+}
+
+/** The managed server's status for each pane of a migrated tab; `ready` means it runs a shell. */
+async function serverPaneStatuses(
+  page: Page,
+  environmentId: string,
+  worktreeId: string,
+  tabId: string
+): Promise<string[]> {
+  const listed: unknown = JSON.parse(
+    await serverCall(page, environmentId, 'session.tabs.list', { worktree: `id:${worktreeId}` })
+  )
+  const tabs = z
+    .object({ result: z.object({ tabs: z.array(z.record(z.string(), z.unknown())) }) })
+    .parse(listed).result.tabs
+  return tabs
+    .filter((tab) => tab.type === 'terminal' && tab.parentTabId === tabId)
+    .map((tab) => String(tab.status))
 }
 
 async function typeIntoActiveTerminal(page: Page, line: string): Promise<void> {
@@ -266,6 +285,22 @@ test('terminals a 1.4.224 relay keeps running stay usable in their old tabs afte
     })
     await expectTerminalAccessibilityText(page, fresh.webTabId, 'QA_ORCAD_NEW')
     expect(await listDockerRelayPtys(host, relay, ours.sockPath)).toEqual([ours.relayPtyId])
+
+    // Clicking back to the old tab shows the old shell, and the managed server never starts a
+    // second, unseen shell of its own for that pane.
+    await page
+      .locator(`[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(storeTabId)}]`)
+      .click()
+    await expectTerminalAccessibilityText(page, storeTabId, 'GOT:after-upgrade')
+    await page.waitForTimeout(10_000)
+    const statuses = await serverPaneStatuses(
+      page,
+      environment.id,
+      seeded.worktreeId,
+      terminalTabId
+    )
+    expect(statuses.length).toBeGreaterThan(0)
+    expect(statuses).not.toContain('ready')
 
     // Losing the SSH connection is never the old shell's death: it reattaches and still answers.
     execDockerSshHostTargetControlCommand(host, DROP_SSH_CONNECTIONS)

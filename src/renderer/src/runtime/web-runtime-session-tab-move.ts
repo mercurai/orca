@@ -46,7 +46,7 @@ export async function moveWebRuntimeSessionTab(
 
   try {
     const { resolveHostSessionGroupIdForWebSessionTab, resolveHostSessionTabIdForWebSessionTab } =
-      await import('./web-session-tabs-sync')
+      await import('./web-session-tabs-sync/tracking-mappings')
     const state = useAppStore.getState()
     const groups = state.groupsByWorktree?.[args.worktreeId] ?? []
     const targetGroup = groups.find((group) => group.id === args.targetGroupId)
