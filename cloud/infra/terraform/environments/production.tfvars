@@ -468,6 +468,21 @@ relay_gce_cells = {
     connection_hard_cap         = 3000
     connection_unobserved_bound = 60
   }
+  # Asia spare: registered migration-only as a drain landing zone; a starts the third zone round.
+  "production-gce-c35" = {
+    hostname                    = "c35"
+    region                      = "asia-east2"
+    zone                        = "asia-east2-a"
+    machine_type                = "e2-standard-4"
+    boot_disk_gb                = 30
+    boot_image                  = "https://www.googleapis.com/compute/v1/projects/cos-cloud/global/images/cos-stable-121-18867-528-21"
+    capacity_requests           = 6000
+    database_pool_max           = 16 # 176 ms from us-central1 Postgres saturates 10 (94-156 waiters).
+    image                       = "us-central1-docker.pkg.dev/onorca-cloud/orca-cloud/relay@sha256:41cba995b288cab70579882ebef23e74c5ee426b6f8924cea7c986aba23bcbfe"
+    initially_enabled           = false
+    connection_hard_cap         = 3000
+    connection_unobserved_bound = 60
+  }
 }
 
 relay_region_rehome_source_cell_ids = [
@@ -495,7 +510,8 @@ relay_region_rehome_source_cell_ids = [
   "production-gce-c31",
   "production-gce-c32",
   "production-gce-c33",
-  "production-gce-c34"
+  "production-gce-c34",
+  "production-gce-c35"
 ]
 
 # Slack #orca-relay-alerts, created out of band on 2026-08-05. Declared here because an apply
