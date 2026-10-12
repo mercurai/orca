@@ -1,0 +1,27 @@
+# Throwaway: proves the merge-forward guard and the lint step in CI. Never merged.
+name: ci-only-merge-guard-1148-b
+
+on:
+  push:
+    branches: ['ci-only/merge-guard-1148-b']
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+      - name: Lint config/mercurai
+        run: npx --yes oxlint@1.86.0 --format github config/mercurai
+      - name: Node scripts
+        run: node --test "config/mercurai/scripts/*.test.mjs"
+      - name: Series scripts
+        run: bash config/mercurai/scripts/test-fork-series-scripts.sh
