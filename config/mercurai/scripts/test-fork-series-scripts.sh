@@ -443,7 +443,8 @@ guard_setup; commit docs/up.md up "upstream docs"
 rc=$(mf_run false)
 if [ "$rc" = 0 ] && [ -f docs/up.md ] && git merge-base --is-ancestor up fork; then pass "merge-forward: a clean range merges"; else fail "merge-forward: a clean range merges"; cat "$root/mf.out"; fi
 guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
-git checkout -q fork; before=$(git rev-parse HEAD)rc=$(mf_run false)
+git checkout -q fork; before=$(git rev-parse HEAD)
+rc=$(mf_run false)
 if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/workflows/evil.yml ] && grep -qxF .github/workflows/evil.yml "$mf_state/guarded"; then
   pass "merge-forward: an unallowed guarded result is reset and exits 11"; else fail "merge-forward: an unallowed guarded result is reset and exits 11"; cat "$root/mf.out"; fi
 git checkout -q up; rc=$(mf_run true)
