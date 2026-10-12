@@ -11,6 +11,6 @@ set -euo pipefail
 paths=$(git diff --name-only --no-renames -z "$1" HEAD -- .github config/mercurai | tr '\0' '\n')
 if [ -z "$paths" ]; then exit 0; fi
 count=$(printf '%s\n' "$paths" | wc -l)
-printf '%s\n' "$paths" | head -50 | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'
+head -50 <<<"$paths" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'
 if [ "$count" -gt 50 ]; then echo "... and $((count - 50)) more"; fi
 exit 3

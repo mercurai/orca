@@ -432,6 +432,27 @@ guard_setup; mkdir -p .github/actions/x; commit .github/actions/x/action.yml x "
 rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
 if [ "$rc" = 3 ] && grep -qxF .github/actions/x/action.yml "$root/guard.out"; then pass "result guard: a merge that changed .github/actions is refused"; else fail "result guard: a merge that changed .github/actions is refused"; cat "$root/guard.out"; fi
 
+# 33d. merge-forward.sh: the merge, the result check and the reset, as the workflow runs them (the push stays outside).
+mf_run() {  # mf_run <GUARD_ALLOWED>: merges `up` into `fork`; prints the exit status
+  local rc=0; git checkout -q fork
+  UPSTREAM_SHA=$(git rev-parse up) GUARD_ALLOWED=$1 bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+guard_setup; commit docs/up.md up "upstream docs"
+rc=$(mf_run false)
+if [ "$rc" = 0 ] && [ -f docs/up.md ] && git merge-base --is-ancestor up fork; then pass "merge-forward: a clean range merges"; else fail "merge-forward: a clean range merges"; cat "$root/mf.out"; fi
+guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
+git checkout -q fork; before=$(git rev-parse HEAD); : > "$FORK_STATE_DIR/guarded"
+rc=$(mf_run false)
+if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/workflows/evil.yml ] && grep -qxF .github/workflows/evil.yml "$FORK_STATE_DIR/guarded"; then
+  pass "merge-forward: an unallowed guarded result is reset and exits 11"; else fail "merge-forward: an unallowed guarded result is reset and exits 11"; cat "$root/mf.out"; fi
+git checkout -q up; rc=$(mf_run true)
+if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ]; then pass "merge-forward: an allowed guarded commit merges"; else fail "merge-forward: an allowed guarded commit merges"; cat "$root/mf.out"; fi
+guard_setup; commit base.txt upside "upstream edits base"; git checkout -q fork; commit base.txt forkside "fork edits base"
+before=$(git rev-parse HEAD); rc=$(mf_run false)
+if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$FORK_STATE_DIR/conflicts"; then
+  pass "merge-forward: a conflict is aborted and exits 10"; else fail "merge-forward: a conflict is aborted and exits 10"; cat "$root/mf.out"; fi
+
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
 git add config; git commit -qm "many"
