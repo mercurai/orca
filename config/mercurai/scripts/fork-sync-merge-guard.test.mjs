@@ -25,7 +25,7 @@ const ISSUE = 'Report a guarded upstream range as an issue'
 const MERGE = 'Merge main forward into the fork branch'
 
 test('the guard runs the script on the fork branch and upstream/main, before the merge, with no token', () => {
-  assert.ok(names.indexOf(GUARD) !== -1 && names.indexOf(GUARD) < names.indexOf(ISSUE))
+  assert.ok(names.includes(GUARD) && names.indexOf(GUARD) < names.indexOf(ISSUE))
   assert.ok(names.indexOf(ISSUE) < names.indexOf(MERGE))
   assert.match(step(GUARD), /bash config\/mercurai\/scripts\/merge-guard\.sh HEAD upstream\/main/)
   assert.doesNotMatch(step(GUARD), /\bsecrets\b|GH_TOKEN|GIT_CONFIG_|\bgit push\b|^\s+gh /m)
