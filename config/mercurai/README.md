@@ -58,8 +58,8 @@ series.
     prints each ref with its lease and the manifest change the push job would commit, and pushes
     nothing; the push job is skipped.
   - `overrides` (`patch/<name>=<40-hex sha>`, comma or space separated): a hand-ported head used
-    instead of the rebase. The sha must be fetchable from origin (a `ci-only/*` branch will do) and
-    contain the base, or the run fails; the push job pushes it in the same atomic push, leased on
+    instead of the rebase. The sha must be on an origin `patch/*` or `ci-only/*` branch (never a pull ref), contain the
+    base and add commits beyond it, or the run fails; the log shows its commits and diffstat; the push job pushes it in the same atomic push, leased on
     the branch's old sha. Names must be active patches of the manifest.
 - `fork-assemble-release`: manual. `overrides` (dry run only, same format) assembles ported heads
   that no `patch/*` ref holds yet: each must contain the tag, and the manifest base is not checked.

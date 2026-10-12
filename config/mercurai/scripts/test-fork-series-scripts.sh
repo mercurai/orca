@@ -178,7 +178,7 @@ ported_setup() {
 }
 runner_clone() {  # a runner checkout: only the fork branch and the patch branches, so a ported head must be fetched
   rm -rf "$root/runner"; git clone -q --single-branch --branch mercurai "$root/origin.git" "$root/runner"; cd "$root/runner"
-  git fetch -q origin '+refs/heads/patch/*:refs/remotes/origin/patch/*'
+  git fetch -q origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' '+refs/heads/ci-only/*:refs/remotes/origin/ci-only/*'
   export BASE=$(git rev-parse v2) MANIFEST_WORK="$root/patches.yaml"
 }
 line_of() { awk -v b="$1" '$1 == b' /tmp/rebased; }
@@ -239,6 +239,33 @@ elif grep -q "recorded on v1" "$root/assemble.out"; then pass "an unrebased patc
 ported_setup
 if assemble_with "patch/a=$stale,patch/b=$pb"; then fail "an assembly head without the tag fails"
 elif grep -q "does not contain" "$root/assemble.out"; then pass "an assembly head without the tag fails"; else fail "an assembly head without the tag fails"; fi
+
+# 22. A head with no commits beyond the base would retire the patch as merged: rejected, by rebase and by assembly.
+ported_setup; runner_clone
+if rebase_with "patch/a=$(git rev-parse v2)"; then fail "a head equal to the base is rejected"
+elif ! grep -q "no commits beyond" "$root/rebase.out"; then fail "a head equal to the base is rejected"
+else
+  cd "$root/work"
+  if assemble_with "patch/a=$(git rev-parse v2),patch/b=$pb"; then fail "a head equal to the base is rejected"
+  elif grep -q "no commits beyond" "$root/assemble.out"; then pass "a head equal to the base is rejected"; else fail "a head equal to the base is rejected"; fi
+fi
+
+# 23. A head that is on no origin patch/* or ci-only/* branch (a pull ref, a stray branch) is rejected.
+ported_setup
+git checkout -q -b stray v2; commit s.txt s "stray"; stray=$(git rev-parse HEAD); git push -q origin stray:refs/heads/other/x; git checkout -q fork
+runner_clone
+if rebase_with "patch/a=$stray"; then fail "a head outside patch/* and ci-only/* is rejected"
+elif ! grep -q "is not on an origin" "$root/rebase.out"; then fail "a head outside patch/* and ci-only/* is rejected"
+else
+  cd "$root/work"
+  if assemble_with "patch/a=$stray,patch/b=$pb"; then fail "a head outside patch/* and ci-only/* is rejected"
+  elif grep -q "is not on an origin" "$root/assemble.out"; then pass "a head outside patch/* and ci-only/* is rejected"; else fail "a head outside patch/* and ci-only/* is rejected"; fi
+fi
+
+# 24. A carriage return in an override never reaches the log, where the runner would read it as a command.
+ported_setup; runner_clone
+if rebase_with "patch/a=$pa"$'\r::add-mask::x'; then fail "an override's raw text stays out of the log"
+elif grep -q "::add-mask::" "$root/rebase.out"; then fail "an override's raw text stays out of the log"; else pass "an override's raw text stays out of the log"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

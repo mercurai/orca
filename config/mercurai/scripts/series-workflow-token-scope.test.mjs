@@ -116,13 +116,16 @@ test('the push jobs push only what they derived and matched against what was tes
   assert.match(assemble, /if \[ "\$tree" != "\$TESTED_TREE" \] \|\| \[ "\$branch" != "\$TESTED_BRANCH" \]; then\n[^\n]*\n\s+exit 1\n/)
   const rebase = jobsOf(read('fork-rebase-patches.yml')).get('push')
   assert.match(rebase, /bash \/tmp\/fork-scripts\/rebase-series\.sh\n/)
-  assert.match(rebase, /if ! grep -qxF "\$branch \$tree" <<<"\$TESTED_TREES"; then\n[^\n]*\n\s+failed=1\n/)
+  assert.match(rebase, /if ! grep -qxF "\$branch \$tree \$before" <<<"\$TESTED_TREES"; then\n[^\n]*\n\s+failed=1\n/)
   assert.match(rebase, /if \[ "\$TEST_RESULT" != success \] \|\| \[ "\$TEST_FAILED" != 0 \] \|\| \[ -s \/tmp\/conflicted \]; then failed=1; fi/)
   assert.match(rebase, /if: \$\{\{ steps\.patches\.outputs\.count != '0' && steps\.rebase\.outputs\.failed == '0' \}\}\n/)
   // A merged-upstream verdict is compared too: dropping a patch needs the tested run's agreement.
   assert.match(rebase, /grep -qxF "\$branch" \/tmp\/merged \|\| tree=\$\(git rev-parse "\$after\^\{tree\}"\)/)
   const test_ = jobsOf(read('fork-rebase-patches.yml')).get('test')
-  assert.match(test_, /echo "\$branch merged" >> \/tmp\/trees/)
+  assert.match(test_, /echo "\$branch merged \$before" >> \/tmp\/trees/)
+  // The lease is tied to what was tested: the branch's pre-rebase sha is part of the compared line (claude-code-config#1123).
+  assert.match(test_, /echo "\$branch \$\(git rev-parse 'HEAD\^\{tree\}'\) \$before" >> \/tmp\/trees/)
+  assert.match(rebase, /while read -r branch before after; do\n/)
 })
 
 test('a step holding the token never builds a yq expression from shell values', () => {
@@ -132,6 +135,13 @@ test('a step holding the token never builds a yq expression from shell values', 
       // The expression is single-quoted; values come in through strenv().
       assert.match(line, /\byq(?:\s+-[a-z]+)*\s+'/, `${file}: ${line.trim()}`)
     }
+  }
+  // The manifest edits of the token step live in record-series.sh: same rule.
+  const record = readFileSync(resolve(import.meta.dirname, 'record-series.sh'), 'utf8')
+  const yqLines = record.split('\n').filter((l) => /\byq\b/.test(l) && !/^\s*#/.test(l))
+  assert.ok(yqLines.length >= 3)
+  for (const line of yqLines) {
+    assert.match(line, /\byq(?:\s+-[a-z]+)*\s+'/, line.trim())
   }
   // The tag that reaches the manifest is a release or release-candidate name.
   const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
@@ -165,6 +175,9 @@ test('overrides reach the scripts as an env value only, and are checked strictly
   const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
   assert.ok(parse.includes(String.raw`^(patch/[A-Za-z0-9._/-]+)=([0-9a-f]{40})$`))
   assert.ok(parse.includes('grep -qxF "$_branch" /tmp/active'))
-  assert.ok(parse.includes('is not fetchable from origin'))
+  assert.ok(parse.includes('is not on an origin patch/* or ci-only/* branch'))
   assert.ok(parse.includes('does not contain $2'))
+  assert.ok(parse.includes('has no commits beyond $2'))
+  // The raw input is never echoed to the log (a carriage return would reach the runner as a command).
+  assert.doesNotMatch(parse, /echo "[^"]*\$_pair/)
 })

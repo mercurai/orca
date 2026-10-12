@@ -23,7 +23,7 @@ on:
         type: boolean
         default: false
       overrides:
-        description: 'Dry run only: hand-ported patch heads to assemble instead of origin/patch/*, as patch/<name>=<40-hex sha> pairs, comma or space separated. Each must contain the tag; the manifest base is not checked'
+        description: 'Dry run only: hand-ported patch heads to assemble instead of origin/patch/*, as patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the tag and add commits beyond it; the manifest base is not checked'
         type: string
         default: ''
 

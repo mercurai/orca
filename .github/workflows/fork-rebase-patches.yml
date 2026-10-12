@@ -30,7 +30,7 @@ on:
         type: boolean
         default: false
       overrides:
-        description: 'Hand-ported patch heads to use instead of rebasing: patch/<name>=<40-hex sha> pairs, comma or space separated. Each must contain the base and be fetchable from origin; the push job pushes them in the same atomic push'
+        description: 'Hand-ported patch heads to use instead of rebasing: patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the base and add commits beyond it; the push job pushes them in the same atomic push'
         type: string
         default: ''
   schedule:
@@ -130,9 +130,10 @@ jobs:
           failed=0
           [ -s /tmp/conflicted ] && failed=1
           : > /tmp/trees
-          while read -r branch _before _after; do
+          # Each line carries the sha the branch had before, which the push job leases on: a branch a lane moved meanwhile no longer matches.
+          while read -r branch before _after; do
             if grep -qxF "$branch" /tmp/merged; then
-              echo "$branch merged" >> /tmp/trees
+              echo "$branch merged $before" >> /tmp/trees
               continue
             fi
             git checkout -q "$branch"
@@ -143,7 +144,7 @@ jobs:
               continue
             fi
             echo "$branch rebases cleanly onto $BASE ($(git rev-list --count "$BASE..HEAD") commits)"
-            echo "$branch $(git rev-parse 'HEAD^{tree}')" >> /tmp/trees
+            echo "$branch $(git rev-parse 'HEAD^{tree}') $before" >> /tmp/trees
           done < /tmp/rebased
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
           { echo 'trees<<ORCA_TESTED_TREES'; cat /tmp/trees; echo 'ORCA_TESTED_TREES'; } >> "$GITHUB_OUTPUT"
@@ -219,12 +220,12 @@ jobs:
           git checkout -q "$FORK_BRANCH"
           failed=0
           if [ "$TEST_RESULT" != success ] || [ "$TEST_FAILED" != 0 ] || [ -s /tmp/conflicted ]; then failed=1; fi
-          while read -r branch _before after; do
+          while read -r branch before after; do
             # A patch counts as merged upstream only if the tested run saw it that way too.
             tree=merged
             grep -qxF "$branch" /tmp/merged || tree=$(git rev-parse "$after^{tree}")
-            if ! grep -qxF "$branch $tree" <<<"$TESTED_TREES"; then
-              echo "::error::$branch rebased to tree $tree here, which is not the tree its tests ran on"
+            if ! grep -qxF "$branch $tree $before" <<<"$TESTED_TREES"; then
+              echo "::error::$branch is at $before and rebased to tree $tree here, which is not the branch state and tree its tests ran on"
               failed=1
             fi
           done < /tmp/rebased

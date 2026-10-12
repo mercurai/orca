@@ -8,9 +8,12 @@
 # Fails (exit 1) on a malformed pair, a duplicate or a branch the manifest does not list as active.
 declare -A HEADS=()
 read -ra _override_pairs <<<"$(printf '%s' "${OVERRIDES:-}" | tr ',\n' '  ')"
+_n=0
 for _pair in "${_override_pairs[@]}"; do
+  _n=$((_n + 1))
   if [[ ! "$_pair" =~ ^(patch/[A-Za-z0-9._/-]+)=([0-9a-f]{40})$ ]]; then
-    echo "::error::override '$_pair' is not patch/<name>=<40-hex sha>"
+    # The raw input is never echoed: a carriage return in it would reach the runner as a workflow command.
+    echo "::error::override #$_n is not patch/<name>=<40-hex sha>"
     exit 1
   fi
   _branch=${BASH_REMATCH[1]} _sha=${BASH_REMATCH[2]}
@@ -25,12 +28,18 @@ for _pair in "${_override_pairs[@]}"; do
   HEADS[$_branch]=$_sha
 done
 
-# use_head <branch> <base ref>: make the named head local (it may sit on a branch that is not
-# patch/*, such as ci-only/*) and check it contains the base. Fails closed otherwise.
+# use_head <branch> <base ref>: check the named head is a ported patch and show what it adds. It must
+# be reachable from an origin patch/* or ci-only/* branch (fetched explicitly, never refs/pull/*),
+# contain the base and add commits beyond it (a head equal to the base would retire the patch as
+# merged). Fails closed otherwise.
 use_head() {
   local sha=${HEADS[$1]}
-  if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
-    git fetch -q origin "$sha" || { echo "::error::$1: head $sha is not fetchable from origin"; exit 1; }
+  if ! git cat-file -e "$sha^{commit}" 2>/dev/null ||
+     [ -z "$(git for-each-ref --contains "$sha" --count=1 refs/remotes/origin/patch refs/remotes/origin/ci-only)" ]; then
+    echo "::error::$1: head $sha is not on an origin patch/* or ci-only/* branch"; exit 1
   fi
   git merge-base --is-ancestor "$2" "$sha" || { echo "::error::$1: override head $sha does not contain $2"; exit 1; }
+  [ "$(git rev-list --count "$2..$sha")" != 0 ] || { echo "::error::$1: override head $sha has no commits beyond $2"; exit 1; }
+  git log --oneline "$2..$sha"
+  git diff --stat "$2...$sha"
 }
