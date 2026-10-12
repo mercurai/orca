@@ -221,19 +221,41 @@ test('only an explicit dispatch can approve a release tag, and only that tag is 
 
 test('every skipped release tag gets its own issue, matched by exact title, commented on only when its sha changes', () => {
   const issues = step(SKIPPED_ISSUES)
-  assert.ok(names.indexOf(SKIPPED_ISSUES) > names.indexOf(ALLOWED_TAG) && names.indexOf(SKIPPED_ISSUES) < names.indexOf(MERGE))
-  assert.match(issues, /^\s+if: \$\{\{ steps\.mode\.outputs\.push == 'true' \}\}$/m)
-  // The list is computed here, just before it is read.
-  assert.ok(issues.includes('bash config/mercurai/scripts/list-skipped-tags.sh\n'))
-  assert.ok(issues.indexOf('list-skipped-tags.sh') < issues.indexOf('done 3< /tmp/tags-skipped'))
-  assert.ok(issues.includes('title="fork-sync tag: $tag needs owner review"'))
-  // Both the lookup and the "seen" check match the title exactly, never by containment.
-  assert.equal(issues.split(`select(.title == $t)`).length - 1, 2)
-  assert.doesNotMatch(issues, /contains\(\$t\)|startswith|test\(/)
-  assert.ok(issues.includes(`([.body] + [.comments[].body]) | any(contains($s))`))
-  assert.ok(issues.includes('if [ "$seen" != true ]; then gh issue comment "$number" --body "$body"; fi'))
-  assert.ok(issues.includes('if [ "$GUARD_REFUSED" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi'))
-  assert.match(issues, /render-tag-review\.sh "\$tag" "\$sha" "\$trusted" "\$FORK_BRANCH"/)
+  // Last, and run after a failure: upstream decides how many tags there are, so it cannot skip a push or the merge.
+  assert.equal(names.at(-1), SKIPPED_ISSUES)
+  assert.match(issues, /^\s+if: \$\{\{ !cancelled\(\) && steps\.mode\.outputs\.push == 'true' \}\}$/m)
+  // From the copies made in the fetch step, before the merge-forward could change the tree.
+  assert.match(issues, /^\s+run: bash \/tmp\/tag-issues\.sh$/m)
+  assert.ok(
+    step(FETCH).includes(
+      'cp config/mercurai/scripts/tag-issues.sh config/mercurai/scripts/list-skipped-tags.sh config/mercurai/scripts/render-tag-review.sh /tmp/'
+    )
+  )
+  assert.match(issues, /^\s+GUARD_REFUSED: \$\{\{ steps\.guard\.outputs\.refused \}\}$/m)
+  const script = read('config', 'mercurai', 'scripts', 'tag-issues.sh')
+  assert.ok(script.includes('title="fork-sync tag: $tag needs owner review"'))
+  // Every issue, open or closed, paged through: a closed issue stays closed, and no fixed limit hides one.
+  assert.ok(script.includes('"repos/$GH_REPO/issues?state=all&labels=$SYNC_ISSUE_LABEL&per_page=100"'))
+  assert.equal(script.split('--paginate').length - 1, 2)
+  assert.doesNotMatch(script, /--limit|state=open|--state open/)
+  // The title is matched exactly, never by containment.
+  assert.ok(script.includes(`'[.[] | select(.title == $t)][0] // empty'`))
+  assert.doesNotMatch(script, /contains\(\$t\)|startswith|test\(/)
+  // Only the bot's own words count as "reported": the issue's author and the comment authors, against the token's login.
+  assert.ok(script.includes('me=$("$gh" api user --jq .login)'))
+  assert.ok(script.includes(`'.login == $me and (.body | contains($s))'`))
+  assert.ok(script.includes(`'any(.[]; .login == $me and (.body | contains($s)))'`))
+  // At most 5 new issues and 20 updates a run; the rest goes into one summary issue.
+  assert.ok(script.includes('MAX_NEW=5\nMAX_UPDATES=20\n'))
+  assert.ok(script.includes('if [ "$new" -ge "$MAX_NEW" ]; then overflow+=("$tag $sha"); continue; fi'))
+  assert.ok(script.includes('if [ "$updates" -ge "$MAX_UPDATES" ]; then overflow+=("$tag $sha"); continue; fi'))
+  assert.ok(script.includes('SUMMARY_TITLE="fork-sync tag: summary"'))
+  assert.ok(script.includes(`| sort | head -50 | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')`))
+  // A closed issue is reopened only when its commit changed (it got past the "reported" check).
+  assert.ok(script.includes('if own_mention "$existing" "$number" "$sha"; then continue; fi'))
+  assert.ok(script.includes('if [ "$(jq -r .state <<<"$existing")" = closed ]; then "$gh" issue reopen "$number"; fi'))
+  assert.ok(script.includes('if [ "${GUARD_REFUSED:-true}" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi'))
+  assert.match(script, /render-tag-review\.sh" "\$tag" "\$sha" "\$trusted" "\$FORK_BRANCH"/)
 })
 
 test('mirror-allowed-tag.sh validates strictly, checks the peel and the fork, and pushes one refspec', () => {
