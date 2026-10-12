@@ -36,10 +36,11 @@
 #
 #   gh workflow run fork-release-win-build.yml --ref mercurai -f tag=v1.4.223-mercurai.8 -f dry_run=true
 #
-# `-f ref=<branch>` builds that ref instead of the tag; the tag then only supplies the version. It
-# is a dry run by definition, and it must be dispatched from a branch other than the default one:
-# a run saves its build caches in the scope of the branch it was dispatched from, and the default
-# branch's scope is where a release restores them. Code that is not a tag never writes there.
+# `-f ref=<branch>` builds that branch instead of the tag; the tag then only supplies the version.
+# It is a dry run by definition, and it must be dispatched from a branch other than the default
+# one: code that is not a tag must not run in the default branch's cache scope, which the fork's
+# workflows holding the bot token restore (claude-code-config#1125, SEC-201). Only a branch of
+# this repo is accepted: no pull-request head, tag or bare sha from the fork network.
 #
 #   gh workflow run fork-release-win-build.yml --ref <a branch carrying these workflows> \
 #     -f tag=v1.4.224-mercurai.0 -f ref=ci-only/v1.4.224/assembly-dry-run-2
@@ -109,23 +110,31 @@ jobs:
             echo "::error::ref '$REF_INPUT' can only be built as a dry run (dry_run=true); a published build comes from the tag."
             exit 1
           fi
-          # A run dispatched from the default branch saves its build caches where the next release
-          # restores them, so it may only build a tag. Another ref is built from a branch of its own.
+          # A run dispatched from the default branch runs in the cache scope that the workflows
+          # holding the bot token restore, so it may only build a tag. A branch is built from a
+          # branch of its own.
           if [ -n "$REF_INPUT" ] && [ "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
             echo "::error::ref '$REF_INPUT' cannot be built by a run dispatched from $DEFAULT_BRANCH: that run's caches are the ones a release restores. Dispatch from another branch that carries these workflows (gh workflow run ... --ref <that branch> -f ref=$REF_INPUT)."
             exit 1
           fi
-          build_ref=${REF_INPUT:-refs/tags/$TAG}
-          # One commit for every job: an annotated tag resolves through its peeled line, a branch
-          # through its head, and a full sha stands for itself.
-          if [[ "$build_ref" =~ ^[0-9a-f]{40}$ ]]; then
-            build_sha=$build_ref
+          # A dry-run ref is a branch of this repo: a pull-request head or a bare sha could name
+          # code from anywhere in the fork network.
+          if [ -n "$REF_INPUT" ]; then
+            branch=${REF_INPUT#refs/heads/}
+            if [[ ! "$branch" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || [[ "$branch" == refs/* ]]; then
+              echo "::error::ref must be a branch of this repository (name or refs/heads/name)"
+              exit 1
+            fi
+            want=refs/heads/$branch
           else
-            case "$build_ref" in refs/*) want=$build_ref ;; *) want=refs/heads/$build_ref ;; esac
-            listed=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" "$want" "$want^{}")
-            build_sha=$(awk -v peeled="$want^{}" '$2 == peeled { print $1 }' <<<"$listed")
-            build_sha=${build_sha:-$(awk -v ref="$want" '$2 == ref { print $1 }' <<<"$listed")}
+            want=refs/tags/$TAG
           fi
+          build_ref=$want
+          # One commit for every job: an annotated tag resolves through its peeled line, a branch
+          # through its head.
+          listed=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" "$want" "$want^{}")
+          build_sha=$(awk -v peeled="$want^{}" '$2 == peeled { print $1 }' <<<"$listed")
+          build_sha=${build_sha:-$(awk -v ref="$want" '$2 == ref { print $1 }' <<<"$listed")}
           if [[ ! "$build_sha" =~ ^[0-9a-f]{40}$ ]]; then
             echo "::error::$build_ref does not resolve to a commit in $GITHUB_REPOSITORY"
             exit 1
@@ -158,7 +167,7 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       # The default token reads this repository; this job is given no other credential.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ needs.preflight.outputs.build_sha }}
           persist-credentials: false
@@ -213,11 +222,11 @@ jobs:
       # The steps of the repo's install-node-dependencies and install-mobile-dependencies,
       # without their caches (see the header).
       - name: Setup pnpm
-        uses: pnpm/setup@v2
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
         with:
           install: false
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: package.json
           package-manager-cache: false
@@ -254,7 +263,7 @@ jobs:
 
       - name: Download the orcad deployment template
         if: needs.orcad-template.outputs.ships == 'true'
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: orcad-template
           path: out/orcad-template
@@ -280,7 +289,7 @@ jobs:
       # The fork's check script lives on the workflow's branch, not in the release tag's tree.
       - name: Fetch the fork's template check
         if: needs.orcad-template.outputs.ships == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
           path: .fork
@@ -321,7 +330,7 @@ jobs:
       # the run's artifact can be installed by hand, and re-running the publish job publishes without a rebuild.
       - name: Keep the release files as a run artifact
         if: needs.preflight.outputs.publish == 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: orca-windows-${{ inputs.tag }}
           path: |
@@ -345,7 +354,7 @@ jobs:
 
       - name: Keep the dry-run installer as a run artifact
         if: needs.preflight.outputs.publish != 'true'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: orca-windows-${{ inputs.tag }}-DRY-RUN
           path: dry-run/
@@ -447,6 +456,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+          BUILD_SHA: ${{ needs.preflight.outputs.build_sha }}
         run: |
           set -euo pipefail
           deny() { echo "::error::Upload to $CHANNEL_REPO was denied. Add orca-mercurai to the FORK_BOT_TOKEN fine-grained token (Contents: read and write); see config/mercurai/README.md (Release channel)."; echo "$1"; exit 1; }
@@ -458,7 +468,7 @@ jobs:
             out=$(gh release upload "$TAG" "${files[2]}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
           else
             out=$(gh release create "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --title "$TAG" --draft \
-              --notes "Mercurai build of $TAG. Unsigned Windows installer, built by mercurai/orca CI run ${GITHUB_RUN_ID}." 2>&1) || deny "$out"
+              --notes "Mercurai build of $TAG. Unsigned Windows installer of commit ${BUILD_SHA}, built by mercurai/orca CI run ${GITHUB_RUN_ID}." 2>&1) || deny "$out"
           fi
           out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --latest 2>&1) || deny "$out"
 

@@ -218,6 +218,32 @@ test('every job builds the commit preflight resolved', () => {
   assert.ok(template.includes(String.raw`if [[ ! "$TEMPLATE_REF" =~ ^[0-9a-f]{40}$ ]]; then`))
 })
 
+// What these jobs build is what gets published: an action tag that moves would change it (SEC-203).
+test('every action the release runs is pinned by commit', () => {
+  for (const [name, workflow] of [
+    ['release', release],
+    ['template', template]
+  ]) {
+    for (const [, action] of code(workflow).matchAll(/^\s+(?:- )?uses: (\S+)/gm)) {
+      if (action === './.github/workflows/fork-orcad-template.yml') continue
+      assert.match(action, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${name} uses ${action}`)
+    }
+  }
+})
+
+// A dry-run ref names a branch of this repo, never a pull-request head or a fork-network sha (SEC-202).
+test('preflight builds a branch or the tag, nothing else', () => {
+  const preflight = releaseJobs.get('preflight')
+  assert.ok(
+    preflight.includes(
+      String.raw`if [[ ! "$branch" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || [[ "$branch" == refs/* ]]; then`
+    )
+  )
+  assert.match(preflight, /^\s+want=refs\/heads\/\$branch$/m)
+  assert.match(preflight, /^\s+want=refs\/tags\/\$TAG$/m)
+  assert.doesNotMatch(preflight, /build_sha=\$build_ref|build_sha=\$REF_INPUT/)
+})
+
 test('a dry run keeps no update manifest and marks the installer', () => {
   const build = releaseJobs.get('build-win')
   const strip = build.slice(build.indexOf('- name: Strip the update files from a dry run'))
