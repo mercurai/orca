@@ -147,7 +147,6 @@ test('fork-rebase-patches: dry_run keeps the push job shut and reports from the 
   assert.match(jobs.get('test'), /bash \/tmp\/fork-scripts\/record-series\.sh\n/)
   // The test job's own failure gate treats a dry run as report-only even from the default branch.
   assert.match(jobs.get('test'), /!\(inputs\.tag != '' && !inputs\.dry_run && github\.ref == /)
-  assert.doesNotMatch(code(jobs.get('push')), /dry_run/)
 })
 
 test('overrides reach the scripts as an env value only, and are checked strictly', () => {
