@@ -25,6 +25,14 @@ on:
         description: Commit the tag pointed at when fork-sync-upstream saw it; the run fails if the tag moved since
         type: string
         default: ''
+      dry_run:
+        description: With a tag, rebase and test against the pinned tag, print the refs, leases and manifest change, and push nothing
+        type: boolean
+        default: false
+      overrides:
+        description: 'Hand-ported patch heads to use instead of rebasing: patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the base and add commits beyond it; the push job pushes them in the same atomic push'
+        type: string
+        default: ''
   schedule:
     - cron: '30 5 * * *'
 
@@ -47,6 +55,7 @@ env:
   CONFLICT_LABEL: patch-conflict
   TARGET: ${{ inputs.tag }}
   TAG_SHA: ${{ inputs.tag_sha }}
+  OVERRIDES: ${{ inputs.overrides }}
 
 jobs:
   test:
@@ -121,9 +130,10 @@ jobs:
           failed=0
           [ -s /tmp/conflicted ] && failed=1
           : > /tmp/trees
-          while read -r branch _before _after; do
+          # Each line carries the sha the branch had before, which the push job leases on: a branch a lane moved meanwhile no longer matches.
+          while read -r branch before _after; do
             if grep -qxF "$branch" /tmp/merged; then
-              echo "$branch merged" >> /tmp/trees
+              echo "$branch merged $before" >> /tmp/trees
               continue
             fi
             git checkout -q "$branch"
@@ -134,21 +144,35 @@ jobs:
               continue
             fi
             echo "$branch rebases cleanly onto $BASE ($(git rev-list --count "$BASE..HEAD") commits)"
-            echo "$branch $(git rev-parse 'HEAD^{tree}')" >> /tmp/trees
+            echo "$branch $(git rev-parse 'HEAD^{tree}') $before" >> /tmp/trees
           done < /tmp/rebased
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
           { echo 'trees<<ORCA_TESTED_TREES'; cat /tmp/trees; echo 'ORCA_TESTED_TREES'; } >> "$GITHUB_OUTPUT"
 
-      # A dry run (the schedule, no tag, or a feature branch) ends here and reports through this job.
+      # What the push job would push, from the same files it reads. Nothing here has a token.
+      - name: Report the dry run
+        if: ${{ inputs.dry_run && inputs.tag != '' && steps.patches.outputs.count != '0' }}
+        run: |
+          set -euo pipefail
+          while read -r branch before after; do
+            echo "would push $after to refs/heads/$branch, leased on $before"
+          done < /tmp/rebased
+          cp "$MANIFEST_WORK" /tmp/manifest-before.yaml
+          bash /tmp/fork-scripts/record-series.sh
+          echo "manifest change the push job would commit on $FORK_BRANCH:"
+          diff -u /tmp/manifest-before.yaml "$MANIFEST_WORK" || true
+          echo "dry run; nothing pushed"
+
+      # A dry run (the schedule, no tag, dry_run, or a feature branch) ends here and reports through this job.
       - name: Fail a dry run when any patch failed
-        if: ${{ steps.test.outputs.failed == '1' && !(inputs.tag != '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai')) }}
+        if: ${{ steps.test.outputs.failed == '1' && !(inputs.tag != '' && !inputs.dry_run && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai')) }}
         run: exit 1
 
   push:
     needs: test
     # Read from the dispatch alone: nothing the test job ran can open it. Runs after a failed test
     # job too, to file conflicts and publish the CI base the resolving lane needs.
-    if: ${{ !cancelled() && inputs.tag != '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    if: ${{ !cancelled() && inputs.tag != '' && !inputs.dry_run && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
     runs-on: ubuntu-latest
     steps:
       - name: Require the bot token
@@ -196,12 +220,12 @@ jobs:
           git checkout -q "$FORK_BRANCH"
           failed=0
           if [ "$TEST_RESULT" != success ] || [ "$TEST_FAILED" != 0 ] || [ -s /tmp/conflicted ]; then failed=1; fi
-          while read -r branch _before after; do
+          while read -r branch before after; do
             # A patch counts as merged upstream only if the tested run saw it that way too.
             tree=merged
             grep -qxF "$branch" /tmp/merged || tree=$(git rev-parse "$after^{tree}")
-            if ! grep -qxF "$branch $tree" <<<"$TESTED_TREES"; then
-              echo "::error::$branch rebased to tree $tree here, which is not the tree its tests ran on"
+            if ! grep -qxF "$branch $tree $before" <<<"$TESTED_TREES"; then
+              echo "::error::$branch is at $before and rebased to tree $tree here, which is not the branch state and tree its tests ran on"
               failed=1
             fi
           done < /tmp/rebased
@@ -236,15 +260,7 @@ jobs:
           echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          while read -r branch _before _after; do
-            # Values reach yq as strings through strenv, never as expression text.
-            if grep -qxF "$branch" /tmp/merged; then
-              BRANCH=$branch yq -i '(.patches[] | select(.branch == strenv(BRANCH)) | .status) = "merged-upstream"' "$MANIFEST_WORK"
-            else
-              BRANCH=$branch yq -i '(.patches[] | select(.branch == strenv(BRANCH)) | .base) = strenv(TARGET)' "$MANIFEST_WORK"
-            fi
-          done < /tmp/rebased
-          yq -i '.base = strenv(TARGET)' "$MANIFEST_WORK"
+          bash /tmp/fork-scripts/record-series.sh
           cp "$MANIFEST_WORK" "$MANIFEST"
           manifest_commit=''
           if git diff --quiet -- "$MANIFEST"; then echo "manifest unchanged"; else

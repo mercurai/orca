@@ -9,7 +9,7 @@ git config user.email 'fork-bot@users.noreply.github.com'
 git config rerere.enabled true
 git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
 git fetch --no-tags upstream main
-git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*'
+git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' '+refs/heads/ci-only/*:refs/remotes/origin/ci-only/*'
 if [ -z "$TARGET" ]; then
   echo "base=$(git rev-parse --verify upstream/main)" >> "$GITHUB_OUTPUT"
   echo "dry run against upstream/main"

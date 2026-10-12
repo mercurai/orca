@@ -1045,5 +1045,123 @@ git add config; git commit -qm "long names"
 guard_expect "guard: a path list past the pipe buffer is refused" 3
 if [ "$(grep -c . "$root/guard.out")" = 51 ] && grep -qxF "... and 1150 more" "$root/guard.out"; then pass "guard: a path list past the pipe buffer is bounded"; else fail "guard: a path list past the pipe buffer is bounded"; tail -3 "$root/guard.out"; fi
 
+# --- Hand-ported heads (claude-code-config#1123) ---------------------------------------------------
+# The cases below keep that PR's numbers 28-40 (PR 41's own 28-34 are the merge-guard cases above). Each starts from ported_setup, which gives it a fresh
+# FORK_STATE_DIR. The scripts need yq, as the workflows do. Heads sit on ci-only/* branches, as a
+# ported head does before it moves patch/*.
+ported_setup() {
+  export FORK_STATE_DIR="$root/ported-state"; rm -rf "$FORK_STATE_DIR"; mkdir -p "$FORK_STATE_DIR"
+  setup
+  { echo "base: v1"; echo "release_branch: release/test"; echo "patches:"
+    for p in a b; do printf '  - branch: patch/%s\n    base: v1\n    status: ours-only\n' "$p"; done; } > "$root/patches.yaml"
+  git --git-dir="$root/origin.git" config uploadpack.allowAnySHA1InWant true
+  for p in a b; do
+    git checkout -q -b "ported-$p" v2; commit "$p.txt" "$p" "ported $p"; git push -q origin "ported-$p:refs/heads/ci-only/$p"
+  done
+  pa=$(git rev-parse ported-a) pb=$(git rev-parse ported-b)
+  git checkout -q -b onv1 v1; commit z.txt z "head on the old base"; stale=$(git rev-parse HEAD)
+  git push -q origin onv1:refs/heads/ci-only/z; git checkout -q fork
+  git tag v2.0.0 v2; git push -q origin refs/tags/v2.0.0   # assemble-release takes stable vX.Y.Z tags only
+  printf 'patch/a\npatch/b\n' > "$FORK_STATE_DIR/active"
+}
+runner_clone() {  # a runner checkout: only the fork branch and the patch branches, so a ported head must be fetched
+  rm -rf "$root/runner"; git clone -q --single-branch --branch mercurai "$root/origin.git" "$root/runner"; cd "$root/runner"
+  git fetch -q origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' '+refs/heads/ci-only/*:refs/remotes/origin/ci-only/*'
+  export BASE=$(git rev-parse v2) MANIFEST_WORK="$root/patches.yaml"
+}
+line_of() { awk -v b="$1" '$1 == b' "$FORK_STATE_DIR/rebased"; }
+rebase_with() { OVERRIDES="$1" bash "$here/rebase-series.sh" >"$root/rebase.out" 2>&1; }
+
+# 28. A ported head (on a ci-only/* branch) replaces the rebase, and is leased on the branch's old sha; the rest rebases.
+ported_setup; a0=$(remote_sha patch/a); runner_clone
+if rebase_with "patch/a=$pa" && [ "$(line_of patch/a)" = "patch/a $a0 $pa" ] &&
+   [ "$(line_of patch/b | cut -d' ' -f3)" != "$(remote_sha patch/b)" ] && git merge-base --is-ancestor v2 "$(line_of patch/b | cut -d' ' -f3)"; then
+  pass "a ported head is used instead of rebasing"; else fail "a ported head is used instead of rebasing"; fi
+
+# 29. The ported head goes out in the same atomic push as the rebased patches (case 28's setup, in its own state dir).
+ported_setup; a0=$(remote_sha patch/a); runner_clone; rebase_with "patch/a=$pa"
+if bash "$here/push-rebased-series.sh" "$FORK_STATE_DIR/rebased" mercurai "" >/dev/null && [ "$(remote_sha patch/a)" = "$pa" ] && remote_has v2 "$(remote_sha patch/b)"; then
+  pass "a ported head is pushed with the series"; else fail "a ported head is pushed with the series"; fi
+
+# 30. A head that does not contain the base fails closed.
+ported_setup; runner_clone
+if rebase_with "patch/a=$stale"; then fail "a head without the base fails"
+elif grep -q "does not contain" "$root/rebase.out"; then pass "a head without the base fails"; else fail "a head without the base fails"; fi
+
+# 31. Malformed, unlisted, duplicate and unfetchable overrides all fail before anything is pushed.
+ported_setup; runner_clone
+bad_ok=1
+for bad in "patch/a=${pa:0:12}" "patch/a=$pa;touch $root/pwned" "patch/c=$pa" "patch/a=$pa patch/a=$pb" "origin/a=$pa" "patch/a=$(printf '0%.0s' {1..40})"; do
+  if rebase_with "$bad"; then bad_ok=0; echo "accepted: $bad"; fi
+done
+if [ "$bad_ok" = 1 ] && [ ! -e "$root/pwned" ]; then pass "bad overrides fail closed"; else fail "bad overrides fail closed"; fi
+
+# 32. No overrides: the series rebases as before.
+ported_setup; runner_clone
+if rebase_with "" && [ "$(line_of patch/a | cut -d' ' -f3)" != "$pa" ] && [ "$(wc -l < "$FORK_STATE_DIR/rebased")" = 2 ]; then
+  pass "without overrides every patch rebases"; else fail "without overrides every patch rebases"; fi
+
+assemble_with() {  # TAG v2 against a manifest still recorded on v1, as before the series is pushed
+  export GITHUB_OUTPUT="$root/out" MANIFEST="$root/patches.yaml" MANIFEST_WORK="$root/manifest-work.yaml" TAG=v2.0.0
+  : > "$GITHUB_OUTPUT"
+  OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1 || { sed 's/^/  assemble: /' "$root/assemble.out"; return 1; }
+}
+
+# 33. Without overrides an unrebased series does not assemble.
+ported_setup
+if assemble_with ""; then fail "an unrebased series does not assemble"
+elif grep -q "manifest base is v1" "$root/assemble.out"; then pass "an unrebased series does not assemble"; else fail "an unrebased series does not assemble"; fi
+
+# 34. Ported heads for the whole series assemble on the tag before any patch/* ref moves.
+ported_setup
+if assemble_with "patch/a=$pa,patch/b=$pb" && [ "$(git rev-list --count v2..release/test)" = 2 ] &&
+   [ "$(git show release/test:a.txt)" = a ] && [ "$(git show release/test:b.txt)" = b ]; then
+  pass "ported heads assemble before patch/* moves"; else fail "ported heads assemble before patch/* moves"; fi
+
+# 35. A patch without an override still has to be rebased.
+ported_setup
+if assemble_with "patch/a=$pa"; then fail "an unrebased patch beside an override fails"
+elif grep -q "recorded on v1" "$root/assemble.out"; then pass "an unrebased patch beside an override fails"; else fail "an unrebased patch beside an override fails"; fi
+
+# 36. An overridden assembly head must contain the tag.
+ported_setup
+if assemble_with "patch/a=$stale,patch/b=$pb"; then fail "an assembly head without the tag fails"
+elif grep -q "does not contain" "$root/assemble.out"; then pass "an assembly head without the tag fails"; else fail "an assembly head without the tag fails"; fi
+
+# 37. A head with no commits beyond the base would retire the patch as merged: rejected, by rebase and by assembly.
+ported_setup; runner_clone
+if rebase_with "patch/a=$(git rev-parse v2)"; then fail "a head equal to the base is rejected"
+elif ! grep -q "no commits beyond" "$root/rebase.out"; then fail "a head equal to the base is rejected"
+else
+  cd "$root/work"
+  if assemble_with "patch/a=$(git rev-parse v2),patch/b=$pb"; then fail "a head equal to the base is rejected"
+  elif grep -q "no commits beyond" "$root/assemble.out"; then pass "a head equal to the base is rejected"; else fail "a head equal to the base is rejected"; fi
+fi
+
+# 38. A head that is on no origin patch/* or ci-only/* branch (a pull ref, a stray branch) is rejected.
+ported_setup
+git checkout -q -b stray v2; commit s.txt s "stray"; stray=$(git rev-parse HEAD); git push -q origin stray:refs/heads/other/x; git checkout -q fork
+runner_clone
+if rebase_with "patch/a=$stray"; then fail "a head outside patch/* and ci-only/* is rejected"
+elif ! grep -q "is not on an origin" "$root/rebase.out"; then fail "a head outside patch/* and ci-only/* is rejected"
+else
+  cd "$root/work"
+  if assemble_with "patch/a=$stray,patch/b=$pb"; then fail "a head outside patch/* and ci-only/* is rejected"
+  elif grep -q "is not on an origin" "$root/assemble.out"; then pass "a head outside patch/* and ci-only/* is rejected"; else fail "a head outside patch/* and ci-only/* is rejected"; fi
+fi
+
+# 39. A carriage return in an override never reaches the log, where the runner would read it as a command.
+ported_setup; runner_clone
+if rebase_with "patch/a=$pa"$'\r::add-mask::x'; then fail "an override's raw text stays out of the log"
+elif grep -q "::add-mask::" "$root/rebase.out"; then fail "an override's raw text stays out of the log"; else pass "an override's raw text stays out of the log"; fi
+
+# 40. A carriage return in a ported commit's subject never reaches the log.
+ported_setup
+git checkout -q -b crsub v2; echo c > c.txt; git add c.txt; git commit -q -m "port"$'\r::add-mask::x'; crsha=$(git rev-parse HEAD)
+git push -q origin crsub:refs/heads/ci-only/cr; git checkout -q fork; runner_clone
+# (git's own rebase progress prints a CR, so the check is on the subject's line: joined, not split.)
+if rebase_with "patch/a=$crsha" && grep -q ' port::add-mask::x$' "$root/rebase.out"; then pass "a commit subject's carriage return stays out of the log"
+else fail "a commit subject's carriage return stays out of the log"; fi
+
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
