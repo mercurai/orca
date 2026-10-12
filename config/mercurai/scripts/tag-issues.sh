@@ -10,8 +10,9 @@
 # Runs after the merge-forward, from a copy made before it, and must not be able to skip anything: the workflow
 # runs it last.
 #
-# Env: UPSTREAM_SHA, FORK_MAIN (origin/main as the run found it), GUARD_REFUSED, FORK_BRANCH, SYNC_ISSUE_LABEL,
-#      GH_REPO, FORK_STATE_DIR (/tmp), GH (the gh command, for tests). Reads <state>/tags-new.
+# Env: UPSTREAM_SHA, FORK_MAIN (origin/main as the run found it), GUARD_REFUSED, MAIN_MIRRORED (the main mirror
+#      step's outcome), FORK_BRANCH, SYNC_ISSUE_LABEL, GH_REPO, FORK_STATE_DIR (/tmp), GH (the gh command, for
+#      tests). Reads <state>/tags-new.
 set -euo pipefail
 state=${FORK_STATE_DIR:-/tmp}
 here=$(cd "$(dirname "$0")" && pwd)
@@ -23,19 +24,20 @@ SUMMARY_TITLE="fork-sync tag: summary"
 
 bash "$here/list-skipped-tags.sh"
 if [ ! -s "$state/tags-skipped" ]; then exit 0; fi
-# The trusted tree: the pin once it is guarded, origin/main as the run found it when the guard refused.
-if [ "${GUARD_REFUSED:-true}" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi
+# The trusted tree: the pin once it is guarded AND the main mirror pushed it, otherwise origin/main as the run found it.
+if [ "${GUARD_REFUSED:-true}" = false ] && [ "${MAIN_MIRRORED:-}" = success ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi
 me=$("$gh" api user --jq .login)
 issues=$("$gh" api --paginate "repos/$GH_REPO/issues?state=all&labels=$SYNC_ISSUE_LABEL&per_page=100" \
   --jq '.[] | {number, title, state, login: .user.login, body: (.body // "")}')
-find_issue() { jq -c -s --arg t "$1" '[.[] | select(.title == $t)][0] // empty' <<<"$issues"; }
+# Only the bot's own issues: a third party's issue with the same title is not ours to reuse, edit or reopen.
+find_issue() { jq -c -s --arg t "$1" --arg me "$me" '[.[] | select(.title == $t and .login == $me)][0] // empty' <<<"$issues"; }
 ensure_label() { "$gh" label create "$SYNC_ISSUE_LABEL" --color d93f0b --description 'fork sync needs a human' 2>/dev/null || true; }
-# True when the bot itself wrote this issue's body, or one of its comments, naming the commit.
+# True when the bot itself wrote this issue's body, or one of its comments, with the exact input that mirrors the tag.
 own_mention() {
-  local existing=$1 number=$2 sha=$3
-  if jq -e --arg me "$me" --arg s "$sha" '.login == $me and (.body | contains($s))' <<<"$existing" > /dev/null; then return 0; fi
+  local existing=$1 number=$2 mention=$3
+  if jq -e --arg me "$me" --arg a "$mention" '.login == $me and (.body | contains($a))' <<<"$existing" > /dev/null; then return 0; fi
   "$gh" api --paginate "repos/$GH_REPO/issues/$number/comments?per_page=100" --jq '.[] | {login: .user.login, body: (.body // "")}' \
-    | jq -e -s --arg me "$me" --arg s "$sha" 'any(.[]; .login == $me and (.body | contains($s)))' > /dev/null
+    | jq -e -s --arg me "$me" --arg a "$mention" 'any(.[]; .login == $me and (.body | contains($a)))' > /dev/null
 }
 
 new=0 updates=0 overflow=() labelled=false
@@ -53,7 +55,8 @@ while read -r tag <&3; do
     continue
   fi
   number=$(jq -r .number <<<"$existing")
-  if own_mention "$existing" "$number" "$sha"; then continue; fi
+  mention="allow_tag=$tag@$sha"
+  if own_mention "$existing" "$number" "$mention"; then continue; fi
   if [ "$updates" -ge "$MAX_UPDATES" ]; then overflow+=("$tag $sha"); continue; fi
   body=$(bash "$here/render-tag-review.sh" "$tag" "$sha" "$trusted" "$FORK_BRANCH")
   if [ "$(jq -r .state <<<"$existing")" = closed ]; then "$gh" issue reopen "$number"; fi
@@ -62,7 +65,9 @@ while read -r tag <&3; do
 done 3< "$state/tags-skipped"
 
 if [ "${#overflow[@]}" -gt 0 ]; then
-  list=$(printf '%s\n' "${overflow[@]}" | sort | head -50 | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')
+  # sed prints the first 50 lines but reads all of its input: a head here would exit on SIGPIPE once the list
+  # outgrows the pipe buffer, and pipefail would fail the step.
+  list=$(printf '%s\n' "${overflow[@]}" | sort | LC_ALL=C sed -n '1,50{s#[^A-Za-z0-9._/@+ -]#?#gp;}')
   body=$(printf '%s release tags need owner review but did not get an issue of their own this run (at most %s new issues and %s updates per run; the rest follow on later runs). First 50, tag and commit:\n\n```\n%s\n```\n' \
     "${#overflow[@]}" "$MAX_NEW" "$MAX_UPDATES" "$list")
   existing=$(find_issue "$SUMMARY_TITLE")
