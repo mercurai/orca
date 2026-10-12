@@ -20,7 +20,11 @@ jobs:
         with:
           node-version: 24
       - name: Lint config/mercurai
-        run: npx --yes oxlint@1.86.0 --format github config/mercurai
+        working-directory: ${{ runner.temp }}
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: npx --yes oxlint@1.86.0 -c "$GITHUB_WORKSPACE/.oxlintrc.json" --format github "$GITHUB_WORKSPACE/config/mercurai"
       - name: Node scripts
         run: node --test "config/mercurai/scripts/*.test.mjs"
       - name: Series scripts
