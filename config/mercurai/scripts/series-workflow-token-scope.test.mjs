@@ -151,7 +151,7 @@ test('the state files default to /tmp, where the workflows read them', () => {
 test('assemble-release strips CR from the git output it prints', () => {
   const assemble = readFileSync(resolve(import.meta.dirname, 'assemble-release.sh'), 'utf8')
   assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..HEAD" | tr -d '\r'`))
-  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..${head_of[$patch]}" 2>&1 | tr -d '\r' ||`))
+  assert.ok(assemble.includes("\"refs/tags/$TAG..${head_of[$patch]}\" 2>&1 | tr -d '\\r' ||"))
 })
 
 test('rebase-series strips CR from the git rebase output it prints', () => {
