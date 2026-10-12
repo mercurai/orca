@@ -215,7 +215,7 @@ assemble_with() {  # TAG v2 against a manifest still recorded on v1, as before t
   export GITHUB_OUTPUT="$root/out" MANIFEST="$root/patches.yaml" MANIFEST_WORK="$root/manifest-work.yaml" TAG=v2 UPSTREAM_REPO=test/up
   : > "$GITHUB_OUTPUT"
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$root/origin.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/test/up.git \
-    OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1
+    OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1 || { sed 's/^/  assemble: /' "$root/assemble.out"; return 1; }
 }
 
 # 18. Without overrides an unrebased series does not assemble.
