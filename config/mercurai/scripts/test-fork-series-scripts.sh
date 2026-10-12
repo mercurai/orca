@@ -531,6 +531,29 @@ if [ "$rc" = 3 ]; then refused=true; else refused=false; fi
 sp_setup; u2=$(git -C "$root/sp/work" rev-parse fork~1); : > "$root/sp/pushes"
 if [ "$refused" = true ] && [ "$(sp_run "$refused")" = "3 3 3" ] && [ ! -s "$root/sp/pushes" ]; then pass "sync-push: a short override sha leaves every push shut"; else fail "sync-push: a short override sha leaves every push shut"; fi
 
+# 33j. A ref on an intermediate commit carries its own tree: X1 adds a workflow, X2 (the pin) removes it, so the range nets to
+# nothing and the guard passes, but a tag or branch on X1 would push the workflow and run it. It is skipped; the pin's refs go.
+rm -rf "$root/xp"; mkdir -p "$root/xp"; git init -q --bare "$root/xp/origin.git"
+printf '#!/bin/sh\necho push >> "%s/xp/pushes"\n' "$root" > "$root/xp/origin.git/hooks/pre-receive"; chmod +x "$root/xp/origin.git/hooks/pre-receive"; : > "$root/xp/pushes"
+git init -q -b fork "$root/xp/work"; cd "$root/xp/work"; git remote add origin "$root/xp/origin.git"; mkdir -p .github/workflows
+commit a.txt 1 "base"; git branch mainmirror; mkdir -p .github/workflows
+commit .github/workflows/x.yml x "X1 adds a workflow"; x1=$(git rev-parse HEAD)
+git rm -q .github/workflows/x.yml; git commit -qm "X2 removes it"; x2=$(git rev-parse HEAD)
+git branch up "$x2"; git checkout -q fork; git reset -q --hard mainmirror
+git update-ref refs/upstream-tags/v9.9.9 "$x1"; git update-ref refs/upstream-tags/v9.9.10 "$x2"
+git update-ref refs/remotes/upstream/mid "$x1"; git update-ref refs/remotes/upstream/tip "$x2"
+printf 'v9.9.9\nv9.9.10\n' > "$FORK_STATE_DIR/tags-new"
+rc=0; bash "$here/merge-guard.sh" fork "$x2" mainmirror > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ]; then pass "intermediate refs: the guard passes a range that nets to no guarded change"; else fail "intermediate refs: the guard passes a range that nets to no guarded change"; cat "$root/guard.out"; fi
+ok=true
+for kind in main tags branches; do GUARD_REFUSED=false UPSTREAM_SHA="$x2" bash "$here/sync-push.sh" "$kind" > "$root/xp/out.$kind" 2>&1 || ok=false; done
+xp_origin=$(git --git-dir="$root/xp/origin.git" for-each-ref --format='%(refname)' | tr '\n' ' ')
+if [ "$ok" = true ] && [ "$xp_origin" = "refs/heads/main refs/heads/upstream/tip refs/tags/v9.9.10 " ] && [ "$(wc -l < "$root/xp/pushes")" = 3 ] &&
+   [ "$(cat "$FORK_STATE_DIR/rebase-tag")" = v9.9.10 ]; then
+  pass "intermediate refs: a tag and a branch on a commit whose guarded paths differ from the pin are not pushed; the pin's are"
+else fail "intermediate refs: a tag and a branch on a commit whose guarded paths differ from the pin are not pushed; the pin's are"; echo "$xp_origin"; cat "$root/xp/out."*; fi
+if grep -qF v9.9.9 "$root/xp/out.tags" && grep -qF mid "$root/xp/out.branches"; then pass "intermediate refs: the skipped ones are named in a warning"; else fail "intermediate refs: the skipped ones are named in a warning"; fi
+
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
 git add config; git commit -qm "many"

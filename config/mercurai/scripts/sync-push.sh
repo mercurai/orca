@@ -2,8 +2,10 @@
 # The only place fork-sync-upstream pushes upstream's refs (claude-code-config#1148). A pushed workflow file
 # is active at once and runs with the repository secrets, so nothing is pushed unless the merge guard passed
 # for the one pinned commit, and every ref pushed stands on that commit: main at exactly UPSTREAM_SHA, a tag or
-# branch only when its commit is an ancestor of it. Anything else is skipped with a warning. Git only: the
-# caller supplies the credentials for the push.
+# branch only when its commit is an ancestor of it AND its own tree matches the pin on the guarded paths. The
+# guard compares the range's endpoints, so a workflow added in one commit and removed in the next nets to
+# nothing, yet a ref on the first commit would push it and run it. Anything else is skipped with a warning
+# and tried again on every run. Git only: the caller supplies the credentials for the push.
 #
 # Usage: sync-push.sh main|tags|branches
 # Env:   UPSTREAM_SHA (the pinned commit), GUARD_REFUSED (must be exactly "false"; unset counts as refused),
@@ -18,13 +20,17 @@ if [ "${GUARD_REFUSED:-true}" != false ]; then
   exit 3
 fi
 : "${UPSTREAM_SHA:?}"
-within() { git merge-base --is-ancestor "$1" "$UPSTREAM_SHA"; }
+eligible() {
+  git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai
+}
 summary() { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$1" >> "$GITHUB_STEP_SUMMARY"; fi; }
 display() { printf '%s' "$*" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'; }
 
 case "${1:-}" in
   main)
-    # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
+    # The pinned tip itself: its tree is the one the guard checked, so it needs no eligible() test, and the
+    # merge-forward merges the same commit. A non-fast-forward push fails here on purpose: `main` must never
+    # carry fork commits.
     git push origin "$UPSTREAM_SHA:refs/heads/main"
     ;;
   tags)
@@ -33,7 +39,7 @@ case "${1:-}" in
     refspecs=() skipped=()
     while read -r tag; do
       if [ -z "$tag" ]; then continue; fi
-      if within "refs/upstream-tags/$tag^{commit}"; then
+      if eligible "refs/upstream-tags/$tag^{commit}"; then
         refspecs+=("refs/upstream-tags/$tag:refs/tags/$tag")
         echo "$tag" >> "$state/tags-pushed"
       else
@@ -41,7 +47,7 @@ case "${1:-}" in
       fi
     done < "$state/tags-new"
     if [ "${#skipped[@]}" -gt 0 ]; then
-      msg="tags not mirrored, their commit is not in $UPSTREAM_SHA: $(display "${skipped[*]}")"
+      msg="tags not mirrored (not inside $UPSTREAM_SHA, or their guarded paths differ from it; tried again next run): $(display "${skipped[*]}")"
       echo "::warning::$msg"; summary "$msg"
     fi
     # New names only, never forced: an existing tag is not rewritten, whatever upstream did.
@@ -55,10 +61,10 @@ case "${1:-}" in
     refspecs=() skipped=()
     while read -r sha name; do
       if [ -z "$name" ] || [ "$name" = HEAD ]; then continue; fi
-      if within "$sha"; then refspecs+=("$sha:refs/heads/upstream/$name"); else skipped+=("$name"); fi
+      if eligible "$sha"; then refspecs+=("$sha:refs/heads/upstream/$name"); else skipped+=("$name"); fi
     done < <(git for-each-ref --format='%(objectname) %(refname:strip=3)' refs/remotes/upstream)
     if [ "${#skipped[@]}" -gt 0 ]; then
-      msg="branches not mirrored, their tip is not in $UPSTREAM_SHA: $(display "${skipped[*]}")"
+      msg="branches not mirrored (not inside $UPSTREAM_SHA, or their guarded paths differ from it; tried again next run): $(display "${skipped[*]}")"
       echo "::warning::$msg"; summary "$msg"
     fi
     if [ "${#refspecs[@]}" -gt 0 ]; then git push origin "${refspecs[@]}"; fi

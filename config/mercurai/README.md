@@ -54,9 +54,12 @@ series.
   and fails. An unguarded range runs, in order, from `UPSTREAM_SHA` only (`scripts/sync-push.sh`):
   `main` fast-forwarded to exactly that commit (a non-fast-forward push fails the run; `main` never
   carries fork commits); new release tags (`vX.Y.Z` and `vX.Y.Z-rc.N` names, never moved) whose
-  commit is inside it, the rest skipped with a warning; the `fork-rebase-patches` dispatch for the
-  newest tag mirrored this run (a stable `vX.Y.Z` wins over an `-rc.N`; one dispatch per run); with
-  `mirror_branches`, the upstream branches whose tip is inside it; then the merge into `mercurai` in
+  commit is inside it and has the same `.github/` and `config/mercurai/` tree as it (a workflow added
+  and removed again inside the range nets to nothing, so a ref on the commit between would otherwise
+  push it), the rest skipped with a warning and tried again next run; the `fork-rebase-patches`
+  dispatch for the newest tag mirrored this run (a stable `vX.Y.Z` wins over an `-rc.N`; one dispatch
+  per run); with `mirror_branches`, the upstream branches that pass the same test; then the merge
+  into `mercurai` in
   `scripts/merge-forward.sh`, which checks the merge result against the branch again and resets a
   merge that changed a guarded path before anything is pushed. A merge conflict opens a `fork-sync:`
   issue and fails the run; the tags were already handed on. To release a reviewed range, merge it

@@ -166,9 +166,14 @@ test('sync-push.sh pushes nothing unless the guard said false, and only refs ins
   assert.ok(gate !== -1 && gate < script.indexOf('git push'))
   assert.match(script, /if \[ "\$\{GUARD_REFUSED:-true\}" != false \]; then\n.*\n {2}exit 3\nfi/)
   assert.ok(script.includes('git push origin "$UPSTREAM_SHA:refs/heads/main"'))
-  assert.ok(script.includes('if within "refs/upstream-tags/$tag^{commit}"; then'))
-  assert.ok(script.includes('if within "$sha"; then refspecs+=("$sha:refs/heads/upstream/$name")'))
-  assert.ok(script.includes('within() { git merge-base --is-ancestor "$1" "$UPSTREAM_SHA"; }'))
+  assert.ok(script.includes('if eligible "refs/upstream-tags/$tag^{commit}"; then'))
+  assert.ok(script.includes('if eligible "$sha"; then refspecs+=("$sha:refs/heads/upstream/$name")'))
+  // Inside the pin AND the same guarded paths as the pin: the guard only compares the range's endpoints.
+  assert.ok(
+    script.includes(
+      'git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai'
+    )
+  )
   assert.doesNotMatch(script, /refs\/remotes\/upstream\/main|GH_TOKEN|FORK_BOT_TOKEN|--force|--tags|--mirror/)
 })
 
