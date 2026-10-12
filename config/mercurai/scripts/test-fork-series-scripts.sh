@@ -160,5 +160,83 @@ setup; rebase_series; m0=$(remote_sha mercurai)
 bash "$here/push-rebased-series.sh" "$root/rebased" mercurai "" >/dev/null
 if remote_has v2 "$(remote_sha patch/a)" && [ "$(remote_sha mercurai)" = "$m0" ]; then pass "patches alone push without a manifest commit"; else fail "patches alone push without a manifest commit"; fi
 
+# Hand-ported heads (claude-code-config#1123). The scripts read and write /tmp/active, /tmp/rebased and the
+# like, and need yq, as the workflows do. Heads sit on ci-only/* branches, as a ported head does before it moves patch/*.
+ported_setup() {
+  setup
+  { echo "base: v1"; echo "release_branch: release/test"; echo "patches:"
+    for p in a b; do printf '  - branch: patch/%s\n    base: v1\n    status: ours-only\n' "$p"; done; } > "$root/patches.yaml"
+  git --git-dir="$root/origin.git" config uploadpack.allowAnySHA1InWant true
+  for p in a b; do
+    git checkout -q -b "ported-$p" v2; commit "$p.txt" "$p" "ported $p"; git push -q origin "ported-$p:refs/heads/ci-only/$p"
+  done
+  pa=$(git rev-parse ported-a) pb=$(git rev-parse ported-b)
+  git checkout -q -b onv1 v1; commit z.txt z "head on the old base"; stale=$(git rev-parse HEAD)
+  git push -q origin onv1:refs/heads/ci-only/z; git checkout -q fork
+  printf 'patch/a\npatch/b\n' > /tmp/active
+}
+runner_clone() {  # a runner checkout: only the fork branch and the patch branches, so a ported head must be fetched
+  rm -rf "$root/runner"; git clone -q --single-branch --branch mercurai "$root/origin.git" "$root/runner"; cd "$root/runner"
+  git fetch -q origin '+refs/heads/patch/*:refs/remotes/origin/patch/*'
+  export BASE=$(git rev-parse v2) MANIFEST_WORK="$root/patches.yaml"
+}
+line_of() { awk -v b="$1" '$1 == b' /tmp/rebased; }
+rebase_with() { OVERRIDES="$1" bash "$here/rebase-series.sh" >"$root/rebase.out" 2>&1; }
+
+# 13. A ported head replaces the rebase, is fetched by sha, and is leased on the branch's old sha; the rest rebases.
+ported_setup; a0=$(remote_sha patch/a); runner_clone
+if rebase_with "patch/a=$pa" && [ "$(line_of patch/a)" = "patch/a $a0 $pa" ] &&
+   [ "$(line_of patch/b | cut -d' ' -f3)" != "$(remote_sha patch/b)" ] && git merge-base --is-ancestor v2 "$(line_of patch/b | cut -d' ' -f3)"; then
+  pass "a ported head is used instead of rebasing"; else fail "a ported head is used instead of rebasing"; fi
+
+# 14. The ported head goes out in the same atomic push as the rebased patches.
+if bash "$here/push-rebased-series.sh" /tmp/rebased mercurai "" >/dev/null && [ "$(remote_sha patch/a)" = "$pa" ] && remote_has v2 "$(remote_sha patch/b)"; then
+  pass "a ported head is pushed with the series"; else fail "a ported head is pushed with the series"; fi
+
+# 15. A head that does not contain the base fails closed.
+ported_setup; runner_clone
+if rebase_with "patch/a=$stale"; then fail "a head without the base fails"
+elif grep -q "does not contain" "$root/rebase.out"; then pass "a head without the base fails"; else fail "a head without the base fails"; fi
+
+# 16. Malformed, unlisted, duplicate and unfetchable overrides all fail before anything is pushed.
+ported_setup; runner_clone
+bad_ok=1
+for bad in "patch/a=${pa:0:12}" "patch/a=$pa;touch $root/pwned" "patch/c=$pa" "patch/a=$pa patch/a=$pb" "origin/a=$pa" "patch/a=$(printf '0%.0s' {1..40})"; do
+  if rebase_with "$bad"; then bad_ok=0; echo "accepted: $bad"; fi
+done
+if [ "$bad_ok" = 1 ] && [ ! -e "$root/pwned" ]; then pass "bad overrides fail closed"; else fail "bad overrides fail closed"; fi
+
+# 17. No overrides: the series rebases as before.
+ported_setup; runner_clone
+if rebase_with "" && [ "$(line_of patch/a | cut -d' ' -f3)" != "$pa" ] && [ "$(wc -l < /tmp/rebased)" = 2 ]; then
+  pass "without overrides every patch rebases"; else fail "without overrides every patch rebases"; fi
+
+assemble_with() {  # TAG v2 against a manifest still recorded on v1, as before the series is pushed
+  export GITHUB_OUTPUT="$root/out" MANIFEST="$root/patches.yaml" MANIFEST_WORK="$root/manifest-work.yaml" TAG=v2 UPSTREAM_REPO=test/up
+  : > "$GITHUB_OUTPUT"
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$root/origin.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/test/up.git \
+    OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1
+}
+
+# 18. Without overrides an unrebased series does not assemble.
+ported_setup
+if assemble_with ""; then fail "an unrebased series does not assemble"; else pass "an unrebased series does not assemble"; fi
+
+# 19. Ported heads for the whole series assemble on the tag before any patch/* ref moves.
+ported_setup
+if assemble_with "patch/a=$pa,patch/b=$pb" && [ "$(git rev-list --count v2..release/test)" = 2 ] &&
+   [ "$(git show release/test:a.txt)" = a ] && [ "$(git show release/test:b.txt)" = b ]; then
+  pass "ported heads assemble before patch/* moves"; else fail "ported heads assemble before patch/* moves"; fi
+
+# 20. A patch without an override still has to be rebased.
+ported_setup
+if assemble_with "patch/a=$pa"; then fail "an unrebased patch beside an override fails"
+elif grep -q "recorded on v1" "$root/assemble.out"; then pass "an unrebased patch beside an override fails"; else fail "an unrebased patch beside an override fails"; fi
+
+# 21. An overridden assembly head must contain the tag.
+ported_setup
+if assemble_with "patch/a=$stale,patch/b=$pb"; then fail "an assembly head without the tag fails"
+elif grep -q "does not contain" "$root/assemble.out"; then pass "an assembly head without the tag fails"; else fail "an assembly head without the tag fails"; fi
+
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
