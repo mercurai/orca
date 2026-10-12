@@ -132,8 +132,7 @@ const buildersByAgent = new Map<string, CommandBuilders>([
         getManagedLifecycleHook(path, {
           configDirName: '.codebuddy',
           scriptBaseName: 'codebuddy-hook',
-          usesWindowsCompatLauncher: true,
-          windowsHookShell: 'powershell'
+          usesWindowsCompatLauncher: true
         }).command
       ],
       remote: (path) => [getClaudeRemoteCommand(path)]
@@ -282,10 +281,7 @@ describe('managed hook command contract', () => {
         // Native PowerShell hooks evaluate these variables without Grok's dollar-byte scanner.
         const scannedCommand =
           platform === 'win32' &&
-          (agent === 'qoder' ||
-            agent === 'qoder-cn' ||
-            agent === 'qwen-code' ||
-            agent === 'codebuddy') &&
+          (agent === 'qoder' || agent === 'qoder-cn' || agent === 'qwen-code') &&
           command.startsWith('$scriptPath = Join-Path')
             ? command
                 .replaceAll('$LASTEXITCODE', '')

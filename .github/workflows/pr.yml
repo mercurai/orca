@@ -219,6 +219,17 @@ jobs:
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
           bun --bun run check:process-host-imports
 
+      - name: Check main-process sync launches
+        if: '!cancelled()'
+        id: main-sync-spawn-ratchet
+        background: true
+        env:
+          PREFLIGHT_PHASE_SELECTED: ${{ needs.code_paths.outputs.static_analysis == 'true' }}
+          PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
+        run: |
+          if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
+          bun --bun run check:main-sync-spawn-ratchet
+
       # Keep each check in its own log while sharing this runner.
       - name: Lint
         if: '!cancelled()'
@@ -471,6 +482,8 @@ jobs:
       - wait: typecheck
 
       - wait: process-host-imports
+
+      - wait: main-sync-spawn-ratchet
 
       - wait: unit-plan
 
