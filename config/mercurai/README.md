@@ -74,10 +74,20 @@ series.
   without one), and a ref at v1.4.224 or later without the patch fails the build. To add a
   target: add its build lane to `fork-orcad-template` first, then widen the list; a host on a
   target outside the list gets no managed server and falls back to the legacy relay.
-- `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer,
-  keeps it as a run artifact and stops before the channel repo is touched; `-f ref=<branch>`
-  (dry run only) builds that ref under the tag's version. A dispatch from a branch other than
-  the default branch is always a dry run.
+- `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch; no secret,
+  no repository code), `orcad-template` and `build-win` (build and package the ref's code; no
+  secret), `publish` (the only job given `FORK_BOT_TOKEN`; runs no repository code, only uploads
+  the three files `build-win` made). The owner's app updates itself from the channel repo, so
+  the code being built never shares a job with the token that publishes it. `publish` exists
+  only for a real build dispatched from the default branch; its condition reads the dispatch
+  inputs and ref, which no build step can change.
+  `config/mercurai/scripts/release-workflow-token-scope.test.mjs` pins all of this.
+- `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer
+  and keeps it as a run artifact; the run has no publish job. The artifact holds the installer
+  alone, renamed `orca-windows-setup-DRY-RUN-<tag>.exe`, with no `latest.yml` and no blockmap,
+  so nothing in it can be served as an update. `-f ref=<branch>` (dry run only) builds that ref
+  under the tag's version. A dispatch from a branch other than the default branch is always a
+  dry run.
 - `fork-scripts-test`: on a push or PR that touches `config/mercurai/`, runs the fork scripts'
   own tests (`test-fork-series-scripts.sh`, `node --test "config/mercurai/scripts/*.test.mjs"`).
 

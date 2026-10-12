@@ -44,6 +44,9 @@ on:
       targets:
         description: The targets the uploaded template carries
         value: ${{ jobs.template.outputs.targets }}
+      sha:
+        description: The commit the template was built from
+        value: ${{ jobs.template.outputs.sha }}
 
 permissions:
   contents: read
@@ -58,6 +61,11 @@ jobs:
     outputs:
       ships: ${{ steps.support.outputs.ships }}
       targets: ${{ inputs.targets }}
+      sha: ${{ steps.resolved.outputs.sha }}
+    # Container jobs default to `sh -e`; the steps below use bash arrays, pipefail and here-strings.
+    defaults:
+      run:
+        shell: bash
     env:
       ORCA_BACKGROUND_LAUNCH: '1'
       CC: gcc
@@ -96,6 +104,11 @@ jobs:
       - name: Trust the checked-out workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # The caller compares this with what it checks out: a branch can move during the run.
+      - name: Record the commit being built
+        id: resolved
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       # The fork ships a template exactly when the ref carries patch/orca-partial-orcad-template.
       # Upstream's template scripts already exist on v1.4.223, so they cannot be the test: that
       # line has always been released without a template and must keep building that way. From
@@ -110,7 +123,7 @@ jobs:
             echo "ships=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          version=$(grep -m1 -E '^  "version": "[0-9]+[.][0-9]+[.][0-9]+' package.json | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1)
+          version=$(grep -m1 -E '^  "version": "[0-9]+[.][0-9]+[.][0-9]+' package.json | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1 || true)
           if [ -z "$version" ]; then
             echo "::error::cannot read the version from package.json at $TEMPLATE_REF"
             exit 1
@@ -161,7 +174,9 @@ jobs:
         run: |
           set -euo pipefail
           require_args=()
-          for file in $TEMPLATE_REQUIRE; do require_args+=(--require "$file"); done
+          # Split on spaces without expanding globs against the checkout.
+          read -ra required_files <<<"$TEMPLATE_REQUIRE"
+          for file in "${required_files[@]}"; do require_args+=(--require "$file"); done
           report=$(node .fork/config/mercurai/scripts/check-orcad-template.mjs \
             --repo "$GITHUB_WORKSPACE" --resources "$GITHUB_WORKSPACE/out" \
             --targets "$TEMPLATE_TARGETS" "${require_args[@]}")
