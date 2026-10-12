@@ -20,7 +20,7 @@ if [ -z "$paths" ]; then
   exit 0
 fi
 count=$(printf '%s\n' "$paths" | wc -l)
-printf '%s\n' "$paths" | head -50 | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'
+head -50 <<<"$paths" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'
 if [ "$count" -gt 50 ]; then echo "... and $((count - 50)) more"; fi
 sha=$(git rev-parse "$upstream^{commit}")
 if [[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$sha" ]]; then
