@@ -38,9 +38,10 @@
 #
 # `-f ref=<branch>` builds that branch instead of the tag; the tag then only supplies the version.
 # It is a dry run by definition, and it must be dispatched from a branch other than the default
-# one: code that is not a tag must not run in the default branch's cache scope, which the fork's
-# workflows holding the bot token restore (claude-code-config#1125, SEC-201). Only a branch of
-# this repo is accepted: no pull-request head, tag or bare sha from the fork network.
+# one: code that is not a tag stays out of the default branch's cache scope. No job holding the
+# bot token restores that scope any more (claude-code-config#1125, SEC-201); this keeps it clean
+# should one ever do so again. Only a branch of this repo is accepted: no pull-request head, tag
+# or bare sha from the fork network.
 #
 #   gh workflow run fork-release-win-build.yml --ref <a branch carrying these workflows> \
 #     -f tag=v1.4.224-mercurai.0 -f ref=ci-only/v1.4.224/assembly-dry-run-2

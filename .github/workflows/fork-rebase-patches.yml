@@ -122,7 +122,10 @@ jobs:
           [ -s /tmp/conflicted ] && failed=1
           : > /tmp/trees
           while read -r branch _before _after; do
-            grep -qxF "$branch" /tmp/merged && continue
+            if grep -qxF "$branch" /tmp/merged; then
+              echo "$branch merged" >> /tmp/trees
+              continue
+            fi
             git checkout -q "$branch"
             mapfile -t tests < <(yq -r ".patches[] | select(.branch == \"$branch\") | .tests[]?" "$MANIFEST_WORK")
             if [ "${#tests[@]}" -gt 0 ] && ! pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"; then
@@ -194,8 +197,9 @@ jobs:
           failed=0
           if [ "$TEST_RESULT" != success ] || [ "$TEST_FAILED" != 0 ] || [ -s /tmp/conflicted ]; then failed=1; fi
           while read -r branch _before after; do
-            grep -qxF "$branch" /tmp/merged && continue
-            tree=$(git rev-parse "$after^{tree}")
+            # A patch counts as merged upstream only if the tested run saw it that way too.
+            tree=merged
+            grep -qxF "$branch" /tmp/merged || tree=$(git rev-parse "$after^{tree}")
             if ! grep -qxF "$branch $tree" <<<"$TESTED_TREES"; then
               echo "::error::$branch rebased to tree $tree here, which is not the tree its tests ran on"
               failed=1
@@ -233,13 +237,14 @@ jobs:
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           while read -r branch _before _after; do
+            # Values reach yq as strings through strenv, never as expression text.
             if grep -qxF "$branch" /tmp/merged; then
-              yq -i "(.patches[] | select(.branch == \"$branch\") | .status) = \"merged-upstream\"" "$MANIFEST_WORK"
+              BRANCH=$branch yq -i '(.patches[] | select(.branch == strenv(BRANCH)) | .status) = "merged-upstream"' "$MANIFEST_WORK"
             else
-              yq -i "(.patches[] | select(.branch == \"$branch\") | .base) = \"$TARGET\"" "$MANIFEST_WORK"
+              BRANCH=$branch yq -i '(.patches[] | select(.branch == strenv(BRANCH)) | .base) = strenv(TARGET)' "$MANIFEST_WORK"
             fi
           done < /tmp/rebased
-          yq -i ".base = \"$TARGET\"" "$MANIFEST_WORK"
+          yq -i '.base = strenv(TARGET)' "$MANIFEST_WORK"
           cp "$MANIFEST_WORK" "$MANIFEST"
           manifest_commit=''
           if git diff --quiet -- "$MANIFEST"; then echo "manifest unchanged"; else

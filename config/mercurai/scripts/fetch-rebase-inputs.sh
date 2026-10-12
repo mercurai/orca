@@ -15,6 +15,11 @@ if [ -z "$TARGET" ]; then
   echo "dry run against upstream/main"
   exit 0
 fi
+# The tag later lands in the manifest and the pushed refs: release and release-candidate names only.
+if [[ ! "$TARGET" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+  echo "::error::tag '$TARGET' is not v<major>.<minor>.<patch> or a -rc.<n> of one"
+  exit 1
+fi
 # Pin the target once: upstream re-cut v1.4.224, so one tag name can mean two commits in a day.
 target_sha=$(git rev-parse --verify "refs/tags/$TARGET^{commit}")
 if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$target_sha" ]; then

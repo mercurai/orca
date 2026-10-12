@@ -116,10 +116,13 @@ Trust boundary:
   that branch's copy of the workflow and drop the guard, and the run then gets repository secrets.
   Branch protection on `mercurai` and `main` does not cover other branches. The platform fix is a
   GitHub environment restricted to `mercurai` holding the channel token (an open issue).
-- Accepted risk, still: `fork-assemble-release` and `fork-rebase-patches` run patch code in jobs that
-  hold `FORK_BOT_TOKEN`, which can also write to the channel repo, so only reviewed fork code may be
-  on `patch/*` and `release/mercurai`. A separate channel-only token for `publish` removes this (an
-  open issue).
+- `fork-assemble-release` and `fork-rebase-patches` run patch code only in a `test` job with no
+  secret and no cache. Their `push` job holds `FORK_BOT_TOKEN`, runs no repository code, and derives
+  the branch or series again with git alone. It pushes only trees the tests ran on. No release job
+  restores an Actions cache, so a cache entry written by code under test reaches no job that holds
+  the token. `release-workflow-token-scope.test.mjs` and `series-workflow-token-scope.test.mjs` pin
+  this. A separate channel-only token for `publish` would also narrow what a leaked bot token can do
+  (an open issue).
 - First install is by hand: a signed upstream install verifies update signatures against upstream's
   publisher and refuses an unsigned update, so run the first `orca-windows-setup.exe` yourself. From
   then on routine update checks of a mercurai build read the channel repo (not upstream stable, which

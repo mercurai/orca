@@ -119,4 +119,21 @@ test('the push jobs push only what they derived and matched against what was tes
   assert.match(rebase, /if ! grep -qxF "\$branch \$tree" <<<"\$TESTED_TREES"; then\n[^\n]*\n\s+failed=1\n/)
   assert.match(rebase, /if \[ "\$TEST_RESULT" != success \] \|\| \[ "\$TEST_FAILED" != 0 \] \|\| \[ -s \/tmp\/conflicted \]; then failed=1; fi/)
   assert.match(rebase, /if: \$\{\{ steps\.patches\.outputs\.count != '0' && steps\.rebase\.outputs\.failed == '0' \}\}\n/)
+  // A merged-upstream verdict is compared too: dropping a patch needs the tested run's agreement.
+  assert.match(rebase, /grep -qxF "\$branch" \/tmp\/merged \|\| tree=\$\(git rev-parse "\$after\^\{tree\}"\)/)
+  const test_ = jobsOf(read('fork-rebase-patches.yml')).get('test')
+  assert.match(test_, /echo "\$branch merged" >> \/tmp\/trees/)
+})
+
+test('a step holding the token never builds a yq expression from shell values', () => {
+  for (const [file] of WORKFLOWS) {
+    const push = code(jobsOf(read(file)).get('push'))
+    for (const line of push.split('\n').filter((l) => /\byq\b/.test(l))) {
+      // The expression is single-quoted; values come in through strenv().
+      assert.match(line, /\byq(?:\s+-[a-z]+)*\s+'/, `${file}: ${line.trim()}`)
+    }
+  }
+  // The tag that reaches the manifest is a release or release-candidate name.
+  const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
+  assert.ok(fetch.includes(String.raw`if [[ ! "$TARGET" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then`))
 })
