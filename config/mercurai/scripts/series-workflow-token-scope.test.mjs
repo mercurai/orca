@@ -135,6 +135,18 @@ test('every script that feeds a force push checks the branch prefix first (SEC S
   assert.ok(dir('assemble-release.sh').includes(String.raw`^release/[A-Za-z0-9._-]+$`))
 })
 
+test('assemble-release strips CR from the git output it prints', () => {
+  const assemble = readFileSync(resolve(import.meta.dirname, 'assemble-release.sh'), 'utf8')
+  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..HEAD" | tr -d '\r'`))
+  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..origin/$patch" 2>&1 | tr -d '\r' ||`))
+})
+
+test('the rebase reads the target tag from the fork, never from upstream', () => {
+  const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
+  assert.doesNotMatch(fetch, /fetch[^\n]*upstream[^\n]*--tags/)
+  assert.ok(fetch.includes('git fetch --no-tags origin "+refs/tags/$TARGET:refs/tags/$TARGET"'))
+})
+
 test('a step holding the token never builds a yq expression from shell values', () => {
   for (const [file] of WORKFLOWS) {
     const push = code(jobsOf(read(file)).get('push'))

@@ -43,7 +43,8 @@ while read -r patch; do
     echo "::warning::$patch has no commits beyond $TAG (merged upstream?); skipped"
     continue
   fi
-  git cherry-pick -x --empty=drop "refs/tags/$TAG..origin/$patch" || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
+  # A CR in a commit subject must not reach the job log, where it could inject workflow commands.
+  git cherry-pick -x --empty=drop "refs/tags/$TAG..origin/$patch" 2>&1 | tr -d '\r' || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
 done < /tmp/active
 version=${TAG#v}
 last=$(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1)
@@ -53,4 +54,4 @@ n=$(( ${last:-0} + 1 ))
   echo "release_tag=v${version}-mercurai.${n}"
   echo "tree=$(git rev-parse 'HEAD^{tree}')"
 } >> "$GITHUB_OUTPUT"
-git log --oneline "refs/tags/$TAG..HEAD"
+git log --oneline "refs/tags/$TAG..HEAD" | tr -d '\r'

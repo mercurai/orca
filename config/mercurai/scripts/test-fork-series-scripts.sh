@@ -295,13 +295,25 @@ done
 # 23. fetch-rebase-inputs: no target pins upstream/main; a target pins its tag and brings the patch branches.
 fx_setup; fx_patch a v1.0.0
 git commit -q --allow-empty -m "upstream 1.0.2"; up2=$(git rev-parse HEAD)
-git push -q "$root/up.git" HEAD:refs/tags/v1.0.2; git reset -q --hard HEAD~1
+git push -q "$root/up.git" HEAD:refs/tags/v1.0.2; git push -q origin HEAD:refs/tags/v1.0.2; git reset -q --hard HEAD~1
 git update-ref -d refs/remotes/origin/patch/a
 if run_fetch "" && [ "$(out_of base)" = "$(git --git-dir="$root/up.git" rev-parse main)" ] &&
    git -C "$root/work" rev-parse -q --verify refs/remotes/origin/patch/a >/dev/null; then
   pass "fetch-rebase-inputs pins upstream/main for a dry run"; else fail "fetch-rebase-inputs pins upstream/main for a dry run"; cat "$root/log"; fi
 if run_fetch v1.0.2 "$up2" && [ "$(out_of base)" = "$up2" ]; then
-  pass "fetch-rebase-inputs pins an upstream-only tag to its commit"; else fail "fetch-rebase-inputs pins an upstream-only tag to its commit"; cat "$root/log"; fi
+  pass "fetch-rebase-inputs pins the fork's tag to its commit"; else fail "fetch-rebase-inputs pins the fork's tag to its commit"; cat "$root/log"; fi
+
+# 23b. The same name on both sides, pointing apart (upstream re-cut it): the rebase uses the fork's commit, as assemble does.
+git commit -q --allow-empty -m "upstream 1.0.3 as the fork mirrored it"; fork3=$(git rev-parse HEAD)
+git commit -q --allow-empty -m "upstream 1.0.3 re-cut"; recut3=$(git rev-parse HEAD)
+git push -q origin "$fork3:refs/tags/v1.0.3"; git push -q "$root/up.git" "$recut3:refs/tags/v1.0.3"; git reset -q --hard "$up2"
+if run_fetch v1.0.3 && [ "$(out_of base)" = "$fork3" ] && [ "$fork3" != "$recut3" ]; then
+  pass "fetch-rebase-inputs ignores upstream's re-cut of a tag the fork holds"; else fail "fetch-rebase-inputs ignores upstream's re-cut of a tag the fork holds"; cat "$root/log"; fi
+# A tag only upstream holds is not a target.
+git push -q "$root/up.git" "$recut3:refs/tags/v1.0.4"
+if run_fetch v1.0.4; then fail "fetch-rebase-inputs refuses a tag the fork does not hold"
+else pass "fetch-rebase-inputs refuses a tag the fork does not hold"; fi
+
 
 # 24. fetch-rebase-inputs: a tag that moved since fork-sync-upstream saw it, or a name that is no release, fails closed.
 if run_fetch v1.0.2 "$(git -C "$root/work" rev-parse v1.0.0)"; then fail "fetch-rebase-inputs refuses a moved tag"
@@ -310,6 +322,12 @@ for bad in main v1.0 v1.0.2-rc v1.0.2-mercurai.1 'v1.0.2;x'; do
   if run_fetch "$bad"; then fail "fetch-rebase-inputs refuses '$bad'"
   elif grep -qF "is not v<major>.<minor>.<patch>" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ]; then pass "fetch-rebase-inputs refuses '$bad'"; else fail "fetch-rebase-inputs refuses '$bad'"; fi
 done
+
+# 25. assemble: a CR in a commit subject never reaches the log, where it could inject workflow commands.
+fx_setup; git checkout -q -b patch/cr v1.0.1; commit cr.txt cr $'evil\r::error::injected'; git push -q origin patch/cr; git checkout -q fork
+fx_manifest v1.0.1 release/mercurai patch/cr=v1.0.1
+if run_assemble v1.0.1 && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
+  pass "assemble strips CR from commit subjects in its log"; else fail "assemble strips CR from commit subjects in its log"; cat -v "$root/log"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
