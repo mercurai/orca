@@ -41,6 +41,7 @@ import { startDesktopPushService } from './main-process-push-startup'
 import { mainProcessState as state } from './main-process-state'
 import { logStartupMilestone } from './startup-diagnostics'
 import { setupHeadlessServeAutoUpdater } from '../window/main-window-updater'
+import { preserveStateBeforeUpdateRestart } from '../update-restart-preservation'
 import { resolveUpdateInstallMode } from '../updater'
 import { scheduleAgentLaunchRecordWarmup } from './agent-launch-record-warmup'
 import { emitServeBrowserIdentityActionLine } from '../server/serve-stdout-boundary'
@@ -219,7 +220,8 @@ async function launchServeMode(
   await printServeReady(serveOptions)
   const store = state.store!
   setupHeadlessServeAutoUpdater(store, {
-    onBeforeUpdateQuit: () => store.flushPendingOrThrowAsync({ fullCheckpoint: true }),
+    onBeforeUpdateQuit: () =>
+      preserveStateBeforeUpdateRestart({ codexRuntimeHome: state.codexRuntimeHome, store }),
     onBeforeUpdateQuitFailure: 'abort',
     updateInstallMode: resolveUpdateInstallMode(true)
   })

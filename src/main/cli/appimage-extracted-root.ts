@@ -126,7 +126,8 @@ export function isAppImageInstalledLauncherOwnedBySibling(
     return (
       targetRoot !== null &&
       hasPayloadLauncher(targetRoot) &&
-      dirname(targetRoot) !== resolveAppImageNamespacePath(options)
+      dirname(targetRoot) !== resolveAppImageNamespacePath(options) &&
+      dirname(targetRoot) !== resolveLegacyAppImageNamespacePath(options)
     )
   } catch {
     return false
@@ -198,7 +199,20 @@ function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 24)
 }
 
+// Why a versioned key: builds before generation leases prune every generation in
+// digest(appImagePath) except their own, including one a newer build still runs from. They never
+// scan this namespace. Rolling back to such a build reopens that window for its own namespace only.
+const NAMESPACE_KEY_VERSION = 'generation-lease-v1'
+
 export function resolveAppImageNamespacePath(options: AppImageExtractionOptions): string {
+  return join(
+    resolveAppImageCacheRootPath(options),
+    digest(`${NAMESPACE_KEY_VERSION}\0${options.appImagePath}`)
+  )
+}
+
+/** The namespace pre-lease builds used for this AppImage path. */
+export function resolveLegacyAppImageNamespacePath(options: AppImageExtractionOptions): string {
   return join(resolveAppImageCacheRootPath(options), digest(options.appImagePath))
 }
 

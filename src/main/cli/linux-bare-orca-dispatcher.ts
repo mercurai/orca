@@ -9,7 +9,8 @@ import {
 } from '../appimage-runtime-identity'
 import {
   ensureAppImageExtractedRoot,
-  resolveAppImageCacheRootPath
+  resolveAppImageCacheRootPath,
+  resolveLegacyAppImageNamespacePath
 } from './appimage-extracted-root'
 import { pruneAppImageExtractedRoots } from './appimage-extraction-pruning'
 import { withAppImageRegistrationLock } from './appimage-registration-lock'
@@ -106,7 +107,10 @@ async function resolveStableLauncherPath(
       async () => {
         const extractedRoot = await ensureAppImageExtractedRoot(extractionOptions)
         if (extractedRoot) {
-          await pruneAppImageExtractedRoots(extractedRoot.rootPath)
+          await pruneAppImageExtractedRoots(
+            extractedRoot.rootPath,
+            resolveLegacyAppImageNamespacePath(extractionOptions)
+          )
         }
         return extractedRoot?.stableLauncherPath ?? null
       }

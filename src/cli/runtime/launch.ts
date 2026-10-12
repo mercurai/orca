@@ -37,6 +37,7 @@ import {
 } from './serve-electron-preflight'
 import { MacServeStartupAbortError } from './serve-signal-exit-diagnostic'
 import { superviseServeService } from './serve-supervised-service'
+import { serverOnlyServeMessage } from './serve-app-launcher'
 import { isSupervisedSpawnHeld } from './serve-supervised-stop'
 import { openServeBundlePark } from './serve-bundle-park'
 import {
@@ -323,10 +324,7 @@ export function resolveForegroundOrcaExecutable(): string {
   if (process.env.ELECTRON_RUN_AS_NODE === '1') {
     return process.execPath
   }
-  throw new RuntimeClientError(
-    'runtime_serve_failed',
-    'Could not determine how to start Orca server. Set ORCA_APP_EXECUTABLE to the Orca executable.'
-  )
+  throw new RuntimeClientError('runtime_serve_failed', serverOnlyServeMessage(process.platform))
 }
 
 export function stripElectronRunAsNode(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
