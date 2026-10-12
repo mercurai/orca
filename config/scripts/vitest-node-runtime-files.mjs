@@ -44,6 +44,8 @@ export const NODE_RUNTIME_INCLUDE = [
   'src/main/agent-hooks/server-transport-interference.test.ts',
   'src/main/plugins/plugin-worker-supervision.integration.test.ts',
   'src/main/usage/usage-scan-worker-event-loop.test.ts',
+  // Asserts Node's spawn-failure close signal and that a dead worker closes its children's pipes.
+  'src/main/worker-thread-child-process/worker-thread-child-process.test.ts',
   'src/main/computer/macos-native-provider-client.test.ts',
   'src/main/ai-vault-search/session-search-schema.test.ts',
   'src/main/ai-vault-search/session-search-fts5-contract.test.ts',
