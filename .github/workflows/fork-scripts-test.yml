@@ -1,0 +1,47 @@
+# mercurai fork: run the fork scripts' own tests. The repo's unit lanes do not look under
+# config/mercurai/, so without this a change to a script the release depends on is tested by
+# nobody (claude-code-config#1125). Lives in the fork only.
+name: fork-scripts-test
+
+on:
+  push:
+    branches: [mercurai]
+    paths:
+      - 'config/mercurai/**'
+      # The token-scope and tag tests pin every fork workflow.
+      - '.github/workflows/fork-*.yml'
+  pull_request:
+    branches: [mercurai]
+    paths:
+      - 'config/mercurai/**'
+      # The token-scope and tag tests pin every fork workflow.
+      - '.github/workflows/fork-*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-scripts-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    if: github.repository == 'mercurai/orca'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # The scripts import the tree's own TypeScript modules, which needs Node's type stripping.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+
+      - name: Series scripts (push and ci-base)
+        run: bash config/mercurai/scripts/test-fork-series-scripts.sh
+
+      - name: Node scripts
+        run: node --test "config/mercurai/scripts/*.test.mjs"

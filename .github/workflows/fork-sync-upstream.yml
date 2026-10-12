@@ -18,10 +18,11 @@ on:
         type: boolean
         default: false
 
+# The default token only reads. Every write goes through FORK_BOT_TOKEN, which only the steps
+# that write receive (claude-code-config#1125, SEC-201): git gets it as a per-step extraheader,
+# gh as GH_TOKEN.
 permissions:
-  contents: write
-  actions: write
-  issues: write
+  contents: read
 
 concurrency:
   group: fork-sync-upstream
@@ -37,7 +38,6 @@ env:
   # The schedule payload may carry no repository object, so the default branch is spelled out as the fallback.
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   SYNC_ISSUE_LABEL: fork-sync
-  GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
 
 jobs:
   mirror:
@@ -54,11 +54,11 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-          token: ${{ secrets.FORK_BOT_TOKEN }}
+          persist-credentials: false
 
       - name: Decide whether this run may push
         id: mode
@@ -73,14 +73,24 @@ jobs:
         id: fetch
         run: |
           set -euo pipefail
+          # join needs both lists sorted the way it compares.
+          export LC_ALL=C
           git config user.name 'mercurai-fork-bot'
           git config user.email 'fork-bot@users.noreply.github.com'
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git ls-remote --tags origin | awk '{print $2}' | grep -v '\^{}$' | sort > /tmp/tags-before
+          git ls-remote --tags origin | grep -v '\^{}$' | sed 's#\trefs/tags/# #' | sort -k2 > /tmp/origin-tags
           git fetch --no-tags upstream main
-          git fetch upstream --tags --force
-          git tag -l | sed 's#^#refs/tags/#' | sort > /tmp/tags-after
-          comm -13 /tmp/tags-before /tmp/tags-after | sed 's#^refs/tags/##' > /tmp/tags-new
+          # Upstream's tags land in a namespace of their own, so no tag this fork holds is touched.
+          git fetch --no-tags --force upstream '+refs/tags/*:refs/upstream-tags/*'
+          # Release names only: never the fork's own tags, and never a name that shadows a branch.
+          git for-each-ref --format='%(objectname) %(refname:strip=2)' refs/upstream-tags \
+            | (grep -E ' v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || true) | sort -k2 > /tmp/upstream-tags
+          # New: upstream has the name and the fork does not. Moved: both have it, pointing apart.
+          join -1 2 -2 2 -v 1 /tmp/upstream-tags /tmp/origin-tags | awk '{print $1}' > /tmp/tags-new
+          join -1 2 -2 2 /tmp/upstream-tags /tmp/origin-tags | awk '$2 != $3 {print $1}' > /tmp/tags-moved
+          if [ -s /tmp/tags-moved ]; then
+            echo "::warning::upstream moved tags the fork already holds; they are not mirrored: $(tr '\n' ' ' < /tmp/tags-moved)"
+          fi
           # Stable tags win over release candidates; one dispatch per run, the newest tag of the better kind.
           stable=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
           rc=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
@@ -92,32 +102,62 @@ jobs:
       - name: Mirror main (fast-forward only)
         if: ${{ steps.mode.outputs.push == 'true' }}
         # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
-        run: git push origin refs/remotes/upstream/main:refs/heads/main
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          git push origin refs/remotes/upstream/main:refs/heads/main
 
-      - name: Mirror tags
+      - name: Mirror new tags
         if: ${{ steps.mode.outputs.push == 'true' }}
-        # A tag that upstream moved is rejected rather than forced; the job fails and a human decides.
-        run: git push --force origin --tags
+        # New names only, never forced: an existing tag is not rewritten, whatever upstream did.
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          refspecs=()
+          while read -r tag; do refspecs+=("refs/upstream-tags/$tag:refs/tags/$tag"); done < /tmp/tags-new
+          if [ "${#refspecs[@]}" -gt 0 ]; then git push origin "${refspecs[@]}"; fi
 
       - name: Hand the newest release tag to fork-rebase-patches
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
         if: ${{ steps.mode.outputs.push == 'true' && steps.fetch.outputs.rebase_tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
           echo "dispatching rebase onto ${{ steps.fetch.outputs.rebase_tag }}"
           tag="${{ steps.fetch.outputs.rebase_tag }}"
           # Hand over the commit this run saw: a tag upstream re-cuts in between fails the rebase instead of moving it.
-          tag_sha=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+          tag_sha=$(git rev-parse --verify "refs/upstream-tags/$tag^{commit}")
           gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$tag_sha"
 
       - name: Mirror upstream branches under upstream/*
         if: ${{ steps.mode.outputs.push == 'true' && inputs.mirror_branches == true }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           git fetch --no-tags upstream '+refs/heads/*:refs/remotes/upstream/*'
           git push origin 'refs/remotes/upstream/*:refs/heads/upstream/*'
 
       - name: Merge main forward into the fork branch
         id: merge
+        env:
+          # Empty on a report-only run, which pushes nothing.
+          GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
         run: |
           set -euo pipefail
           git checkout -q "$FORK_BRANCH"
@@ -133,6 +173,10 @@ jobs:
             try_merge && echo "merge is clean; not pushed (report-only run)"
             exit 0
           fi
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           # fork-rebase-patches may push the manifest to this branch at the same time: start each
           # attempt from the branch as it is on origin and merge again (a rebase would rewrite the merge).
           for attempt in 1 2 3; do
@@ -146,6 +190,9 @@ jobs:
 
       - name: Report a merge conflict as an issue
         if: ${{ steps.merge.outputs.conflict == 'true' }}
+        env:
+          # Empty on a report-only run, which prints the body instead of filing it.
+          GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
         run: |
           set -euo pipefail
           title="fork-sync: ${FORK_BRANCH} does not merge with upstream main ${{ steps.fetch.outputs.upstream_sha }}"

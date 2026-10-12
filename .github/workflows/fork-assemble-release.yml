@@ -3,6 +3,12 @@
 # build/publish job (fork-release-win-build, which this workflow dispatches after tagging) consumes. The series must
 # already be rebased onto the tag (fork-rebase-patches does that and records it per patch).
 # Dispatched from a non-default branch, or with dry_run, it pushes nothing. Lives in the fork only.
+#
+# FORK_BOT_TOKEN can push this repo's workflows and publish to the channel the owner's app updates
+# from, so it never shares a job with the code under test (claude-code-config#1125, SEC-201). The
+# test job assembles and tests with no secret and no cache. The push job runs no repository code:
+# it assembles the branch again with git alone, pushes only if its tree is the one tested, and
+# hands the token to its push and dispatch steps only.
 name: fork-assemble-release
 
 on:
@@ -18,7 +24,7 @@ on:
         default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: fork-assemble-release
@@ -28,18 +34,77 @@ env:
   UPSTREAM_REPO: stablyai/orca
   # The branch this run was started from: `mercurai` normally, a feature branch when dispatched for a test.
   FORK_BRANCH: ${{ github.ref_name }}
-  # The event payload may carry no repository object, so the default branch is spelled out as the fallback.
-  DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   MANIFEST: config/mercurai/patches.yaml
   MANIFEST_WORK: /tmp/manifest.yaml
   # The runner checkout has an upstream remote; gh prefers it when inferring the repo.
   GH_REPO: ${{ github.repository }}
+  TAG: ${{ inputs.tag }}
 
 jobs:
-  assemble:
+  test:
     runs-on: ubuntu-latest
-    env:
-      TAG: ${{ inputs.tag }}
+    outputs:
+      release_branch: ${{ steps.assemble.outputs.release_branch }}
+      release_tag: ${{ steps.assemble.outputs.release_tag }}
+      tree: ${{ steps.assemble.outputs.tree }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Assemble the release branch
+        id: assemble
+        run: |
+          set -euo pipefail
+          # Copied out first: the checkout moves to the tag, which has no config/mercurai/.
+          cp config/mercurai/scripts/assemble-release.sh /tmp/assemble-release.sh
+          bash /tmp/assemble-release.sh
+
+      - name: Tests named by the series
+        id: tests
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST_WORK" | sort -u)
+          echo "count=${#tests[@]}" >> "$GITHUB_OUTPUT"
+          [ "${#tests[@]}" -eq 0 ] && echo "no patch names tests; nothing to run" || printf '%s\n' "${tests[@]}"
+      # The steps of the repo's install-node-dependencies, without its caches: a default-branch
+      # cache could carry code no commit shows (claude-code-config#1125, SEC-102/SEC-201).
+      - name: Setup pnpm
+        if: ${{ steps.tests.outputs.count != '0' }}
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          install: false
+      - name: Setup Node.js
+        if: ${{ steps.tests.outputs.count != '0' }}
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+      - name: Install dependencies
+        if: ${{ steps.tests.outputs.count != '0' }}
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+          pnpm run --if-present build:packages
+      - name: Run the series tests
+        if: ${{ steps.tests.outputs.count != '0' }}
+        run: |
+          set -euo pipefail
+          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST_WORK" | sort -u)
+          pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"
+
+      - name: Report the dry run
+        if: ${{ !(github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run) }}
+        run: echo "would tag ${{ steps.assemble.outputs.release_tag }} on ${{ steps.assemble.outputs.release_branch }}; nothing pushed"
+
+  push:
+    needs: test
+    # Read from the dispatch alone: nothing the test job ran can open it.
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
+    runs-on: ubuntu-latest
     steps:
       - name: Require the bot token
         env:
@@ -50,100 +115,50 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.ref_name }}
           fetch-depth: 0
-          token: ${{ secrets.FORK_BOT_TOKEN }}
+          persist-credentials: false
 
-      - name: Decide whether this run may push
-        id: mode
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ] || [ "$FORK_BRANCH" != "$DEFAULT_BRANCH" ]; then
-            echo "push=false" >> "$GITHUB_OUTPUT"; echo "dry run (dry_run input or non-default branch $FORK_BRANCH)"
-          else
-            echo "push=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Fetch the tag and the patch branches
-        run: |
-          set -euo pipefail
-          git config user.name 'mercurai-fork-bot'
-          git config user.email 'fork-bot@users.noreply.github.com'
-          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git fetch upstream --tags --force
-          git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' --tags
-          git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null
-          echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }
-
-      - name: Check the series is rebased onto the tag
-        run: |
-          set -euo pipefail
-          # The release branch starts from the upstream tag, which has no config/mercurai/, so every later read uses this copy.
-          cp "$MANIFEST" "$MANIFEST_WORK"
-          base=$(yq -r '.base' "$MANIFEST_WORK")
-          [ "$base" = "$TAG" ] || { echo "::error::manifest base is $base, not $TAG; run fork-rebase-patches with tag=$TAG first"; exit 1; }
-          yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > /tmp/active
-          while read -r patch; do
-            [ -z "$patch" ] && continue
-            pb=$(yq -r ".patches[] | select(.branch == \"$patch\") | .base // \"\"" "$MANIFEST_WORK")
-            [ "$pb" = "$TAG" ] || { echo "::error::$patch is recorded on $pb, not $TAG; it was not rebased"; exit 1; }
-            git merge-base --is-ancestor "refs/tags/$TAG" "origin/$patch" || { echo "::error::$patch does not contain $TAG; it was not rebased onto it"; exit 1; }
-          done < /tmp/active
-          echo "series: $(tr '\n' ' ' < /tmp/active)"
-
-      - name: Assemble the release branch
+      # Assembled again here, from git alone: the test job ran the code under test, so its result
+      # is compared, never pushed.
+      - name: Assemble the release branch again
         id: assemble
+        env:
+          TESTED_BRANCH: ${{ needs.test.outputs.release_branch }}
+          TESTED_TAG: ${{ needs.test.outputs.release_tag }}
+          TESTED_TREE: ${{ needs.test.outputs.tree }}
         run: |
           set -euo pipefail
+          cp config/mercurai/scripts/assemble-release.sh /tmp/assemble-release.sh
+          bash /tmp/assemble-release.sh
+          tree=$(git rev-parse 'HEAD^{tree}')
           branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
-          git checkout -q -B "$branch" "refs/tags/$TAG"
-          while read -r patch; do
-            [ -z "$patch" ] && continue
-            # Patches are rebased onto the tag, so tag..branch is the patch's commits. A patch stacked on an
-            # earlier patch in the series (its branch starts from that patch's branch) carries the earlier
-            # commits too; they are already applied here, so cherry-pick drops them as empty instead of failing.
-            if [ "$(git rev-list --count "refs/tags/$TAG..origin/$patch")" = 0 ]; then
-              echo "::warning::$patch has no commits beyond $TAG (merged upstream?); skipped"
-              continue
-            fi
-            git cherry-pick -x --empty=drop "refs/tags/$TAG..origin/$patch" || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
-          done < /tmp/active
-          version=${TAG#v}
-          last=$(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1)
-          n=$(( ${last:-0} + 1 ))
-          echo "release_branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "release_tag=v${version}-mercurai.${n}" >> "$GITHUB_OUTPUT"
-          git log --oneline "refs/tags/$TAG..HEAD"
-
-      - name: Tests named by the series
-        id: tests
-        run: |
-          set -euo pipefail
-          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST_WORK" | sort -u)
-          echo "count=${#tests[@]}" >> "$GITHUB_OUTPUT"
-          [ "${#tests[@]}" -eq 0 ] && echo "no patch names tests; nothing to run" || printf '%s\n' "${tests[@]}"
-      - uses: ./.github/actions/install-node-dependencies
-        if: ${{ steps.tests.outputs.count != '0' }}
-      - name: Run the series tests
-        if: ${{ steps.tests.outputs.count != '0' }}
-        run: |
-          set -euo pipefail
-          mapfile -t tests < <(yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .tests[]?' "$MANIFEST_WORK" | sort -u)
-          pnpm exec vitest run --config config/vitest.config.ts "${tests[@]}"
+          if [ "$tree" != "$TESTED_TREE" ] || [ "$branch" != "$TESTED_BRANCH" ]; then
+            echo "::error::assembled $branch at tree $tree, but the tests ran on $TESTED_BRANCH at $TESTED_TREE; a patch branch moved during the run. Dispatch again."
+            exit 1
+          fi
+          echo "tested tree $tree; release tag $TESTED_TAG"
 
       - name: Push the release branch and tag
-        if: ${{ steps.mode.outputs.push == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+          RELEASE_BRANCH: ${{ steps.assemble.outputs.release_branch }}
+          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
         run: |
           set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           # The release branch is assembled, never hand-edited, so replacing it is the contract.
-          git push --force-with-lease origin "HEAD:refs/heads/${{ steps.assemble.outputs.release_branch }}"
-          git tag -a "${{ steps.assemble.outputs.release_tag }}" -m "mercurai release on $TAG: $(tr '\n' ' ' < /tmp/active)"
-          git push origin "refs/tags/${{ steps.assemble.outputs.release_tag }}"
-          echo "tagged ${{ steps.assemble.outputs.release_tag }} on ${{ steps.assemble.outputs.release_branch }}"
+          git push --force-with-lease origin "HEAD:refs/heads/$RELEASE_BRANCH"
+          git tag -a "$RELEASE_TAG" -m "mercurai release on $TAG: $(tr '\n' ' ' < /tmp/active)"
+          git push origin "refs/tags/$RELEASE_TAG"
+          echo "tagged $RELEASE_TAG on $RELEASE_BRANCH"
 
       - name: Hand the new tag to fork-release-win-build
-        if: ${{ steps.mode.outputs.push == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
@@ -152,7 +167,3 @@ jobs:
             echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
             exit 1
           }
-
-      - name: Report the dry run
-        if: ${{ steps.mode.outputs.push != 'true' }}
-        run: echo "would tag ${{ steps.assemble.outputs.release_tag }} on ${{ steps.assemble.outputs.release_branch }}; nothing pushed"

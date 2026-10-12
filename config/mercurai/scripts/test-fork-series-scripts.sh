@@ -160,5 +160,193 @@ setup; rebase_series; m0=$(remote_sha mercurai)
 bash "$here/push-rebased-series.sh" "$root/rebased" mercurai "" >/dev/null
 if remote_has v2 "$(remote_sha patch/a)" && [ "$(remote_sha mercurai)" = "$m0" ]; then pass "patches alone push without a manifest commit"; else fail "patches alone push without a manifest commit"; fi
 
+# 13. A rebased file naming a branch outside patch/ is refused before anything is pushed.
+for bad in mercurai 'patch/../x' 'release/v1'; do
+  setup; rebase_series
+  a0=$(remote_sha patch/a) m0=$(remote_sha mercurai)
+  { cat "$root/rebased"; printf '%s %s %s\n' "$bad" "$m0" "$(git rev-parse HEAD)"; } > "$root/rebased-bad"
+  if bash "$here/push-rebased-series.sh" "$root/rebased-bad" mercurai "$manifest" >/dev/null 2>"$root/err"; then fail "a push naming '$bad' is refused"
+  elif [ "$(remote_sha patch/a)" = "$a0" ] && [ "$(remote_sha mercurai)" = "$m0" ] && grep -qF "not patch/<name>" "$root/err"; then
+    pass "a push naming '$bad' is refused"; else fail "a push naming '$bad' is refused"; fi
+done
+
+# --- assemble-release.sh, rebase-series.sh and fetch-rebase-inputs.sh -------------------------------
+# Fixture: the fork's origin holds the fork's tags and the patch branches; up.git is upstream, a
+# separate repo with its own tags. The scripts keep their state in /tmp and read GITHUB_OUTPUT.
+export GITHUB_OUTPUT="$root/out"
+fx_setup() {  # tags v1.0.0 and v1.0.1 in both repos; upstream main at v1.0.1
+  rm -rf "$root/origin.git" "$root/up.git" "$root/work"
+  git init -q --bare "$root/origin.git"; git init -q --bare "$root/up.git"
+  git init -q -b fork "$root/work"; cd "$root/work"
+  git remote add origin "$root/origin.git"
+  commit base.txt one "upstream 1.0.0"; git tag v1.0.0
+  commit base.txt two "upstream 1.0.1"; git tag v1.0.1
+  git push -q "$root/up.git" fork:refs/heads/main refs/tags/v1.0.0 refs/tags/v1.0.1
+  git push -q origin fork:refs/heads/mercurai refs/tags/v1.0.0 refs/tags/v1.0.1
+}
+fx_patch() {  # fx_patch <name> <on> [file]: patch/<name> is <on> plus one commit
+  git checkout -q -b "patch/$1" "$2"; commit "${3:-$1.txt}" "$1" "patch $1"
+  git push -q origin "patch/$1"; git checkout -q fork
+}
+fx_manifest() {  # fx_manifest <base> <release branch> <branch[=its base]>...
+  local base=$1 release=$2 spec; shift 2
+  { echo "base: $base"; echo "release_branch: $release"; echo "patches:"
+    for spec in "$@"; do
+      echo "  - branch: ${spec%%=*}"; echo "    status: ours-only"
+      if [ "$spec" != "${spec#*=}" ]; then echo "    base: ${spec#*=}"; fi
+    done; } > "$root/manifest.yaml"
+  cp "$root/manifest.yaml" "$root/manifest-work.yaml"
+}
+out_of() { { grep "^$1=" "$GITHUB_OUTPUT" || true; } | cut -d= -f2-; }
+run_assemble() {  # run_assemble <tag>
+  : > "$GITHUB_OUTPUT"
+  (cd "$root/work" && TAG=$1 MANIFEST="$root/manifest.yaml" MANIFEST_WORK="$root/manifest-work.yaml" bash "$here/assemble-release.sh") > "$root/log" 2>&1
+}
+run_rebase() {  # run_rebase <base ref> <branch>...
+  printf '%s\n' "${@:2}" > /tmp/active
+  (cd "$root/work" && BASE=$(git rev-parse "$1") MANIFEST_WORK="$root/manifest-work.yaml" bash "$here/rebase-series.sh") > "$root/log" 2>&1
+}
+run_fetch() {  # run_fetch <target> [tag sha]: upstream is the local up.git, whatever UPSTREAM_REPO names
+  : > "$GITHUB_OUTPUT"
+  (cd "$root/work" && { git remote remove upstream 2>/dev/null || true; }
+   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$root/up.git.insteadOf" GIT_CONFIG_VALUE_0="https://github.com/o/up.git" \
+     UPSTREAM_REPO=o/up TARGET="$1" TAG_SHA="${2:-}" bash "$here/fetch-rebase-inputs.sh") > "$root/log" 2>&1
+}
+subjects() { git -C "$root/work" log --reverse --format=%s "$1..HEAD" | tr '\n' ','; }
+
+# 14. assemble: release/<name> is the tag plus the patches in manifest order, and the first fork release is .1.
+fx_setup; fx_patch a v1.0.1; fx_patch b v1.0.1
+fx_manifest v1.0.1 release/mercurai patch/b=v1.0.1 patch/a=v1.0.1
+if run_assemble v1.0.1 && [ "$(git -C "$root/work" rev-parse --abbrev-ref HEAD)" = release/mercurai ] &&
+   [ "$(subjects v1.0.1)" = "patch b,patch a," ] && [ "$(out_of release_branch)" = release/mercurai ] &&
+   [ "$(out_of release_tag)" = v1.0.1-mercurai.1 ] && [ "$(out_of tree)" = "$(git -C "$root/work" rev-parse 'HEAD^{tree}')" ]; then
+  pass "assemble builds the tag plus the patches in manifest order"; else fail "assemble builds the tag plus the patches in manifest order"; cat "$root/log"; fi
+
+# 15. assemble: a second run gives the identical tree, which the push job compares with the tested one.
+first=$(out_of tree)
+if run_assemble v1.0.1 && [ -n "$first" ] && [ "$(out_of tree)" = "$first" ]; then
+  pass "assemble twice gives the identical tree"; else fail "assemble twice gives the identical tree"; fi
+
+# 16. assemble: a patch recorded on the tag but built on an older tag does not contain the tag: fails, nothing built.
+fx_setup; fx_patch c v1.0.0
+fx_manifest v1.0.1 release/mercurai patch/c=v1.0.1
+if run_assemble v1.0.1; then fail "assemble refuses a patch that is not on the tag"
+elif grep -qF "does not contain v1.0.1" "$root/log" && ! git -C "$root/work" rev-parse -q --verify refs/heads/release/mercurai >/dev/null && [ ! -s "$GITHUB_OUTPUT" ]; then
+  pass "assemble refuses a patch that is not on the tag"; else fail "assemble refuses a patch that is not on the tag"; cat "$root/log"; fi
+
+# 17. assemble: numbering counts the fork's own tags (numerically); a name only upstream holds is ignored.
+fx_setup; fx_patch a v1.0.1
+git remote add upstream "$root/up.git"   # a reintroduced `git fetch upstream --tags` would pull the upstream-only name
+git push -q origin v1.0.1:refs/tags/v1.0.1-mercurai.2 v1.0.1:refs/tags/v1.0.1-mercurai.10
+git push -q "$root/up.git" v1.0.1:refs/tags/v1.0.1-mercurai.50
+fx_manifest v1.0.1 release/mercurai patch/a=v1.0.1
+if run_assemble v1.0.1 && [ "$(out_of release_tag)" = v1.0.1-mercurai.11 ]; then
+  pass "assemble numbers from the fork's tags and ignores upstream-only names"; else fail "assemble numbers from the fork's tags and ignores upstream-only names"; cat "$root/log"; fi
+
+# 18. assemble: a release tag only upstream holds is not one the fork can build.
+# patch/a sits on v1.0.2, so only the tag-source check can fail the run.
+fx_setup; git remote add upstream "$root/up.git"
+git commit -q --allow-empty -m "upstream 1.0.2"; git tag v1.0.2; fx_patch a v1.0.2
+git push -q "$root/up.git" refs/tags/v1.0.2; git tag -d v1.0.2 >/dev/null; git reset -q --hard v1.0.1
+fx_manifest v1.0.2 release/mercurai patch/a=v1.0.2
+if run_assemble v1.0.2; then fail "assemble refuses a tag the fork does not hold"
+elif grep -qF "::error::the fork has no tag v1.0.2; fork-sync-upstream mirrors it first" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ] &&
+     ! git -C "$root/work" rev-parse -q --verify refs/heads/release/mercurai >/dev/null; then
+  pass "assemble refuses a tag the fork does not hold"; else fail "assemble refuses a tag the fork does not hold"; fi
+
+# 19. assemble: branch names the push job would force-push are refused up front.
+fx_setup; fx_patch a v1.0.1
+for row in "mercurai|patch/a|release_branch 'mercurai' is not release/<name>" \
+            "release/x|mercurai|patch branch 'mercurai' is not patch/<name>" \
+            "release/x|patch/../x|patch branch 'patch/../x' is not patch/<name>" \
+            "release/..|patch/a|release_branch 'release/..' is not release/<name>"; do
+  IFS='|' read -r release patch message <<<"$row"
+  fx_manifest v1.0.1 "$release" "$patch=v1.0.1"
+  if run_assemble v1.0.1; then fail "assemble refuses release '$release' with patch '$patch'"
+  elif grep -qF "$message" "$root/log" && [ "$(git -C "$root/work" rev-parse --abbrev-ref HEAD)" = fork ] && [ ! -s "$GITHUB_OUTPUT" ]; then
+    pass "assemble refuses release '$release' with patch '$patch'"; else fail "assemble refuses release '$release' with patch '$patch'"; cat "$root/log"; fi
+done
+
+# 20. rebase-series: every patch lands on the new base; a patch from an explicit base and one from the manifest's.
+fx_setup; fx_patch a v1.0.0; fx_patch b v1.0.0
+fx_manifest v1.0.0 release/mercurai patch/a=v1.0.0 patch/b
+a0=$(git rev-parse origin/patch/a)
+ok=1
+if run_rebase v1.0.1 patch/a patch/b && [ "$(grep -c . /tmp/rebased)" = 2 ] && [ ! -s /tmp/conflicted ] && [ ! -s /tmp/merged ] && [ "$(awk '$1 == "patch/a" {print $2}' /tmp/rebased)" = "$a0" ]; then
+  while read -r _branch before after; do
+    if [ "$before" = "$after" ] || ! git -C "$root/work" merge-base --is-ancestor v1.0.1 "$after"; then ok=0; fi
+  done < /tmp/rebased
+else ok=0; fi
+if [ "$ok" = 1 ]; then pass "rebase-series rebases every patch onto the base"; else fail "rebase-series rebases every patch onto the base"; cat "$root/log"; fi
+
+# 21. rebase-series: a conflicting patch is recorded and aborted; the others still rebase and no rebase is left running.
+fx_setup; fx_patch a v1.0.0; fx_patch c v1.0.0 base.txt; fx_patch b v1.0.0
+fx_manifest v1.0.0 release/mercurai patch/a patch/c patch/b
+if run_rebase v1.0.1 patch/a patch/c patch/b && [ "$(cat /tmp/conflicted)" = "patch/c v1.0.0" ] &&
+   grep -qx base.txt /tmp/conflicts/patch__c && [ "$(awk '{print $1}' /tmp/rebased | tr '\n' ' ')" = "patch/a patch/b " ] &&
+   [ ! -d "$root/work/.git/rebase-merge" ] && [ ! -d "$root/work/.git/rebase-apply" ]; then
+  pass "rebase-series records a conflict and carries on"; else fail "rebase-series records a conflict and carries on"; cat "$root/log"; fi
+
+# 22. rebase-series: a branch outside patch/ is refused before any rebase.
+fx_setup; fx_patch a v1.0.0
+fx_manifest v1.0.0 release/mercurai patch/a
+for bad in mercurai 'patch/../x'; do
+  if run_rebase v1.0.1 patch/a "$bad"; then fail "rebase-series refuses '$bad'"
+  elif grep -qF "patch branch '$bad' is not patch/<name>" "$root/log" && [ ! -s /tmp/rebased ]; then
+    pass "rebase-series refuses '$bad'"; else fail "rebase-series refuses '$bad'"; cat "$root/log"; fi
+done
+
+# 23. fetch-rebase-inputs: no target pins upstream/main; a target pins its tag and brings the patch branches.
+fx_setup; fx_patch a v1.0.0
+git commit -q --allow-empty -m "upstream 1.0.2"; up2=$(git rev-parse HEAD)
+git push -q "$root/up.git" HEAD:refs/tags/v1.0.2; git push -q origin HEAD:refs/tags/v1.0.2; git reset -q --hard HEAD~1
+git update-ref -d refs/remotes/origin/patch/a
+if run_fetch "" && [ "$(out_of base)" = "$(git --git-dir="$root/up.git" rev-parse main)" ] &&
+   git -C "$root/work" rev-parse -q --verify refs/remotes/origin/patch/a >/dev/null; then
+  pass "fetch-rebase-inputs pins upstream/main for a dry run"; else fail "fetch-rebase-inputs pins upstream/main for a dry run"; cat "$root/log"; fi
+if run_fetch v1.0.2 "$up2" && [ "$(out_of base)" = "$up2" ]; then
+  pass "fetch-rebase-inputs pins the fork's tag to its commit"; else fail "fetch-rebase-inputs pins the fork's tag to its commit"; cat "$root/log"; fi
+
+# 23b. The same name on both sides, pointing apart (upstream re-cut it): the rebase uses the fork's commit, as assemble does.
+git commit -q --allow-empty -m "upstream 1.0.3 as the fork mirrored it"; fork3=$(git rev-parse HEAD)
+git commit -q --allow-empty -m "upstream 1.0.3 re-cut"; recut3=$(git rev-parse HEAD)
+git push -q origin "$fork3:refs/tags/v1.0.3"; git push -q "$root/up.git" "$recut3:refs/tags/v1.0.3"; git reset -q --hard "$up2"
+if run_fetch v1.0.3 && [ "$(out_of base)" = "$fork3" ] && [ "$fork3" != "$recut3" ]; then
+  pass "fetch-rebase-inputs ignores upstream's re-cut of a tag the fork holds"; else fail "fetch-rebase-inputs ignores upstream's re-cut of a tag the fork holds"; cat "$root/log"; fi
+# A tag only upstream holds is not a target.
+git push -q "$root/up.git" "$recut3:refs/tags/v1.0.4"
+if run_fetch v1.0.4; then fail "fetch-rebase-inputs refuses a tag the fork does not hold"
+elif grep -qF "::error::the fork has no tag v1.0.4; fork-sync-upstream mirrors it first" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ]; then
+  pass "fetch-rebase-inputs refuses a tag the fork does not hold"; else fail "fetch-rebase-inputs refuses a tag the fork does not hold"; cat -v "$root/log"; fi
+
+
+# 24. fetch-rebase-inputs: a tag that moved since fork-sync-upstream saw it, or a name that is no release, fails closed.
+if run_fetch v1.0.2 "$(git -C "$root/work" rev-parse v1.0.0)"; then fail "fetch-rebase-inputs refuses a moved tag"
+elif grep -qF "now points at $up2" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ]; then pass "fetch-rebase-inputs refuses a moved tag"; else fail "fetch-rebase-inputs refuses a moved tag"; fi
+for bad in main v1.0 v1.0.2-rc v1.0.2-mercurai.1 'v1.0.2;x'; do
+  if run_fetch "$bad"; then fail "fetch-rebase-inputs refuses '$bad'"
+  elif grep -qF "is not v<major>.<minor>.<patch>" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ]; then pass "fetch-rebase-inputs refuses '$bad'"; else fail "fetch-rebase-inputs refuses '$bad'"; fi
+done
+
+# 25. assemble: a CR in a commit subject never reaches the log, where it could inject workflow commands.
+fx_setup; git checkout -q -b patch/cr v1.0.1; commit cr.txt cr $'evil\r::error::injected'; git push -q origin patch/cr; git checkout -q fork
+fx_manifest v1.0.1 release/mercurai patch/cr=v1.0.1
+if run_assemble v1.0.1 && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
+  pass "assemble strips CR from commit subjects in its log"; else fail "assemble strips CR from commit subjects in its log"; cat -v "$root/log"; fi
+
+# 26. assemble: two patches editing the same lines: the second does not apply; fails, no cherry-pick left running.
+fx_setup; fx_patch p v1.0.1 base.txt; fx_patch q v1.0.1 base.txt
+fx_manifest v1.0.1 release/mercurai patch/p=v1.0.1 patch/q=v1.0.1
+if run_assemble v1.0.1; then fail "assemble fails when a patch does not apply"
+elif grep -qF "::error::patch/q does not apply on v1.0.1" "$root/log" && [ ! -f "$root/work/.git/CHERRY_PICK_HEAD" ] &&
+     [ ! -d "$root/work/.git/sequencer" ] && [ ! -s "$GITHUB_OUTPUT" ]; then
+  pass "assemble fails when a patch does not apply"; else fail "assemble fails when a patch does not apply"; cat -v "$root/log"; fi
+
+# 27. rebase-series: a CR in the subject of a conflicting commit never reaches the log; the conflict is still recorded.
+fx_setup; git checkout -q -b patch/crc v1.0.0; commit base.txt crc $'evil\r::error::injected'; git push -q origin patch/crc; git checkout -q fork
+fx_manifest v1.0.0 release/mercurai patch/crc=v1.0.0
+if run_rebase v1.0.1 patch/crc && [ "$(cat /tmp/conflicted)" = "patch/crc v1.0.0" ] && grep -q evil "$root/log" && ! grep -q $'\r' "$root/log"; then
+  pass "rebase-series strips CR from git's rebase output"; else fail "rebase-series strips CR from git's rebase output"; cat -v "$root/log"; fi
+
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

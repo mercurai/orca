@@ -1,0 +1,218 @@
+# mercurai fork: build the orcad deployment template a desktop build ships for SSH hosts
+# (claude-code-config#1125). From upstream v1.4.224 on, every SSH host runs a managed Orca server
+# (orcad) that the desktop deploys from this template; a build without it installs and then fails
+# every host. Upstream builds eight targets on six runners. The fork builds the listed targets
+# only (default linux-x64-glibc, which covers serverone); the packaging side of that list is
+# ORCA_ORCAD_TEMPLATE_TARGETS, added by patch/orca-partial-orcad-template.
+# The steps mirror the linux_glibc_floor lane of upstream's node-server-tests.yml at the same tag,
+# so the slot is built and qualified the way upstream qualifies it. Lives in the fork only.
+#
+# Called only, never dispatched: the caller, fork-release-win-build, decides which refs may be
+# built from which branch (its preflight) and passes the commit to build, never a moving ref.
+# To build a template alone, dry-run the release workflow from a non-default branch.
+# No step restores or saves an Actions cache (see the caller's header): the install is spelled
+# out rather than taken from the repo's caching install action.
+name: fork-orcad-template
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The full commit sha to build
+        type: string
+        required: true
+      targets:
+        type: string
+        default: linux-x64-glibc
+      require:
+        type: string
+        default: ''
+    outputs:
+      ships:
+        description: "'true' when the ref ships the orcad template and the artifact was uploaded"
+        value: ${{ jobs.template.outputs.ships }}
+      targets:
+        description: The targets the uploaded template carries
+        value: ${{ jobs.template.outputs.targets }}
+      sha:
+        description: The commit the template was built from
+        value: ${{ jobs.template.outputs.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  template:
+    if: github.repository == 'mercurai/orca'
+    runs-on: ubuntu-22.04
+    # Same image and digest as upstream's glibc 2.28 floor lane: the slot must load on that floor.
+    container: quay.io/pypa/manylinux_2_28_x86_64@sha256:407f771c51a2c3e83ebe5a7970b4289ead3a6db21d9b9c089168775cad11d328
+    timeout-minutes: 40
+    outputs:
+      ships: ${{ steps.support.outputs.ships }}
+      targets: ${{ inputs.targets }}
+      sha: ${{ steps.resolved.outputs.sha }}
+    # Container jobs default to `sh -e`; the steps below use bash arrays, pipefail and here-strings.
+    defaults:
+      run:
+        shell: bash
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+      CC: gcc
+      CXX: g++
+      PYTHON: /opt/python/cp312-cp312/bin/python3
+      TEMPLATE_REF: ${{ inputs.ref }}
+      TEMPLATE_TARGETS: ${{ inputs.targets }}
+      TEMPLATE_REQUIRE: ${{ inputs.require }}
+    steps:
+      - name: Install glibc 2.28 prerequisites
+        run: |
+          missing_tool=false
+          for tool in git ps unzip which xz; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              missing_tool=true
+            fi
+          done
+          if [ "$missing_tool" = true ]; then
+            dnf --disablerepo='epel*' install -y git procps-ng unzip which xz
+          fi
+
+      - name: Vet the target list
+        run: |
+          set -euo pipefail
+          # Each target needs a lane that builds its native slot; this workflow has the linux-x64 one.
+          if [ "$TEMPLATE_TARGETS" != "linux-x64-glibc" ]; then
+            echo "::error::targets '$TEMPLATE_TARGETS' has no build lane here; only linux-x64-glibc does. Add the lane (see upstream node-server-tests.yml) before widening the list."
+            exit 1
+          fi
+
+      - name: Require a commit, not a ref that can move
+        run: |
+          set -euo pipefail
+          if [[ ! "$TEMPLATE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ref '$TEMPLATE_REF' is not a full commit sha"
+            exit 1
+          fi
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Trust the checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # The caller compares this with what it checks out: a branch can move during the run.
+      - name: Record the commit being built
+        id: resolved
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The fork ships a template exactly when the ref carries patch/orca-partial-orcad-template.
+      # Upstream's template scripts already exist on v1.4.223, so they cannot be the test: that
+      # line has always been released without a template and must keep building that way. From
+      # v1.4.224 a build without one fails every SSH host, so there the patch is mandatory.
+      - name: Detect whether the ref ships the orcad template
+        id: support
+        env:
+          FIRST_WITH_ORCAD_HOSTS: 1.4.224
+        run: |
+          set -euo pipefail
+          if [ -f config/scripts/packaged-orcad-template-targets.cjs ]; then
+            echo "ships=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version=$(grep -m1 -E '^  "version": "[0-9]+[.][0-9]+[.][0-9]+' package.json | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1 || true)
+          if [ -z "$version" ]; then
+            echo "::error::cannot read the version from package.json at $TEMPLATE_REF"
+            exit 1
+          fi
+          oldest=$(printf '%s\n%s\n' "$FIRST_WITH_ORCAD_HOSTS" "$version" | sort -V | head -1)
+          if [ "$oldest" = "$FIRST_WITH_ORCAD_HOSTS" ]; then
+            echo "::error::$TEMPLATE_REF is $version (every SSH host runs orcad from $FIRST_WITH_ORCAD_HOSTS) but lacks patch/orca-partial-orcad-template; a build without the template would fail every SSH host. Assemble it with that patch."
+            exit 1
+          fi
+          echo "ships=false" >> "$GITHUB_OUTPUT"
+          echo "::notice::$TEMPLATE_REF is $version and carries no partial-template patch; it ships no orcad template, as the v1.4.223 line always has."
+
+      # The steps of the repo's install-node-dependencies, without its caches.
+      - name: Setup pnpm
+        if: steps.support.outputs.ships == 'true'
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          install: false
+      - name: Setup Node.js
+        if: steps.support.outputs.ships == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+      - name: Install dependencies
+        if: steps.support.outputs.ships == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf node_modules out
+          pnpm install --frozen-lockfile --ignore-scripts
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+          pnpm run --if-present build:packages
+
+      - name: Build and smoke this runner's node-pty prebuild slot under the pinned Node
+        if: steps.support.outputs.ships == 'true'
+        run: |
+          set -euo pipefail
+          pnpm build:orcad-prebuilds
+          pnpm build:orcad-prebuilds --require-slots "$(node config/scripts/build-orcad-prebuilds.mjs --print-slot)"
+          pnpm build:orcad-prebuilds --smoke
+
+      # Upstream qualifies the slot with a real server before it may enter a template.
+      - name: Build orcad and run the headless server tests against the artifact
+        if: steps.support.outputs.ships == 'true'
+        run: |
+          set -euo pipefail
+          pnpm build:orcad
+          pnpm test:node-server --artifact
+
+      - name: Build the template for the listed targets
+        if: steps.support.outputs.ships == 'true'
+        run: node config/scripts/build-orcad-template.mjs --targets "$TEMPLATE_TARGETS"
+
+      # The fork's check script lives on the workflow's branch, not in the release tag's tree.
+      - name: Fetch the fork's template check
+        if: steps.support.outputs.ships == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .fork
+          sparse-checkout: config/mercurai/scripts
+          persist-credentials: false
+
+      - name: Check the template carries every file a deployed orcad needs
+        if: steps.support.outputs.ships == 'true'
+        run: |
+          set -euo pipefail
+          require_args=()
+          # Split on spaces without expanding globs against the checkout.
+          read -ra required_files <<<"$TEMPLATE_REQUIRE"
+          for file in "${required_files[@]}"; do require_args+=(--require "$file"); done
+          report=$(node .fork/config/mercurai/scripts/check-orcad-template.mjs \
+            --repo "$GITHUB_WORKSPACE" --resources "$GITHUB_WORKSPACE/out" \
+            --targets "$TEMPLATE_TARGETS" "${require_args[@]}")
+          echo "$report"
+          # Why: a script that exits 0 without checking must not read as a pass.
+          grep -q '^orcad template ok: ' <<<"$report"
+          {
+            echo '### orcad template'
+            echo '```'
+            du -sh out/orcad-template
+            du -sh out/orcad-template/targets/*
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.support.outputs.ships == 'true'
+        with:
+          name: orcad-template
+          path: out/orcad-template/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
