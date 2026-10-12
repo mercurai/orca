@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ getRuntimeGitHistory: vi.fn() }))
 
-vi.mock('@/runtime/runtime-git-client', () => ({
+vi.mock('@/runtime/runtime-git-status-client', () => ({
   getRuntimeGitHistory: mocks.getRuntimeGitHistory
 }))
 vi.mock('@/lib/connection-context', () => ({ getConnectionId: () => undefined }))

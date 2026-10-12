@@ -1,6 +1,6 @@
 import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
-import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
 import {
   runtimeTargetForOwnerEnvironment,
   type RuntimeClientTarget

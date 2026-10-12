@@ -14,7 +14,7 @@ import {
   resetWebSessionCloseIntentForTests
 } from './web-session-close-intent'
 import { WEB_SESSION_TAB_RPC_TIMEOUT_MS } from './web-session-tab-rpc-timeout'
-import { toHostSessionTabId } from './web-terminal-surface-id'
+import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
 import { ENVIRONMENT_ID, WORKTREE_ID, makeSnapshot } from './web-runtime-session-test-harness'
 import { stubRuntimeEnvironmentBridge } from './runtime-environment-bridge-fixture'
 

@@ -12,9 +12,9 @@ import {
   bulkUnstageRuntimeGitPaths,
   discardRuntimeGitPath,
   stageRuntimeGitPath,
-  unstageRuntimeGitPath,
-  type RuntimeGitContext
-} from '@/runtime/runtime-git-client'
+  unstageRuntimeGitPath
+} from '@/runtime/runtime-git-working-tree-client'
+import type { RuntimeGitContext } from '@/runtime/runtime-git-client-context'
 import {
   dismissSourceControlEntryFailureToast,
   showSourceControlEntryFailureToast

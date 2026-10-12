@@ -18,7 +18,7 @@ vi.mock('@/runtime/web-runtime-terminal-creation', () => ({
 vi.mock('@/runtime/web-runtime-session-environment', () => ({
   isWebRuntimeSessionActive: vi.fn(() => false)
 }))
-vi.mock('@/runtime/web-terminal-surface-id', () => ({
+vi.mock('../../../../shared/terminal-surface-id', () => ({
   isWebTerminalSurfaceTabId: vi.fn(() => false),
   toHostSessionTabId: vi.fn((tabId: string) => tabId)
 }))

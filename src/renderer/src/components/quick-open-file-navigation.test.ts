@@ -26,11 +26,13 @@ vi.mock('@/store', () => ({
     })
   }
 }))
-vi.mock('@/runtime/runtime-file-client', () => ({
+vi.mock('@/runtime/runtime-file-metadata-client', () => ({
   statRuntimePath: mocks.stat,
-  isRemoteRuntimeFileOperation: (context: { connectionId?: string }) =>
-    Boolean(context.connectionId),
   isMissingRuntimePathError: (error: Error) => error.message.includes('ENOENT')
+}))
+vi.mock('@/runtime/runtime-file-routing', () => ({
+  isRemoteRuntimeFileOperation: (context: { connectionId?: string }) =>
+    Boolean(context.connectionId)
 }))
 vi.mock('./right-sidebar/file-explorer-operation-owner', () => ({
   getFileExplorerOperationOwner: () => ({}),

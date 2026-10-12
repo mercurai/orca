@@ -1,5 +1,5 @@
 import type { Repo } from '../../../../shared/repo-types'
-import { syncRuntimeGitForkDefaultBranch } from '../../runtime/runtime-git-client'
+import { syncRuntimeGitForkDefaultBranch } from '../../runtime/runtime-git-sync-client'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host'
 import { getRepoMainWorktreeId } from '../../../../shared/worktree/id'
 import { runtimeTargetForOwnerHostId } from '../../runtime/runtime-client-target'

@@ -20,7 +20,7 @@ import {
   recordWebSessionTerminalPlacement,
   webTerminalPlacementParentTabId
 } from './web-session-terminal-placement'
-import { toHostSessionTabId } from './web-terminal-surface-id'
+import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
 import {
   captureRuntimeEnvironmentCall,
   captureWebSessionIntentOwner,

@@ -17,7 +17,7 @@ import {
   recordWebSessionFocusIntent
 } from './web-session-focus-intent'
 import { WEB_SESSION_TAB_RPC_TIMEOUT_MS } from './web-session-tab-rpc-timeout'
-import { toHostSessionTabId } from './web-terminal-surface-id'
+import { toHostSessionTabId } from '../../../shared/terminal-surface-id'
 import {
   captureRuntimeEnvironmentCall,
   captureWebSessionIntentOwner,

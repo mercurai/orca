@@ -1,4 +1,4 @@
-import type { RuntimeGitContext } from '@/runtime/runtime-git-client'
+import type { RuntimeGitContext } from '@/runtime/runtime-git-client-context'
 import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
 import type { GitConflictOperation } from '../../../../../../shared/git-status-types'

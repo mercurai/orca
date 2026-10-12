@@ -12,7 +12,7 @@ vi.mock('@/store', () => ({
     getState: vi.fn()
   }
 }))
-vi.mock('@/runtime/runtime-file-client', () => ({
+vi.mock('@/runtime/runtime-file-read-client', () => ({
   readRuntimeFileContent: readRuntimeFileContentMock
 }))
 vi.mock('@/runtime/runtime-rpc-client', () => ({}))

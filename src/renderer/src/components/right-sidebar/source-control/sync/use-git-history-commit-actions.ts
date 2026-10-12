@@ -3,10 +3,8 @@ import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
 import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import {
-  getRuntimeGitCommitCompare,
-  getRuntimeGitRemoteCommitUrl
-} from '@/runtime/runtime-git-client'
+import { getRuntimeGitCommitCompare } from '@/runtime/runtime-git-diff-client'
+import { getRuntimeGitRemoteCommitUrl } from '@/runtime/runtime-git-working-tree-client'
 import { getConnectionId } from '@/lib/connection-context'
 import { detectLanguage } from '@/lib/language-detect'
 import { launchAgentInNewTab } from '@/lib/launch-agent-in-new-tab'

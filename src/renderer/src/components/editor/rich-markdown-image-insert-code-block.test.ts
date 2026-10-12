@@ -9,7 +9,7 @@ import { useLocalImagePick } from './useLocalImagePick'
 import { handleRichMarkdownImagePaste } from './rich-markdown-paste-image'
 import { runSlashCommand, slashCommands } from './rich-markdown-slash-commands'
 
-vi.mock('@/runtime/runtime-file-client', () => ({
+vi.mock('@/runtime/runtime-file-import-client', () => ({
   importExternalPathsToRuntime: vi.fn().mockResolvedValue({
     results: [{ status: 'imported', destPath: '/repo/shot.png' }]
   })

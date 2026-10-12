@@ -5,7 +5,7 @@ import type { WorkspaceSpaceWorktree } from '../../../../shared/workspace-space-
 import { getWorkspaceSpaceWorktreeIdentity } from './workspace-space-delete-selection'
 import { useAppStore } from '../../store'
 import { findRepoForHost } from '../../store/slices/repo-host-identity'
-import { getRuntimeGitStatus } from '@/runtime/runtime-git-client'
+import { getRuntimeGitStatus } from '@/runtime/runtime-git-status-client'
 import type { useWorkspaceSpaceManagerBindings } from './use-workspace-space-manager-bindings'
 
 type WorkspaceSpaceManagerBindings = ReturnType<typeof useWorkspaceSpaceManagerBindings>

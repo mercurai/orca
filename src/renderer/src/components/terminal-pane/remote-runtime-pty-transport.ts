@@ -80,7 +80,10 @@ import {
 } from '@/runtime/agent-session-create-operation'
 import { replaceFitOverridePtyId, setFitOverride } from '@/lib/pane-manager/mobile-fit-overrides'
 import { replaceDriverPtyId, setDriverForPty } from '@/lib/pane-manager/mobile-driver-state'
-import { isWebTerminalSurfaceTabId, toHostSessionTabId } from '@/runtime/web-terminal-surface-id'
+import {
+  isWebTerminalSurfaceTabId,
+  toHostSessionTabId
+} from '../../../../shared/terminal-surface-id'
 import { listRemoteRuntimeSessionTabsAfterCurrentInFlight } from '@/runtime/remote-runtime-session-tabs-inflight'
 import { subscribeAcceptedWebSessionTerminalHandle } from '@/runtime/web-session-terminal-handle-events'
 import { hostSnapshotAffirmsWorktreeContents } from '@/runtime/host-session-snapshot-authority'

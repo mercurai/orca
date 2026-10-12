@@ -4,9 +4,9 @@ import { getConnectionId } from '@/lib/connection-context'
 import { useAppStore, type AppState } from '@/store'
 import {
   cancelRuntimeGeneratePullRequestFields,
-  generateRuntimePullRequestFields,
-  type RuntimeGeneratePullRequestFieldsOverrides
-} from '@/runtime/runtime-git-client'
+  generateRuntimePullRequestFields
+} from '@/runtime/runtime-git-generation-client'
+import type { RuntimeGeneratePullRequestFieldsOverrides } from '@/runtime/runtime-git-client-context'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
 import type { ResolveSourceControlAiResult } from '../../../../shared/source-control-ai'
 import type { SourceControlAiPrCreationDefaults } from '../../../../shared/source-control-ai-types'

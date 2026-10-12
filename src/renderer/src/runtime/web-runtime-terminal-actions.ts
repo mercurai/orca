@@ -9,7 +9,7 @@ import { useAppStore } from '../store'
 import { unwrapRuntimeRpcResult } from './runtime-rpc-client'
 import { parseRemoteRuntimePtyId } from './runtime-terminal-stream'
 import { toRuntimeWorktreeSelector } from './runtime-worktree-selector'
-import { isWebTerminalSurfaceTabId, toHostSessionTabId } from './web-terminal-surface-id'
+import { isWebTerminalSurfaceTabId, toHostSessionTabId } from '../../../shared/terminal-surface-id'
 import {
   captureRuntimeEnvironmentCall,
   captureWebSessionIntentOwner,

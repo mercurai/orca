@@ -3,7 +3,7 @@ import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
 import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import type { GitStatusEntry } from '../../../../../../shared/git-status-types'
 import { getConnectionId } from '@/lib/connection-context'
-import { getRuntimeGitSubmoduleStatus } from '@/runtime/runtime-git-client'
+import { getRuntimeGitSubmoduleStatus } from '@/runtime/runtime-git-status-client'
 import {
   getSubmoduleExpansionKey,
   isExpandableSubmoduleEntry,

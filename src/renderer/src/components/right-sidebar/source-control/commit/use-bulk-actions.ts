@@ -9,7 +9,7 @@ import {
   bulkStageRuntimeGitPaths,
   bulkUnstageRuntimeGitPaths,
   stageRuntimeGitWorktreeScope
-} from '@/runtime/runtime-git-client'
+} from '@/runtime/runtime-git-working-tree-client'
 import {
   getStageAllPaths,
   getUnstageAllPaths,

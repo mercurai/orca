@@ -3,7 +3,7 @@ import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import type {
   RuntimeGeneratePullRequestFieldsOverrides,
   RuntimeGitContext
-} from '@/runtime/runtime-git-client'
+} from '@/runtime/runtime-git-client-context'
 import type { Repo } from '../../../../shared/repo-types'
 import type { HostedReviewCreationEligibility } from '../../../../shared/hosted-review'
 import type { SourceControlAiPrCreationDefaults } from '../../../../shared/source-control-ai-types'

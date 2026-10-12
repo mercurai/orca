@@ -5,10 +5,8 @@ import { useAppStore } from '@/store'
 import { getConnectionId } from '@/lib/connection-context'
 import { joinPath } from '@/lib/path'
 import type { WorktreeRuntimeOwnerState } from '@/lib/worktree-runtime-owner'
-import {
-  importExternalPathsToRuntime,
-  type RuntimeFileOperationArgs
-} from '@/runtime/runtime-file-client'
+import { importExternalPathsToRuntime } from '@/runtime/runtime-file-import-client'
+import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
 import {
   runtimeTargetEnvironmentId,
   type RuntimeClientTarget

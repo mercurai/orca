@@ -2,9 +2,9 @@ import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 import {
   createRuntimePath,
   deleteRuntimePath,
-  runtimePathExists,
   writeRuntimeFile
-} from '../runtime/runtime-file-client'
+} from '../runtime/runtime-file-mutation-client'
+import { runtimePathExists } from '../runtime/runtime-file-metadata-client'
 import { detectLanguage } from './language-detect'
 import {
   applyMarkdownTemplatePlaceholders,

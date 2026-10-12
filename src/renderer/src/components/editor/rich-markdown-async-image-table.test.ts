@@ -2,12 +2,12 @@
 import { Editor } from '@tiptap/react'
 import { CellSelection } from '@tiptap/pm/tables'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { importExternalPathsToRuntime } from '@/runtime/runtime-file-client'
+import { importExternalPathsToRuntime } from '@/runtime/runtime-file-import-client'
 import { createRichMarkdownExtensions } from './rich-markdown-extensions'
 import { createRichMarkdownEditorCodec } from './rich-markdown-source-transport'
 import { handleRichMarkdownImagePaste } from './rich-markdown-paste-image'
 
-vi.mock('@/runtime/runtime-file-client', () => ({ importExternalPathsToRuntime: vi.fn() }))
+vi.mock('@/runtime/runtime-file-import-client', () => ({ importExternalPathsToRuntime: vi.fn() }))
 vi.mock('@/lib/connection-context', () => ({ getConnectionId: vi.fn(() => null) }))
 vi.mock('@/store', () => ({
   useAppStore: {

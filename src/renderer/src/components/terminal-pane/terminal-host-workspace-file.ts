@@ -5,7 +5,7 @@ import {
   type RuntimeClientTarget
 } from '@/runtime/runtime-client-target'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
-import { statRuntimePath } from '@/runtime/runtime-file-client'
+import { statRuntimePath } from '@/runtime/runtime-file-metadata-client'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-routing'
 import { userNamedFileAccess } from '@/lib/local-file-access'
 import { isPairedWebClientWindow } from '@/lib/desktop-window-chrome'
