@@ -1,0 +1,2 @@
+      - name: Lint the fork scripts
+        run: npx --yes oxlint@1.86.0 config/mercurai
