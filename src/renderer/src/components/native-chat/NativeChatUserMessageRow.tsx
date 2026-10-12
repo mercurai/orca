@@ -119,6 +119,7 @@ export function NativeChatUserMessageRow({
               onRefolded={onRefolded}
             >
               <NativeChatMarkdown
+                rowKey={message.id}
                 content={markdown}
                 variant="document"
                 className="text-sm"

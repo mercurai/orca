@@ -4183,7 +4183,12 @@
             "checkTooltip": "Chats qu'Orca n'a pas pu reprendre, ou dont il n'a pas pu confirmer la reprise, après le redémarrage. Cliquez pour plus de détails.",
             "resumingTooltip": "Restauration des conversations interrompues et demande de poursuite…",
             "resumingProgressLabel": "Reprise des discussions {{value0}}/{{value1}}",
-            "resumingProgressAria": "Reprise des discussions, {{value0}} sur {{value1}} terminées. Cliquez pour voir les détails."
+            "resumingProgressAria": "Reprise des discussions, {{value0}} sur {{value1}} terminées. Cliquez pour voir les détails.",
+            "resumedLabelOne": "1 discussion reprise",
+            "resumedLabel": "{{value0}} discussions reprises",
+            "resumedAriaOne": "1 discussion reprise. Cliquez pour la voir.",
+            "resumedAria": "{{value0}} discussions reprises. Cliquez pour les voir.",
+            "resumedTooltip": "Discussions reprises par Orca après le redémarrage. Cliquez pour les voir."
           },
           "provider": {
             "extra": {
@@ -18401,6 +18406,8 @@
         "subtitle": "Les fichiers sont ajoutés à votre message sous forme de chemins que l'agent peut lire."
       },
       "copyCode": "Copier le code",
+      "wrapLines": "Retour à la ligne",
+      "disableLineWrap": "Désactiver le retour à la ligne",
       "context": {
         "unavailable": "L'utilisation du contexte n'est pas encore connue. Elle sera disponible après la prochaine réponse de l'agent.",
         "summary": "Contexte : {{used}} / {{window}} tokens ({{percent}} %), estimation basée sur la dernière réponse.",

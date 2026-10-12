@@ -1,13 +1,13 @@
-import { globSync, readFileSync, writeFileSync } from 'node:fs'
+import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript-api'
 import {
   diffCounts,
-  formatBaseline,
-  parseBaseline,
-  parseBaselineNotes
-} from './check-focus-read-ratchet.mjs'
+  parseCountBaseline,
+  pruneCountBaseline,
+  totalCount
+} from './ratchet-baseline.mjs'
 import { literalString, propertyName, unwrap } from './static-module-specifiers.mjs'
 import { isTestOnlySourcePath } from './test-only-source-path.mjs'
 
@@ -384,15 +384,11 @@ export function collectSyncSpawnSources(root = ROOT) {
   )
 }
 
-function total(counts) {
-  return [...counts.values()].reduce((sum, count) => sum + count, 0)
-}
-
 export function main(root = ROOT) {
   const { counts, symbols } = countSyncSpawnUses(collectSyncSpawnSources(root))
   const { grown, shrunk } = diffCounts(
     counts,
-    parseBaseline(readFileSync(path.join(root, BASELINE_PATH), 'utf8'))
+    parseCountBaseline(readFileSync(path.join(root, BASELINE_PATH), 'utf8'))
   )
   for (const { file, now, allowed } of grown) {
     console.error(
@@ -408,24 +404,15 @@ export function main(root = ROOT) {
     return 1
   }
   console.log(
-    `Main sync-spawn ratchet OK — ${total(counts)} use(s) in ${counts.size} legacy file(s).`
+    `Main sync-spawn ratchet OK — ${totalCount(counts)} use(s) in ${counts.size} legacy file(s).`
   )
   return 0
 }
 
 export function prune(root = ROOT) {
-  const baselineFile = path.join(root, BASELINE_PATH)
-  const text = readFileSync(baselineFile, 'utf8')
   const { counts } = countSyncSpawnUses(collectSyncSpawnSources(root))
-  // Lowers entries only; growth still has to be fixed in the code.
-  const pruned = new Map(
-    [...parseBaseline(text)].map(([file, allowed]) => [
-      file,
-      Math.min(allowed, counts.get(file) ?? 0)
-    ])
-  )
-  writeFileSync(baselineFile, formatBaseline(pruned, BASELINE_HEADER, parseBaselineNotes(text)))
-  console.log(`Pruned ${BASELINE_PATH} to ${total(pruned)} use(s).`)
+  const kept = pruneCountBaseline(root, BASELINE_PATH, BASELINE_HEADER, counts)
+  console.log(`Pruned ${BASELINE_PATH} to ${kept} use(s).`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

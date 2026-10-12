@@ -4077,7 +4077,12 @@
             "checkTooltip": "再起動後に Orca が再開できなかった、または再開を確認できなかったチャット。詳細はクリックしてください。",
             "resumingTooltip": "中断されたチャットを復元し、続行を依頼しています…",
             "resumingProgressLabel": "チャットを再開中 {{value0}}/{{value1}}",
-            "resumingProgressAria": "チャットを再開中。{{value1}} 件中 {{value0}} 件完了。クリックすると詳細を表示します。"
+            "resumingProgressAria": "チャットを再開中。{{value1}} 件中 {{value0}} 件完了。クリックすると詳細を表示します。",
+            "resumedLabelOne": "再開したチャット 1 件",
+            "resumedLabel": "再開したチャット {{value0}} 件",
+            "resumedAriaOne": "チャットを 1 件再開しました。クリックすると表示します。",
+            "resumedAria": "チャットを {{value0}} 件再開しました。クリックすると表示します。",
+            "resumedTooltip": "再起動後に Orca が再開したチャットです。クリックすると表示します。"
           },
           "provider": {
             "extra": {
@@ -18334,6 +18339,8 @@
         "subtitle": "ファイルは、Agent が読み取ることができるパスとしてメッセージに追加されます。"
       },
       "copyCode": "コードをコピーする",
+      "wrapLines": "行を折り返す",
+      "disableLineWrap": "行の折り返しを無効にする",
       "context": {
         "unavailable": "コンテキストの使用量はまだ不明です。Agent が次に応答すると表示されます。",
         "summary": "コンテキスト: {{used}} / {{window}} トークン ({{percent}}%)、最後の応答から推定。",

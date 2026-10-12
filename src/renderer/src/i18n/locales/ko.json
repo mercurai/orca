@@ -4077,7 +4077,12 @@
             "checkTooltip": "다시 시작한 후 Orca가 재개하지 못했거나 재개했는지 확인하지 못한 채팅. 자세히 보려면 클릭하세요.",
             "resumingTooltip": "중단된 채팅을 복원하고 계속하도록 요청하는 중…",
             "resumingProgressLabel": "채팅 재개 중 {{value0}}/{{value1}}",
-            "resumingProgressAria": "채팅 재개 중, {{value1}}개 중 {{value0}}개 완료. 자세히 보려면 클릭하세요."
+            "resumingProgressAria": "채팅 재개 중, {{value1}}개 중 {{value0}}개 완료. 자세히 보려면 클릭하세요.",
+            "resumedLabelOne": "재개된 채팅 1개",
+            "resumedLabel": "재개된 채팅 {{value0}}개",
+            "resumedAriaOne": "채팅 1개를 재개했습니다. 클릭하여 확인하세요.",
+            "resumedAria": "채팅 {{value0}}개를 재개했습니다. 클릭하여 확인하세요.",
+            "resumedTooltip": "다시 시작한 후 Orca가 재개한 채팅입니다. 클릭하여 확인하세요."
           },
           "provider": {
             "extra": {
@@ -18334,6 +18339,8 @@
         "subtitle": "파일은 에이전트가 읽을 수 있는 경로로 메시지에 추가됩니다."
       },
       "copyCode": "코드 복사",
+      "wrapLines": "줄 바꿈",
+      "disableLineWrap": "줄 바꿈 끄기",
       "context": {
         "unavailable": "컨텍스트 사용량을 아직 알 수 없습니다. agent가 다음에 응답하면 확인할 수 있습니다.",
         "summary": "컨텍스트: {{used}}/{{window}} 토큰 ({{percent}}%), 마지막 응답 기준 추정치입니다.",

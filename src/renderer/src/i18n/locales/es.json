@@ -4065,7 +4065,12 @@
             "ariaLabel": "{{value0}} chats disponibles para reanudar",
             "tooltip": "Abrir chats interrumpidos disponibles para reanudar",
             "resumingProgressLabel": "Reanudando chats {{value0}}/{{value1}}",
-            "resumingProgressAria": "Reanudando chats, {{value0}} de {{value1}} listos. Haz clic para ver los detalles."
+            "resumingProgressAria": "Reanudando chats, {{value0}} de {{value1}} listos. Haz clic para ver los detalles.",
+            "resumedLabelOne": "1 chat reanudado",
+            "resumedLabel": "{{value0}} chats reanudados",
+            "resumedAriaOne": "1 chat reanudado. Haz clic para verlo.",
+            "resumedAria": "{{value0}} chats reanudados. Haz clic para verlos.",
+            "resumedTooltip": "Chats que Orca reanudó tras el reinicio. Haz clic para verlos."
           },
           "RuntimeHostStatusRow": {
             "previous_connection_closed": "La conexión anterior cerrada.",
@@ -18357,6 +18362,8 @@
         "subtitle": "Los archivos se añaden a tu mensaje como rutas que el agente puede leer."
       },
       "copyCode": "Copiar código",
+      "wrapLines": "Ajustar líneas",
+      "disableLineWrap": "Desactivar ajuste de línea",
       "context": {
         "unavailable": "El uso del contexto aún no se conoce. Estará disponible cuando el agente vuelva a responder.",
         "summary": "Contexto: {{used}} / {{window}} tokens ({{percent}} %), estimado a partir de la última respuesta.",
