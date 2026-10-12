@@ -47,7 +47,12 @@ series.
   fails the run; `main` never carries fork commits), mirrors new upstream release tags
   (`vX.Y.Z` and `vX.Y.Z-rc.N` names only; a tag the fork holds is never moved, a moved one warns), dispatches `fork-rebase-patches` for the newest new tag (a stable `vX.Y.Z` wins over an
   `-rc.N`; one dispatch per run), then merges `main` into `mercurai` (a conflict opens a
-  `fork-sync` issue and fails the run; the tags were already handed on).
+  `fork-sync` issue and fails the run; the tags were already handed on). Before the merge,
+  `scripts/merge-guard.sh` (git only, no token) lists what upstream changed since the merge base
+  under `.github/workflows/` or `config/mercurai/` (a rename or delete counts): such a range is not
+  merged; the run opens or updates a `fork-sync` issue naming up to 50 of the paths and fails.
+  Review the range, then dispatch the workflow from `mercurai` with `allow_guarded_merge=true`
+  (the schedule never sets it), or merge through a reviewed PR.
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
   `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where
@@ -92,7 +97,8 @@ series.
   dry run.
 - `fork-scripts-test`: on a push or PR that touches `config/mercurai/` or any
   `.github/workflows/fork-*.yml`, runs the fork scripts'
-  own tests (`test-fork-series-scripts.sh`, `node --test "config/mercurai/scripts/*.test.mjs"`).
+  own tests (`test-fork-series-scripts.sh`, `node --test "config/mercurai/scripts/*.test.mjs"`)
+  and lints `config/mercurai` with the repo's `.oxlintrc.json` at the oxlint version pnpm-lock pins.
 
 Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
 fetches, rebases or assembles and reports, but pushes nothing and opens no issue. That is how a
