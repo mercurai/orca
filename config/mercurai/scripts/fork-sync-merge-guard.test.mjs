@@ -1,4 +1,4 @@
-// fork-sync-upstream must not merge an upstream range that touches .github/workflows or
+// fork-sync-upstream must not merge an upstream range that touches .github/ (workflows and the actions they run) or
 // config/mercurai without the owner: such files run with the fork's secrets once the fork pushes
 // them (claude-code-config#1148). The guard decides in merge-guard.sh, git only and no token; the
 // workflow runs it before the merge on one pinned upstream commit, the merge step cannot run when it
@@ -79,7 +79,7 @@ test('merge-guard.sh refuses by exit 3 from the merge base, pins the sha, prints
   const script = read('config', 'mercurai', 'scripts', 'merge-guard.sh')
   assert.match(script, /git merge-base "\$fork" "\$upstream"/)
   assert.match(script, /git diff --name-only --no-renames -z "\$base" "\$upstream"/)
-  assert.ok(script.includes("grep -E '^(\\.github/workflows/|config/mercurai/)'"))
+  assert.ok(script.includes("grep -E '^(\\.github/|config/mercurai/)'"))
   assert.ok(script.includes('[[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$sha" ]]'))
   assert.match(script, /^exit 3$/m)
   assert.match(script, /^ {2}exit 4$/m)
@@ -89,7 +89,7 @@ test('merge-guard.sh refuses by exit 3 from the merge base, pins the sha, prints
 
 test('merge-result-guard.sh diffs the result against the branch as pushed and prints a sanitised list', () => {
   const script = read('config', 'mercurai', 'scripts', 'merge-result-guard.sh')
-  assert.match(script, /git diff --name-only --no-renames -z "\$1" HEAD -- \.github\/workflows config\/mercurai/)
+  assert.match(script, /git diff --name-only --no-renames -z "\$1" HEAD -- \.github config\/mercurai/)
   assert.ok(script.includes("LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'"))
   assert.match(script, /^exit 3$/m)
 })
