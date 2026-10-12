@@ -73,14 +73,24 @@ jobs:
         id: fetch
         run: |
           set -euo pipefail
+          # join needs both lists sorted the way it compares.
+          export LC_ALL=C
           git config user.name 'mercurai-fork-bot'
           git config user.email 'fork-bot@users.noreply.github.com'
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git ls-remote --tags origin | awk '{print $2}' | grep -v '\^{}$' | sort > /tmp/tags-before
+          git ls-remote --tags origin | grep -v '\^{}$' | sed 's#\trefs/tags/# #' | sort -k2 > /tmp/origin-tags
           git fetch --no-tags upstream main
-          git fetch upstream --tags --force
-          git tag -l | sed 's#^#refs/tags/#' | sort > /tmp/tags-after
-          comm -13 /tmp/tags-before /tmp/tags-after | sed 's#^refs/tags/##' > /tmp/tags-new
+          # Upstream's tags land in a namespace of their own, so no tag this fork holds is touched.
+          git fetch --no-tags --force upstream '+refs/tags/*:refs/upstream-tags/*'
+          # The fork's own release tags are never taken from upstream.
+          git for-each-ref --format='%(objectname) %(refname:strip=2)' refs/upstream-tags \
+            | (grep -v -E ' .*-mercurai\.' || true) | sort -k2 > /tmp/upstream-tags
+          # New: upstream has the name and the fork does not. Moved: both have it, pointing apart.
+          join -1 2 -2 2 -v 1 /tmp/upstream-tags /tmp/origin-tags | awk '{print $1}' > /tmp/tags-new
+          join -1 2 -2 2 /tmp/upstream-tags /tmp/origin-tags | awk '$2 != $3 {print $1}' > /tmp/tags-moved
+          if [ -s /tmp/tags-moved ]; then
+            echo "::warning::upstream moved tags the fork already holds; they are not mirrored: $(tr '\n' ' ' < /tmp/tags-moved)"
+          fi
           # Stable tags win over release candidates; one dispatch per run, the newest tag of the better kind.
           stable=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
           rc=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
@@ -94,10 +104,14 @@ jobs:
         # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
         run: git push origin refs/remotes/upstream/main:refs/heads/main
 
-      - name: Mirror tags
+      - name: Mirror new tags
         if: ${{ steps.mode.outputs.push == 'true' }}
-        # A tag that upstream moved is rejected rather than forced; the job fails and a human decides.
-        run: git push --force origin --tags
+        # New names only, never forced: an existing tag is not rewritten, whatever upstream did.
+        run: |
+          set -euo pipefail
+          refspecs=()
+          while read -r tag; do refspecs+=("refs/upstream-tags/$tag:refs/tags/$tag"); done < /tmp/tags-new
+          if [ "${#refspecs[@]}" -gt 0 ]; then git push origin "${refspecs[@]}"; fi
 
       - name: Hand the newest release tag to fork-rebase-patches
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
@@ -107,7 +121,7 @@ jobs:
           echo "dispatching rebase onto ${{ steps.fetch.outputs.rebase_tag }}"
           tag="${{ steps.fetch.outputs.rebase_tag }}"
           # Hand over the commit this run saw: a tag upstream re-cuts in between fails the rebase instead of moving it.
-          tag_sha=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+          tag_sha=$(git rev-parse --verify "refs/upstream-tags/$tag^{commit}")
           gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$tag_sha"
 
       - name: Mirror upstream branches under upstream/*

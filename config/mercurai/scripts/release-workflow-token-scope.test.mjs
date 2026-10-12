@@ -177,6 +177,47 @@ test('the build job checks out without a token of its own, every time', () => {
   }
 })
 
+// Inherited upstream workflows and any job's runner token can write the default branch's cache
+// scope, so nothing a release builds may come out of a cache, dry run or not (SEC-102). The repo's
+// own install actions cache by default and come from the ref being built, so they are out too.
+test('no release job restores or saves a cache', () => {
+  for (const [name, workflow] of [
+    ['release', release],
+    ['template', template]
+  ]) {
+    const body = code(workflow)
+    assert.doesNotMatch(body, /actions\/cache\b/, `${name} uses actions/cache`)
+    assert.doesNotMatch(body, /uses:\s*\.\/\.github\/actions\//, `${name} uses a repo install action`)
+    // setup-node's `cache:` and setup-* cache inputs of any spelling (cache-dependency-path too).
+    assert.doesNotMatch(body, /^\s+cache[\w-]*:/m, `${name} passes a cache input`)
+    const setupNode = body.split(/^ {6}- /m).filter((step) => /uses: actions\/setup-node@/.test(step))
+    assert.ok(setupNode.length >= 1, `${name} sets up Node`)
+    for (const step of setupNode) {
+      // From v5 setup-node caches the packageManager's store on its own unless told not to.
+      assert.match(step, /package-manager-cache: false/, `${name} setup-node may cache`)
+    }
+  }
+  const build = code(releaseJobs.get('build-win'))
+  const reset = build.slice(build.indexOf('- name: Start from empty build caches'))
+  assert.ok(build.indexOf('- name: Start from empty build caches') < build.indexOf('- name: Install dependencies'))
+  assert.match(reset, /ELECTRON_CACHE=\$RUNNER_TEMP\/electron-cache/)
+  assert.match(reset, /ELECTRON_BUILDER_CACHE=\$RUNNER_TEMP\/electron-builder-cache/)
+})
+
+// A tag can be moved between jobs; every job builds the one commit preflight resolved (SEC-103).
+test('every job builds the commit preflight resolved', () => {
+  assert.match(releaseJobs.get('preflight'), /^ {6}build_sha: \$\{\{ steps\.vet\.outputs\.build_sha \}\}$/m)
+  assert.match(releaseJobs.get('orcad-template'), /^ {6}ref: \$\{\{ needs\.preflight\.outputs\.build_sha \}\}$/m)
+  const build = code(releaseJobs.get('build-win'))
+  const checkouts = build.split(/^ {6}- /m).filter((step) => /uses: actions\/checkout@/.test(step))
+  const ofTheBuild = checkouts.filter((step) => !/path: \.fork/.test(step))
+  assert.equal(ofTheBuild.length, 1)
+  assert.match(ofTheBuild[0], /ref: \$\{\{ needs\.preflight\.outputs\.build_sha \}\}/)
+  assert.match(build, /if \[ "\$head_sha" != "\$BUILD_SHA" \]; then\n[^\n]*\n\s+exit 1\n/)
+  // The template workflow refuses anything but a full sha.
+  assert.ok(template.includes(String.raw`if [[ ! "$TEMPLATE_REF" =~ ^[0-9a-f]{40}$ ]]; then`))
+})
+
 test('a dry run keeps no update manifest and marks the installer', () => {
   const build = releaseJobs.get('build-win')
   const strip = build.slice(build.indexOf('- name: Strip the update files from a dry run'))

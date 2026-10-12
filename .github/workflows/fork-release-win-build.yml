@@ -20,6 +20,15 @@
 # never share a job with the token that publishes it. The publish job's condition reads only the
 # dispatch inputs and the dispatching ref, which no step of another job can change.
 #
+# No job here restores or saves an Actions cache, dry run or not. Inherited upstream workflows
+# and any job's runner token can write the default branch's cache scope, so a cached pnpm store,
+# native build or Electron archive could carry code no commit shows. Every run installs from the
+# registry and builds its native modules and Electron download from scratch. The repo's own
+# install actions cache by default, so these jobs spell the install out instead of using them.
+#
+# Every job builds one commit: preflight resolves the tag (or ref) to a sha once, and each job
+# checks out that sha, so a tag moved during the run cannot change what is built.
+#
 # Packaging-only dry run: `-f dry_run=true` builds, packages and checks the installer and keeps it
 # as a run artifact. No publish job exists in that run. The artifact carries the installer alone,
 # renamed with a DRY-RUN marker and without latest.yml or the blockmap, so nothing in it can be
@@ -76,6 +85,7 @@ jobs:
       version: ${{ steps.vet.outputs.version }}
       publish: ${{ steps.vet.outputs.publish }}
       build_ref: ${{ steps.vet.outputs.build_ref }}
+      build_sha: ${{ steps.vet.outputs.build_sha }}
     steps:
       - name: Vet the dispatch
         id: vet
@@ -106,12 +116,27 @@ jobs:
             exit 1
           fi
           build_ref=${REF_INPUT:-refs/tags/$TAG}
+          # One commit for every job: an annotated tag resolves through its peeled line, a branch
+          # through its head, and a full sha stands for itself.
+          if [[ "$build_ref" =~ ^[0-9a-f]{40}$ ]]; then
+            build_sha=$build_ref
+          else
+            case "$build_ref" in refs/*) want=$build_ref ;; *) want=refs/heads/$build_ref ;; esac
+            listed=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY" "$want" "$want^{}")
+            build_sha=$(awk -v peeled="$want^{}" '$2 == peeled { print $1 }' <<<"$listed")
+            build_sha=${build_sha:-$(awk -v ref="$want" '$2 == ref { print $1 }' <<<"$listed")}
+          fi
+          if [[ ! "$build_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::$build_ref does not resolve to a commit in $GITHUB_REPOSITORY"
+            exit 1
+          fi
           {
             echo "version=${TAG#v}"
             echo "publish=$publish"
             echo "build_ref=$build_ref"
+            echo "build_sha=$build_sha"
           } >> "$GITHUB_OUTPUT"
-          echo "building $build_ref as ${TAG#v}; publish=$publish (dispatched from $DISPATCH_REF, dry_run=$DRY_RUN)"
+          echo "building $build_ref ($build_sha) as ${TAG#v}; publish=$publish (dispatched from $DISPATCH_REF, dry_run=$DRY_RUN)"
 
   # From v1.4.224 every SSH host runs orcad, deployed from a template inside the app. A ref without
   # patch/orca-partial-orcad-template reports ships=false and packages as before, which is the
@@ -120,7 +145,7 @@ jobs:
     needs: preflight
     uses: ./.github/workflows/fork-orcad-template.yml
     with:
-      ref: ${{ needs.preflight.outputs.build_ref }}
+      ref: ${{ needs.preflight.outputs.build_sha }}
       # `env` is not available in `with`; keep this equal to ORCAD_REQUIRED_FILES above.
       require: git-spawn-worker-entry.js
 
@@ -135,22 +160,39 @@ jobs:
       # The default token reads this repository; this job is given no other credential.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.preflight.outputs.build_ref }}
+          ref: ${{ needs.preflight.outputs.build_sha }}
           persist-credentials: false
 
-      # A branch can move while the template builds: the app and its template must be one commit.
-      - name: Check the template was built from this commit
-        if: needs.orcad-template.outputs.ships == 'true'
+      # The app and its template must be the commit preflight resolved.
+      - name: Check this job and the template build one commit
         shell: bash
         env:
+          BUILD_SHA: ${{ needs.preflight.outputs.build_sha }}
+          SHIPS_ORCAD_TEMPLATE: ${{ needs.orcad-template.outputs.ships }}
           TEMPLATE_SHA: ${{ needs.orcad-template.outputs.sha }}
         run: |
           set -euo pipefail
           head_sha=$(git rev-parse HEAD)
-          if [ "$head_sha" != "$TEMPLATE_SHA" ]; then
-            echo "::error::the orcad template was built from $TEMPLATE_SHA but this job checked out $head_sha; the ref moved during the run. Dispatch again."
+          if [ "$head_sha" != "$BUILD_SHA" ]; then
+            echo "::error::checked out $head_sha, not $BUILD_SHA"
             exit 1
           fi
+          if [ "$SHIPS_ORCAD_TEMPLATE" = "true" ] && [ "$TEMPLATE_SHA" != "$BUILD_SHA" ]; then
+            echo "::error::the orcad template was built from $TEMPLATE_SHA, not $BUILD_SHA"
+            exit 1
+          fi
+
+      # Nothing cached reaches the build: the Electron download and electron-builder's tools go to
+      # empty directories of this run, and no native build output exists before the install.
+      - name: Start from empty build caches
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${LOCALAPPDATA:?}/electron/Cache" "${LOCALAPPDATA:?}/electron-builder/Cache"
+          mkdir -p "$RUNNER_TEMP/electron-cache" "$RUNNER_TEMP/electron-builder-cache"
+          echo "ELECTRON_CACHE=$RUNNER_TEMP/electron-cache" >> "$GITHUB_ENV"
+          echo "ELECTRON_BUILDER_CACHE=$RUNNER_TEMP/electron-builder-cache" >> "$GITHUB_ENV"
+          rm -rf node_modules mobile/node_modules native/windows-registry/build
 
       # The packaging config comes from the tag's tree, not from this workflow's branch. A tag cut before the
       # channel patch landed ignores ORCA_WIN_MERCURAI and would publish to upstream's repo name; say so now.
@@ -168,10 +210,29 @@ jobs:
             exit 1
           fi
 
-      - uses: ./.github/actions/install-node-dependencies
+      # The steps of the repo's install-node-dependencies and install-mobile-dependencies,
+      # without their caches (see the header).
+      - name: Setup pnpm
+        uses: pnpm/setup@v2
         with:
-          native-runtime: electron
-      - uses: ./.github/actions/install-mobile-dependencies
+          install: false
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+          pnpm run --if-present build:packages
+          node config/scripts/ensure-native-runtime.mjs --runtime=electron
+          cd mobile
+          pnpm install --frozen-lockfile
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
 
       - name: Verify the packaging identity
         shell: bash

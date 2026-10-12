@@ -7,16 +7,18 @@
 # The steps mirror the linux_glibc_floor lane of upstream's node-server-tests.yml at the same tag,
 # so the slot is built and qualified the way upstream qualifies it. Lives in the fork only.
 #
-# Called only, never dispatched: a run saves its pnpm store in the cache scope of the branch it
-# was started from, and the default branch's scope is where a release restores it. The caller,
-# fork-release-win-build, decides which refs may be built from which branch (its preflight).
+# Called only, never dispatched: the caller, fork-release-win-build, decides which refs may be
+# built from which branch (its preflight) and passes the commit to build, never a moving ref.
 # To build a template alone, dry-run the release workflow from a non-default branch.
+# No step restores or saves an Actions cache (see the caller's header): the install is spelled
+# out rather than taken from the repo's caching install action.
 name: fork-orcad-template
 
 on:
   workflow_call:
     inputs:
       ref:
+        description: The full commit sha to build
         type: string
         required: true
       targets:
@@ -84,6 +86,14 @@ jobs:
             exit 1
           fi
 
+      - name: Require a commit, not a ref that can move
+        run: |
+          set -euo pipefail
+          if [[ ! "$TEMPLATE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::ref '$TEMPLATE_REF' is not a full commit sha"
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
@@ -124,8 +134,26 @@ jobs:
           echo "ships=false" >> "$GITHUB_OUTPUT"
           echo "::notice::$TEMPLATE_REF is $version and carries no partial-template patch; it ships no orcad template, as the v1.4.223 line always has."
 
-      - uses: ./.github/actions/install-node-dependencies
+      # The steps of the repo's install-node-dependencies, without its caches.
+      - name: Setup pnpm
         if: steps.support.outputs.ships == 'true'
+        uses: pnpm/setup@v2
+        with:
+          install: false
+      - name: Setup Node.js
+        if: steps.support.outputs.ships == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+      - name: Install dependencies
+        if: steps.support.outputs.ships == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf node_modules out
+          pnpm install --frozen-lockfile --ignore-scripts
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+          pnpm run --if-present build:packages
 
       - name: Build and smoke this runner's node-pty prebuild slot under the pinned Node
         if: steps.support.outputs.ships == 'true'
