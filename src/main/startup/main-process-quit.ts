@@ -32,6 +32,7 @@ import { shouldQuitWhenAllWindowsClosed } from './window-all-closed-quit-policy'
 import { mainProcessState as state } from './main-process-state'
 import { isDevParentShutdownRequested } from './configure-process'
 import { getCanonicalUserDataPath } from '../persistence'
+import { drainPathWritesForQuit } from './path-write-quit-drain'
 
 // Why: will-quit fires twice — first pass preventDefaults and runs teardown; second pass exits.
 let daemonDisconnectDone = false
@@ -232,6 +233,8 @@ function installWillQuitHandler(): void {
     ]).then(() => {})
     const browserClientHostShutdown = shutdownPairedRuntimeBrowserClientHosts()
     const skillUploadShutdown = state.runtime?.disposeSkillUploadSessions() ?? Promise.resolve()
+    // Why: the dismissal store debounces its writes by 5 s; flush so a quit does not lose that tail.
+    const dismissalFlush = state.runtime?.flushNotificationDismissals?.() ?? Promise.resolve()
     // Why: capture pid/runtimeId synchronously (before any await) so a later teardown path can't null them out mid-chain.
     const ownedPid = process.pid
     const ownedRuntimeId = state.runtime?.getRuntimeId()
@@ -247,6 +250,13 @@ function installWillQuitHandler(): void {
           })
           .catch((error) => console.error('[runtime] Failed to stop local RPC transport:', error))
       : Promise.resolve()
+    // Why: the store writes went async; the sync baseline never lost one to a quit, so wait (bounded).
+    // Why after these members: plugin dispose, dismissal flush and state flush can queue secure writes.
+    const pathWriteDrain = Promise.allSettled([
+      pluginHostShutdown,
+      dismissalFlush,
+      storeFlush
+    ]).then(() => drainPathWritesForQuit())
     // Why: allSettled (not all) keeps fail-open — a daemon-disconnect rejection still quits instead of hanging.
     // Why: telemetry flush folds in before app.quit() (bounded 2s); catch defensively so a flush failure can't cancel the quit chain.
     // Why: normal quits keep the detached daemon for warm reattach, but a dead dev parent leaves the temp/dev profile ownerless.
@@ -267,12 +277,14 @@ function installWillQuitHandler(): void {
       { name: 'ssh', promise: sshShutdown },
       { name: 'plugin-hosts', promise: pluginHostShutdown },
       { name: 'skill-uploads', promise: skillUploadShutdown },
+      { name: 'mobile-dismissals', promise: dismissalFlush },
       { name: 'grok-hooks', promise: grokHookCleanup },
       { name: 'ref-maintenance', promise: refMaintenanceShutdown },
       { name: 'codex-backfill-recovery', promise: codexBackfillRecoveryShutdown },
       { name: 'structured-agent-session', promise: structuredAgentSessionShutdown },
       { name: 'usage-cache', promise: usageCacheFlush },
       { name: 'stats', promise: statsFlush },
+      { name: 'path-writes', promise: pathWriteDrain },
       { name: 'state', promise: storeFlush }
     ])
       .then((pendingTeardowns) => {

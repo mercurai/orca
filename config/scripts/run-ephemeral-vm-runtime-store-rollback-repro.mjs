@@ -60,7 +60,11 @@ function extractSource(commit, name) {
 function restoreAffectedStoreFiles(destination) {
   for (const relativePath of [
     'src/shared/ephemeral-vm-runtime-store.ts',
-    'src/shared/ephemeral-vm-runtimes.ts'
+    'src/shared/ephemeral-vm-runtimes.ts',
+    // Why: the reverted store imports the synchronous secure writers the candidate deleted.
+    // POSIX only: their win32 ACL import (restrictWindowsPathSync) no longer exists at HEAD.
+    'src/shared/bounded-secure-json-file.ts',
+    'src/shared/secure-file.ts'
   ]) {
     const result = run('git', ['show', `${AFFECTED_MAIN_COMMIT}:${relativePath}`], {
       encoding: 'utf8'

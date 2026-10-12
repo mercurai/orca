@@ -145,7 +145,7 @@ export function linkRuntimeSshAccess(
         await options.invalidateTransport?.(environmentId)
         return redactRuntimeEnvironment(resolveEnvironment(userDataPath, environmentId))
       }
-      const prepared = prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
+      const prepared = await prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
         expectedEnvironment: environment,
         requestId: args.requestId,
         remotePort: args.remotePort,
@@ -183,7 +183,7 @@ export function linkRuntimeSshAccess(
         requireAccessOnlyTarget(claims, target.id, environmentId)
         requireFence(claims, environmentId, fence)
         const linked = redactRuntimeEnvironment(
-          linkVerifiedRuntimeEnvironmentSshAccess(userDataPath, {
+          await linkVerifiedRuntimeEnvironmentSshAccess(userDataPath, {
             expectedEnvironment: prepared,
             requestId: args.requestId,
             ...proof,
@@ -230,11 +230,11 @@ export function unlinkRuntimeSshAccess(
       requireFence(claims, environmentId, access, !!environment.pendingSshAccessOperation)
       const prepared =
         environment.pendingSshAccessOperation?.operation === 'link'
-          ? cancelRuntimeEnvironmentSshAccessLink(userDataPath, {
+          ? await cancelRuntimeEnvironmentSshAccessLink(userDataPath, {
               expectedEnvironment: environment,
               requestId: args.requestId
             })
-          : prepareRuntimeEnvironmentSshAccessUnlink(userDataPath, {
+          : await prepareRuntimeEnvironmentSshAccessUnlink(userDataPath, {
               expectedEnvironment: environment,
               requestId: args.requestId
             })
@@ -247,7 +247,7 @@ export function unlinkRuntimeSshAccess(
       await claims.flush()
       requireFence(claims, environmentId, access, true)
       return redactRuntimeEnvironment(
-        completeRuntimeEnvironmentSshAccessUnlink(userDataPath, {
+        await completeRuntimeEnvironmentSshAccessUnlink(userDataPath, {
           expectedEnvironment: prepared,
           requestId: args.requestId
         })

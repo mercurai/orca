@@ -32,6 +32,7 @@ export type RuntimeServiceCommandSurface = {
   dispatchMobileNotification: RuntimeMobileNotificationController['dispatch']
   getMissedNotificationsSince: RuntimeMobileNotificationController['getMissedSince']
   configureNotificationDismissalStore: RuntimeMobileNotificationController['configureDismissalStore']
+  flushNotificationDismissals?: RuntimeMobileNotificationController['flushDismissals']
   reconcileDismissedPushes: RuntimeMobileNotificationController['reconcileDismissedPushes']
   getMobileNotificationEpoch: RuntimeMobileNotificationController['getEpoch']
   dismissMobileNotification: RuntimeMobileNotificationController['dismiss']
@@ -129,6 +130,7 @@ export function installRuntimeServiceCommandSurface(
     dispatchMobileNotification: notifications.dispatch.bind(notifications),
     getMissedNotificationsSince: notifications.getMissedSince.bind(notifications),
     configureNotificationDismissalStore: notifications.configureDismissalStore.bind(notifications),
+    flushNotificationDismissals: notifications.flushDismissals.bind(notifications),
     reconcileDismissedPushes: notifications.reconcileDismissedPushes.bind(notifications),
     getMobileNotificationEpoch: notifications.getEpoch.bind(notifications),
     dismissMobileNotification: notifications.dismiss.bind(notifications),

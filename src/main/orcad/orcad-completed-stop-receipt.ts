@@ -3,7 +3,7 @@ import { lstatSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { z } from 'zod'
 import { readNodeFileSyncWithinLimit } from '../../shared/node-bounded-file-reader'
-import { writeDurableSecureJsonFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import { hasErrorCode } from '../daemon/daemon-process-inspection'
 import {
   ORCAD_STOP_RECEIPTS_DIRNAME,
@@ -56,8 +56,17 @@ export function readOrcadStopReceipt<T extends { request: OrcadManagedStopReques
   return receipt
 }
 
-function writeReceipt(request: OrcadManagedStopRequest, kind: ReceiptKind, receipt: unknown): void {
-  if (!writeDurableSecureJsonFile(orcadStopReceiptPath(request, kind), receipt)) {
+/** Durable once it resolves; false from the writer means the file's ACL could not be confirmed. */
+export async function writeOrcadStopRecordFile(path: string, value: unknown): Promise<boolean> {
+  return await writeSecureFileAsync(path, JSON.stringify(value, null, 2), { durable: true })
+}
+
+async function writeReceipt(
+  request: OrcadManagedStopRequest,
+  kind: ReceiptKind,
+  receipt: unknown
+): Promise<void> {
+  if (!(await writeOrcadStopRecordFile(orcadStopReceiptPath(request, kind), receipt))) {
     throw new Error('orcad_stop_receipt_permissions_unconfirmed')
   }
 }
@@ -72,10 +81,10 @@ export function readOrcadCompletedStopReceipt(
  * Called only after exit is proven; rewriting an existing receipt re-runs its fsync. A retiring
  * request whose orcad left no retirement record reports `unverifiable`, never `retired`.
  */
-export function persistOrcadCompletedStopReceipt(
+export async function persistOrcadCompletedStopReceipt(
   request: OrcadManagedStopRequest,
   exitedAt: Date
-): OrcadCompletedStopReceipt {
+): Promise<OrcadCompletedStopReceipt> {
   const parsed = OrcadManagedStopRequestSchema.parse(request)
   const retirement = parsed.retireIdleDaemon
     ? (readOrcadDaemonRetirementRecord(parsed)?.retirement ?? 'unverifiable')
@@ -87,7 +96,7 @@ export function persistOrcadCompletedStopReceipt(
     exitedAt: exitedAt.toISOString(),
     ...(retirement ? { retirement } : {})
   }
-  writeReceipt(parsed, 'completed', receipt)
+  await writeReceipt(parsed, 'completed', receipt)
   return receipt
 }
 
@@ -97,11 +106,11 @@ export function readOrcadDaemonRetirementRecord(
   return readOrcadStopReceipt(request, 'retirement', OrcadDaemonRetirementRecordSchema)
 }
 
-export function persistOrcadDaemonRetirementRecord(
+export async function persistOrcadDaemonRetirementRecord(
   request: OrcadManagedStopRequest,
   outcome: Pick<OrcadDaemonRetirementRecord, 'retirement' | 'liveSessions' | 'reason'>
-): void {
-  writeReceipt(request, 'retirement', {
+): Promise<void> {
+  await writeReceipt(request, 'retirement', {
     schemaVersion: 1,
     kind: 'orcad_managed_stop_retirement',
     request: OrcadManagedStopRequestSchema.parse(request),

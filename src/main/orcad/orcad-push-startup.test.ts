@@ -30,6 +30,7 @@ vi.mock('./orcad-app-paths', () => ({
 }))
 vi.mock('./orcad-browser-provider', () => ({ resolveOrcadBrowserProvider: state.browserProvider }))
 vi.mock('./orcad-instance-lock', () => ({
+  prepareOrcadDataRoot: async () => {},
   acquireOrcadInstanceLock: () => ({
     path: join(state.root, 'orcad.lock'),
     record: { pid: process.pid, startedAtMs: null, nonce: 'headless-instance' },
@@ -177,7 +178,7 @@ it('starts push after RPC identity is available and stops dispatch on shutdown',
   state.root = mkdtempSync(join(tmpdir(), 'orca-headless-push-'))
   state.controller = new RuntimeMobileNotificationController()
   state.registry = new DeviceRegistry(state.root)
-  const phone = state.registry.addDevice('headless-phone', 'mobile')
+  const phone = await state.registry.addDevice('headless-phone', 'mobile')
   const { startOrcad } = await import('./orcad-entry')
   const host = await startOrcad({ noPairing: true, json: true })
   try {

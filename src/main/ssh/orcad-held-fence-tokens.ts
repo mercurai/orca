@@ -6,7 +6,8 @@
 import { readFileSync } from 'node:fs'
 import { hostname, uptime } from 'node:os'
 import { dirname, join } from 'node:path'
-import { writeDurableSecureJsonFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
+import { serializePathWrite } from '../../shared/path-write-serializer'
 
 export const ORCAD_HELD_FENCE_TOKENS_FILE_NAME = 'orcad-held-fence-tokens.json'
 // Older entries are leaks from releases never confirmed; the fence went stale long ago anyway.
@@ -56,30 +57,34 @@ function isHeldFence(entry: unknown): entry is HeldFence {
   )
 }
 
-function updateHeld(change: (held: HeldFence[]) => HeldFence[] | null): void {
-  if (!file) {
+async function updateHeld(change: (held: HeldFence[]) => HeldFence[] | null): Promise<void> {
+  const target = file
+  if (!target) {
     return
   }
   try {
-    const next = change(readHeld())
-    if (next) {
-      writeDurableSecureJsonFile(file, next)
-    }
+    // Read-modify-write in one lane, so two concurrent updates cannot drop each other's token.
+    await serializePathWrite(`${target}#read-modify-write`, async () => {
+      const next = change(readHeld())
+      if (next) {
+        await writeSecureFileAsync(target, JSON.stringify(next, null, 2), { durable: true })
+      }
+    })
   } catch (error) {
     console.warn(`[orcad] Could not update the held fence token file: ${String(error)}`)
   }
 }
 
-/** Before the lock command: a reply lost after the lock landed still leaves a provable token. */
-export function rememberHeldOrcadFence(token: string): void {
-  updateHeld((held) => [
+/** Await before the lock command: a reply lost after the lock landed still leaves a provable token. */
+export async function rememberHeldOrcadFence(token: string): Promise<void> {
+  await updateHeld((held) => [
     ...held,
     { token, pid: process.pid, host: hostname(), bootedAt: bootedAt(), at: Date.now() }
   ])
 }
 
-export function forgetHeldOrcadFence(token: string): void {
-  updateHeld((held) =>
+export async function forgetHeldOrcadFence(token: string): Promise<void> {
+  await updateHeld((held) =>
     held.some((entry) => entry.token === token)
       ? held.filter((entry) => entry.token !== token)
       : null

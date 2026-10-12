@@ -288,7 +288,7 @@ jobs:
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
           if git diff --quiet "$DIFF_BASE" HEAD -- \
-            src/shared/ephemeral-vm-runtime-store.ts \
+            src/shared/ephemeral-vm-runtime-store.ts             src/shared/bounded-secure-json-file.ts             src/shared/secure-file-async-write.ts             src/shared/path-write-serializer.ts             src/shared/node-bounded-json-stringify.ts \
             src/shared/ephemeral-vm-runtime-feature-store.ts \
             src/shared/ephemeral-vm-runtime-rollback-projection.ts \
             src/shared/ephemeral-vm-runtimes.ts \

@@ -169,7 +169,7 @@ async function unlinkEnvironmentLocally(
 ): Promise<void> {
   // Environment first: a crash before the claim is released leaves a hidden target to resume,
   // never a linked server whose SSH target was already handed back.
-  removeManagedOrcadEnvironment(userDataPath, environment.id)
+  await removeManagedOrcadEnvironment(userDataPath, environment.id)
   await policy.retireLocalState(environment.id)
   await closeOrcadManagedTunnel(environment.id)
   const { claims } = requireManagedOrcadInfrastructure()

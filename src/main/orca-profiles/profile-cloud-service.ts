@@ -64,7 +64,7 @@ export async function connectCurrentOrcaProfile(
 ): Promise<ConnectCurrentOrcaProfileResult> {
   const active = ensureActiveOrcaProfile(userDataPath)
   if (isOrcaCloudDevAuthEnabled()) {
-    const list = connectDevOrcaCloudProfile(active, userDataPath)
+    const list = await connectDevOrcaCloudProfile(active, userDataPath)
     return {
       status: 'connected',
       auth: getCurrentOrcaProfileAuthStatus(userDataPath),
@@ -100,8 +100,8 @@ export async function connectCurrentOrcaProfile(
         auth: getCurrentOrcaProfileAuthStatus(userDataPath)
       }
     }
-    saveOrcaCloudSessionExchange(active.profile.id, userDataPath, exchange)
-    const list = linkOrcaProfileToCloud(active.profile.id, exchange.cloud, userDataPath)
+    await saveOrcaCloudSessionExchange(active.profile.id, userDataPath, exchange)
+    const list = await linkOrcaProfileToCloud(active.profile.id, exchange.cloud, userDataPath)
     linkedCloudConnectAttempt = attempt
     return {
       status: 'connected',
@@ -138,7 +138,7 @@ export async function signOutCurrentOrcaProfile(
   if (active.profile.cloud) {
     // Why: persist the destructive fence before logout network I/O so a
     // refresh already in flight cannot save after explicit sign-out.
-    tombstoneCloudSession(
+    await tombstoneCloudSession(
       cloudSessionIdentity(active.profile.id, active.profile.cloud),
       userDataPath
     )
@@ -156,7 +156,7 @@ export async function signOutCurrentOrcaProfile(
     }
   }
   clearOrcaCloudSession(active.profile.id, userDataPath)
-  const list = unlinkOrcaProfileFromCloud(active.profile.id, userDataPath)
+  const list = await unlinkOrcaProfileFromCloud(active.profile.id, userDataPath)
   return {
     status: 'signed-out',
     auth: getCurrentOrcaProfileAuthStatus(userDataPath),
@@ -171,7 +171,7 @@ export async function createCloudLinkedOrcaProfile(
 ): Promise<CreateCloudLinkedOrcaProfileResult> {
   const active = ensureActiveOrcaProfile(userDataPath)
   if (isOrcaCloudDevAuthEnabled()) {
-    const result = createDevCloudLinkedOrcaProfile(active, userDataPath, args)
+    const result = await createDevCloudLinkedOrcaProfile(active, userDataPath, args)
     if (result.status !== 'created') {
       return { status: 'reconnect-required', auth: activeAuth(active, userDataPath) }
     }
@@ -204,7 +204,7 @@ export async function createCloudLinkedOrcaProfile(
       { name: args.name },
       userDataPath
     )
-    saveOrcaCloudSessionExchange(list.profile.id, userDataPath, created)
+    await saveOrcaCloudSessionExchange(list.profile.id, userDataPath, created)
     return {
       status: 'created',
       auth: getCurrentOrcaProfileAuthStatus(userDataPath),
@@ -227,7 +227,7 @@ export async function selectCurrentOrcaProfileOrg(
 ): Promise<SelectOrcaProfileOrgResult> {
   const active = ensureActiveOrcaProfile(userDataPath)
   if (isOrcaCloudDevAuthEnabled()) {
-    const result = selectDevOrcaCloudOrg(active, userDataPath, orgId)
+    const result = await selectDevOrcaCloudOrg(active, userDataPath, orgId)
     if (result.status !== 'updated') {
       return { status: 'reconnect-required', auth: activeAuth(active, userDataPath) }
     }

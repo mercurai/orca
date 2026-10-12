@@ -126,7 +126,7 @@ async function stopForIdle(
 ): Promise<void> {
   console.error(`[orcad] stopping: no client, terminal or job for ${evidence.timeoutMs}ms`)
   try {
-    writeOrcadIdleStopRecord(input.userDataPath, evidence, input.version)
+    await writeOrcadIdleStopRecord(input.userDataPath, evidence, input.version)
   } catch (error) {
     console.error('[orcad] could not record the idle stop:', error)
   }

@@ -84,7 +84,7 @@ export async function withOrcadActivationLock<T>(
   token: string = randomUUID()
 ): Promise<T> {
   const lockRoot = orcadActivationTransactionRoot(options.host, options.remoteHome)
-  rememberHeldOrcadFence(token)
+  await rememberHeldOrcadFence(token)
   try {
     await acquireInstallLock(options.conn, lockRoot, options.host, {
       signal: options.signal,
@@ -96,7 +96,7 @@ export async function withOrcadActivationLock<T>(
     })
   } catch (error) {
     if (error instanceof RemoteInstallLockBusyError) {
-      forgetHeldOrcadFence(token)
+      await forgetHeldOrcadFence(token)
       return await held()
     }
     throw error
@@ -145,7 +145,7 @@ export async function withStaleOrcadActivationRecoveryLock<T>(
 ): Promise<T> {
   const lockRoot = orcadActivationTransactionRoot(options.host, options.remoteHome)
   const token = randomUUID()
-  rememberHeldOrcadFence(token)
+  await rememberHeldOrcadFence(token)
   // The takeover writes this run's token, so the holder it replaced can no longer act or release.
   await acquireInstallLock(options.conn, lockRoot, options.host, {
     signal: options.signal,
@@ -157,9 +157,9 @@ export async function withStaleOrcadActivationRecoveryLock<T>(
       baseDir: orcadRemoteBaseDir(options.host, options.remoteHome),
       guardsStateMutation: true
     })
-  }).catch((error: unknown) => {
+  }).catch(async (error: unknown) => {
     if (error instanceof RemoteInstallLockBusyError) {
-      forgetHeldOrcadFence(token)
+      await forgetHeldOrcadFence(token)
     }
     throw error
   })
@@ -211,7 +211,7 @@ async function orphanRetainedFence(
         orphanInstallLockCommand(options.host, fence.lockDir)
       )
     )
-    forgetHeldOrcadFence(fence.token)
+    await forgetHeldOrcadFence(fence.token)
   } catch (error) {
     // Best effort: the fence still holds; recovery then waits out the stale window as before.
     console.warn(
@@ -262,7 +262,7 @@ async function releaseActivationFence(
       ])
     : posixReleaseFenceCommand(fence, journal, lockRoot)
   const answer = (await execOrcadRemote(target, command)).trim()
-  forgetHeldOrcadFence(fence.token)
+  await forgetHeldOrcadFence(fence.token)
   if (answer.endsWith('SUPERSEDED')) {
     console.warn('[orcad] A newer run had taken this activation fence over; it was left in place.')
   }

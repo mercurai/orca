@@ -155,8 +155,11 @@ export class RuntimeClient {
         throw recover(new RuntimeRpcFailureError(response), null)
       }
       if (this.environmentSelector) {
-        markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
+        // Why: the request already succeeded; a failed usage stamp must not turn it into an error.
+        await markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
           runtimeId: response._meta.runtimeId
+        }).catch((writeError) => {
+          console.warn('[runtime] failed to record environment usage:', writeError)
         })
       }
       return response

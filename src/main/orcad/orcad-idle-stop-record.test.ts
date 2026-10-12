@@ -21,8 +21,8 @@ afterEach(() => {
 })
 
 describe('orcad idle-stop record', () => {
-  it('lets the next start tell an idle stop apart from a crash, exactly once', () => {
-    writeOrcadIdleStopRecord(
+  it('lets the next start tell an idle stop apart from a crash, exactly once', async () => {
+    await writeOrcadIdleStopRecord(
       root,
       {
         quietSince: Date.parse('2026-10-03T10:00:00Z'),
@@ -48,7 +48,7 @@ describe('orcad idle-stop record', () => {
     expect(consumeOrcadIdleStopRecord(root)).toBeNull()
   })
 
-  it('drops a corrupt record instead of trusting it', () => {
+  it('drops a corrupt record instead of trusting it', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     writeFileSync(orcadIdleStopRecordPath(root), '{"kind":"orcad_idle_stop"')
 
@@ -56,13 +56,13 @@ describe('orcad idle-stop record', () => {
     expect(existsSync(orcadIdleStopRecordPath(root))).toBe(false)
   })
 
-  it('drops the record when a signal stop already owned the shutdown', () => {
+  it('drops the record when a signal stop already owned the shutdown', async () => {
     const evidence = { quietSince: 1, stoppedAt: 2, timeoutMs: 3 }
-    writeOrcadIdleStopRecord(root, evidence, '1.0.0')
+    await writeOrcadIdleStopRecord(root, evidence, '1.0.0')
     createIdleStopRecordOwnership(root).requestShutdown(() => false)
     expect(existsSync(orcadIdleStopRecordPath(root))).toBe(false)
 
-    writeOrcadIdleStopRecord(root, evidence, '1.0.0')
+    await writeOrcadIdleStopRecord(root, evidence, '1.0.0')
     const owned = createIdleStopRecordOwnership(root)
     let onFailed: (() => void) | undefined
     owned.requestShutdown((_reason, failed) => {
@@ -75,8 +75,8 @@ describe('orcad idle-stop record', () => {
     expect(existsSync(orcadIdleStopRecordPath(root))).toBe(false)
   })
 
-  it('drops the record when a signal stop finishes before the idle stop asks to shut down', () => {
-    writeOrcadIdleStopRecord(root, { quietSince: 1, stoppedAt: 2, timeoutMs: 3 }, '1.0.0')
+  it('drops the record when a signal stop finishes before the idle stop asks to shut down', async () => {
+    await writeOrcadIdleStopRecord(root, { quietSince: 1, stoppedAt: 2, timeoutMs: 3 }, '1.0.0')
     // The signal's stop runs every cleanup, then exits before the idle request ever runs.
     createIdleStopRecordOwnership(root).onShutdown()
     expect(existsSync(orcadIdleStopRecordPath(root))).toBe(false)

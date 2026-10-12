@@ -7,6 +7,7 @@ import {
   resolveEnvironment
 } from '../../shared/runtime-environment-store'
 import { pairingCode } from './runtime-environments-ipc-test-harness'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../shared/protocol-version'
 import {
   advanceRuntimeEnvironmentCapabilityIncarnation,
@@ -37,16 +38,18 @@ import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-reque
 
 let directory: string
 let envId: string
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   resetRuntimeEnvironmentCapabilityEvidence()
   directory = mkdtempSync(join(tmpdir(), 'orca-status-retirement-'))
-  envId = addEnvironmentFromPairingCode(directory, {
-    name: 'Host',
-    now: 1,
-    pairingCode: pairingCode(),
-    connectionDependency: 'ssh-tunnel'
-  }).id
+  envId = (
+    await addEnvironmentFromPairingCode(directory, {
+      name: 'Host',
+      now: 1,
+      pairingCode: pairingCode(),
+      connectionDependency: 'ssh-tunnel'
+    })
+  ).id
   mocks.diagnostics.mockReturnValue(null)
 })
 afterEach(() => {
@@ -90,6 +93,8 @@ it.each(['success', 'failure', 'throw'] as const)(
       ok: false,
       error: { code: 'runtime_environment_changed' }
     })
+    // The usage stamp is detached: let any that was started land before reading the store.
+    await drainPendingPathWrites()
     expect(resolveEnvironment(directory, envId).runtimeId).toBeNull()
     expect(mocks.ensure).not.toHaveBeenCalled()
     expect(mocks.reconnect).not.toHaveBeenCalled()
@@ -105,6 +110,7 @@ it('does not fence another environment or a fresh probe after retirement', async
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
   advanceRuntimeEnvironmentCapabilityIncarnation(envId)
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
-  expect(resolveEnvironment(directory, envId).runtimeId).toBe('old-host')
+  // The usage stamp is detached, so it lands after the status reply.
+  await vi.waitFor(() => expect(resolveEnvironment(directory, envId).runtimeId).toBe('old-host'))
   expect(mocks.ensure).toHaveBeenCalledTimes(2)
 })

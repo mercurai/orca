@@ -27,36 +27,53 @@ const DEFAULT_POLL_INTERVAL_MS = 1_000
 /** `consume` returns the request that should stop orcad, or null; a missing file throws ENOENT. */
 function listenForRequest<T>(
   requestPath: string,
-  consume: (path: string) => T | null,
+  consume: (path: string) => T | null | Promise<T | null>,
   onRequest: (request: T) => void,
   pollIntervalMs: number
 ): OrcadStopRequestListener {
   let closed = false
+  // Why: consume may await (the managed-stop decision write); a watch event and a poll arriving
+  // meanwhile must not run a second consume and hand the same request on twice.
+  let consuming = false
   let lastFailure: string | null = null
-  const check = (): void => {
-    if (closed) {
-      return
-    }
-    let request: T | null
-    try {
-      request = consume(requestPath)
-    } catch (error) {
-      if (!hasErrorCode(error, 'ENOENT')) {
-        // Polling retries every interval; report each distinct refusal once.
-        const failure = error instanceof Error ? error.message : String(error)
-        if (failure !== lastFailure) {
-          lastFailure = failure
-          console.error(`[orcad] refused stop request at ${requestPath}:`, error)
-        }
+  const report = (error: unknown): void => {
+    if (!hasErrorCode(error, 'ENOENT')) {
+      // Polling retries every interval; report each distinct refusal once.
+      const failure = error instanceof Error ? error.message : String(error)
+      if (failure !== lastFailure) {
+        lastFailure = failure
+        console.error(`[orcad] refused stop request at ${requestPath}:`, error)
       }
-      return
     }
-    if (request === null) {
+  }
+  const handOn = (request: T | null): void => {
+    if (request === null || closed) {
       return
     }
     closed = true
     stop()
     onRequest(request)
+  }
+  const check = (): void => {
+    if (closed || consuming) {
+      return
+    }
+    let consumed: T | null | Promise<T | null>
+    try {
+      consumed = consume(requestPath)
+    } catch (error) {
+      report(error)
+      return
+    }
+    // Why: a synchronous consume (the slot request) hands on before this returns, as it always did.
+    if (!(consumed instanceof Promise)) {
+      handOn(consumed)
+      return
+    }
+    consuming = true
+    void consumed.then(handOn, report).finally(() => {
+      consuming = false
+    })
   }
   let watcher: FSWatcher | null = null
   try {
@@ -122,10 +139,10 @@ export function installOrcadStopRequestListeners(
     listeners.push(
       listenForRequest(
         orcadManagedStopRequestPath(managedStop.instance),
-        (path) => {
+        async (path) => {
           const request = validateOrcadManagedStopRequest(managedStop, path)
           // A cancelled request is never acted on; keep listening for the next transaction.
-          if (claimOrcadManagedStopDecision(request, 'dispatched') === 'canceled') {
+          if ((await claimOrcadManagedStopDecision(request, 'dispatched')) === 'canceled') {
             // A cancelled request left behind would block every later transaction's request.
             withdrawOrcadManagedStopRequest(request)
             throw new Error('orcad_managed_stop_canceled')
