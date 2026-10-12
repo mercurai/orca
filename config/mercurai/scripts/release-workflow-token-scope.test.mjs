@@ -244,6 +244,33 @@ test('preflight builds a branch or the tag, nothing else', () => {
   assert.doesNotMatch(preflight, /build_sha=\$build_ref|build_sha=\$REF_INPUT/)
 })
 
+// Every build, dry or real, proves the manifest and that the installed app starts, before anything
+// is uploaded or stripped: a release that does not launch must never publish.
+test('every build checks the manifest and smokes the installer before upload', () => {
+  const build = releaseJobs.get('build-win')
+  const at = (name) => build.indexOf(`- name: ${name}`)
+  const manifest = at('Check the update manifest field by field')
+  const smoke = at('Smoke the installer (install, launch for 30 s, uninstall)')
+  assert.ok(manifest > at('Check the build outputs') && smoke > manifest)
+  for (const later of ['Keep the release files as a run artifact', 'Strip the update files from a dry run']) {
+    assert.ok(at(later) > smoke, `${later} runs before the smoke`)
+  }
+  const stepAt = (start) => build.slice(start, build.indexOf('\n      - ', start + 1))
+  for (const step of [stepAt(manifest), stepAt(smoke)]) {
+    assert.doesNotMatch(step, /^\s+(if|continue-on-error):/m)
+  }
+  // The same field check the publish job runs.
+  const fields = `yq -r '[(.files | length), .files[0].url, .path, .files[0].sha512, .sha512, .version] | join(" ")' dist/latest.yml`
+  assert.ok(stepAt(manifest).includes(fields))
+  assert.ok(releaseJobs.get('publish').includes(fields))
+  const smokeStep = stepAt(smoke)
+  assert.match(smokeStep, /-ArgumentList '\/S', "\/D=\$installDir" -Wait -PassThru/)
+  assert.match(smokeStep, /Start-Sleep -Seconds 30/)
+  assert.match(smokeStep, /throw "Orca was not running 30 s after launch/)
+  assert.match(smokeStep, /taskkill \/PID \$process\.ProcessId \/T \/F/)
+  assert.doesNotMatch(smokeStep, /Stop-Process -Name|taskkill \/IM/)
+})
+
 test('a dry run keeps no update manifest and marks the installer', () => {
   const build = releaseJobs.get('build-win')
   const strip = build.slice(build.indexOf('- name: Strip the update files from a dry run'))

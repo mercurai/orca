@@ -327,6 +327,68 @@ jobs:
           done
           grep -q "^version: ${VERSION}\$" dist/latest.yml || { echo "::error::dist/latest.yml does not carry version ${VERSION}"; cat dist/latest.yml; exit 1; }
 
+      # Every build, dry or real: the publish job repeats this, and a dry run proves it before the
+      # strip. The manifest is what the updater trusts, so it must describe this very installer.
+      - name: Check the update manifest field by field
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          actual=$(openssl dgst -sha512 -binary dist/orca-windows-setup.exe | base64 -w0)
+          described=$(yq -r '[(.files | length), .files[0].url, .path, .files[0].sha512, .sha512, .version] | join(" ")' dist/latest.yml)
+          expected="1 orca-windows-setup.exe orca-windows-setup.exe $actual $actual $VERSION"
+          if [ "$described" != "$expected" ]; then
+            echo "::error::dist/latest.yml does not describe dist/orca-windows-setup.exe exactly"
+            echo "expected: $expected"
+            echo "found:    $described"
+            cat dist/latest.yml
+            exit 1
+          fi
+          echo "update manifest ok: $VERSION, sha512 $actual"
+
+      # Every build, dry or real: an installer whose app does not start must never reach the
+      # channel. Installs silently into this run's temp dir with an isolated profile and home, the
+      # way the upstream packaged E2E does, and stops only the processes it started, by PID.
+      - name: Smoke the installer (install, launch for 30 s, uninstall)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $root = Join-Path $env:RUNNER_TEMP 'orca-smoke'
+          $installDir = Join-Path $root 'app'
+          $userData = Join-Path $root 'user-data'
+          $homeDir = Join-Path $root 'home'
+          New-Item -ItemType Directory -Force $userData, $homeDir | Out-Null
+          $setup = Start-Process -FilePath 'dist\orca-windows-setup.exe' -ArgumentList '/S', "/D=$installDir" -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "the installer exited $($setup.ExitCode)" }
+          $exe = Join-Path $installDir 'Orca.exe'
+          if (-not (Test-Path $exe)) { throw "the installer left no Orca.exe in $installDir" }
+          $env:ORCA_E2E_USER_DATA_DIR = $userData
+          $env:ORCA_E2E_HOME_DIR = $homeDir
+          $env:HOME = $homeDir
+          $env:USERPROFILE = $homeDir
+          $env:ORCA_BACKGROUND_LAUNCH = '1'
+          $launched = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 30
+          # The launcher may re-exec: the app is whatever runs from the install dir.
+          $running = @(Get-CimInstance Win32_Process -Filter "Name='Orca.exe'" |
+            Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) })
+          $crashes = @(Get-CimInstance Win32_Process -Filter "Name='WerFault.exe'" |
+            Where-Object { $cmd = $_.CommandLine; ($running.ProcessId + $launched.Id) | Where-Object { $cmd -match "-p $_\b" } })
+          Get-ChildItem $userData -Recurse -File -Include *.log, *.ndjson -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "== $($_.FullName)"
+            Get-Content $_.FullName -Tail 40
+          }
+          foreach ($process in $running) { taskkill /PID $process.ProcessId /T /F | Out-Null }
+          $uninstaller = Get-ChildItem $installDir -Filter 'Uninstall*.exe' | Select-Object -First 1
+          if ($uninstaller) { Start-Process -FilePath $uninstaller.FullName -ArgumentList '/S' -Wait | Out-Null }
+          if ($running.Count -eq 0) {
+            $code = if ($launched.HasExited) { $launched.ExitCode } else { 'still starting' }
+            throw "Orca was not running 30 s after launch (launcher exit: $code)"
+          }
+          if ($crashes.Count -gt 0) { throw "Windows Error Reporting opened for Orca: $($crashes.CommandLine -join '; ')" }
+          Write-Host "smoke ok: Orca alive at 30 s (pids $($running.ProcessId -join ', ')); stopped and uninstalled"
+
       # Keep the installer even when publishing fails (a token without the channel repo, a GitHub outage):
       # the run's artifact can be installed by hand, and re-running the publish job publishes without a rebuild.
       - name: Keep the release files as a run artifact
