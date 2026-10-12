@@ -333,19 +333,34 @@ jobs:
         shell: bash
         env:
           VERSION: ${{ needs.preflight.outputs.version }}
+        # Windows runners have no yq: the manifest electron-builder writes has a fixed layout, so it is
+        # checked line by line against the installer itself, which also pins its size and allows no
+        # extra key. The publish job checks the same fields with yq.
         run: |
           set -euo pipefail
           actual=$(openssl dgst -sha512 -binary dist/orca-windows-setup.exe | base64 -w0)
-          described=$(yq -r '[(.files | length), .files[0].url, .path, .files[0].sha512, .sha512, .version] | join(" ")' dist/latest.yml)
-          expected="1 orca-windows-setup.exe orca-windows-setup.exe $actual $actual $VERSION"
-          if [ "$described" != "$expected" ]; then
+          size=$(stat -c %s dist/orca-windows-setup.exe)
+          expected=(
+            "version: $VERSION"
+            "files:"
+            "  - url: orca-windows-setup.exe"
+            "    sha512: $actual"
+            "    size: $size"
+            "path: orca-windows-setup.exe"
+            "sha512: $actual"
+          )
+          mapfile -t found < <(tr -d '\r' < dist/latest.yml)
+          ok=true
+          [ "${#found[@]}" -eq 8 ] || ok=false
+          for i in "${!expected[@]}"; do [ "${found[$i]-}" = "${expected[$i]}" ] || ok=false; done
+          [[ "${found[7]-}" =~ ^releaseDate:\ \'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z\'$ ]] || ok=false
+          if [ "$ok" != true ]; then
             echo "::error::dist/latest.yml does not describe dist/orca-windows-setup.exe exactly"
-            echo "expected: $expected"
-            echo "found:    $described"
-            cat dist/latest.yml
+            printf 'expected:\n'; printf '  %s\n' "${expected[@]}" "releaseDate: '<ISO time>'"
+            printf 'found:\n'; cat dist/latest.yml
             exit 1
           fi
-          echo "update manifest ok: $VERSION, sha512 $actual"
+          echo "update manifest ok: $VERSION, size $size, sha512 $actual"
 
       # Every build, dry or real: an installer whose app does not start must never reach the
       # channel. Installs silently into this run's temp dir with an isolated profile and home, the

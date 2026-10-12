@@ -259,9 +259,22 @@ test('every build checks the manifest and smokes the installer before upload', (
   for (const step of [stepAt(manifest), stepAt(smoke)]) {
     assert.doesNotMatch(step, /^\s+(if|continue-on-error):/m)
   }
-  // The same field check the publish job runs.
+  // The publish job's fields, checked without yq (absent on Windows runners): every line of the
+  // manifest against the installer, size included, and nothing more.
+  const manifestStep = stepAt(manifest)
+  for (const line of [
+    '"version: $VERSION"',
+    '"  - url: orca-windows-setup.exe"',
+    '"    sha512: $actual"',
+    '"    size: $size"',
+    '"path: orca-windows-setup.exe"',
+    '"sha512: $actual"',
+    '[ "${#found[@]}" -eq 8 ] || ok=false'
+  ]) {
+    assert.ok(manifestStep.includes(line), line)
+  }
+  assert.doesNotMatch(code(manifestStep), /\byq\b/)
   const fields = `yq -r '[(.files | length), .files[0].url, .path, .files[0].sha512, .sha512, .version] | join(" ")' dist/latest.yml`
-  assert.ok(stepAt(manifest).includes(fields))
   assert.ok(releaseJobs.get('publish').includes(fields))
   const smokeStep = stepAt(smoke)
   assert.match(smokeStep, /-ArgumentList '\/S', "\/D=\$installDir" -PassThru\n(?:[^\n]*\n){2}\s+if \(-not \$setup\.WaitForExit\(300000\)\)/)
