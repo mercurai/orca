@@ -109,12 +109,17 @@ Trust boundary:
 - The channel is unsigned: no `publisherName`, `verifyUpdateCodeSignature` is false, so the app
   installs whatever `latest.yml` on that repo points at. Whoever can write to `orca-mercurai` can ship
   code to the host.
-- Assets come from CI only: the one writer is `FORK_BOT_TOKEN` inside `fork-release-win-build`.
-  Nobody uploads by hand, and no write-scoped personal token is placed in a shell.
-- Branch protection on (see One-time setup 4) is what keeps an unreviewed workflow change from
-  reaching that token.
-- Accepted risk: the build steps run code from the tag while `FORK_BOT_TOKEN` is in the job, so only
-  reviewed fork code may be on `release/mercurai`.
+- Assets come from CI only: the one writer is the `publish` job of `fork-release-win-build`, the only
+  job in that workflow given `FORK_BOT_TOKEN`; it runs no repository code. Nobody uploads by hand,
+  and no write-scoped personal token is placed in a shell.
+- What the workflow text cannot stop: anyone who can push a branch and dispatch a workflow can edit
+  that branch's copy of the workflow and drop the guard, and the run then gets repository secrets.
+  Branch protection on `mercurai` and `main` does not cover other branches. The platform fix is a
+  GitHub environment restricted to `mercurai` holding the channel token (an open issue).
+- Accepted risk, still: `fork-assemble-release` and `fork-rebase-patches` run patch code in jobs that
+  hold `FORK_BOT_TOKEN`, which can also write to the channel repo, so only reviewed fork code may be
+  on `patch/*` and `release/mercurai`. A separate channel-only token for `publish` removes this (an
+  open issue).
 - First install is by hand: a signed upstream install verifies update signatures against upstream's
   publisher and refuses an unsigned update, so run the first `orca-windows-setup.exe` yourself. From
   then on routine update checks of a mercurai build read the channel repo (not upstream stable, which

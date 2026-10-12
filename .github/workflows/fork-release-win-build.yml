@@ -23,12 +23,17 @@
 # Packaging-only dry run: `-f dry_run=true` builds, packages and checks the installer and keeps it
 # as a run artifact. No publish job exists in that run. The artifact carries the installer alone,
 # renamed with a DRY-RUN marker and without latest.yml or the blockmap, so nothing in it can be
-# served as an update. `-f ref=<branch>` (dry run only) builds that ref instead of the tag; the
-# tag then only supplies the version. A dispatch from a branch other than the default branch is
-# always a dry run.
+# served as an update. A dispatch from a branch other than the default branch is always a dry run.
 #
-#   gh workflow run fork-release-win-build.yml --ref mercurai -f tag=v1.4.224-mercurai.0 \
-#     -f dry_run=true -f ref=ci-only/v1.4.224/assembly-dry-run-2
+#   gh workflow run fork-release-win-build.yml --ref mercurai -f tag=v1.4.223-mercurai.8 -f dry_run=true
+#
+# `-f ref=<branch>` builds that ref instead of the tag; the tag then only supplies the version. It
+# is a dry run by definition, and it must be dispatched from a branch other than the default one:
+# a run saves its build caches in the scope of the branch it was dispatched from, and the default
+# branch's scope is where a release restores them. Code that is not a tag never writes there.
+#
+#   gh workflow run fork-release-win-build.yml --ref <a branch carrying these workflows> \
+#     -f tag=v1.4.224-mercurai.0 -f ref=ci-only/v1.4.224/assembly-dry-run-2
 name: fork-release-win-build
 
 on:
@@ -92,6 +97,12 @@ jobs:
           # A release is built from its tag and nothing else; another ref is for a dry run only.
           if [ "$publish" = "true" ] && [ -n "$REF_INPUT" ]; then
             echo "::error::ref '$REF_INPUT' can only be built as a dry run (dry_run=true); a published build comes from the tag."
+            exit 1
+          fi
+          # A run dispatched from the default branch saves its build caches where the next release
+          # restores them, so it may only build a tag. Another ref is built from a branch of its own.
+          if [ -n "$REF_INPUT" ] && [ "$DISPATCH_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+            echo "::error::ref '$REF_INPUT' cannot be built by a run dispatched from $DEFAULT_BRANCH: that run's caches are the ones a release restores. Dispatch from another branch that carries these workflows (gh workflow run ... --ref <that branch> -f ref=$REF_INPUT)."
             exit 1
           fi
           build_ref=${REF_INPUT:-refs/tags/$TAG}
@@ -285,7 +296,7 @@ jobs:
   # inputs and the dispatching ref directly, never a value a build step could have written.
   publish:
     needs: [preflight, build-win]
-    if: ${{ github.repository == 'mercurai/orca' && !inputs.dry_run && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    if: ${{ github.repository == 'mercurai/orca' && !inputs.dry_run && inputs.ref == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -322,9 +333,24 @@ jobs:
         run: |
           set -euo pipefail
           for f in orca-windows-setup.exe orca-windows-setup.exe.blockmap latest.yml; do
-            [ -s "dist/$f" ] || { echo "::error::dist/$f is missing from the build artifact"; ls -la dist; exit 1; }
+            # A regular, non-empty file: not a link that points somewhere else on the runner.
+            if [ ! -f "dist/$f" ] || [ -L "dist/$f" ] || [ ! -s "dist/$f" ]; then
+              echo "::error::dist/$f is missing from the build artifact, empty, or not a regular file"
+              ls -la dist
+              exit 1
+            fi
           done
+          # Exactly the three files that get uploaded, and nothing else rides along.
+          entries=$(find dist -mindepth 1 | wc -l)
+          if [ "$entries" -ne 3 ]; then
+            echo "::error::the build artifact holds $entries entries, not the three release files"
+            find dist -mindepth 1
+            exit 1
+          fi
           grep -q "^version: ${TAG#v}\$" dist/latest.yml || { echo "::error::dist/latest.yml does not carry version ${TAG#v}"; cat dist/latest.yml; exit 1; }
+          # The manifest is what the updater trusts: it must describe this very installer.
+          actual=$(openssl dgst -sha512 -binary dist/orca-windows-setup.exe | base64 -w0)
+          grep -qF "sha512: $actual" dist/latest.yml || { echo "::error::dist/latest.yml does not carry the sha512 of dist/orca-windows-setup.exe ($actual)"; cat dist/latest.yml; exit 1; }
 
       # A repo with no commit cannot hold a release tag, so give an empty channel repo its first commit once.
       - name: Make sure the channel repo has a commit

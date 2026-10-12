@@ -9,11 +9,17 @@ on:
     paths:
       - 'config/mercurai/**'
       - '.github/workflows/fork-scripts-test.yml'
+      # The token-scope test exists for edits to these two.
+      - '.github/workflows/fork-release-win-build.yml'
+      - '.github/workflows/fork-orcad-template.yml'
   pull_request:
     branches: [mercurai]
     paths:
       - 'config/mercurai/**'
       - '.github/workflows/fork-scripts-test.yml'
+      # The token-scope test exists for edits to these two.
+      - '.github/workflows/fork-release-win-build.yml'
+      - '.github/workflows/fork-orcad-template.yml'
   workflow_dispatch:
 
 permissions:
