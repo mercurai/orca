@@ -1236,6 +1236,7 @@ jobs:
         run: >-
           pnpm exec vitest run --config config/vitest.config.ts
           config/scripts/nsis-process-check.test.mjs
+          config/scripts/idle-cpu-process-sampling.test.mjs
 
       - name: Test Windows-specific boundaries
         run: >-

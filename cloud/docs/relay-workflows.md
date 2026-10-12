@@ -230,11 +230,19 @@ rolls it as a general cell and a rollback restores it general. It is a declared 
 
 C35 is a seventh Asia cell at the C34 shape in `asia-east2-a`, starting a third zone round. It is
 its own topology wave on image F (`sha256:41cba995…`), registers alone as migration-only, and then
-the director is configured with `cell-ids` set to C35. It has no promotion wave yet: the Asia admission
-script and workflow refuse `promote` for it. It is a declared rehome source, sits in the same-cap
-migration-only list, and stays out of the fleet pool list. Its pool of 16 leaves 3 connections
-under the usable Cloud SQL ceiling (`relay-cloud-sql-connection-budget.mjs`). Promoting it takes its
-own reviewed change adding a promotion wave and canary entry, as C34 did.
+the director is configured with `cell-ids` set to C35. It launches as a migration-only spare and has
+a promotion wave of its own, with the same five-minute canary C30, C31 and C34 ran. The canary lands
+on C35 because it is the emptiest general Asia cell once promoted. Promotion compares the director's
+serving digest and C35's runtime digest with the one `image-digest` input, so C35 must first be
+rolled to the director's image. That roll is a same-cap wave that enters and leaves migration-only,
+so it moves nobody. C35 stays in the same-cap migration-only list until its promotion succeeds,
+because a same-cap job reads a cell's class from that list, not from the selector. It then moves to
+the general list and the fleet pool list together, as its own reviewed change, before any same-cap
+wave names C35 again. Between promotion and that change, do not run a same-cap wave on C35; a
+rollback there would demote it. Do not name it in the multi-target `promote-general-cell` or
+`retire-migration-cell` modes, which accept any migration-only cell. It is a declared rehome source.
+Its pool of 16 leaves 3 connections under the usable Cloud SQL ceiling
+(`relay-cloud-sql-connection-budget.mjs`).
 Rollback returns
 Asia cells to migration-only; it does not destroy the network or use
 existing-only. The production topology dispatch remains unavailable until the
