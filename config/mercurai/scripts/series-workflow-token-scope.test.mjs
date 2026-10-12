@@ -146,6 +146,11 @@ test('rebase-series strips CR from the git rebase output it prints', () => {
   assert.ok(rebase.includes(String.raw`elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then`))
 })
 
+test('carry-ci-base strips CR from the cherry-pick output it prints', () => {
+  const carry = readFileSync(resolve(import.meta.dirname, 'carry-ci-base.sh'), 'utf8')
+  assert.ok(carry.includes(String.raw`if ! git cherry-pick -x "$commit" 2>&1 >/dev/null | tr -d '\r' >&2; then`))
+})
+
 test('the rebase reads the target tag from the fork, never from upstream', () => {
   const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
   assert.doesNotMatch(fetch, /fetch[^\n]*upstream[^\n]*--tags/)

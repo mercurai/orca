@@ -38,7 +38,8 @@ for commit in "${candidates[@]}"; do
   # changing the lines around the carried change, which alters the patch id.
   if git log --format=%B "$new_sha..HEAD" | grep -qF "cherry picked from commit $commit"; then continue; fi
   if [ -z "$(git cherry HEAD "$commit" "$commit^" | sed -n 's/^+ //p')" ]; then continue; fi
-  if ! git cherry-pick -x "$commit" >/dev/null; then
+  # A CR in a commit subject in git's output must not reach the job log (workflow-command injection).
+  if ! git cherry-pick -x "$commit" 2>&1 >/dev/null | tr -d '\r' >&2; then
     conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
     git cherry-pick --abort 2>/dev/null || true
     echo "::error::fork-CI commit $commit from ci-base/$old_tag does not apply to ci-base/$new_tag (conflicts: ${conflicts:-none, empty pick}); carry it by hand" >&2
