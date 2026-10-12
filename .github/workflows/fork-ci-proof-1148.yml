@@ -1,0 +1,39 @@
+# Throwaway (claude-code-config#1125): proves the release and series workflows' pinning tests catch
+# every evasion mutant, and that the SEC-201 push jobs re-derive the tested trees exactly. Lives on
+# ci-only/sec-proof-1148 only; never merged. No secrets.
+name: fork-ci-proof-1148
+
+on:
+  push:
+    branches: [ci-only/sec-proof-1148]
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Every mutant is caught
+        run: python3 ci-proof/mutate_run.py
+
+  derive-twice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Two derivations give the same trees
+        run: |
+          git config --global user.name proof
+          git config --global user.email proof@example.invalid
+          bash ci-proof/derive-twice.sh "$RUNNER_TEMP/derive"
