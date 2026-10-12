@@ -19503,6 +19503,22 @@
       "resumed": "{{count}} agent sessions resumed.",
       "resumed_one": "{{count}} agent session resumed.",
       "resumed_other": "{{count}} agent sessions resumed."
+    },
+    "severedDaemonBanner": {
+      "unknownCount": "its running terminals",
+      "count": "{{count}} running terminals",
+      "unverifiable": "Orca could not verify the terminal service process, so nothing was stopped.",
+      "alreadyReplaced": "The terminal service was already replaced; nothing was stopped.",
+      "restarted": "Terminal service restarted.",
+      "failed": "Restart failed.",
+      "title": "Terminal service is running without its program files",
+      "body": "The terminal service on this computer started from an AppImage that is no longer mounted. It still runs {{sessions}}, but it can crash at any moment. Until you restart it, new terminals are not kept when Orca quits.",
+      "restart": "Restart terminal daemon",
+      "dismiss": "Dismiss",
+      "confirmTitle": "Restart the terminal daemon?",
+      "confirmBody": "Restarting ends every process running in {{sessions}}. Agents that support resume can be resumed afterwards; shells and other jobs cannot and must be started again. Do this when your agents are idle.",
+      "cancel": "Cancel",
+      "confirm": "Restart and end processes"
     }
   },
   "fileExplorer": {

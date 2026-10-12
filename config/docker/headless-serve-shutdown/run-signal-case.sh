@@ -104,6 +104,12 @@ if [[ "$entrypoint_kind" == appimage ]]; then
     echo "FAIL: installed CLI payload ${installed_target:-missing} is in the legacy namespace or missing" >&2
     exit 1
   fi
+  # A fresh cache means this serve unpacked the AppImage first, with progress on stderr.
+  if ! grep -q '\[serve\] AppImage copy ready after' "$stderr_log"; then
+    cat "$stderr_log" >&2
+    echo "FAIL: first AppImage serve did not report unpacking progress" >&2
+    exit 1
+  fi
   registered_cli_verified=true
 fi
 

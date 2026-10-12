@@ -222,7 +222,9 @@ export class CliInstaller extends CliPathRegistration {
 
   private runAppImageRegistrationOperation<T>(operation: () => Promise<T>): Promise<T> {
     return this.isLinuxAppImage()
-      ? withAppImageRegistrationLock(this.appImageCacheRootPath, operation)
+      ? withAppImageRegistrationLock(this.appImageCacheRootPath, operation, {
+          deadlineAt: this.appImageDeadlineAt
+        })
       : operation()
   }
 }
