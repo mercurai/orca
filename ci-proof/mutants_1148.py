@@ -12,6 +12,12 @@ RESULT = S / "merge-result-guard.sh"
 FORWARD = S / "merge-forward.sh"
 PUSH = S / "sync-push.sh"
 PIN = S / "pin-upstream-sha.sh"
+ALLOW = S / "mirror-allowed-tag.sh"
+SKIPPED = S / "list-skipped-tags.sh"
+RENDER = S / "render-tag-review.sh"
+ALLOW_PUSH = 'git push origin "refs/upstream-tags/$tag:refs/tags/$tag"'
+ALLOW_RE = "re='^(v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?)@([0-9a-f]{40})$'"
+ISSUE_LOOKUP = "'[.[] | select(.title == $t)][0].number // empty'"
 CARRY = S / "carry-ci-base.sh"
 REBASE = S / "rebase-series.sh"
 ASSEMBLE = S / "assemble-release.sh"
@@ -108,8 +114,13 @@ MUTANTS = {
     ),
     "override-input-boolean": (
         SYNC,
-        "        type: string\n        default: ''\n",
-        "        type: boolean\n        default: false\n",
+        "merges only that commit. The schedule never sets it\n        type: string\n        default: ''\n",
+        "merges only that commit. The schedule never sets it\n        type: boolean\n        default: false\n",
+    ),
+    "allowtag-input-boolean": (
+        SYNC,
+        "then rebases onto it. The schedule never sets it\n        type: string\n        default: ''\n",
+        "then rebases onto it. The schedule never sets it\n        type: boolean\n        default: false\n",
     ),
     # The pin
     "fetch-pin-dropped": (
@@ -457,4 +468,133 @@ MUTANTS = {
         'echo "$TAG" | grep -Eq \'^v[0-9]+\\.[0-9]+\\.[0-9]+$\' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }\n',
         "",
     ),
+    # allow_tag: the owner's approval of one release tag
+    "allowtag-sha-check-dropped": (
+        ALLOW,
+        'if [ "$peeled" != "$sha" ]; then',
+        "if false; then",
+    ),
+    "allowtag-peel-not-read": (
+        ALLOW,
+        'peeled=$(git rev-parse --verify -q "refs/upstream-tags/$tag^{commit}" || true)',
+        "peeled=$sha",
+    ),
+    "allowtag-sha-regex-loosened": (
+        ALLOW,
+        ALLOW_RE,
+        r"re='^(v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)@([0-9a-f]+)$'",
+    ),
+    "allowtag-sha-uppercase-allowed": (
+        ALLOW,
+        "@([0-9a-f]{40})$'",
+        "@([0-9a-fA-F]{40})$'",
+    ),
+    "allowtag-tag-regex-any-name": (
+        ALLOW,
+        r"re='^(v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)@",
+        "re='^([A-Za-z0-9._/-]+)@",
+    ),
+    "allowtag-regex-unanchored": (ALLOW, "re='^(v", "re='(v"),
+    "allowtag-held-check-dropped": (
+        ALLOW,
+        'if awk -v t="$tag"',
+        'if false && awk -v t="$tag"',
+    ),
+    "allowtag-pushes-every-tag": (
+        ALLOW,
+        ALLOW_PUSH,
+        'git push origin "refs/upstream-tags/*:refs/tags/*"',
+    ),
+    "allowtag-push-forced": (
+        ALLOW,
+        ALLOW_PUSH,
+        'git push origin "+refs/upstream-tags/$tag:refs/tags/$tag"',
+    ),
+    "allowtag-pushes-the-pin-too": (
+        ALLOW,
+        ALLOW_PUSH,
+        ALLOW_PUSH + ' "$UPSTREAM_SHA:refs/heads/main"',
+    ),
+    "allowtag-already-pushed-repushed": (
+        ALLOW,
+        'if grep -qxF "$tag" "$state/tags-pushed" 2>/dev/null; then',
+        "if false; then",
+    ),
+    "allowtag-schedule-settable": (
+        SYNC,
+        "ALLOW_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_tag || '' }}",
+        "ALLOW_TAG: ${{ inputs.allow_tag || '' }}",
+    ),
+    "allowtag-dispatch-without-sha": (
+        SYNC,
+        'gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$sha"',
+        'gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag"',
+    ),
+    "allowtag-dispatch-ungated": (
+        SYNC,
+        " && steps.allowtag.outputs.tag != '' }}",
+        " }}",
+    ),
+    "allowtag-step-ungated-by-owner-input": (
+        SYNC,
+        "steps.mode.outputs.push == 'true' && env.ALLOW_TAG != '' }}",
+        "steps.mode.outputs.push == 'true' }}",
+    ),
+    "allowtag-gated-on-main-guard": (
+        SYNC,
+        "steps.mode.outputs.push == 'true' && env.ALLOW_TAG != '' }}",
+        "steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && env.ALLOW_TAG != '' }}",
+    ),
+    # One issue per skipped release tag
+    "tagissue-title-shared": (
+        SYNC,
+        'title="fork-sync tag: $tag needs owner review"',
+        'title="fork-sync: $tag needs owner review"',
+    ),
+    "tagissue-lookup-by-containment": (
+        SYNC,
+        ISSUE_LOOKUP,
+        "'[.[] | select(.title | contains($t))][0].number // empty'",
+    ),
+    "tagissue-comments-every-run": (
+        SYNC,
+        'if [ "$seen" != true ]; then gh issue comment',
+        "if true; then gh issue comment",
+    ),
+    "tagissue-seen-ignores-comments": (
+        SYNC,
+        "([.body] + [.comments[].body]) | any(contains($s))",
+        "[.body] | any(contains($s))",
+    ),
+    "tagissue-trusted-always-fork-main": (
+        SYNC,
+        'if [ "$GUARD_REFUSED" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi',
+        "trusted=$FORK_MAIN",
+    ),
+    "tagissue-list-step-never-listed": (
+        SYNC,
+        "          bash config/mercurai/scripts/list-skipped-tags.sh\n",
+        "",
+    ),
+    "skipped-eligibility-diverges": (
+        SKIPPED,
+        'git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai',
+        'git diff --quiet "$UPSTREAM_SHA" "$1" -- .github',
+    ),
+    "skipped-lists-allowed-tag": (
+        SKIPPED,
+        'if [ -z "$tag" ] || [ "$tag" = "$allowed" ]; then continue; fi',
+        'if [ -z "$tag" ]; then continue; fi',
+    ),
+    "render-sanitiser-removed": (
+        RENDER,
+        'list=$(head -50 <<<"$names" | clean)',
+        'list=$(head -50 <<<"$names")',
+    ),
+    "render-stat-sanitiser-removed": (
+        RENDER,
+        'stat=$(head -50 <<<"$full_stat" | clean)',
+        'stat=$(head -50 <<<"$full_stat")',
+    ),
+    "render-input-without-sha": (RENDER, "-f allow_tag=%s@%s", "-f allow_tag=%s"),
 }
