@@ -17,10 +17,10 @@ on:
         description: Fetch and compare only; push nothing and dispatch nothing
         type: boolean
         default: false
-      allow_guarded_merge:
-        description: Merge even though the upstream range touches .github/workflows or config/mercurai; set only after reviewing that range (the schedule never sets it)
-        type: boolean
-        default: false
+      allow_guarded_merge_sha:
+        description: Full sha of the upstream commit whose range you reviewed (it touches .github/workflows or config/mercurai); merges only that commit. The schedule never sets it
+        type: string
+        default: ''
 
 # The default token only reads. Every write goes through FORK_BOT_TOKEN, which only the steps
 # that write receive (claude-code-config#1125, SEC-201): git gets it as a per-step extraheader,
@@ -162,56 +162,55 @@ jobs:
         # Git only, no token. Upstream's workflow and fork-script edits run with the fork's secrets once
         # the fork pushes them, so a range touching those paths waits for the owner (claude-code-config#1148).
         env:
-          # Only an explicit dispatch can set it; the schedule has no inputs.
-          ALLOW_GUARDED_MERGE: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_guarded_merge == true && 'true' || 'false' }}
+          # The one commit this run guards, merges and names in the issue.
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          # The owner's pinned override: only an explicit dispatch can set it, the schedule has no inputs.
+          ALLOWED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_guarded_merge_sha || '' }}
         run: |
           set -euo pipefail
           git checkout -q "$FORK_BRANCH"
           rc=0
-          bash config/mercurai/scripts/merge-guard.sh HEAD upstream/main > /tmp/guarded || rc=$?
+          bash config/mercurai/scripts/merge-guard.sh HEAD "$UPSTREAM_SHA" > /tmp/guarded || rc=$?
           cat /tmp/guarded
+          echo "allowed=false" >> "$GITHUB_OUTPUT"
           case "$rc" in
             0) echo "refused=false" >> "$GITHUB_OUTPUT" ;;
             3) echo "refused=true" >> "$GITHUB_OUTPUT" ;;
+            4) echo "refused=false" >> "$GITHUB_OUTPUT"; echo "allowed=true" >> "$GITHUB_OUTPUT" ;;
             *) exit "$rc" ;;
           esac
 
-      - name: Report a guarded upstream range as an issue
-        if: ${{ steps.guard.outputs.refused == 'true' }}
-        env:
-          # Empty on a report-only run, which prints the body instead of filing it.
-          GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
-        run: |
-          set -euo pipefail
-          title="fork-sync: upstream main ${{ steps.fetch.outputs.upstream_sha }} changes guarded paths; ${FORK_BRANCH} is not merged"
-          body=$(printf 'Merging upstream/main (%s) into `%s` would bring in changes under `.github/workflows/` or `config/mercurai/`, which run with the fork secrets once pushed. Nothing was merged.\n\nGuarded paths (first 50):\n\n```\n%s\n```\n\nReview the range, then dispatch fork-sync-upstream from `%s` with allow_guarded_merge=true, or merge it through a reviewed PR.\n' \
-            "${{ steps.fetch.outputs.upstream_sha }}" "$FORK_BRANCH" "$(cat /tmp/guarded)" "$FORK_BRANCH")
-          if [ "${{ steps.mode.outputs.push }}" != "true" ]; then echo "$body"; exit 1; fi
-          existing=$(gh issue list --label "$SYNC_ISSUE_LABEL" --state open --search "in:title fork-sync:" --json number --jq '.[0].number')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body "$body"
-          else
-            gh label create "$SYNC_ISSUE_LABEL" --color d93f0b --description 'fork sync needs a human' 2>/dev/null || true
-            gh issue create --label "$SYNC_ISSUE_LABEL" --title "$title" --body "$body"
-          fi
-          exit 1
-
       - name: Merge main forward into the fork branch
         id: merge
-        # Skipped when the guard refused; the issue step above has already failed the run.
+        # Skipped when the guard refused; the issue step below then fails the run.
         if: ${{ steps.guard.outputs.refused == 'false' }}
         env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          GUARD_ALLOWED: ${{ steps.guard.outputs.allowed }}
           # Empty on a report-only run, which pushes nothing.
           GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
         run: |
           set -euo pipefail
           git checkout -q "$FORK_BRANCH"
+          # Run from a copy: after a merge the tree may hold upstream's version of the script.
+          cp config/mercurai/scripts/merge-result-guard.sh /tmp/merge-result-guard.sh
           echo "conflict=false" >> "$GITHUB_OUTPUT"
           try_merge() {
-            if git merge --no-edit upstream/main; then return 0; fi
-            git diff --name-only --diff-filter=U | head -50 > /tmp/conflicts
-            git merge --abort
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
+            # A CR in git's output must not reach the job log (workflow-command injection).
+            if ! git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\r'; then
+              git diff --name-only --diff-filter=U | head -50 | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > /tmp/conflicts
+              git merge --abort
+              echo "conflict=true" >> "$GITHUB_OUTPUT"
+              return 1
+            fi
+            if [ "$GUARD_ALLOWED" = true ]; then return 0; fi
+            # What the push would change, whatever the merge base was: refuse a guarded path the merge touched.
+            rc=0
+            bash /tmp/merge-result-guard.sh "origin/$FORK_BRANCH" > /tmp/guarded || rc=$?
+            if [ "$rc" -eq 0 ]; then return 0; fi
+            if [ "$rc" -ne 3 ]; then exit "$rc"; fi
+            git reset -q --hard "origin/$FORK_BRANCH"
+            echo "guarded=true" >> "$GITHUB_OUTPUT"
             return 1
           }
           if [ "${{ steps.mode.outputs.push }}" != "true" ]; then
@@ -232,6 +231,27 @@ jobs:
             [ "$attempt" = 3 ] && exit 1
             sleep 15
           done
+
+      - name: Report a guarded upstream range as an issue
+        if: ${{ steps.guard.outputs.refused == 'true' || steps.merge.outputs.guarded == 'true' }}
+        env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          # Empty on a report-only run, which prints the body instead of filing it.
+          GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
+        run: |
+          set -euo pipefail
+          title="fork-sync: upstream main $UPSTREAM_SHA changes guarded paths; ${FORK_BRANCH} is not merged"
+          body=$(printf 'Merging upstream/main (%s) into `%s` would change files under `.github/workflows/` or `config/mercurai/`, which run with the fork token once pushed. Nothing was merged.\n\nGuarded paths (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview the range, then either merge it through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it merges only that commit).\n' \
+            "$UPSTREAM_SHA" "$FORK_BRANCH" "$(cat /tmp/guarded)" "$FORK_BRANCH" "$UPSTREAM_SHA")
+          if [ "${{ steps.mode.outputs.push }}" != "true" ]; then echo "$body"; exit 1; fi
+          existing=$(gh issue list --label "$SYNC_ISSUE_LABEL" --state open --search "in:title fork-sync:" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh label create "$SYNC_ISSUE_LABEL" --color d93f0b --description 'fork sync needs a human' 2>/dev/null || true
+            gh issue create --label "$SYNC_ISSUE_LABEL" --title "$title" --body "$body"
+          fi
+          exit 1
 
       - name: Report a merge conflict as an issue
         if: ${{ steps.merge.outputs.conflict == 'true' }}

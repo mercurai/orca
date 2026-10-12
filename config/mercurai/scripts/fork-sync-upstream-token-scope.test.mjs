@@ -26,8 +26,8 @@ const WRITE_STEPS = [
   'Mirror new tags',
   'Hand the newest release tag to fork-rebase-patches',
   'Mirror upstream branches under upstream/*',
-  'Report a guarded upstream range as an issue',
   'Merge main forward into the fork branch',
+  'Report a guarded upstream range as an issue',
   'Report a merge conflict as an issue'
 ]
 const GIT_WRITERS = [
@@ -101,8 +101,8 @@ test('every step that pushes sets the extraheader, and gh gets GH_TOKEN, only in
 
 test('a report-only run gives the merge and issue steps no token', () => {
   for (const name of [
-    'Report a guarded upstream range as an issue',
     'Merge main forward into the fork branch',
+    'Report a guarded upstream range as an issue',
     'Report a merge conflict as an issue'
   ]) {
     assert.ok(steps.find((step) => stepName(step) === name).includes(TOKEN_ENV[1]), name)
