@@ -4,14 +4,14 @@
 # its test job and again in its push job, which pushes what it assembled itself instead of
 # anything a job that ran the code under test reports (claude-code-config#1125, SEC-201).
 #
-# In: TAG, UPSTREAM_REPO, MANIFEST (in the checked-out workflow branch), MANIFEST_WORK, GITHUB_OUTPUT.
+# In: TAG, MANIFEST (in the checked-out workflow branch), MANIFEST_WORK, GITHUB_OUTPUT.
 # Out: HEAD on the release branch; /tmp/active; outputs release_branch, release_tag, tree.
 set -euo pipefail
 
 git config user.name 'mercurai-fork-bot'
 git config user.email 'fork-bot@users.noreply.github.com'
-git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-git fetch upstream --tags --force
+# The fork's tags only: fork-sync-upstream mirrors each release tag once and never moves it, and
+# the mercurai.N numbering below must count the fork's releases, not names upstream invents.
 git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' --tags
 git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null
 echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }

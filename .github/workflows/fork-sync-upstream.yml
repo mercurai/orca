@@ -82,9 +82,9 @@ jobs:
           git fetch --no-tags upstream main
           # Upstream's tags land in a namespace of their own, so no tag this fork holds is touched.
           git fetch --no-tags --force upstream '+refs/tags/*:refs/upstream-tags/*'
-          # The fork's own release tags are never taken from upstream.
+          # Release names only: never the fork's own tags, and never a name that shadows a branch.
           git for-each-ref --format='%(objectname) %(refname:strip=2)' refs/upstream-tags \
-            | (grep -v -E ' .*-mercurai\.' || true) | sort -k2 > /tmp/upstream-tags
+            | (grep -E ' v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || true) | sort -k2 > /tmp/upstream-tags
           # New: upstream has the name and the fork does not. Moved: both have it, pointing apart.
           join -1 2 -2 2 -v 1 /tmp/upstream-tags /tmp/origin-tags | awk '{print $1}' > /tmp/tags-new
           join -1 2 -2 2 /tmp/upstream-tags /tmp/origin-tags | awk '$2 != $3 {print $1}' > /tmp/tags-moved

@@ -30,8 +30,12 @@ test("upstream's tags are fetched into their own namespace, never over the fork'
   assert.ok(fetches.some((l) => l.includes("'+refs/tags/*:refs/upstream-tags/*'")))
 })
 
-test("only new names are pushed, and never one of the fork's release tags", () => {
-  assert.match(code, /\| \(grep -v -E ' \.\*-mercurai\\\.' \|\| true\) \| sort -k2 > \/tmp\/upstream-tags/)
+test('only new upstream release names are pushed: no fork tag, no name that shadows a branch', () => {
+  assert.ok(
+    code.includes(
+      "| (grep -E ' v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$' || true) | sort -k2 > /tmp/upstream-tags"
+    )
+  )
   assert.match(code, /join -1 2 -2 2 -v 1 \/tmp\/upstream-tags \/tmp\/origin-tags/)
   assert.match(code, /refspecs\+=\("refs\/upstream-tags\/\$tag:refs\/tags\/\$tag"\); done < \/tmp\/tags-new/)
 })

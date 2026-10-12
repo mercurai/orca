@@ -8,18 +8,14 @@ on:
     branches: [mercurai]
     paths:
       - 'config/mercurai/**'
-      - '.github/workflows/fork-scripts-test.yml'
-      # The token-scope test exists for edits to these two.
-      - '.github/workflows/fork-release-win-build.yml'
-      - '.github/workflows/fork-orcad-template.yml'
+      # The token-scope and tag tests pin every fork workflow.
+      - '.github/workflows/fork-*.yml'
   pull_request:
     branches: [mercurai]
     paths:
       - 'config/mercurai/**'
-      - '.github/workflows/fork-scripts-test.yml'
-      # The token-scope test exists for edits to these two.
-      - '.github/workflows/fork-release-win-build.yml'
-      - '.github/workflows/fork-orcad-template.yml'
+      # The token-scope and tag tests pin every fork workflow.
+      - '.github/workflows/fork-*.yml'
   workflow_dispatch:
 
 permissions:
@@ -35,12 +31,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
 
       # The scripts import the tree's own TypeScript modules, which needs Node's type stripping.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
 
