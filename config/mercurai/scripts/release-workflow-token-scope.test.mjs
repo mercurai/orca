@@ -269,10 +269,15 @@ test('every build checks the manifest and smokes the installer before upload', (
     '"    size: $size"',
     '"path: orca-windows-setup.exe"',
     '"sha512: $actual"',
-    '[ "${#found[@]}" -eq 8 ] || ok=false'
+    '[ "${#found[@]}" -eq 8 ] || ok=false',
+    `for i in "\${!expected[@]}"; do [ "\${found[$i]-}" = "\${expected[$i]}" ] || ok=false; done`,
+    `[[ "\${found[7]-}" =~ ^releaseDate:\\ \\'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z\\'$ ]] || ok=false`,
+    `sed 's/\\r$//' dist/latest.yml | LC_ALL=C grep -q $'\\r' && ok=false`,
+    `tr -d '\\000' < dist/latest.yml | cmp -s - dist/latest.yml || ok=false`
   ]) {
     assert.ok(manifestStep.includes(line), line)
   }
+  assert.match(manifestStep, /if \[ "\$ok" != true \]; then\n(?:.*\n){3}\s+exit 1\n\s+fi\n/)
   assert.doesNotMatch(code(manifestStep), /\byq\b/)
   const fields = `yq -r '[(.files | length), .files[0].url, .path, .files[0].sha512, .sha512, .version] | join(" ")' dist/latest.yml`
   assert.ok(releaseJobs.get('publish').includes(fields))

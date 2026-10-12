@@ -349,8 +349,11 @@ jobs:
             "path: orca-windows-setup.exe"
             "sha512: $actual"
           )
-          mapfile -t found < <(tr -d '\r' < dist/latest.yml)
+          mapfile -t found < <(sed 's/\r$//' dist/latest.yml)
           ok=true
+          # CRLF ends only: YAML reads a lone CR as a line break, and bash drops NULs unseen.
+          sed 's/\r$//' dist/latest.yml | LC_ALL=C grep -q $'\r' && ok=false
+          tr -d '\000' < dist/latest.yml | cmp -s - dist/latest.yml || ok=false
           [ "${#found[@]}" -eq 8 ] || ok=false
           for i in "${!expected[@]}"; do [ "${found[$i]-}" = "${expected[$i]}" ] || ok=false; done
           [[ "${found[7]-}" =~ ^releaseDate:\ \'[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z\'$ ]] || ok=false
