@@ -17,7 +17,7 @@ SKIPPED = S / "list-skipped-tags.sh"
 RENDER = S / "render-tag-review.sh"
 ALLOW_PUSH = 'git push origin "refs/upstream-tags/$tag:refs/tags/$tag"'
 ALLOW_RE = "re='^(v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?)@([0-9a-f]{40})$'"
-ISSUE_LOOKUP = "'[.[] | select(.title == $t)][0].number // empty'"
+TI = S / "tag-issues.sh"
 CARRY = S / "carry-ci-base.sh"
 REBASE = S / "rebase-series.sh"
 ASSEMBLE = S / "assemble-release.sh"
@@ -547,34 +547,93 @@ MUTANTS = {
     ),
     # One issue per skipped release tag
     "tagissue-title-shared": (
-        SYNC,
+        TI,
         'title="fork-sync tag: $tag needs owner review"',
         'title="fork-sync: $tag needs owner review"',
     ),
     "tagissue-lookup-by-containment": (
-        SYNC,
-        ISSUE_LOOKUP,
-        "'[.[] | select(.title | contains($t))][0].number // empty'",
+        TI,
+        "'[.[] | select(.title == $t)][0] // empty'",
+        "'[.[] | select(.title | contains($t))][0] // empty'",
     ),
-    "tagissue-comments-every-run": (
-        SYNC,
-        'if [ "$seen" != true ]; then gh issue comment',
-        "if true; then gh issue comment",
+    "tagissue-own-mention-ignored": (
+        TI,
+        'if own_mention "$existing" "$number" "$sha"; then continue; fi',
+        "if false; then continue; fi",
     ),
-    "tagissue-seen-ignores-comments": (
-        SYNC,
-        "([.body] + [.comments[].body]) | any(contains($s))",
-        "[.body] | any(contains($s))",
+    "tagissue-seen-any-author-body": (
+        TI,
+        "'.login == $me and (.body | contains($s))'",
+        "'.body | contains($s)'",
+    ),
+    "tagissue-seen-any-author-comment": (
+        TI,
+        "'any(.[]; .login == $me and (.body | contains($s)))'",
+        "'any(.[]; .body | contains($s))'",
+    ),
+    "tagissue-me-is-not-the-token": (
+        TI,
+        'me=$("$gh" api user --jq .login)',
+        "me=someone-else",
     ),
     "tagissue-trusted-always-fork-main": (
-        SYNC,
-        'if [ "$GUARD_REFUSED" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi',
+        TI,
+        'if [ "${GUARD_REFUSED:-true}" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi',
         "trusted=$FORK_MAIN",
     ),
-    "tagissue-list-step-never-listed": (
+    "tagissue-list-step-never-listed": (TI, 'bash "$here/list-skipped-tags.sh"\n', ""),
+    "tagissue-new-cap-removed": (
+        TI,
+        'if [ "$new" -ge "$MAX_NEW" ]; then overflow+=("$tag $sha"); continue; fi',
+        ":",
+    ),
+    "tagissue-new-cap-raised": (TI, "MAX_NEW=5\n", "MAX_NEW=500\n"),
+    "tagissue-update-cap-removed": (
+        TI,
+        'if [ "$updates" -ge "$MAX_UPDATES" ]; then overflow+=("$tag $sha"); continue; fi',
+        ":",
+    ),
+    "tagissue-only-open-issues": (TI, "issues?state=all&", "issues?state=open&"),
+    "tagissue-lookup-not-paged": (
+        TI,
+        'issues=$("$gh" api --paginate ',
+        'issues=$("$gh" api ',
+    ),
+    "tagissue-reopen-removed": (
+        TI,
+        '  if [ "$(jq -r .state <<<"$existing")" = closed ]; then "$gh" issue reopen "$number"; fi\n  "$gh" issue comment',
+        '  "$gh" issue comment',
+    ),
+    "tagissue-summary-title-wrong": (
+        TI,
+        'SUMMARY_TITLE="fork-sync tag: summary"',
+        'SUMMARY_TITLE="fork-sync tag: overflow"',
+    ),
+    "tagissue-summary-unsanitised": (
+        TI,
+        "| sort | head -50 | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')",
+        "| sort | head -50)",
+    ),
+    "tagissue-summary-unbounded": (TI, "| sort | head -50 |", "| sort |"),
+    "tagissue-step-not-run-after-failure": (
         SYNC,
-        "          bash config/mercurai/scripts/list-skipped-tags.sh\n",
+        "if: ${{ !cancelled() && steps.mode.outputs.push == 'true' }}",
+        "if: ${{ steps.mode.outputs.push == 'true' }}",
+    ),
+    "tagissue-step-from-merged-tree": (
+        SYNC,
+        "run: bash /tmp/tag-issues.sh",
+        "run: bash config/mercurai/scripts/tag-issues.sh",
+    ),
+    "tagissue-scripts-not-copied": (
+        SYNC,
+        "cp config/mercurai/scripts/tag-issues.sh config/mercurai/scripts/list-skipped-tags.sh config/mercurai/scripts/render-tag-review.sh /tmp/\n",
         "",
+    ),
+    "tagissue-step-before-merge": (
+        SYNC,
+        "      - name: Merge main forward into the fork branch\n",
+        "      - name: Open review issues for skipped release tags\n        run: echo early\n\n      - name: Merge main forward into the fork branch\n",
     ),
     "skipped-eligibility-diverges": (
         SKIPPED,
