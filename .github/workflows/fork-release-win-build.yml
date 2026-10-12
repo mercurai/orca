@@ -361,25 +361,31 @@ jobs:
           $homeDir = Join-Path $root 'home'
           New-Item -ItemType Directory -Force $userData, $homeDir | Out-Null
           $setup = Start-Process -FilePath 'dist\orca-windows-setup.exe' -ArgumentList '/S', "/D=$installDir" -PassThru
+          # Holding the handle keeps ExitCode readable once the process has gone.
+          $null = $setup.Handle
           if (-not $setup.WaitForExit(300000)) { throw 'the installer did not finish within 5 min' }
           if ($setup.ExitCode -ne 0) { throw "the installer exited $($setup.ExitCode)" }
           $exe = Join-Path $installDir 'Orca.exe'
           if (-not (Test-Path $exe)) { throw "the installer left no Orca.exe in $installDir" }
-          # Every Orca.exe running from the install dir, and nothing else.
-          function Get-InstalledOrca {
+          # Every Orca.exe running from under one dir, and nothing else.
+          function Get-OrcaUnder([string]$dir) {
             @(Get-CimInstance Win32_Process -Filter "Name='Orca.exe'" |
-              Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) })
+              Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase) })
           }
           $env:ORCA_E2E_USER_DATA_DIR = $userData
           $env:ORCA_E2E_HOME_DIR = $homeDir
           $env:HOME = $homeDir
           $env:USERPROFILE = $homeDir
+          # The daemon relocates its Orca.exe under LOCALAPPDATA: keep that copy inside $root too.
+          $env:LOCALAPPDATA = Join-Path $root 'local-app-data'
+          $env:APPDATA = Join-Path $root 'app-data'
+          New-Item -ItemType Directory -Force $env:LOCALAPPDATA, $env:APPDATA | Out-Null
           $env:ORCA_BACKGROUND_LAUNCH = '1'
           $started = Get-Date
           $launched = Start-Process -FilePath $exe -PassThru
           try {
             Start-Sleep -Seconds 30
-            $running = Get-InstalledOrca
+            $running = Get-OrcaUnder $installDir
             # The app's main process: no Electron --type= helper and no node-mode child (daemon, workers).
             $main = @($running | Where-Object { $_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '\.[cm]?js\b' })
             $watched = @($running.ProcessId) + @($launched.Id)
@@ -401,11 +407,12 @@ jobs:
             if ($appCrashes.Count -gt 0) { throw "Orca.exe crashed (Application event 1000): $($appCrashes[0].Message)" }
             Write-Host "smoke ok: Orca main process alive at 30 s (pid $($main.ProcessId -join ', '))"
           } finally {
-            # Only the PIDs this step started; a tree kill makes the later ones already gone, which is fine.
-            foreach ($process in (Get-InstalledOrca)) { taskkill /PID $process.ProcessId /T /F 2>&1 | Out-Null }
+            # Only the PIDs this step started (install dir and relocated daemon, all under $root); a tree
+            # kill makes the later ones already gone, which is fine.
+            foreach ($process in (Get-OrcaUnder $root)) { taskkill /PID $process.ProcessId /T /F 2>&1 | Out-Null }
             $global:LASTEXITCODE = 0
-            Start-Sleep -Seconds 2
-            $survivors = Get-InstalledOrca
+            $deadline = (Get-Date).AddSeconds(30)
+            do { Start-Sleep -Seconds 1; $survivors = Get-OrcaUnder $root } while ($survivors.Count -gt 0 -and (Get-Date) -lt $deadline)
             if ($survivors.Count -gt 0) { throw "Orca processes survived the stop: $($survivors.ProcessId -join ', ')" }
             $uninstaller = Get-ChildItem $installDir -Filter 'Uninstall*.exe' | Select-Object -First 1
             if (-not $uninstaller) { throw "no uninstaller in $installDir" }
