@@ -1,4 +1,4 @@
-// Run with `node --test config/mercurai/scripts/check-orcad-template.test.mjs` from the repo root.
+// Run with `node --test "config/mercurai/scripts/*.test.mjs"` from the repo root.
 // Uses the repo's own template fixture and verifier, so it follows whatever tag it runs in.
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'

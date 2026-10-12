@@ -42,4 +42,4 @@ jobs:
         run: bash config/mercurai/scripts/test-fork-series-scripts.sh
 
       - name: Node scripts
-        run: node --test config/mercurai/scripts/
+        run: node --test "config/mercurai/scripts/*.test.mjs"

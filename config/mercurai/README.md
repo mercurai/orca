@@ -79,7 +79,7 @@ series.
   (dry run only) builds that ref under the tag's version. A dispatch from a branch other than
   the default branch is always a dry run.
 - `fork-scripts-test`: on a push or PR that touches `config/mercurai/`, runs the fork scripts'
-  own tests (`test-fork-series-scripts.sh`, `node --test config/mercurai/scripts/`).
+  own tests (`test-fork-series-scripts.sh`, `node --test "config/mercurai/scripts/*.test.mjs"`).
 
 Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
 fetches, rebases or assembles and reports, but pushes nothing and opens no issue. That is how a
