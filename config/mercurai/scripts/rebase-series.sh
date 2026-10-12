@@ -4,7 +4,7 @@
 # which pushes what it rebased itself instead of anything a job that ran the code under test
 # reports (claude-code-config#1125, SEC-201).
 #
-# In: BASE, MANIFEST_WORK, /tmp/active.
+# In: BASE, MANIFEST_WORK, /tmp/active, OVERRIDES (optional, see parse-overrides.sh).
 # Out: local branches, plus these files:
 #   /tmp/rebased      one "branch before after" line per patch, every one leased later
 #   /tmp/merged       patches the base already carries
@@ -22,15 +22,21 @@ done < /tmp/active
 : > /tmp/conflicted
 rm -rf /tmp/conflicts
 mkdir -p /tmp/conflicts
+. "$(dirname "${BASH_SOURCE[0]}")/parse-overrides.sh"
 while read -r branch; do
   [ -z "$branch" ] && continue
   old=$(yq -r ".patches[] | select(.branch == \"$branch\") | .base // \"\"" "$MANIFEST_WORK")
   old=${old:-$(yq -r '.base' "$MANIFEST_WORK")}
   git checkout -q -B "$branch" "origin/$branch"
   before=$(git rev-parse HEAD)
+  # A hand-ported head named in OVERRIDES replaces the rebase; the branch is leased on its old sha like any other.
+  if [ -n "${HEADS[$branch]:-}" ]; then
+    use_head "$branch" "$BASE"
+    git checkout -q -B "$branch" "${HEADS[$branch]}"
+    echo "$branch: using the ported head ${HEADS[$branch]}"
   # A rerun after a partial failure, or a lane that already moved the branch: the branch sits on
   # the base already, and replaying it from the old base would re-apply upstream's own history.
-  if git merge-base --is-ancestor "$BASE" HEAD; then
+  elif git merge-base --is-ancestor "$BASE" HEAD; then
     echo "$branch already contains $BASE; no rebase needed"
   # A CR in a commit subject in git's output must not reach the job log (workflow-command injection).
   elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then
