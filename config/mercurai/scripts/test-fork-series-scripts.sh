@@ -271,8 +271,9 @@ elif grep -q "::add-mask::" "$root/rebase.out"; then fail "an override's raw tex
 ported_setup
 git checkout -q -b crsub v2; echo c > c.txt; git add c.txt; git commit -q -m "port"$'\r::add-mask::x'; crsha=$(git rev-parse HEAD)
 git push -q origin crsub:refs/heads/ci-only/cr; git checkout -q fork; runner_clone
-if rebase_with "patch/a=$crsha" && ! grep -q $'\r' "$root/rebase.out"; then pass "a commit subject's carriage return stays out of the log"
-else cat -A "$root/rebase.out"; fail "a commit subject's carriage return stays out of the log"; fi
+# (git's own rebase progress prints a CR, so the check is on the subject's line: joined, not split.)
+if rebase_with "patch/a=$crsha" && grep -q ' port::add-mask::x$' "$root/rebase.out"; then pass "a commit subject's carriage return stays out of the log"
+else fail "a commit subject's carriage return stays out of the log"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
