@@ -17,6 +17,10 @@ on:
         description: Fetch and compare only; push nothing and dispatch nothing
         type: boolean
         default: false
+      allow_tag:
+        description: Mirror one upstream release tag the owner reviewed, as <tag>@<40-hex sha> (the sha the tag points at; see its "fork-sync tag" issue). Pushes only that tag, then rebases onto it. The schedule never sets it
+        type: string
+        default: ''
       allow_guarded_merge_sha:
         description: Full sha of the upstream commit whose range you reviewed (it touches .github/ or config/mercurai); merges only that commit. The schedule never sets it
         type: string
@@ -44,6 +48,8 @@ env:
   SYNC_ISSUE_LABEL: fork-sync
   # The owner's pinned override: only an explicit dispatch can set it, the schedule has no inputs.
   ALLOWED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_guarded_merge_sha || '' }}
+  # The owner's approval of one release tag, <tag>@<40-hex sha>: same rule, the schedule has no inputs.
+  ALLOW_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_tag || '' }}
 
 jobs:
   mirror:
@@ -104,6 +110,7 @@ jobs:
           fi
           echo "new tags: $(tr '\n' ' ' < /tmp/tags-new)"
           echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "fork_main=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
           echo "main is $(git rev-list --left-right --count origin/main...upstream/main | awk '{print $1" ahead / "$2" behind"}') upstream/main"
 
       - name: Guard every push and the merge-forward
@@ -168,6 +175,36 @@ jobs:
           # A release name only (sync-push.sh matched it), so it cannot carry a workflow command.
           echo "rebase_tag=$(cat /tmp/rebase-tag)" >> "$GITHUB_OUTPUT"
 
+      - name: Mirror the owner-allowed tag
+        id: allowtag
+        # Deliberately not gated on the main-range guard: the owner approved this one tag at this one commit after
+        # reading its diff in the tag's issue, so it is an independent push of that tag and nothing else. A refused
+        # main range still pushes nothing else, and this does not release it.
+        if: ${{ steps.mode.outputs.push == 'true' && env.ALLOW_TAG != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          bash config/mercurai/scripts/mirror-allowed-tag.sh
+          # A release name and a 40-hex sha (the script matched both), so they cannot carry a workflow command.
+          { echo "tag=$(cat /tmp/allowed-tag)"; echo "sha=$(cat /tmp/allowed-tag-sha)"; } >> "$GITHUB_OUTPUT"
+
+      - name: Hand the owner-allowed tag to fork-rebase-patches
+        if: ${{ steps.mode.outputs.push == 'true' && steps.allowtag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.allowtag.outputs.tag }}"
+          sha="${{ steps.allowtag.outputs.sha }}"
+          echo "dispatching rebase onto $tag at $sha"
+          # The commit the owner approved: a tag upstream re-cuts in between fails the rebase instead of moving it.
+          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$sha"
+
       - name: Hand the newest release tag to fork-rebase-patches
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
         # Only a tag that was mirrored this run.
@@ -196,6 +233,36 @@ jobs:
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           git fetch --no-tags upstream '+refs/heads/*:refs/remotes/upstream/*'
           bash config/mercurai/scripts/sync-push.sh branches
+
+      - name: Open review issues for skipped release tags
+        # Read-only on the repo, whatever the guard said. One issue per tag, matched by its exact title; it is
+        # commented on only when the tag's commit changes, so an unchanged tag stays quiet from hour to hour.
+        if: ${{ steps.mode.outputs.push == 'true' }}
+        env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          FORK_MAIN: ${{ steps.fetch.outputs.fork_main }}
+          GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          bash config/mercurai/scripts/list-skipped-tags.sh
+          # The trusted tree: the pin once it is guarded, origin/main as the run found it when the guard refused.
+          if [ "$GUARD_REFUSED" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi
+          issues=$(gh issue list --label "$SYNC_ISSUE_LABEL" --state open --limit 200 --json number,title,body,comments)
+          while read -r tag <&3; do
+            if [ -z "$tag" ]; then continue; fi
+            sha=$(git rev-parse --verify "refs/upstream-tags/$tag^{commit}")
+            title="fork-sync tag: $tag needs owner review"
+            number=$(jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty' <<<"$issues")
+            body=$(bash config/mercurai/scripts/render-tag-review.sh "$tag" "$sha" "$trusted" "$FORK_BRANCH")
+            if [ -z "$number" ]; then
+              gh label create "$SYNC_ISSUE_LABEL" --color d93f0b --description 'fork sync needs a human' 2>/dev/null || true
+              gh issue create --label "$SYNC_ISSUE_LABEL" --title "$title" --body "$body"
+            else
+              seen=$(jq -r --arg t "$title" --arg s "$sha" '[.[] | select(.title == $t)][0] | ([.body] + [.comments[].body]) | any(contains($s))' <<<"$issues")
+              if [ "$seen" != true ]; then gh issue comment "$number" --body "$body"; fi
+            fi
+          done 3< /tmp/tags-skipped
 
       - name: Merge main forward into the fork branch
         id: merge
