@@ -1,6 +1,6 @@
 import type { SFTPWrapper } from 'ssh2'
 import type { SshTarget } from '../../shared/ssh-types'
-import type { FileUploadSession } from '../providers/types'
+import type { FileUploadSession } from '../providers/filesystem-provider-contract'
 import {
   resolveSftpTransferPathIfMapped,
   type SftpNamespacePathMapping

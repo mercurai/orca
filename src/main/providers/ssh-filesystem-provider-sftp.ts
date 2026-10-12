@@ -1,6 +1,6 @@
 import { closeSftpDirectoryHandle } from './ssh-sftp-directory-close'
 import type { FileEntryWithStats, SFTPWrapper, Stats } from 'ssh2'
-import type { FileStat } from './types'
+import type { FileStat } from './filesystem-provider-contract'
 
 const ABORTED_SFTP_OPERATION_GRACE_MS = 5_000
 
