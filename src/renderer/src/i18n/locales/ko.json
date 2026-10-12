@@ -18137,8 +18137,11 @@
       },
       "transcriptLabel": "대화",
       "toggle": {
-        "showTerminal": "terminal 표시",
-        "showChat": "채팅 보기 표시"
+        "showTerminal": "terminal 표시"
+      },
+      "resumeInNewChat": {
+        "notSavedYet": "{{agent}}이(가) 아직 이 대화를 저장하지 않았습니다. 응답한 후 다시 시도하세요.",
+        "cannotResume": "이 {{agent}} 대화는 기본 채팅에서 재개할 수 없습니다."
       },
       "state": {
         "loading": {
@@ -18216,7 +18219,8 @@
         "one": "변경된 파일 1개",
         "many": "{{count}} 변경된 파일",
         "partial": "부분적인 차이점",
-        "recorded": "이번 차례에 기록된 수정사항의 합계입니다."
+        "showDiff": "차이 보기",
+        "hideDiff": "차이 숨기기"
       },
       "receipt": {
         "unavailable": "선택한 답변을 사용할 수 없습니다.",

@@ -18116,8 +18116,11 @@
       },
       "transcriptLabel": "对话",
       "toggle": {
-        "showTerminal": "显示终端",
-        "showChat": "显示聊天视图"
+        "showTerminal": "显示终端"
+      },
+      "resumeInNewChat": {
+        "notSavedYet": "{{agent}} 尚未保存此对话。请在它回复后重试。",
+        "cannotResume": "此 {{agent}} 对话无法在本机聊天中恢复。"
       },
       "state": {
         "loading": {
@@ -18195,7 +18198,8 @@
         "one": "1 个已更改的文件",
         "many": "{{count}} 更改了文件",
         "partial": "部分差异",
-        "recorded": "本轮记录编辑的总计。"
+        "showDiff": "显示差异",
+        "hideDiff": "隐藏差异"
       },
       "receipt": {
         "unavailable": "所选答案不可用",

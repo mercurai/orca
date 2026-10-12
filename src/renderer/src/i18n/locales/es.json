@@ -18102,8 +18102,11 @@
       },
       "transcriptLabel": "Conversación",
       "toggle": {
-        "showTerminal": "Mostrar terminal",
-        "showChat": "Mostrar vista de chat"
+        "showTerminal": "Mostrar terminal"
+      },
+      "resumeInNewChat": {
+        "notSavedYet": "{{agent}} aún no ha guardado esta conversación. Inténtalo de nuevo cuando responda.",
+        "cannotResume": "Esta conversación de {{agent}} no se puede reanudar en un chat nativo."
       },
       "state": {
         "loading": {
@@ -18314,7 +18317,8 @@
         "one": "1 archivo modificado",
         "many": "{{count}} archivos modificados",
         "partial": "Diff parcial",
-        "recorded": "Totales de las ediciones registradas en este turno."
+        "showDiff": "Mostrar diferencias",
+        "hideDiff": "Ocultar diferencias"
       },
       "notices": {
         "contextCleared": "Contexto borrado",
