@@ -223,7 +223,12 @@ test('every skipped release tag gets its own issue, matched by exact title, comm
   const issues = step(SKIPPED_ISSUES)
   // Last, and run after a failure: upstream decides how many tags there are, so it cannot skip a push or the merge.
   assert.equal(names.at(-1), SKIPPED_ISSUES)
-  assert.match(issues, /^\s+if: \$\{\{ !cancelled\(\) && steps\.mode\.outputs\.push == 'true' \}\}$/m)
+  assert.match(
+    issues,
+    /^\s+if: \$\{\{ !cancelled\(\) && steps\.fetch\.outcome == 'success' && steps\.mode\.outputs\.push == 'true' \}\}$/m
+  )
+  assert.match(issues, /^\s+MAIN_MIRRORED: \$\{\{ steps\.mainmirror\.outcome \}\}$/m)
+  assert.match(step(MAIN), /^\s+id: mainmirror$/m)
   // From the copies made in the fetch step, before the merge-forward could change the tree.
   assert.match(issues, /^\s+run: bash \/tmp\/tag-issues\.sh$/m)
   assert.ok(
@@ -239,22 +244,31 @@ test('every skipped release tag gets its own issue, matched by exact title, comm
   assert.equal(script.split('--paginate').length - 1, 2)
   assert.doesNotMatch(script, /--limit|state=open|--state open/)
   // The title is matched exactly, never by containment.
-  assert.ok(script.includes(`'[.[] | select(.title == $t)][0] // empty'`))
+  // ... and only the bot's own issues are ours to reuse.
+  assert.ok(script.includes(`'[.[] | select(.title == $t and .login == $me)][0] // empty'`))
   assert.doesNotMatch(script, /contains\(\$t\)|startswith|test\(/)
   // Only the bot's own words count as "reported": the issue's author and the comment authors, against the token's login.
   assert.ok(script.includes('me=$("$gh" api user --jq .login)'))
-  assert.ok(script.includes(`'.login == $me and (.body | contains($s))'`))
-  assert.ok(script.includes(`'any(.[]; .login == $me and (.body | contains($s)))'`))
+  assert.ok(script.includes(`'.login == $me and (.body | contains($a))'`))
+  assert.ok(script.includes(`'any(.[]; .login == $me and (.body | contains($a)))'`))
+  // "Reported" means the exact input that mirrors the tag, not the bare sha.
+  assert.ok(script.includes('mention="allow_tag=$tag@$sha"'))
   // At most 5 new issues and 20 updates a run; the rest goes into one summary issue.
   assert.ok(script.includes('MAX_NEW=5\nMAX_UPDATES=20\n'))
   assert.ok(script.includes('if [ "$new" -ge "$MAX_NEW" ]; then overflow+=("$tag $sha"); continue; fi'))
   assert.ok(script.includes('if [ "$updates" -ge "$MAX_UPDATES" ]; then overflow+=("$tag $sha"); continue; fi'))
   assert.ok(script.includes('SUMMARY_TITLE="fork-sync tag: summary"'))
-  assert.ok(script.includes(`| sort | head -50 | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')`))
+  // sed reads all of its input; a head here would exit on SIGPIPE once the list outgrows the pipe buffer.
+  assert.ok(script.includes(`| sort | LC_ALL=C sed -n '1,50{s#[^A-Za-z0-9._/@+ -]#?#gp;}')`))
+  assert.doesNotMatch(script, /\| head\b/)
   // A closed issue is reopened only when its commit changed (it got past the "reported" check).
-  assert.ok(script.includes('if own_mention "$existing" "$number" "$sha"; then continue; fi'))
+  assert.ok(script.includes('if own_mention "$existing" "$number" "$mention"; then continue; fi'))
   assert.ok(script.includes('if [ "$(jq -r .state <<<"$existing")" = closed ]; then "$gh" issue reopen "$number"; fi'))
-  assert.ok(script.includes('if [ "${GUARD_REFUSED:-true}" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi'))
+  assert.ok(
+    script.includes(
+      'if [ "${GUARD_REFUSED:-true}" = false ] && [ "${MAIN_MIRRORED:-}" = success ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi'
+    )
+  )
   assert.match(script, /render-tag-review\.sh" "\$tag" "\$sha" "\$trusted" "\$FORK_BRANCH"/)
 })
 

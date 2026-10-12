@@ -621,8 +621,8 @@ ti_setup() {  # ti_setup <tag>...: those release tags sit on the release-branch 
   rm -f "$FORK_STATE_DIR/allowed-tag"
   export STUB_DIR="$root/at/stub"; rm -rf "$STUB_DIR"; mkdir -p "$STUB_DIR"; echo the-bot > "$STUB_DIR/login"
 }
-ti_run() {
-  UPSTREAM_SHA="$b0" FORK_MAIN="$b0" GUARD_REFUSED=true FORK_BRANCH=mercurai SYNC_ISSUE_LABEL=fork-sync GH_REPO=o/r GH="$root/stub-gh" \
+ti_run() {  # TI_UP, TI_REFUSED and TI_MIRRORED override the pin, the guard result and the main mirror's outcome
+  UPSTREAM_SHA="${TI_UP:-$b0}" FORK_MAIN="$b0" GUARD_REFUSED="${TI_REFUSED:-true}" MAIN_MIRRORED="${TI_MIRRORED:-success}" FORK_BRANCH=mercurai SYNC_ISSUE_LABEL=fork-sync GH_REPO=o/r GH="$root/stub-gh" \
     bash "$here/tag-issues.sh" > "$root/at/ti.out" 2>&1
 }
 ti_calls() { grep -c "^$1" "$STUB_DIR/calls.log" || true; }
@@ -640,12 +640,12 @@ if grep -q 'api --paginate repos/o/r/issues?state=all&labels=fork-sync&per_page=
   pass "tag issues: the lookup pages through every issue, open or closed"; else fail "tag issues: the lookup pages through every issue, open or closed"; cat "$STUB_DIR/calls.log"; fi
 # A match found on the last of 250 listed issues is still found (no duplicate).
 ti_setup v2.0.1
-{ for i in $(seq 1 249); do issue_line "$i" "unrelated $i" open the-bot "x"; done; issue_line 250 "fork-sync tag: v2.0.1 needs owner review" open the-bot "commit $r1"; } > "$STUB_DIR/issues.ndjson"
+{ for i in $(seq 1 249); do issue_line "$i" "unrelated $i" open the-bot "x"; done; issue_line 250 "fork-sync tag: v2.0.1 needs owner review" open the-bot "allow_tag=v2.0.1@$r1"; } > "$STUB_DIR/issues.ndjson"
 ti_run
 if [ "$(ti_calls 'issue ')" = 0 ]; then pass "tag issues: an issue far down the listing is found, not duplicated"; else fail "tag issues: an issue far down the listing is found, not duplicated"; cat "$STUB_DIR/calls.log"; fi
 # A closed issue of the bot that names the commit stays closed and quiet; with another commit it is reopened and commented on.
 ti_setup v2.0.1
-issue_line 7 "fork-sync tag: v2.0.1 needs owner review" closed the-bot "commit $r1" > "$STUB_DIR/issues.ndjson"
+issue_line 7 "fork-sync tag: v2.0.1 needs owner review" closed the-bot "allow_tag=v2.0.1@$r1" > "$STUB_DIR/issues.ndjson"
 ti_run
 if [ "$(ti_calls 'issue ')" = 0 ]; then pass "tag issues: a closed issue stays closed while the tag's commit is unchanged"; else fail "tag issues: a closed issue stays closed while the tag's commit is unchanged"; cat "$STUB_DIR/calls.log"; fi
 issue_line 7 "fork-sync tag: v2.0.1 needs owner review" closed the-bot "commit 0000000000000000000000000000000000000000" > "$STUB_DIR/issues.ndjson"
@@ -655,21 +655,27 @@ if grep -q '^issue reopen 7' "$STUB_DIR/calls.log" && grep -q '^issue comment 7 
 # Whose words count: a third party's comment, or a third party's issue of the same title, naming the commit silences nothing.
 ti_setup v2.0.1
 issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open the-bot "old commit" > "$STUB_DIR/issues.ndjson"
-jq -nc --arg b "seen $r1" '{login:"mallory",body:$b}' > "$STUB_DIR/comments-7.ndjson"
+jq -nc --arg b "seen allow_tag=v2.0.1@$r1" '{login:"mallory",body:$b}' > "$STUB_DIR/comments-7.ndjson"
 rm -f "$STUB_DIR/calls.log"; ti_run
 if grep -q '^issue comment 7 ' "$STUB_DIR/calls.log"; then pass "tag issues: a third party's comment naming the commit does not silence the bot"; else fail "tag issues: a third party's comment naming the commit does not silence the bot"; cat "$STUB_DIR/calls.log"; fi
 ti_setup v2.0.1
-issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open mallory "commit $r1" > "$STUB_DIR/issues.ndjson"
+issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open mallory "allow_tag=v2.0.1@$r1" > "$STUB_DIR/issues.ndjson"
 rm -f "$STUB_DIR/calls.log"; ti_run
-if grep -q '^issue comment 7 ' "$STUB_DIR/calls.log"; then pass "tag issues: a third party's issue body naming the commit does not silence the bot"; else fail "tag issues: a third party's issue body naming the commit does not silence the bot"; cat "$STUB_DIR/calls.log"; fi
+if [ "$(ti_calls 'issue create')" = 1 ] && ! grep -q '^issue comment 7 ' "$STUB_DIR/calls.log"; then pass "tag issues: a third party's issue of the same title is not reused: the bot opens its own"; else fail "tag issues: a third party's issue of the same title is not reused: the bot opens its own"; cat "$STUB_DIR/calls.log"; fi
+# The bare sha in the bot's own comment is not enough: only the exact allow_tag=<tag>@<sha> input counts.
 ti_setup v2.0.1
 issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open the-bot "old commit" > "$STUB_DIR/issues.ndjson"
-jq -nc --arg b "seen $r1" '{login:"the-bot",body:$b}' > "$STUB_DIR/comments-7.ndjson"
+jq -nc --arg b "the commit $r1 again" '{login:"the-bot",body:$b}' > "$STUB_DIR/comments-7.ndjson"
+rm -f "$STUB_DIR/calls.log"; ti_run
+if grep -q '^issue comment 7 ' "$STUB_DIR/calls.log"; then pass "tag issues: the bare sha does not count as reported"; else fail "tag issues: the bare sha does not count as reported"; cat "$STUB_DIR/calls.log"; fi
+ti_setup v2.0.1
+issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open the-bot "old commit" > "$STUB_DIR/issues.ndjson"
+jq -nc --arg b "seen allow_tag=v2.0.1@$r1" '{login:"the-bot",body:$b}' > "$STUB_DIR/comments-7.ndjson"
 rm -f "$STUB_DIR/calls.log"; ti_run
 if [ "$(ti_calls 'issue ')" = 0 ]; then pass "tag issues: the bot's own comment naming the commit keeps it quiet"; else fail "tag issues: the bot's own comment naming the commit keeps it quiet"; cat "$STUB_DIR/calls.log"; fi
 # The title is matched exactly: a longer title is another issue.
 ti_setup v2.0.1
-issue_line 7 "fork-sync tag: v2.0.1 needs owner review (copy)" open the-bot "commit $r1" > "$STUB_DIR/issues.ndjson"
+issue_line 7 "fork-sync tag: v2.0.1 needs owner review (copy)" open the-bot "allow_tag=v2.0.1@$r1" > "$STUB_DIR/issues.ndjson"
 rm -f "$STUB_DIR/calls.log"; ti_run
 if [ "$(ti_calls 'issue create')" = 1 ]; then pass "tag issues: the title is matched exactly"; else fail "tag issues: the title is matched exactly"; cat "$STUB_DIR/calls.log"; fi
 # An existing summary (closed, different list) is reopened and edited, not duplicated.
@@ -678,6 +684,30 @@ issue_line 40 "fork-sync tag: summary" closed the-bot "an older list" > "$STUB_D
 ti_run
 if [ "$(ti_calls 'issue create')" = 5 ] && grep -q '^issue reopen 40' "$STUB_DIR/calls.log" && grep -q '^issue edit 40 ' "$STUB_DIR/calls.log"; then
   pass "tag issues: an existing summary is reopened and edited, not duplicated"; else fail "tag issues: an existing summary is reopened and edited, not duplicated"; cat "$STUB_DIR/calls.log"; fi
+# The update cap: 25 tags with an issue of the bot's that names an older commit: 20 comments, the other 5 in the summary.
+tags25=(); for i in $(seq 1 25); do tags25+=("v3.0.$i"); done
+ti_setup "${tags25[@]}"
+for i in $(seq 1 25); do issue_line "$i" "fork-sync tag: v3.0.$i needs owner review" open the-bot "an older commit"; done > "$STUB_DIR/issues.ndjson"
+ti_run
+if [ "$(ti_calls 'issue comment')" = 20 ] && [ "$(ti_calls 'issue create')" = 1 ] && grep -q '^issue create .*--title fork-sync tag: summary --body 5 release tags' "$STUB_DIR/calls.log"; then
+  pass "tag issues: at most 20 updates a run, the rest in the summary"; else fail "tag issues: at most 20 updates a run, the rest in the summary"; grep -c . "$STUB_DIR/calls.log"; head -c 600 "$root/at/ti.out"; fi
+# A summary list larger than the pipe buffer must not fail the step (head would die on SIGPIPE under pipefail).
+big=(); for i in $(seq 1 2000); do big+=("v5.0.$i"); done
+ti_setup
+for t in "${big[@]}"; do echo "create refs/upstream-tags/$t $r1"; done | git update-ref --stdin
+printf '%s\n' "${big[@]}" > "$FORK_STATE_DIR/tags-new"
+rc=0; ti_run || rc=$?
+if [ "$rc" = 0 ] && [ "$(ti_calls 'issue create')" = 6 ] && grep -q '^issue create .*--title fork-sync tag: summary --body 1995 release tags' "$STUB_DIR/calls.log"; then
+  pass "tag issues: a summary list past the pipe buffer is bounded without failing the step"; else fail "tag issues: a summary list past the pipe buffer is bounded without failing the step"; echo "rc=$rc"; head -c 600 "$root/at/ti.out"; fi
+# The trusted tree is the pin only when the guard passed AND the main mirror succeeded.
+ti_setup v2.0.1
+git checkout -q fork; commit u.txt u "a newer upstream commit"; u1=$(git rev-parse HEAD)
+TI_UP=$u1 TI_REFUSED=false TI_MIRRORED=success ti_run
+if grep -q "trusted one (\`$u1\`)" "$STUB_DIR/calls.log"; then pass "tag issues: the pin is the trusted tree after a successful main mirror"; else fail "tag issues: the pin is the trusted tree after a successful main mirror"; head -c 800 "$STUB_DIR/calls.log"; fi
+ti_setup v2.0.1
+git checkout -q fork; commit u.txt u "a newer upstream commit"; u1=$(git rev-parse HEAD)
+TI_UP=$u1 TI_REFUSED=false TI_MIRRORED=failure ti_run
+if grep -q "trusted one (\`$b0\`)" "$STUB_DIR/calls.log"; then pass "tag issues: origin/main is the trusted tree when the main mirror failed"; else fail "tag issues: origin/main is the trusted tree when the main mirror failed"; head -c 800 "$STUB_DIR/calls.log"; fi
 
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done

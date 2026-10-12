@@ -145,6 +145,7 @@ jobs:
           cat /tmp/guarded
 
       - name: Mirror main (fast-forward only)
+        id: mainmirror
         # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
         if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
         env:
@@ -327,11 +328,13 @@ jobs:
         # Last, and run whatever failed before it (not when cancelled): upstream decides how many tags there are, so
         # this step must never be able to skip the pushes or the merge-forward. It caps what it opens per run, pages
         # through every issue (closed ones included) and trusts only the bot's own words (tag-issues.sh).
-        if: ${{ !cancelled() && steps.mode.outputs.push == 'true' }}
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           FORK_MAIN: ${{ steps.fetch.outputs.fork_main }}
           GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
+          # The pin is the trusted tree only if the main mirror pushed it; otherwise origin/main as found.
+          MAIN_MIRRORED: ${{ steps.mainmirror.outcome }}
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         # From the copies made before the merge: the merged tree may hold upstream's version of these scripts.
         run: bash /tmp/tag-issues.sh
