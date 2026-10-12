@@ -332,3 +332,25 @@ test('a dry run keeps no update manifest and marks the installer', () => {
   assert.match(releaseUpload, /if: needs\.preflight\.outputs\.publish == 'true'/)
   assert.match(releaseUpload, /dist\/latest\.yml/)
 })
+
+// A template that ships is required and checked inside the packaged app, not skipped quietly.
+test('a shipping template is required at packaging and checked in the unpacked app', () => {
+  const build = releaseJobs.get('build-win')
+  const at = (name) => build.indexOf(`- name: ${name}`)
+  const stepAt = (start) => build.slice(start, build.indexOf('\n      - ', start + 1))
+  const packaging = stepAt(at('Build the Windows installer'))
+  assert.match(packaging, /SHIPS_ORCAD_TEMPLATE: \$\{\{ needs\.orcad-template\.outputs\.ships \}\}/)
+  assert.match(packaging, /ORCAD_TEMPLATE_TARGETS: \$\{\{ needs\.orcad-template\.outputs\.targets \}\}/)
+  assert.match(
+    packaging,
+    /if \[ "\$SHIPS_ORCAD_TEMPLATE" = "true" \]; then\n\s+export ORCA_REQUIRE_ORCAD_TEMPLATE=1\n\s+export ORCA_ORCAD_TEMPLATE_TARGETS="\$ORCAD_TEMPLATE_TARGETS"\n\s+fi\n/
+  )
+  const check = stepAt(at('Check the packaged orcad template'))
+  assert.ok(at('Check the packaged orcad template') > at('Build the Windows installer'))
+  assert.match(check, /if: needs\.orcad-template\.outputs\.ships == 'true'/)
+  assert.match(check, /ORCAD_TEMPLATE_TARGETS: \$\{\{ needs\.orcad-template\.outputs\.targets \}\}/)
+  assert.match(check, /--resources dist\/win-unpacked\/resources/)
+  assert.match(check, /--targets "\$ORCAD_TEMPLATE_TARGETS"/)
+  assert.match(check, /\n\s+grep -q '\^orcad template ok: ' <<<"\$report"\n/)
+  assert.doesNotMatch(check, /continue-on-error/)
+})
