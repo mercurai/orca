@@ -553,23 +553,38 @@ MUTANTS = {
     ),
     "tagissue-lookup-by-containment": (
         TI,
-        "'[.[] | select(.title == $t)][0] // empty'",
+        "'[.[] | select(.title == $t and .login == $me)][0] // empty'",
         "'[.[] | select(.title | contains($t))][0] // empty'",
+    ),
+    "tagissue-find-any-author": (
+        TI,
+        "select(.title == $t and .login == $me)",
+        "select(.title == $t)",
     ),
     "tagissue-own-mention-ignored": (
         TI,
-        'if own_mention "$existing" "$number" "$sha"; then continue; fi',
+        'if own_mention "$existing" "$number" "$mention"; then continue; fi',
         "if false; then continue; fi",
+    ),
+    "tagissue-bare-sha-mention": (
+        TI,
+        'mention="allow_tag=$tag@$sha"',
+        'mention="$sha"',
+    ),
+    "tagissue-mention-without-sha": (
+        TI,
+        'mention="allow_tag=$tag@$sha"',
+        'mention="allow_tag=$tag"',
     ),
     "tagissue-seen-any-author-body": (
         TI,
-        "'.login == $me and (.body | contains($s))'",
-        "'.body | contains($s)'",
+        "'.login == $me and (.body | contains($a))'",
+        "'.body | contains($a)'",
     ),
     "tagissue-seen-any-author-comment": (
         TI,
-        "'any(.[]; .login == $me and (.body | contains($s)))'",
-        "'any(.[]; .body | contains($s))'",
+        "'any(.[]; .login == $me and (.body | contains($a)))'",
+        "'any(.[]; .body | contains($a))'",
     ),
     "tagissue-me-is-not-the-token": (
         TI,
@@ -578,9 +593,30 @@ MUTANTS = {
     ),
     "tagissue-trusted-always-fork-main": (
         TI,
-        'if [ "${GUARD_REFUSED:-true}" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi',
+        'if [ "${GUARD_REFUSED:-true}" = false ] && [ "${MAIN_MIRRORED:-}" = success ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi',
         "trusted=$FORK_MAIN",
     ),
+    "tagissue-trusted-ignores-mirror-outcome": (
+        TI,
+        ' && [ "${MAIN_MIRRORED:-}" = success ]',
+        "",
+    ),
+    "tagissue-trusted-ignores-guard": (
+        TI,
+        '[ "${GUARD_REFUSED:-true}" = false ] && ',
+        "",
+    ),
+    "tagissue-mirror-outcome-not-passed": (
+        SYNC,
+        "          MAIN_MIRRORED: ${{ steps.mainmirror.outcome }}\n",
+        "",
+    ),
+    "tagissue-fetch-outcome-not-required": (
+        SYNC,
+        " && steps.fetch.outcome == 'success'",
+        "",
+    ),
+    "tagissue-update-cap-raised": (TI, "MAX_UPDATES=20\n", "MAX_UPDATES=2000\n"),
     "tagissue-list-step-never-listed": (TI, 'bash "$here/list-skipped-tags.sh"\n', ""),
     "tagissue-new-cap-removed": (
         TI,
@@ -611,14 +647,23 @@ MUTANTS = {
     ),
     "tagissue-summary-unsanitised": (
         TI,
-        "| sort | head -50 | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')",
+        "| sort | LC_ALL=C sed -n '1,50{s#[^A-Za-z0-9._/@+ -]#?#gp;}')",
         "| sort | head -50)",
     ),
-    "tagissue-summary-unbounded": (TI, "| sort | head -50 |", "| sort |"),
+    "tagissue-summary-unbounded": (
+        TI,
+        "| sort | LC_ALL=C sed -n '1,50{s#[^A-Za-z0-9._/@+ -]#?#gp;}')",
+        "| sort | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')",
+    ),
+    "tagissue-summary-head-pipe": (
+        TI,
+        "| sort | LC_ALL=C sed -n '1,50{s#[^A-Za-z0-9._/@+ -]#?#gp;}')",
+        "| sort | head -50 | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g')",
+    ),
     "tagissue-step-not-run-after-failure": (
         SYNC,
-        "if: ${{ !cancelled() && steps.mode.outputs.push == 'true' }}",
-        "if: ${{ steps.mode.outputs.push == 'true' }}",
+        "if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}",
+        "if: ${{ steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}",
     ),
     "tagissue-step-from-merged-tree": (
         SYNC,
