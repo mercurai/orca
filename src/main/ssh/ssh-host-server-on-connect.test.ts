@@ -96,15 +96,16 @@ describe('which server an SSH host runs on connect', () => {
     })
   })
 
-  it('carries the old relay processes the census found into the refusal', async () => {
-    const oldRelays = { hostOs: 'posix' as const, pids: [4101] }
-    const d = deps({ relayTerminals: async () => ({ verdict: 'live', count: 1, oldRelays }) })
-    await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
-      reason: 'relay_terminals_live',
-      terminals: 1,
-      oldRelays
-    })
+  // COMPAT(legacy-relay-bridge): the census only reports; converting leaves relay terminals running.
+  it('converts anyway when the bridge takes the live or unproven relay terminals', async () => {
+    for (const verdict of ['live', 'unverifiable'] as const) {
+      const proof = { verdict, count: 2, bridged: true as const }
+      const d = deps({ relayTerminals: async () => proof })
+      await expect(resolveHostServerOnConnect(target, d)).resolves.toMatchObject({
+        route: 'managed'
+      })
+      expect(d.convert).toHaveBeenCalledWith(target, proof)
+    }
   })
 
   it('surfaces a refusal for any other reason, naming it', async () => {

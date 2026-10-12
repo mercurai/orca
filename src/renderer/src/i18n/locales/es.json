@@ -12382,18 +12382,7 @@
           "olderTerminalsUnverifiable": "Orca no pudo confirmar que los terminales iniciados por una versión anterior de Orca hayan terminado. Vuelve a conectarte para intentarlo de nuevo.",
           "olderTerminals_one": "{{count}} terminal iniciado por una versión anterior de Orca sigue ejecutándose en este host y no se detiene solo. Ciérralo en esa versión de Orca o termínalo en el host y vuelve a conectarte.",
           "olderTerminals_other": "{{count}} terminales iniciados por una versión anterior de Orca siguen ejecutándose en este host y no se detienen solos. Ciérralos en esa versión de Orca o termínalos en el host y vuelve a conectarte.",
-          "olderTerminals": "{{count}} terminales iniciados por una versión anterior de Orca siguen ejecutándose en este host y no se detienen solos. Ciérralos en esa versión de Orca o termínalos en el host y vuelve a conectarte.",
-          "oldTerminalsStopLead": "Para terminarlos en el host, ejecuta:",
-          "oldTerminalsStopLeadPids": "Para terminarlos en el host (ID de proceso {{pids}}), ejecuta:",
-          "endOldTerminals": {
-            "action": "Terminar los terminales antiguos en este host",
-            "title": "¿Terminar los terminales antiguos en este host?",
-            "description": "Esto termina todos los terminales que una versión anterior de Orca dejó en ejecución en este host para esta cuenta, incluidos los abiertos desde otros equipos. Las shells y los agentes que se ejecutan en ellos se detienen. Los agentes compatibles con la reanudación se pueden reanudar después; las shells normales no se pueden recuperar.",
-            "confirm": "Terminar terminales",
-            "running": "Terminando los terminales antiguos…",
-            "connected": "Se terminaron los terminales antiguos. El host está conectado.",
-            "failed": "Orca no pudo terminar los terminales antiguos."
-          }
+          "olderTerminals": "{{count}} terminales iniciados por una versión anterior de Orca siguen ejecutándose en este host y no se detienen solos. Ciérralos en esa versión de Orca o termínalos en el host y vuelve a conectarte."
         },
         "deltaMove": {
           "action": "Mover los proyectos nuevos…",

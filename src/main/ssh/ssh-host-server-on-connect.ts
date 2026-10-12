@@ -17,7 +17,6 @@ import type {
   SshManagedServerRelayReason,
   SshManagedServerServingNote,
   SshManagedServerUpdateNote,
-  SshOldRelayProcesses,
   SshTarget
 } from '../../shared/ssh-types'
 import type { OrcadManagedServing } from './orcad-managed-serving'
@@ -59,7 +58,6 @@ export type HostServerOnConnectResult =
       detail?: string
       terminals?: number
       terminalsElsewhere?: boolean
-      oldRelays?: SshOldRelayProcesses
     }
 
 export type HostServerTerminalVerdict = {
@@ -68,8 +66,8 @@ export type HostServerTerminalVerdict = {
   count: number
   /** Counted only by the host-wide census: another desktop or session runs them. */
   elsewhere?: boolean
-  /** The older Orca's relay processes the census found, for the stop action. */
-  oldRelays?: SshOldRelayProcesses
+  /** COMPAT(legacy-relay-bridge): the host converts anyway and the bridge serves them. */
+  bridged?: true
 }
 
 export type HostServerOnConnectDeps = {
@@ -206,14 +204,13 @@ async function convertHost(
 ): Promise<HostServerOnConnectResult> {
   try {
     const terminals = options.checkTerminals ? await deps.relayTerminals(target) : null
-    if (terminals && terminals.verdict !== 'exited') {
+    if (terminals && terminals.verdict !== 'exited' && !terminals.bridged) {
       // Why unverifiable too: loss of contact is never evidence that a relay terminal exited.
       return {
         route: 'relay',
         reason: terminalReason(terminals.verdict),
         terminals: terminals.count,
-        ...(terminals.elsewhere ? { terminalsElsewhere: true } : {}),
-        ...(terminals.oldRelays ? { oldRelays: terminals.oldRelays } : {})
+        ...(terminals.elsewhere ? { terminalsElsewhere: true } : {})
       }
     }
     trace.path = 'convert'

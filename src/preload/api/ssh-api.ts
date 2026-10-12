@@ -6,7 +6,6 @@ import type {
   SshConfigHostResolution,
   SshConfigImportResult,
   SshConnectionState,
-  SshEndOldRelayTerminalsResult,
   SshTarget,
   SshTargetAddResult,
   SshTargetCreateInput,
@@ -26,8 +25,6 @@ export type SshApi = {
   resolveConfigHost: (args: { alias: string }) => Promise<SshConfigHostResolution | null>
   connect: (args: { targetId: string }) => Promise<SshConnectionState | null>
   disconnect: (args: { targetId: string }) => Promise<void>
-  /** Ends an older Orca's relay terminals on the host, then reconnects; absent on the web client. */
-  endOldRelayTerminals?: (args: { targetId: string }) => Promise<SshEndOldRelayTerminalsResult>
   getState: (args: { targetId: string }) => Promise<SshConnectionState | null>
   needsPassphrasePrompt: (args: { targetId: string }) => Promise<boolean>
   testConnection: (args: {

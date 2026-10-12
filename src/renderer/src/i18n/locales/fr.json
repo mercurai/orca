@@ -12488,18 +12488,7 @@
           "olderTerminalsUnverifiable": "Orca n’a pas pu confirmer que les terminaux lancés par une version antérieure d’Orca sont terminés. Reconnectez-vous pour réessayer.",
           "olderTerminals_one": "{{count}} terminal lancé par une version antérieure d’Orca est toujours en cours d’exécution sur cet hôte et ne s’arrête pas de lui-même. Fermez-le dans cette version d’Orca ou arrêtez-le sur l’hôte, puis reconnectez-vous.",
           "olderTerminals_other": "{{count}} terminaux lancés par une version antérieure d’Orca sont toujours en cours d’exécution sur cet hôte et ne s’arrêtent pas d’eux-mêmes. Fermez-les dans cette version d’Orca ou arrêtez-les sur l’hôte, puis reconnectez-vous.",
-          "olderTerminals": "{{count}} terminaux lancés par une version antérieure d’Orca sont toujours en cours d’exécution sur cet hôte et ne s’arrêtent pas d’eux-mêmes. Fermez-les dans cette version d’Orca ou arrêtez-les sur l’hôte, puis reconnectez-vous.",
-          "oldTerminalsStopLead": "Pour les arrêter sur l’hôte, exécutez :",
-          "oldTerminalsStopLeadPids": "Pour les arrêter sur l’hôte (ID de processus {{pids}}), exécutez :",
-          "endOldTerminals": {
-            "action": "Arrêter les anciens terminaux sur cet hôte",
-            "title": "Arrêter les anciens terminaux sur cet hôte ?",
-            "description": "Cela arrête tous les terminaux qu’une version antérieure d’Orca a laissés en cours d’exécution sur cet hôte pour ce compte, y compris ceux ouverts depuis d’autres ordinateurs. Les shells et les agents qui s’y exécutent s’arrêtent. Les agents qui prennent en charge la reprise peuvent être repris ensuite ; les shells simples ne peuvent pas être restaurés.",
-            "confirm": "Arrêter les terminaux",
-            "running": "Arrêt des anciens terminaux…",
-            "connected": "Anciens terminaux arrêtés. L’hôte est connecté.",
-            "failed": "Orca n’a pas pu arrêter les anciens terminaux."
-          }
+          "olderTerminals": "{{count}} terminaux lancés par une version antérieure d’Orca sont toujours en cours d’exécution sur cet hôte et ne s’arrêtent pas d’eux-mêmes. Fermez-les dans cette version d’Orca ou arrêtez-les sur l’hôte, puis reconnectez-vous."
         },
         "deltaMove": {
           "action": "Déplacer les nouveaux projets…",

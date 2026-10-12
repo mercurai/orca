@@ -12610,18 +12610,7 @@
           "olderTerminalsUnverifiable": "Orca couldn’t confirm that terminals started by an older version of Orca have exited. Reconnect to try again.",
           "olderTerminals_one": "{{count}} terminal started by an older version of Orca is still running on this host, and it doesn’t stop on its own. Close it in that version of Orca or end it on the host, then reconnect.",
           "olderTerminals_other": "{{count}} terminals started by an older version of Orca are still running on this host, and they don’t stop on their own. Close them in that version of Orca or end them on the host, then reconnect.",
-          "olderTerminals": "{{count}} terminals started by an older version of Orca are still running on this host, and they don’t stop on their own. Close them in that version of Orca or end them on the host, then reconnect.",
-          "oldTerminalsStopLead": "To end them on the host, run:",
-          "oldTerminalsStopLeadPids": "To end them on the host (process IDs {{pids}}), run:",
-          "endOldTerminals": {
-            "action": "End old terminals on this host",
-            "title": "End old terminals on this host?",
-            "description": "This ends every terminal an older version of Orca left running on this host for this account, including ones opened from other computers. The shells and agents running in them stop. Agents that support resume can be resumed afterwards; plain shells can’t be brought back.",
-            "confirm": "End terminals",
-            "running": "Ending old terminals…",
-            "connected": "Old terminals ended. The host is connected.",
-            "failed": "Orca couldn’t end the old terminals."
-          }
+          "olderTerminals": "{{count}} terminals started by an older version of Orca are still running on this host, and they don’t stop on their own. Close them in that version of Orca or end them on the host, then reconnect."
         },
         "ZcodeCliSetupSection": {
           "title": "Use GLM with ZCode",

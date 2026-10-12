@@ -149,7 +149,7 @@ async function fenceOrResume(
     target.id,
     censusHost ? () => censusHost(target) : null
   )
-  if (terminalProof.verdict !== 'exited') {
+  if (terminalProof.verdict === 'live' || terminalProof.verdict === 'unverifiable') {
     return refuse(terminalProof.verdict, 'orcad_migration_terminals', terminalProof.reason)
   }
   retireProvenExitedLeases(store, target.id, terminalProof)

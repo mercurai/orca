@@ -28,7 +28,10 @@ import { withCliAgentLaunchRecovery } from './agent-launch-recovery'
 
 type Flags = Map<string, string | boolean>
 
-export type CliAgentLaunchTarget = { kind: 'existing'; worktree: string }
+/** `create` is the `worktree.create` request the CLI already builds; the host strips agent fields. */
+export type CliAgentLaunchTarget =
+  | { kind: 'existing'; worktree: string }
+  | { kind: 'create-worktree'; create: Record<string, unknown> }
 
 export type CliAgentLaunch = {
   agent: TuiAgent
@@ -46,11 +49,16 @@ export function parseCliAgent(value: string): TuiAgent {
 
 /** The agent, prompt, model and effort a CLI start asks for; refuses a model or effort the launch
  *  could not apply, by the same rule as `orchestration worker-start`. */
-export function readCliAgentLaunch(flags: Flags, agent: TuiAgent): CliAgentLaunch {
+export function readCliAgentLaunch(
+  flags: Flags,
+  agent: TuiAgent,
+  target: { createsWorktree: boolean }
+): CliAgentLaunch {
   const checked = checkAgentLaunchModelPreferences({
     agent,
     model: getOptionalStringFlag(flags, 'model'),
     effort: getOptionalStringFlag(flags, 'effort'),
+    createsWorktree: target.createsWorktree,
     // The execution host verifies an OpenCode model itself before it starts one.
     openCodeModelLaunchSupported: true
   })
@@ -74,6 +82,10 @@ export function readCliAgentLaunch(flags: Flags, agent: TuiAgent): CliAgentLaunc
       : {}),
     ...(checked.preferences ? { sessionOptions: { ...checked.preferences } } : {})
   }
+}
+
+export function hasLaunchModelFlags(flags: Flags): boolean {
+  return flags.has('model') || flags.has('effort')
 }
 
 export async function getAgentLaunchCapabilities(

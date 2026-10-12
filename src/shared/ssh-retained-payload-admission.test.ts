@@ -123,25 +123,6 @@ describe('SSH retained payload admission', () => {
     ).toEqual(relay)
   })
 
-  it('admits the old relay processes a refusal names, dropping only a malformed list', () => {
-    const state = { targetId: 'ssh-a', status: 'error', error: null, reconnectAttempt: 0 }
-    const relay = { kind: 'relay', reason: 'relay_terminals_live', terminals: 2 }
-    const admit = (oldRelays: unknown): unknown =>
-      admitSshConnectionState({ ...state, managedServer: { ...relay, oldRelays } }, 'ssh-a')
-        ?.managedServer
-
-    expect(admit({ hostOs: 'posix', pids: [4101, 4102] })).toEqual({
-      ...relay,
-      oldRelays: { hostOs: 'posix', pids: [4101, 4102] }
-    })
-    expect(admit({ hostOs: 'posix', pids: [4101, -1, 1, 'x', 2.5] })).toEqual({
-      ...relay,
-      oldRelays: { hostOs: 'posix', pids: [4101] }
-    })
-    expect(admit({ hostOs: 'beos', pids: [] })).toEqual(relay)
-    expect(admit({ hostOs: 'windows' })).toEqual(relay)
-  })
-
   it('rejects partial and malformed provider authority', () => {
     const state = {
       targetId: 'ssh-a',

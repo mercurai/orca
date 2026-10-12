@@ -31,6 +31,7 @@ import { releaseUnreachableOrcadSetup } from '../ssh/orcad-unreachable-setup-rel
 import { getCurrentMainWindow } from './ssh-ipc-context'
 import { broadcastSshState } from './ssh-renderer-broadcast'
 import { connectInFlight } from './ssh-connect-attempt-registry'
+import { startLegacyRelayBridge } from '../ssh/legacy-relay-bridge/legacy-relay-bridge-registry'
 
 export function hostServerOnConnectDeps(userDataPath: string): HostServerOnConnectDeps {
   const registry = getSshTargetRegistryStore()!
@@ -89,8 +90,12 @@ export function hostServerOnConnectDeps(userDataPath: string): HostServerOnConne
         name: target.orcadProvisioning?.name ?? managedOrcadServerName(target),
         sshTargetId: target.id
       }),
-    convert: (target, hostProof) =>
-      convertSshTargetToManagedOrcad(userDataPath, {
+    convert: async (target, hostProof) => {
+      // COMPAT(legacy-relay-bridge): find the panes old relays still run before the tabs remount.
+      if (hostProof?.bridged) {
+        await startLegacyRelayBridge(target.id)
+      }
+      return convertSshTargetToManagedOrcad(userDataPath, {
         sshTargetId: target.id,
         name: managedOrcadServerName(target),
         // The connect's own census already answered; a conversion before any session reuses it.
@@ -98,7 +103,8 @@ export function hostServerOnConnectDeps(userDataPath: string): HostServerOnConne
           hostProof ? Promise.resolve(hostProof) : censusHostRelayTerminalsFor(host)(),
         // Why no releaseDirectSession: a disconnect here would cancel the connect that asked for it.
         destinationFor: orcadMigrationDestinationFor
-      }),
+      })
+    },
     abandonDeploy: async (target) => {
       const environmentId =
         getManagedOrcadFenceEnvironmentId(target) ??

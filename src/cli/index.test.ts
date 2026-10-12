@@ -735,7 +735,7 @@ describe('orca root help', () => {
     await main(['terminal', 'create', '--help'], '/tmp/repo')
 
     const terminalHelp = String(logSpy.mock.calls[0][0])
-    expect(terminalHelp).toContain('use `orca agent launch`')
+    expect(terminalHelp).toContain('To start an agent, use `orca agent launch`')
     expect(callMock).not.toHaveBeenCalled()
   })
 })
