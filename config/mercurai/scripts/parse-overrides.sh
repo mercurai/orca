@@ -40,6 +40,7 @@ use_head() {
   fi
   git merge-base --is-ancestor "$2" "$sha" || { echo "::error::$1: override head $sha does not contain $2"; exit 1; }
   [ "$(git rev-list --count "$2..$sha")" != 0 ] || { echo "::error::$1: override head $sha has no commits beyond $2"; exit 1; }
-  git log --oneline "$2..$sha"
-  git diff --stat "$2...$sha"
+  # Commit subjects are the dispatcher's text: a carriage return in one would reach the runner as a workflow command.
+  git log --oneline "$2..$sha" | tr -d '\r'
+  git diff --stat "$2...$sha" | tr -d '\r'
 }

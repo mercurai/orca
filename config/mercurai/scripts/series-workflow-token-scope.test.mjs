@@ -180,4 +180,8 @@ test('overrides reach the scripts as an env value only, and are checked strictly
   assert.ok(parse.includes('has no commits beyond $2'))
   // The raw input is never echoed to the log (a carriage return would reach the runner as a command).
   assert.doesNotMatch(parse, /echo "[^"]*\$_pair/)
+  // Nor may a commit subject: every git log/diff line it prints drops carriage returns.
+  const printed = parse.split('\n').filter((l) => /^\s*git (log|diff)\b/.test(l))
+  assert.equal(printed.length, 2)
+  for (const line of printed) assert.match(line, /\| tr -d '\\r'$/, line)
 })
