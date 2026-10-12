@@ -17,7 +17,7 @@ import type { OrcadHostTransport } from './orcad-host-transport'
 import { execCommand } from './ssh-relay-deploy-helpers'
 import { isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { ORCAD_INSTALL_MODEL } from './remote-install-model'
-import { gcOldRemoteInstallVersions } from './ssh-relay-versioned-install'
+import { gcOldRemoteInstallVersions } from './remote-install-gc'
 import { orcadGcPinnedDirNames, type OrcadActivationRecord } from './orcad-activation-record'
 import {
   ORCAD_NEVER_LAUNCHED,

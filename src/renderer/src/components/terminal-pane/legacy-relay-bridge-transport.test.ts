@@ -200,6 +200,52 @@ describe('a runtime pane bridged to an older relay’s terminal', () => {
     expect(cb.onErrorCleared).toHaveBeenCalledTimes(1)
   })
 
+  it('reattaches after a disconnect hung the bridge up, so the pane is never left deaf', async () => {
+    bridge.attach.mockResolvedValueOnce({ status: 'attached', replay: 'SCREEN' })
+    const transport = createLegacyRelayBridgeTransport(PTY, innerTransport())
+    const cb = callbacks()
+    await transport.connect({ url: '', sessionId: PTY, callbacks: cb })
+    const live: LegacyRelayBridgedPane = {
+      ptyId: PTY,
+      targetId: 'ssh-box',
+      tabId: 'tab-1',
+      state: 'live'
+    }
+    publishPanes([live])
+    // A disconnect stops the bridge, which publishes no panes and reports no exit.
+    bridge.attach.mockResolvedValueOnce({ status: 'unverifiable' })
+    publishPanes([])
+    await vi.waitFor(() => expect(bridge.attach).toHaveBeenCalledTimes(2))
+    expect(transport.sendInput('lost\r', 'driving')).toBe(false)
+    expect(cb.onExit).not.toHaveBeenCalled()
+    // Main's new bridge forwards output only to a pane that attached to it.
+    bridge.attach.mockResolvedValueOnce({ status: 'attached', replay: 'BACK' })
+    publishPanes([live])
+    await vi.waitFor(() =>
+      expect(cb.onReplayData).toHaveBeenCalledWith('BACK', { clearBeforeReplay: true })
+    )
+    expect(transport.sendInput('ls\r', 'driving')).toBe(true)
+  })
+
+  it('asks again for a pane that turned live while an earlier ask was still out', async () => {
+    bridge.attach.mockResolvedValueOnce({ status: 'attached', replay: 'SCREEN' })
+    const transport = createLegacyRelayBridgeTransport(PTY, innerTransport())
+    const cb = callbacks()
+    await transport.connect({ url: '', sessionId: PTY, callbacks: cb })
+    let answerFirst: (result: { status: 'unverifiable' }) => void = () => {}
+    bridge.attach.mockReturnValueOnce(new Promise((resolve) => (answerFirst = resolve)))
+    publishPanes([])
+    await vi.waitFor(() => expect(bridge.attach).toHaveBeenCalledTimes(2))
+    // The replacement bridge lists the pane live before the ask its predecessor took answers.
+    publishPanes([{ ptyId: PTY, targetId: 'ssh-box', tabId: 'tab-1', state: 'live' }])
+    bridge.attach.mockResolvedValueOnce({ status: 'attached', replay: 'BACK' })
+    answerFirst({ status: 'unverifiable' })
+    await vi.waitFor(() =>
+      expect(cb.onReplayData).toHaveBeenCalledWith('BACK', { clearBeforeReplay: true })
+    )
+    expect(transport.isConnected()).toBe(true)
+  })
+
   it('ends a pane it was still waiting on once the relay proves the terminal gone', async () => {
     bridge.attach.mockResolvedValueOnce({ status: 'unverifiable' })
     const transport = createLegacyRelayBridgeTransport(PTY, innerTransport())

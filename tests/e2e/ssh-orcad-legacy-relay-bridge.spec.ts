@@ -294,6 +294,34 @@ test('terminals a 1.4.224 relay keeps running stay usable in their old tabs afte
       )
       .toBe(true)
 
+    // A deliberate disconnect hangs the bridge up without an exit; after reconnecting, the old
+    // tab attaches to the new bridge and shows the shell's output again.
+    await reconnect(page, targetId)
+    await expect
+      .poll(() => bridgedPanes(page), { timeout: BRIDGE_TIMEOUT_MS, intervals: [2_000] })
+      .toEqual([expect.objectContaining({ ptyId: bridgedPtyId, state: 'live' })])
+    await page.evaluate((tabId) => {
+      const state = window.__store!.getState()
+      state.setActiveView('terminal')
+      state.setActiveTab(tabId)
+      state.setActiveTabType('terminal', state.activeWorktreeId)
+    }, storeTabId)
+    await expect
+      .poll(
+        async () => {
+          await typeIntoActiveTerminal(page, 'after-reconnect')
+          return (
+            (await page.evaluate((id) => {
+              const manager = window.__paneManagers?.get(id)
+              const pane = manager?.getActivePane?.() ?? manager?.getPanes?.()[0]
+              return pane?.serializeAddon?.serialize?.() ?? ''
+            }, storeTabId)) ?? ''
+          ).includes('GOT:after-reconnect')
+        },
+        { timeout: BRIDGE_TIMEOUT_MS, intervals: [5_000] }
+      )
+      .toBe(true)
+
     // The old shell exits on its own: its pane and lease retire, and the bridge hangs up.
     await typeIntoActiveTerminal(page, 'quit')
     await expect.poll(() => bridgedPanes(page), { timeout: 60_000 }).toEqual([])

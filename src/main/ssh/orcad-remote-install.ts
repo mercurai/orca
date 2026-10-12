@@ -19,7 +19,7 @@ import {
   abandonInstall,
   finalizeInstall,
   isRemoteInstallComplete
-} from './ssh-relay-versioned-install'
+} from './remote-versioned-install'
 
 /** Install the bytes under `orcad-<version>/`, using the relay's install transaction. */
 export async function installOrcadBundle(

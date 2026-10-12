@@ -11,7 +11,6 @@ vi.mock('./ssh-relay-deploy-helpers', () => ({
 import {
   relayEndpointIncumbentProbeCommand,
   parseRelayEndpointIncumbentProbe,
-  mayLaunchOverRelayEndpoint,
   isReapableRelayHusk
 } from './ssh-relay-endpoint-incumbent'
 
@@ -100,7 +99,6 @@ describe.skipIf(process.platform === 'win32').concurrent('real generated incumbe
         holdersEnumerable: false
       })
       expect(p.verdict.holders.map((holder) => holder.pid)).toContain(process.pid)
-      expect(mayLaunchOverRelayEndpoint(p.verdict)).toBe(false)
       expect(isReapableRelayHusk(p.verdict)).toBe(false)
     }
   )

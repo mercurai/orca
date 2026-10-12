@@ -10,7 +10,7 @@ import { sshOrcadHostTransport } from './orcad-ssh-host-transport'
 import { probeActiveOrcadReadiness } from './orcad-active-readiness'
 import { resolveOrcadRemoteContext, type OrcadRemoteContext } from './orcad-remote-context'
 import { ORCAD_INSTALL_MODEL } from './remote-install-model'
-import { computeRemoteInstallDir } from './ssh-relay-versioned-install'
+import { computeRemoteInstallDir } from './remote-versioned-install'
 import { getSshConnectionManager, getSshTargetRegistryStore } from './ssh-target-registry'
 
 export const ORCAD_BIND_HOST = '127.0.0.1'

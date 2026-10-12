@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as DeployHelpers from './ssh-relay-deploy-helpers'
 import type * as RecordFile from './orcad-remote-record-file'
 import type * as InstallLock from './ssh-relay-install-lock'
-import type * as VersionedInstall from './ssh-relay-versioned-install'
+import type * as VersionedInstall from './remote-versioned-install'
 
 vi.mock('./ssh-relay-deploy-helpers', async (importOriginal) => ({
   ...(await importOriginal<typeof DeployHelpers>()),
@@ -23,7 +23,7 @@ vi.mock('./orcad-remote-record-file', async (importOriginal) => ({
   ...(await importOriginal<typeof RecordFile>()),
   writeAtomicOrcadRemoteRecord: vi.fn()
 }))
-vi.mock('./ssh-relay-versioned-install', async (importOriginal) => ({
+vi.mock('./remote-versioned-install', async (importOriginal) => ({
   ...(await importOriginal<typeof VersionedInstall>()),
   readLocalFullVersion: () => '0.2.0+bb01'
 }))

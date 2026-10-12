@@ -41,7 +41,7 @@ vi.mock('./orcad-remote-node-runtime', () => ({
 vi.mock('./orcad-local-build-hash', () => ({
   computeLocalOrcadBuildHash: () => 'abc123def4567890'
 }))
-vi.mock('./ssh-relay-versioned-install', async (importOriginal) => ({
+vi.mock('./remote-versioned-install', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   readLocalFullVersion: () => '0.2.0+bb0100000000',
   isRemoteInstallComplete: vi.fn().mockResolvedValue(false),

@@ -19,14 +19,14 @@ vi.mock('./orcad-remote-record-file', async (importOriginal) => ({
   ...(await importOriginal<typeof RecordFile>()),
   writeAtomicOrcadRemoteRecord: vi.fn().mockResolvedValue(undefined)
 }))
-vi.mock('./ssh-relay-versioned-install', async (importOriginal) => ({
+vi.mock('./remote-install-gc', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   gcOldRemoteInstallVersions: vi.fn().mockResolvedValue(undefined)
 }))
 
 import { execCommand } from './ssh-relay-deploy-helpers'
 import { writeAtomicOrcadRemoteRecord } from './orcad-remote-record-file'
-import { gcOldRemoteInstallVersions } from './ssh-relay-versioned-install'
+import { gcOldRemoteInstallVersions } from './remote-install-gc'
 import { decommissionRemoteOrcad } from './orcad-remote-decommission'
 import { gcOldOrcadVersions } from './orcad-remote-gc'
 import { emptyOrcadActivationRecord, withActivatedVersion } from './orcad-activation-record'

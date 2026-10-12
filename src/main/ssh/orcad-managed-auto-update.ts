@@ -17,7 +17,7 @@ import { ORCAD_ACTIVATION_FENCE_BUSY_CODE } from './orcad-activation-fence-hold'
 import { resolveLinkedOrcadContext } from './orcad-managed-runtime-context'
 import { runManagedOrcadUpdate, withManagedOrcadLifecycle } from './orcad-runtime-maintenance'
 import type { OrcadUpdateDeferCode } from './orcad-update-plan'
-import { readLocalFullVersion } from './ssh-relay-versioned-install'
+import { readLocalFullVersion } from './remote-versioned-install'
 
 export type ManagedOrcadAutoUpdateSkip =
   | 'current'

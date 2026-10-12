@@ -9,7 +9,7 @@ import {
   abandonInstall,
   finalizeInstall,
   isRemoteInstallComplete
-} from './ssh-relay-versioned-install'
+} from './remote-versioned-install'
 import { getRemoteHostPlatform } from './ssh-remote-platform'
 
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The mocked execCommand never reads the connection.

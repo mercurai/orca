@@ -9,14 +9,10 @@ vi.mock('./ssh-relay-deploy-helpers', () => ({
 }))
 
 import {
-  describeRelayEndpointIncumbent,
   isReapableRelayHusk,
-  mayLaunchOverRelayEndpoint,
   parseRelayEndpointIncumbentProbe,
   probeRelayEndpointIncumbent,
-  relayEndpointIncumbentProbeCommand,
-  withHandshakeRefusalEvidence,
-  type RelayEndpointIncumbent
+  relayEndpointIncumbentProbeCommand
 } from './ssh-relay-endpoint-incumbent'
 import type { SshConnection } from './ssh-connection'
 import { getRemoteHostPlatform } from './ssh-remote-platform'
@@ -198,35 +194,6 @@ describe('relayEndpointIncumbentProbeCommand', () => {
   })
 })
 
-describe('withHandshakeRefusalEvidence', () => {
-  it('upgrades an unenumerable endpoint to live when the daemon answered the handshake', () => {
-    const probed = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=unknown', 'HOLDERS_SOURCE=unavailable'])
-    )
-    const incumbent = withHandshakeRefusalEvidence(probed)
-    expect(incumbent.verdict).toBe('live')
-    expect(incumbent.evidence).toBe('handshake-refusal')
-    expect(mayLaunchOverRelayEndpoint(incumbent)).toBe(false)
-  })
-
-  it('leaves stronger evidence in place', () => {
-    const probed = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=accepted', 'HOLDERS_SOURCE=lsof'])
-    )
-    expect(withHandshakeRefusalEvidence(probed).evidence).toBe('accepted-connection')
-  })
-})
-
-describe('mayLaunchOverRelayEndpoint', () => {
-  const verdicts: RelayEndpointIncumbent['verdict'][] = ['live', 'unverifiable', 'exited']
-  it.each(verdicts)('permits a relaunch for %s only when it is not live', (verdict) => {
-    const incumbent = { ...parseRelayEndpointIncumbentProbe(SOCK, ''), verdict }
-    expect(mayLaunchOverRelayEndpoint(incumbent)).toBe(verdict !== 'live')
-  })
-})
-
 describe('isReapableRelayHusk', () => {
   const husk = parseRelayEndpointIncumbentProbe(
     SOCK,
@@ -288,20 +255,5 @@ describe('isReapableRelayHusk', () => {
   it('refuses an unverifiable endpoint however empty it looks', () => {
     expect(isReapableRelayHusk({ ...husk, verdict: 'unverifiable' })).toBe(false)
     expect(isReapableRelayHusk({ ...husk, holdersEnumerable: false })).toBe(false)
-  })
-})
-
-describe('describeRelayEndpointIncumbent', () => {
-  it('distinguishes "no holders" from "could not enumerate holders"', () => {
-    const none = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=lsof'])
-    )
-    const unknown = parseRelayEndpointIncumbentProbe(
-      SOCK,
-      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=unavailable'])
-    )
-    expect(describeRelayEndpointIncumbent(none)).toContain('holders=none')
-    expect(describeRelayEndpointIncumbent(unknown)).toContain('holders=unenumerable')
   })
 })

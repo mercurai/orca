@@ -15,20 +15,16 @@ vi.mock('./ssh-connection-utils', () => ({
   shellEscape: (s: string) => `'${s}'`
 }))
 
-// The previous-build pin has its own tests; here it names a build that is never a candidate.
-vi.mock('./remote-install-previous-version', () => ({
-  findPreviousRemoteInstall: vi.fn().mockResolvedValue({ state: 'ok', dirName: 'relay-0.1.0+fff' })
-}))
-
 import { existsSync, readFileSync } from 'node:fs'
 import {
   readLocalFullVersion,
-  computeRemoteRelayDir,
-  isRelayAlreadyInstalled,
+  isRemoteInstallComplete,
   finalizeInstall,
-  abandonInstall,
-  gcOldRelayVersions
-} from './ssh-relay-versioned-install'
+  abandonInstall
+} from './remote-versioned-install'
+import { gcOldRemoteInstallVersions } from './remote-install-gc'
+import { ORCAD_INSTALL_MODEL } from './remote-install-model'
+import { isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { acquireInstallLock } from './ssh-relay-install-lock'
 import {
   isRelayGcClaimed,
@@ -38,7 +34,7 @@ import {
   waitForRelayGcClaimRelease
 } from './ssh-relay-gc-claim'
 import { execCommand } from './ssh-relay-deploy-helpers'
-import { getRemoteHostPlatform } from './ssh-remote-platform'
+import { getRemoteHostPlatform, type RemoteHostPlatform } from './ssh-remote-platform'
 import type { SshConnection } from './ssh-connection'
 
 const conn = {} as SshConnection
@@ -74,32 +70,24 @@ describe('readLocalFullVersion', () => {
   })
 })
 
-describe('computeRemoteRelayDir', () => {
-  it('joins remoteHome with .orca-remote and the version-keyed dir name', () => {
-    expect(computeRemoteRelayDir('/home/u', '0.1.0+abc')).toBe(
-      '/home/u/.orca-remote/relay-0.1.0+abc'
-    )
-  })
-})
-
-describe('isRelayAlreadyInstalled', () => {
+describe('isRemoteInstallComplete', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it('returns true only when the OK probe succeeds', async () => {
     mockExec.mockResolvedValueOnce('OK')
-    expect(await isRelayAlreadyInstalled(conn, '/r')).toBe(true)
+    expect(await isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r')).toBe(true)
   })
 
   it('returns false when the probe reports MISSING', async () => {
     mockExec.mockResolvedValueOnce('MISSING')
-    expect(await isRelayAlreadyInstalled(conn, '/r')).toBe(false)
+    expect(await isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r')).toBe(false)
   })
 
   it('returns false on exec error', async () => {
     mockExec.mockRejectedValueOnce(new Error('boom'))
-    expect(await isRelayAlreadyInstalled(conn, '/r')).toBe(false)
+    expect(await isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r')).toBe(false)
   })
 
   it('does not convert an aborted install probe into a missing install', async () => {
@@ -110,7 +98,9 @@ describe('isRelayAlreadyInstalled', () => {
     })
 
     await expect(
-      isRelayAlreadyInstalled(conn, '/r', undefined, { signal: controller.signal })
+      isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r', undefined, {
+        signal: controller.signal
+      })
     ).rejects.toMatchObject({ name: 'AbortError' })
   })
 
@@ -120,7 +110,7 @@ describe('isRelayAlreadyInstalled', () => {
     })
     mockExec.mockRejectedValueOnce(sessionLimitError)
 
-    await expect(isRelayAlreadyInstalled(conn, '/r')).resolves.toBe(false)
+    await expect(isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r')).resolves.toBe(false)
   })
 
   it('rethrows SSH session-limit errors in strict mode', async () => {
@@ -130,19 +120,22 @@ describe('isRelayAlreadyInstalled', () => {
     mockExec.mockRejectedValueOnce(sessionLimitError)
 
     await expect(
-      isRelayAlreadyInstalled(conn, '/r', undefined, { rethrowSessionLimitErrors: true })
+      isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r', undefined, {
+        rethrowSessionLimitErrors: true
+      })
     ).rejects.toBe(sessionLimitError)
   })
 
-  it('checks every relay runtime artifact and .install-complete', async () => {
+  it('remote completeness requires every model artifact and the install sentinel', async () => {
     mockExec.mockResolvedValueOnce('OK')
-    await isRelayAlreadyInstalled(conn, '/r')
+    const host = getRemoteHostPlatform('linux-x64')
+    await isRemoteInstallComplete(conn, ORCAD_INSTALL_MODEL, '/r', host)
     const cmd = mockExec.mock.calls.at(-1)?.[1] ?? ''
-    expect(cmd).toContain('relay.js')
-    expect(cmd).toContain('relay-watcher.js')
-    expect(cmd).toContain('relay-ai-vault-service.js')
-    expect(cmd).toContain('managed-hook-runtime.js')
-    expect(cmd).toContain('.install-complete')
+    expect(ORCAD_INSTALL_MODEL.requiredArtifacts(host).length).toBeGreaterThan(0)
+    for (const artifact of ORCAD_INSTALL_MODEL.requiredArtifacts(host)) {
+      expect(cmd).toContain(`/r/${artifact}`)
+    }
+    expect(cmd).toContain(ORCAD_INSTALL_MODEL.installCompleteFilename)
   })
 })
 
@@ -464,7 +457,25 @@ describe('relay GC claim', () => {
   })
 })
 
-describe('gcOldRelayVersions', () => {
+describe('gcOldRemoteInstallVersions', () => {
+  // Stands in for orcad's liveness probe: only DEAD frees a dir, and an unanswered probe keeps it.
+  const collectOldVersions = (
+    remoteHome = '/home/u',
+    currentDir = '/home/u/.orca-remote/orcad-0.1.0+bbb',
+    host?: RemoteHostPlatform
+  ): Promise<void> =>
+    gcOldRemoteInstallVersions(conn, ORCAD_INSTALL_MODEL, remoteHome, currentDir, host, {
+      isDirLive: async (dir) => {
+        const answer = await mockExec(conn, `liveness ${dir}`).catch((err: unknown) => {
+          if (isUnconfirmedSshCommandTermination(err)) {
+            throw err
+          }
+          return 'UNVERIFIABLE'
+        })
+        return answer.trim() !== 'DEAD'
+      }
+    })
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockExec.mockReset()
@@ -472,7 +483,7 @@ describe('gcOldRelayVersions', () => {
 
   it('removes a sibling that is complete, unlocked, and has no live socket', async () => {
     // ls listing
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\nrelay-0.1.0+bbb\n')
+    mockExec.mockResolvedValueOnce('orcad-0.1.0+aaa\norcad-0.1.0+bbb\n')
     // For sibling "aaa": safety probes pass, then GC claims the install lock before removal.
     mockExec
       .mockResolvedValueOnce('OPEN')
@@ -488,66 +499,66 @@ describe('gcOldRelayVersions', () => {
       .mockResolvedValueOnce('RELEASED')
       .mockResolvedValueOnce('')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     const lastCmd = mockExec.mock.calls.at(-1)?.[1] ?? ''
     expect(lastCmd).toContain('rm -rf')
-    expect(lastCmd).toContain('relay-0.1.0+aaa.gc-tombstone')
+    expect(lastCmd).toContain('orcad-0.1.0+aaa.gc-tombstone')
     const commands = mockExec.mock.calls.map(([, command]) => command)
     expect(
-      commands.some((command) => command === "rm -rf '/home/u/.orca-remote/relay-0.1.0+aaa'")
+      commands.some((command) => command === "rm -rf '/home/u/.orca-remote/orcad-0.1.0+aaa'")
     ).toBe(false)
   })
 
-  it('cleans only strict POSIX orphan tombstones even with no relay candidates', async () => {
+  it('cleans only strict POSIX orphan tombstones even with no candidates', async () => {
     mockExec
       .mockResolvedValueOnce(
         [
-          'relay-0.1.0+abc.gc-tombstone.123.456',
-          'relay-0.1.0+abc.gc-tombstone.bad.456',
-          'xrelay-0.1.0+abc.gc-tombstone.123.456',
-          'relay-0.1.0+abc.gc-tombstone.123.456.extra',
-          'relay-0.1.0+abc.gc-tombstone.123.456/child',
+          'orcad-0.1.0+abc.gc-tombstone.123.456',
+          'orcad-0.1.0+abc.gc-tombstone.bad.456',
+          'xorcad-0.1.0+abc.gc-tombstone.123.456',
+          'orcad-0.1.0+abc.gc-tombstone.123.456.extra',
+          'orcad-0.1.0+abc.gc-tombstone.123.456/child',
           'logs'
         ].join('\n')
       )
       .mockResolvedValueOnce('')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     const removeCommands = mockExec.mock.calls
       .map(([, command]) => command)
       .filter((command) => command.startsWith('rm -rf'))
     expect(removeCommands).toEqual([
-      "rm -rf '/home/u/.orca-remote/relay-0.1.0+abc.gc-tombstone.123.456'"
+      "rm -rf '/home/u/.orca-remote/orcad-0.1.0+abc.gc-tombstone.123.456'"
     ])
   })
 
-  it('cleans only strict Windows orphan tombstones even with no relay candidates', async () => {
+  it('cleans only strict Windows orphan tombstones even with no candidates', async () => {
     const windows = getRemoteHostPlatform('win32-x64')
     mockExec
       .mockResolvedValueOnce(
-        'relay-v0.1.0.gc-tombstone.123.456\nrelay-v0.1.0.gc-tombstone.latest.456\n'
+        'orcad-v0.1.0.gc-tombstone.123.456\norcad-v0.1.0.gc-tombstone.latest.456\n'
       )
       .mockResolvedValueOnce('')
 
-    await gcOldRelayVersions(conn, 'C:/Users/u', 'C:/Users/u/.orca-remote/relay-0.1.0+bbb', windows)
+    await collectOldVersions('C:/Users/u', 'C:/Users/u/.orca-remote/orcad-0.1.0+bbb', windows)
 
     const removeScript = decodePowerShellCommand(mockExec.mock.calls[1]?.[1] ?? '')
-    expect(removeScript).toContain('relay-v0.1.0.gc-tombstone.123.456')
-    expect(removeScript).not.toContain('relay-v0.1.0.gc-tombstone.latest.456')
+    expect(removeScript).toContain('orcad-v0.1.0.gc-tombstone.123.456')
+    expect(removeScript).not.toContain('orcad-v0.1.0.gc-tombstone.latest.456')
   })
 
   it('retries orphan tombstone cleanup on a later GC pass', async () => {
-    const tombstone = 'relay-0.1.0+abc.gc-tombstone.123.456'
+    const tombstone = 'orcad-0.1.0+abc.gc-tombstone.123.456'
     mockExec
       .mockResolvedValueOnce(tombstone)
       .mockRejectedValueOnce(new Error('remove failed'))
       .mockResolvedValueOnce(tombstone)
       .mockResolvedValueOnce('')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
+    await collectOldVersions()
 
     const removeCommands = mockExec.mock.calls
       .map(([, command]) => command)
@@ -557,7 +568,7 @@ describe('gcOldRelayVersions', () => {
 
   it('retries only an unknown claim release and stops after observing a lost generation', async () => {
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\n')
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
       .mockResolvedValueOnce('DEAD')
@@ -572,7 +583,7 @@ describe('gcOldRelayVersions', () => {
       .mockResolvedValueOnce('LOST')
       .mockResolvedValueOnce('')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     const releaseCommands = mockExec.mock.calls
       .map(([, command]) => command)
@@ -581,32 +592,32 @@ describe('gcOldRelayVersions', () => {
   })
 
   it('skips siblings that are missing .install-complete (mid-install or partial)', async () => {
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
+    mockExec.mockResolvedValueOnce('orcad-0.1.0+aaa\n')
     mockExec
       .mockResolvedValueOnce('OPEN') // not locked
       .mockResolvedValueOnce('PARTIAL') // missing .install-complete
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
     const cmds = mockExec.mock.calls.map(([, c]) => c)
     expect(cmds.some((c) => c.includes('rm -rf'))).toBe(false)
   })
 
   it('skips siblings whose .install-lock is held and fresh', async () => {
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
+    mockExec.mockResolvedValueOnce('orcad-0.1.0+aaa\n')
     mockExec.mockResolvedValueOnce('LOCKED')
     // isLockStale: age ~now → not stale.
     mockExec.mockResolvedValueOnce('0\n')
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
     const cmds = mockExec.mock.calls.map(([, c]) => c)
     expect(cmds.some((c) => c.includes('rm -rf'))).toBe(false)
   })
 
   it('removes a sibling with a stale lock + .install-complete (rm-lock failed mid-finalize)', async () => {
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
+    mockExec.mockResolvedValueOnce('orcad-0.1.0+aaa\n')
     mockExec.mockResolvedValueOnce('LOCKED')
     // isLockStale: age well above the stale window → stale.
     mockExec.mockResolvedValueOnce(`${21 * 60}\n`)
     mockExec.mockResolvedValueOnce('COMPLETE') // .install-complete present
-    mockExec.mockResolvedValueOnce('DEAD') // socket probe
+    mockExec.mockResolvedValueOnce('DEAD') // liveness probe
     mockExec.mockResolvedValueOnce('OK') // stable sibling GC claim
     mockExec.mockResolvedValueOnce('') // write claim ownership token
     mockExec.mockResolvedValueOnce('LOCKED')
@@ -617,65 +628,37 @@ describe('gcOldRelayVersions', () => {
     mockExec.mockResolvedValueOnce('MOVED')
     mockExec.mockResolvedValueOnce('RELEASED') // release sibling claim
     mockExec.mockResolvedValueOnce('') // remove tombstone
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
     const lastCmd = mockExec.mock.calls.at(-1)?.[1] ?? ''
     expect(lastCmd).toContain('rm -rf')
-    expect(lastCmd).toContain('relay-0.1.0+aaa')
+    expect(lastCmd).toContain('orcad-0.1.0+aaa')
   })
 
-  it('GCs a legacy relay-v0.1.0 dir whose daemon is dead (no .install-complete required)', async () => {
-    mockExec.mockResolvedValueOnce('relay-v0.1.0\n')
-    mockExec.mockResolvedValueOnce('OPEN') // not locked
-    mockExec.mockResolvedValueOnce('DEAD') // socket probe (no completeProbe — legacy)
-    mockExec.mockResolvedValueOnce('OK') // GC claims candidate
-    mockExec.mockResolvedValueOnce('')
-    mockExec.mockResolvedValueOnce('OPEN')
-    mockExec.mockResolvedValueOnce('DEAD')
-    mockExec.mockResolvedValueOnce('OWNED')
-    mockExec.mockResolvedValueOnce('MOVED')
-    mockExec.mockResolvedValueOnce('RELEASED')
-    mockExec.mockResolvedValueOnce('')
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
-    const cmds = mockExec.mock.calls.map(([, c]) => c)
-    expect(cmds.some((c) => c.includes('rm -rf') && c.includes('relay-v0.1.0'))).toBe(true)
-    // critically: no .install-complete probe on legacy dirs
-    expect(cmds.some((c) => c.includes('.install-complete'))).toBe(false)
-  })
-
-  it('keeps a legacy relay-v0.1.0 dir whose daemon is still serving', async () => {
-    mockExec.mockResolvedValueOnce('relay-v0.1.0\n')
-    mockExec.mockResolvedValueOnce('OPEN')
-    mockExec.mockResolvedValueOnce('ALIVE') // socket alive → keep
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
-    const cmds = mockExec.mock.calls.map(([, c]) => c)
-    expect(cmds.some((c) => c.includes('rm -rf'))).toBe(false)
-  })
-
-  it('skips siblings with a live relay-*.sock', async () => {
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
+  it('skips siblings whose liveness probe reports them live', async () => {
+    mockExec.mockResolvedValueOnce('orcad-0.1.0+aaa\n')
     mockExec
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
       .mockResolvedValueOnce('ALIVE')
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
     const cmds = mockExec.mock.calls.map(([, c]) => c)
     expect(cmds.some((c) => c.includes('rm -rf'))).toBe(false)
   })
 
   it('keeps a sibling when the install-lock probe fails or returns unexpected output', async () => {
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\nrelay-0.1.0+ccc\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\norcad-0.1.0+ccc\n')
       .mockRejectedValueOnce(new Error('lock probe failed'))
       .mockResolvedValueOnce('INCONCLUSIVE')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     expect(mockExec).toHaveBeenCalledTimes(3)
   })
 
-  it('keeps a sibling when the relay-liveness probe fails or returns unexpected output', async () => {
+  it('keeps a sibling when the liveness probe fails or returns unexpected output', async () => {
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\nrelay-0.1.0+ccc\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\norcad-0.1.0+ccc\n')
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
       .mockRejectedValueOnce(new Error('liveness probe failed'))
@@ -683,55 +666,19 @@ describe('gcOldRelayVersions', () => {
       .mockResolvedValueOnce('COMPLETE')
       .mockResolvedValueOnce('INCONCLUSIVE')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     expect(mockExec).toHaveBeenCalledTimes(7)
   })
 
-  it('probes Windows GC liveness by connecting to named pipes, not process command lines', async () => {
-    const windows = getRemoteHostPlatform('win32-x64')
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
-    mockExec
-      .mockResolvedValueOnce('OPEN')
-      .mockResolvedValueOnce('COMPLETE')
-      .mockResolvedValueOnce('WAITING')
-      .mockResolvedValueOnce('OK')
-      .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('OPEN')
-      .mockResolvedValueOnce('COMPLETE')
-      .mockResolvedValueOnce('WAITING')
-      .mockResolvedValueOnce('OWNED')
-      .mockResolvedValueOnce('MOVED')
-      .mockResolvedValueOnce('RELEASED')
-      .mockResolvedValueOnce('')
-
-    await gcOldRelayVersions(
-      conn,
-      'C:/Users/u',
-      'C:/Users/u/.orca-remote/relay-0.1.0+bbb',
-      windows,
-      {
-        windowsNodePath: 'C:/Program Files/nodejs/node.exe',
-        windowsSockNames: ['relay-target.sock']
-      }
-    )
-
-    const livenessCommand = mockExec.mock.calls[3]?.[1] ?? ''
-    const script = decodePowerShellCommand(livenessCommand ?? '')
-    expect(script).toContain('net.connect(pipe)')
-    expect(script).toContain('.windows-active-pipe-')
-    expect(script).toContain('\\\\.\\pipe\\orca-relay-')
-    expect(script).not.toContain('Win32_Process')
-  })
-
   it('does not consider the current dir as a GC candidate', async () => {
-    mockExec.mockResolvedValueOnce('relay-0.1.0+aaa\n')
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+aaa')
+    mockExec.mockResolvedValueOnce('orcad-0.1.0+aaa\n')
+    await collectOldVersions('/home/u', '/home/u/.orca-remote/orcad-0.1.0+aaa')
     expect(mockExec.mock.calls.length).toBe(1) // only the listing
   })
 
-  it('ignores entries that do not match the relay version dir regex (allowlist)', async () => {
-    mockExec.mockResolvedValueOnce('logs\nbackup\nrelay-0.1.0+aaa\n')
+  it('ignores entries that do not match the model version dir regex (allowlist)', async () => {
+    mockExec.mockResolvedValueOnce('logs\nbackup\norcad-0.1.0+aaa\n')
     mockExec
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
@@ -745,34 +692,34 @@ describe('gcOldRelayVersions', () => {
       .mockResolvedValueOnce('MOVED')
       .mockResolvedValueOnce('RELEASED')
       .mockResolvedValueOnce('')
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
     const cmds = mockExec.mock.calls.map(([, c]) => c)
     const rmCmds = cmds.filter((c) => c.startsWith('rm') && c.includes('gc-tombstone'))
     expect(rmCmds).toHaveLength(1)
-    expect(rmCmds[0]).toContain('relay-0.1.0+aaa')
+    expect(rmCmds[0]).toContain('orcad-0.1.0+aaa')
     expect(rmCmds[0]).not.toContain('logs')
     expect(rmCmds[0]).not.toContain('backup')
   })
 
   it('does not remove a candidate claimed by repair after the initial lock probe', async () => {
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\n')
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
-      .mockResolvedValueOnce('DEAD') // socket probe
+      .mockResolvedValueOnce('DEAD') // liveness probe
       .mockResolvedValueOnce('OK') // GC sibling claim
       .mockResolvedValueOnce('') // write claim ownership token
       .mockResolvedValueOnce('LOCKED') // repair won before the safety recheck
       .mockResolvedValueOnce('0')
       .mockResolvedValueOnce('RELEASED') // release GC sibling claim
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     const commands = mockExec.mock.calls.map(([, command]) => command)
     expect(
       commands.some(
         (command) =>
-          command.startsWith("rm -rf '/home/u/.orca-remote/relay-0.1.0+aaa'") &&
+          command.startsWith("rm -rf '/home/u/.orca-remote/orcad-0.1.0+aaa'") &&
           !command.includes('.install-lock')
       )
     ).toBe(false)
@@ -780,7 +727,7 @@ describe('gcOldRelayVersions', () => {
 
   it('does not move a candidate after losing the sibling claim generation', async () => {
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\n')
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
       .mockResolvedValueOnce('DEAD')
@@ -792,7 +739,7 @@ describe('gcOldRelayVersions', () => {
       .mockResolvedValueOnce('LOST')
       .mockResolvedValueOnce('LOST')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     const commands = mockExec.mock.calls.map(([, command]) => command)
     expect(commands.some((command) => command.startsWith('mv '))).toBe(false)
@@ -800,7 +747,7 @@ describe('gcOldRelayVersions', () => {
 
   it('releases the GC claim after a confirmed move failure', async () => {
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\n')
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
       .mockResolvedValueOnce('DEAD')
@@ -813,11 +760,11 @@ describe('gcOldRelayVersions', () => {
       .mockRejectedValueOnce(new Error('move failed'))
       .mockResolvedValueOnce('RELEASED')
 
-    await gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
+    await collectOldVersions()
 
     const lastCommand = mockExec.mock.calls.at(-1)?.[1] ?? ''
     expect(lastCommand).toContain('rm -rf')
-    expect(lastCommand).toContain('relay-0.1.0+aaa.gc-claim')
+    expect(lastCommand).toContain('orcad-0.1.0+aaa.gc-claim')
   })
 
   it('keeps the GC claim when remote move termination is unconfirmed', async () => {
@@ -825,7 +772,7 @@ describe('gcOldRelayVersions', () => {
       sshChannelCloseConfirmed: false
     })
     mockExec
-      .mockResolvedValueOnce('relay-0.1.0+aaa\n')
+      .mockResolvedValueOnce('orcad-0.1.0+aaa\n')
       .mockResolvedValueOnce('OPEN')
       .mockResolvedValueOnce('COMPLETE')
       .mockResolvedValueOnce('DEAD')
@@ -837,13 +784,11 @@ describe('gcOldRelayVersions', () => {
       .mockResolvedValueOnce('OWNED')
       .mockRejectedValueOnce(unconfirmed)
 
-    await expect(
-      gcOldRelayVersions(conn, '/home/u', '/home/u/.orca-remote/relay-0.1.0+bbb')
-    ).rejects.toBe(unconfirmed)
+    await expect(collectOldVersions()).rejects.toBe(unconfirmed)
 
     const releaseCommands = mockExec.mock.calls
       .map(([, command]) => command)
-      .filter((command) => command.includes('relay-0.1.0+aaa.gc-claim') && command.startsWith('rm'))
+      .filter((command) => command.includes('orcad-0.1.0+aaa.gc-claim') && command.startsWith('rm'))
     expect(releaseCommands).toHaveLength(0)
   })
 })

@@ -1,8 +1,6 @@
-// Versioned-install plumbing for the remote relay: each (RELAY_VERSION + content-hash)
-// bundle installs into its own immutable dir (like VS Code's ~/.vscode-server/bin/<commit>/)
-// so an in-memory daemon never serves new clients off overwritten on-disk code.
-//
-// See: docs/ssh-relay-versioned-install-dirs.md
+// Versioned-install plumbing for orcad on a remote host: each content-hashed bundle installs
+// into its own immutable dir, so an in-memory daemon never serves new clients off overwritten
+// on-disk code.
 
 import { join } from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
@@ -10,14 +8,15 @@ import type { RemoteInstallTransport } from './remote-install-transport'
 import { execHostCommand } from './ssh-relay-host-exec'
 import { isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { RELAY_INSTALL_LOCK_NAME } from './ssh-relay-install-lock'
-import { remoteInstallDirSegments } from './ssh-relay-install-namespace'
-import { RELAY_INSTALL_MODEL, type RemoteInstallModel } from './remote-install-model'
+import { RELAY_REMOTE_DIR } from './relay-protocol'
+import { remoteInstallDirName, type RemoteInstallModel } from './remote-install-model'
 import {
   probeRemoteInstallCompleteCommand,
   removeRemoteTreeCommand,
   writeRemoteEmptyFileCommand
 } from './ssh-remote-commands'
 import {
+  assertSafeRemotePathSegment,
   getRemoteHostPlatform,
   joinRemotePath,
   type RemoteHostPlatform,
@@ -28,7 +27,7 @@ import { isSshSessionLimitError } from './ssh-session-limit-error'
 const INSTALL_COMPLETE_NAME = '.install-complete'
 const DEFAULT_REMOTE_HOST = getRemoteHostPlatform('linux-x64')
 
-type RelayInstalledProbeOptions = {
+type RemoteInstallProbeOptions = {
   rethrowSessionLimitErrors?: boolean
   signal?: AbortSignal
 }
@@ -56,20 +55,7 @@ export function readLocalFullVersion(localRelayDir: string): string {
   return v
 }
 
-/**
- * Compute the absolute remote install directory for a given content-hashed
- * version. The format is `${remoteHome}/${RELAY_REMOTE_DIR}/relay-${fullVersion}`.
- */
-export function computeRemoteRelayDir(
-  remoteHome: string,
-  fullVersion: string,
-  pathFlavor: RemotePathFlavor = 'posix'
-): string {
-  // Why: shell and SFTP-relative builders must derive the same validated segments or the namespaces diverge.
-  return computeRemoteInstallDir(RELAY_INSTALL_MODEL, remoteHome, fullVersion, pathFlavor)
-}
-
-/** The model-parameterized form of `computeRemoteRelayDir`. */
+/** `${remoteHome}/.orca-remote/<prefix>-<fullVersion>` for one install model. */
 export function computeRemoteInstallDir(
   model: RemoteInstallModel,
   remoteHome: string,
@@ -87,33 +73,19 @@ export function computeRemoteInstallDir(
   )
 }
 
-/**
- * Probe for relay.js, its watcher, the managed-hook runtime, and the
- * completion sentinel. Any missing artifact forces a complete re-deploy.
- */
-export async function isRelayAlreadyInstalled(
-  conn: RemoteInstallTransport,
-  remoteRelayDir: string,
-  host: RemoteHostPlatform = DEFAULT_REMOTE_HOST,
-  options?: RelayInstalledProbeOptions
-): Promise<boolean> {
-  return isRemoteInstallComplete(conn, RELAY_INSTALL_MODEL, remoteRelayDir, host, options)
-}
-
-/** The model-parameterized form: each model probes for its own artifact list. */
+/** Every artifact the model ships plus its completion sentinel; anything missing forces a re-deploy. */
 export async function isRemoteInstallComplete(
   conn: RemoteInstallTransport,
   model: RemoteInstallModel,
   remoteInstallDir: string,
   host: RemoteHostPlatform = DEFAULT_REMOTE_HOST,
-  options?: RelayInstalledProbeOptions
+  options?: RemoteInstallProbeOptions
 ): Promise<boolean> {
-  const remoteRelayDir = remoteInstallDir
   try {
     const probe = await execHostCommand(
       conn,
       host,
-      probeRemoteInstallCompleteCommand(host, remoteRelayDir, [
+      probeRemoteInstallCompleteCommand(host, remoteInstallDir, [
         ...model.requiredArtifacts(host),
         model.installCompleteFilename
       ]),
@@ -182,15 +154,19 @@ export async function abandonInstall(
   )
 }
 
-/**
- * Garbage-collect old version directories: remove an idle, fully-installed,
- * unlocked sibling version dir (never the current one). Confirmed failures are
- * best-effort; unconfirmed command termination stops later deployment commands.
- */
-// Why re-exported rather than moved outright: deploy and the relay tests import the whole
-// versioned-install surface from here, and the split exists for file size, not to redraw an API.
-export {
-  gcOldRelayVersions,
-  gcOldRemoteInstallVersions,
-  type RemoteInstallGcOptions
-} from './remote-install-gc'
+/** Shell and SFTP-relative builders both go through here so their namespaces cannot drift. */
+function remoteInstallDirSegments(
+  model: RemoteInstallModel,
+  fullVersion: string,
+  pathFlavor: RemotePathFlavor
+): string[] {
+  const segments = [RELAY_REMOTE_DIR, remoteInstallDirName(model, fullVersion)]
+  for (const segment of segments) {
+    assertSafeRemotePathSegment(segment, pathFlavor)
+    // Why: the version reaches logs and diagnostics, where an embedded CR/LF can forge lines.
+    if (segment.includes('\r') || segment.includes('\n')) {
+      throw new Error(`Unsafe remote path segment: ${JSON.stringify(segment)}`)
+    }
+  }
+  return segments
+}
