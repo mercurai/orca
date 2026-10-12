@@ -11,15 +11,15 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
-  RELAY_OPENCODE_SQLITE_READER_FILENAME,
+  OPENCODE_SQLITE_READER_FILENAME,
   WSL_CLAUDE_PROFILE_HELPER_FILENAME
-} from '../../src/shared/relay-artifacts.ts'
+} from '../../src/shared/remote-bundle-artifacts.ts'
 
 const __dirname = import.meta.dirname
 // Why: the script lives under config/scripts, so go two levels up to reach the repo root.
 const ROOT = join(__dirname, '..', '..')
 // Why: lets a contract test build into a temp tree instead of clobbering a developer's out/relay.
-const OUT_ROOT = process.env.ORCA_RELAY_OUT_ROOT ?? join(ROOT, 'out', 'relay')
+const OUT_ROOT = process.env.ORCA_WSL_GUEST_OUT_ROOT ?? join(ROOT, 'out', 'relay')
 const RELAY_VERSION = '0.1.0'
 
 const outDir = join(OUT_ROOT, 'wsl')
@@ -65,7 +65,7 @@ await bundle(
 )
 await bundle(
   'src/main/ai-vault/session-scanner-opencode-sqlite-process-entry.ts',
-  RELAY_OPENCODE_SQLITE_READER_FILENAME,
+  OPENCODE_SQLITE_READER_FILENAME,
   { external: ['electron'] }
 )
 

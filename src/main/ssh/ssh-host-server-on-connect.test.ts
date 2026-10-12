@@ -3,7 +3,7 @@ import type { SshTarget } from '../../shared/ssh-types'
 import {
   OrcadHostUnsupportedError,
   OrcadStdioBridgeUnavailableError
-} from './orcad-host-unavailable'
+} from '../orcad/orcad-host-unavailable'
 import {
   resolveHostServerOnConnect,
   type HostServerOnConnectDeps
@@ -67,7 +67,7 @@ describe('which server an SSH host runs on connect', () => {
     for (const verdict of ['live', 'unverifiable'] as const) {
       const d = deps({ relayTerminals: async () => ({ verdict, count: 2 }) })
       await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-        route: 'relay',
+        route: 'unserved',
         reason: verdict === 'live' ? 'relay_terminals_live' : 'relay_terminals_unverifiable',
         terminals: 2
       })
@@ -77,7 +77,7 @@ describe('which server an SSH host runs on connect', () => {
       relayTerminals: async () => ({ verdict: 'live', count: 1, elsewhere: true })
     })
     await expect(resolveHostServerOnConnect(target, elsewhere)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'relay_terminals_live',
       terminals: 1,
       terminalsElsewhere: true
@@ -91,7 +91,7 @@ describe('which server an SSH host runs on connect', () => {
       })
     })
     await expect(resolveHostServerOnConnect(target, raced)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'relay_terminals_live'
     })
   })
@@ -118,7 +118,7 @@ describe('which server an SSH host runs on connect', () => {
       })
     })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'refused',
       detail: 'An automation still runs on this host.'
     })
@@ -132,7 +132,7 @@ describe('which server an SSH host runs on connect', () => {
       }
     })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'orcad_unavailable',
       detail: 'unsupported_host'
     })
@@ -173,7 +173,7 @@ describe('which server an SSH host runs on connect', () => {
         },
         changed
       )
-    ).resolves.toEqual({ route: 'relay', reason: 'source_changed' })
+    ).resolves.toEqual({ route: 'unserved', reason: 'source_changed' })
     expect(changed.ensureTunnel).not.toHaveBeenCalled()
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
@@ -194,7 +194,7 @@ describe('which server an SSH host runs on connect', () => {
   it('touches no host when this build carries no orcad template', async () => {
     const d = deps({ hasTemplate: () => false, isEmptyHost: () => true })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'orcad_unavailable',
       detail: 'artifacts_unavailable'
     })
@@ -209,7 +209,7 @@ describe('which server an SSH host runs on connect', () => {
       }
     })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'failed',
       detail: 'Connection lost'
     })
@@ -226,7 +226,7 @@ describe('which server an SSH host runs on connect', () => {
       })
     })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'orcad_unavailable',
       detail: 'ssh_tunnel_unavailable'
     })
@@ -244,7 +244,7 @@ describe('which server an SSH host runs on connect', () => {
       })
     })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
-      route: 'relay',
+      route: 'unserved',
       reason: 'orcad_unavailable',
       detail: 'ssh_tunnel_unavailable'
     })
@@ -285,7 +285,7 @@ describe('which server an SSH host runs on connect', () => {
       })
     })
     await expect(resolveHostServerOnConnect(target, d)).resolves.toMatchObject({
-      route: 'relay',
+      route: 'unserved',
       reason: 'failed',
       detail: 'orcad_migration_source_changed'
     })

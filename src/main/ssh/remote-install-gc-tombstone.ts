@@ -1,6 +1,5 @@
 import type { RemoteInstallTransport } from './remote-install-transport'
-import { execCommand } from './ssh-relay-deploy-helpers'
-import { isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
+import { execCommand, isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { remoteInstallGcTombstoneRegex, type RemoteInstallModel } from './remote-install-model'
 import { removeRemoteTreeCommand } from './ssh-remote-commands'
 import {

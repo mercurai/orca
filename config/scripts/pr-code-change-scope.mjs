@@ -257,7 +257,7 @@ const MANAGED_HOOK_PREFIXES = [
   'config/scripts/smoke-process-host-node18',
   'config/scripts/packaged-process-host-fixture',
   'src/packages/process-host/',
-  'config/scripts/build-relay',
+  'config/scripts/build-wsl-guest',
   'src/wsl-guest/',
   'src/shared/agent-hook',
   'src/main/agent-hooks/'

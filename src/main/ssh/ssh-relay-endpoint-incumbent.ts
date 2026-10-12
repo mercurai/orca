@@ -26,7 +26,7 @@ import {
   RELAY_UNRECOGNIZED_CHILD_COUNT_VAR,
   relayDaemonChildCensusShell
 } from './relay-daemon-service-children'
-import { execCommand, isUnconfirmedSshCommandTermination } from './ssh-relay-deploy-helpers'
+import { execCommand, isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { isWindowsRemoteHost, type RemoteHostPlatform } from './ssh-remote-platform'
 
 type RelayEndpointVerdict = 'live' | 'unverifiable' | 'exited'

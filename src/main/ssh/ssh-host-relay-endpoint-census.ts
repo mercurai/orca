@@ -10,7 +10,7 @@ import type { SshConnection } from './ssh-connection'
 import { shellEscape } from './ssh-connection-utils'
 import { RELAY_REMOTE_DIR } from './relay-protocol'
 import { SHORT_RELAY_SOCKET_DIR_PREFIX } from './relay-socket-path-limit'
-import { execCommand } from './ssh-relay-deploy-helpers'
+import { execCommand } from './ssh-relay-exec-command'
 import {
   isReapableRelayHusk,
   probeRelayEndpointIncumbent,

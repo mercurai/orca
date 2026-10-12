@@ -5,7 +5,7 @@ import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import { peImage } from './windows-pe-image-fixture.mjs'
-import { canReusePreparedRelayAddon } from './relay-windows-process-tree-prepared-addon.mjs'
+import { canReusePreparedAddon } from './windows-process-tree-prepared-addon.mjs'
 import { runProcessSync } from '@orca/process-host'
 
 const directories = []
@@ -36,7 +36,7 @@ describe('reusing a prepared Windows relay addon', () => {
     'accepts a clean launcher-capable %s addon after its runtime probe',
     (arch) => {
       const options = prepared(arch)
-      expect(canReusePreparedRelayAddon(options)).toBe(true)
+      expect(canReusePreparedAddon(options)).toBe(true)
       expect(options.checkRuntime).toHaveBeenCalledOnce()
     }
   )
@@ -51,7 +51,7 @@ describe('reusing a prepared Windows relay addon', () => {
     { sourceRepaired: undefined }
   ])('compiles freshly without current same-host preparation: %j', (overrides) => {
     const options = { ...prepared(), ...overrides }
-    expect(canReusePreparedRelayAddon(options)).toBe(false)
+    expect(canReusePreparedAddon(options)).toBe(false)
     expect(options.checkRuntime).not.toHaveBeenCalled()
   })
 
@@ -60,7 +60,7 @@ describe('reusing a prepared Windows relay addon', () => {
     ['pre-launcher addon', 'getProcessCreationTime']
   ])('refuses the %s before loading it', (_label, suffix) => {
     const options = prepared('x64', suffix)
-    expect(canReusePreparedRelayAddon(options)).toBe(false)
+    expect(canReusePreparedAddon(options)).toBe(false)
     expect(options.checkRuntime).not.toHaveBeenCalled()
   })
 
@@ -68,10 +68,10 @@ describe('reusing a prepared Windows relay addon', () => {
     const options = prepared()
     for (const bytes of [Buffer.from('spawnOutsideJob'), peImage({ arch: 'arm64' })]) {
       writeFileSync(options.addonPath, bytes)
-      expect(canReusePreparedRelayAddon(options)).toBe(false)
+      expect(canReusePreparedAddon(options)).toBe(false)
     }
     rmSync(options.addonPath)
-    expect(canReusePreparedRelayAddon(options)).toBe(false)
+    expect(canReusePreparedAddon(options)).toBe(false)
     expect(options.checkRuntime).not.toHaveBeenCalled()
   })
 
@@ -83,7 +83,7 @@ describe('reusing a prepared Windows relay addon', () => {
   ])('falls back when native loading or CreationTime validation fails: %j', (result) => {
     const options = prepared()
     options.checkRuntime.mockReturnValue(result)
-    expect(canReusePreparedRelayAddon(options)).toBe(false)
+    expect(canReusePreparedAddon(options)).toBe(false)
   })
 
   it('falls back on probe exceptions', () => {
@@ -91,7 +91,7 @@ describe('reusing a prepared Windows relay addon', () => {
     options.checkRuntime.mockImplementation(() => {
       throw new Error('probe spawn failed')
     })
-    expect(canReusePreparedRelayAddon(options)).toBe(false)
+    expect(canReusePreparedAddon(options)).toBe(false)
   })
 })
 
@@ -104,7 +104,7 @@ it.each(['pull_request', 'workflow_dispatch'])(
   'requests reuse only after an exact prepared PR hit under %s',
   (event) => {
     expect(workflow.on.pull_request.paths).toContain(
-      'config/scripts/relay-windows-process-tree-prepared-addon*.mjs'
+      'config/scripts/windows-process-tree-prepared-addon*.mjs'
     )
     expect(preparation.with['native-runtime']).toBe('node')
     expect(steps.indexOf(preparation)).toBeLessThan(steps.indexOf(build))
@@ -137,7 +137,7 @@ it.each(['x64', 'arm64'])('passes the optional reuse flag safely to the %s build
     })
     expect(result.code, result.stderr).toBe(0)
     expect(readFileSync(output, 'utf8').trim().split('\n')).toEqual([
-      'config/scripts/build-windows-process-tree-relay-addon.mjs',
+      'config/scripts/build-windows-process-tree-addon.mjs',
       `--arch=${arch}`,
       ...(enabled === 'true' ? ['--reuse-prepared-runtime'] : [])
     ])

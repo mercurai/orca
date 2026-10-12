@@ -49,7 +49,7 @@ vi.mock('./orcad-activation-transaction-store', () => ({
   readOrcadActivationTransaction: mocks.readTransaction
 }))
 vi.mock('./orcad-remote-deploy', () => ({ deployOrcad: mocks.deploy }))
-vi.mock('./orcad-artifact-materializer', () => ({
+vi.mock('../orcad/orcad-artifact-materializer', () => ({
   materializeOrcadArtifact: async () => '/local/orcad'
 }))
 vi.mock('./orcad-local-build-hash', () => ({ computeLocalOrcadBuildHash: () => 'build-hash' }))

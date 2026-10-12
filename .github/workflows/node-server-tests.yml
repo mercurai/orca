@@ -219,8 +219,8 @@ jobs:
         if: inputs.build_template && matrix.os == 'windows-2022'
         shell: bash
         run: |
-          node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=x64
-          node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=arm64
+          node config/scripts/build-windows-process-tree-addon.mjs --arch=x64
+          node config/scripts/build-windows-process-tree-addon.mjs --arch=arm64
           node -e "
           const { assertWindowsProcessTreeCreationTime } = require('./config/scripts/windows-process-tree-creation-time.cjs')
           const addon = require('./.build/windows-process-tree/x64/windows-process-tree.node')

@@ -17,12 +17,12 @@ import {
   orcadTemplateTargetFilenames
 } from '../../shared/orcad-artifacts'
 import { pinnedNodeRuntimeAsset, type NodeRuntimeTarget } from '../../shared/node-runtime-pin'
-import { findOrcadCachePath } from './orcad-cache-path'
+import { findOrcadCachePath } from '../node-runtime/orcad-cache-path'
 import {
   fileSha256,
   verifyFileSha256,
   type PinnedRuntimeMaterializeOptions
-} from './pinned-runtime-materializer'
+} from '../node-runtime/pinned-runtime-materializer'
 import { OrcadArtifactsUnavailableError, OrcadHostUnsupportedError } from './orcad-host-unavailable'
 
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u)

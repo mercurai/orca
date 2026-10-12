@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type * as DeployHelpers from './ssh-relay-deploy-helpers'
+import type * as ExecCommandModule from './ssh-relay-exec-command'
 
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn()
 }))
 
-vi.mock('./ssh-relay-deploy-helpers', async (importOriginal) => ({
-  ...(await importOriginal<typeof DeployHelpers>()),
+vi.mock('./ssh-relay-exec-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof ExecCommandModule>()),
   execCommand: vi.fn()
 }))
 
@@ -24,7 +24,7 @@ import {
 } from './remote-versioned-install'
 import { gcOldRemoteInstallVersions } from './remote-install-gc'
 import { ORCAD_INSTALL_MODEL } from './remote-install-model'
-import { isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
+import { isUnconfirmedSshCommandTermination, execCommand } from './ssh-relay-exec-command'
 import { acquireInstallLock } from './ssh-relay-install-lock'
 import {
   isRelayGcClaimed,
@@ -33,7 +33,6 @@ import {
   tryAcquireRelayGcClaim,
   waitForRelayGcClaimRelease
 } from './ssh-relay-gc-claim'
-import { execCommand } from './ssh-relay-deploy-helpers'
 import { getRemoteHostPlatform, type RemoteHostPlatform } from './ssh-remote-platform'
 import type { SshConnection } from './ssh-connection'
 

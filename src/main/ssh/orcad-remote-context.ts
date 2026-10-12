@@ -16,7 +16,7 @@ import {
   type RemoteHostPlatform
 } from './ssh-remote-platform'
 import { detectRemoteHostPlatform } from './ssh-remote-platform-detection'
-import { OrcadHostUnsupportedError } from './orcad-host-unavailable'
+import { OrcadHostUnsupportedError } from '../orcad/orcad-host-unavailable'
 import { rememberSshHostPlatform } from './ssh-host-platform-memo'
 
 export type OrcadRemoteContext = {

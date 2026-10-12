@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { runProcessSync } from '@orca/process-host'
-import { relayWindowsProcessTreeAddonDefect } from './windows-process-tree-gyp-rebuild.mjs'
+import { windowsProcessTreeAddonDefect } from './windows-process-tree-gyp-rebuild.mjs'
 
 const root = join(import.meta.dirname, '../..')
 
@@ -13,7 +13,7 @@ function checkPreparedRuntime() {
   })
 }
 
-export function canReusePreparedRelayAddon({
+export function canReusePreparedAddon({
   enabled = false,
   arch,
   addonPath,
@@ -26,7 +26,7 @@ export function canReusePreparedRelayAddon({
     return false
   }
   try {
-    if (relayWindowsProcessTreeAddonDefect(addonPath, arch) !== null) {
+    if (windowsProcessTreeAddonDefect(addonPath, arch) !== null) {
       return false
     }
     const result = checkRuntime()

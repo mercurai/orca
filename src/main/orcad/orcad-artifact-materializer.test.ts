@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { pruneOrcadArtifactCache } from '../orcad/orcad-artifact-cache-retention'
+import { pruneOrcadArtifactCache } from './orcad-artifact-cache-retention'
 import { z } from 'zod'
 import {
   NODE_RUNTIME_ASSETS,
@@ -33,7 +33,7 @@ import {
   orcadTemplateCommonFilenames,
   orcadTemplateTargetFilenames
 } from '../../shared/orcad-artifacts'
-import { readOrcadArtifactIdentity } from '../orcad/orcad-artifact-identity'
+import { readOrcadArtifactIdentity } from './orcad-artifact-identity'
 import {
   getAppEnvironment,
   hasAppEnvironment,

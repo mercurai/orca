@@ -16,20 +16,20 @@
  * Node headers, not Electron: the relay runs under the host's own `node`. The
  * addon is N-API, so one build serves every Node the remote might have.
  *
- *   node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=arm64
+ *   node config/scripts/build-windows-process-tree-addon.mjs --arch=arm64
  */
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import { canReusePreparedRelayAddon } from './relay-windows-process-tree-prepared-addon.mjs'
-import { RELAY_WINDOWS_PROCESS_TREE_FILENAME } from '../../src/shared/relay-artifacts.ts'
+import { canReusePreparedAddon } from './windows-process-tree-prepared-addon.mjs'
+import { ORCAD_WINDOWS_PROCESS_TREE_FILENAME } from '../../src/shared/orcad-artifacts.ts'
 import {
   ensureWindowsProcessTreeCommandLinePatch,
   inspectWindowsProcessTreeAddon,
   nodeGypRebuildInvocation,
   stageWindowsProcessTreeNodeAddonApiHeaders,
-  windowsProcessTreeAddonHasRelayLauncher,
+  windowsProcessTreeAddonHasBreakawayLauncher,
   WINDOWS_PROCESS_TREE_PACKAGE_DIR as PACKAGE_DIR
 } from './windows-process-tree-gyp-rebuild.mjs'
 
@@ -438,7 +438,7 @@ function main() {
 
   const built = join(PACKAGE_DIR, 'build', 'Release', 'windows_process_tree.node')
   if (
-    canReusePreparedRelayAddon({
+    canReusePreparedAddon({
       enabled: process.argv.includes('--reuse-prepared-runtime'),
       arch,
       addonPath: built,
@@ -472,7 +472,7 @@ function main() {
       `Built binary is ${describePeMachine(machine)}, expected 0x${PE_MACHINE[arch].toString(16)} for ${arch}. ${cause}`
     )
   }
-  if (!windowsProcessTreeAddonHasRelayLauncher(built)) {
+  if (!windowsProcessTreeAddonHasBreakawayLauncher(built)) {
     throw new Error(
       'The built addon does not export spawnOutsideJob. A relay would fall back to WMI, ' +
         'which refuses to launch it for a standard user.'
@@ -480,7 +480,7 @@ function main() {
   }
 
   mkdirSync(outDir, { recursive: true })
-  const staged = join(outDir, RELAY_WINDOWS_PROCESS_TREE_FILENAME)
+  const staged = join(outDir, ORCAD_WINDOWS_PROCESS_TREE_FILENAME)
   copyFileSync(built, staged)
   console.log(`[windows-process-tree] ${arch} -> ${staged}`)
 }

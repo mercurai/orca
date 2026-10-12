@@ -6,7 +6,7 @@
  * Disconnects match the forward: a lost channel drops its socket and the listener stays, so the
  * tunnel's own reconnect logic decides, and a lost transport never reads as a dead server.
  */
-import { OrcadStdioBridgeUnavailableError } from './orcad-host-unavailable'
+import { OrcadStdioBridgeUnavailableError } from '../orcad/orcad-host-unavailable'
 import type { OrcadHostTransport } from './orcad-host-transport'
 import {
   checkOrcadStdioBridge,

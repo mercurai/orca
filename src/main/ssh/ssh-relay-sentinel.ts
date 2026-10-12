@@ -4,11 +4,6 @@ import { RELAY_SENTINEL, RELAY_SENTINEL_TIMEOUT_MS } from './relay-protocol'
 import type { MultiplexerTransport } from './ssh-channel-multiplexer'
 import { buildRelayHandshakeRefusalError } from './ssh-relay-handshake-mismatch'
 
-export { uploadFile, uploadDirectory, mkdirSftp } from './sftp-upload'
-export { execCommand, isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
-
-// ── Sentinel detection ────────────────────────────────────────────────
-
 const MAX_RELAY_STARTUP_BUFFER_BYTES = 64 * 1024
 const RELAY_SENTINEL_BUFFER = Buffer.from(RELAY_SENTINEL, 'utf-8')
 

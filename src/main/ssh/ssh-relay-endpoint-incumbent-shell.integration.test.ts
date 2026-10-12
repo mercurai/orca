@@ -14,7 +14,7 @@ import {
   relayEndpointIncumbentProbeCommand,
   type RelayEndpointIncumbent
 } from './ssh-relay-endpoint-incumbent'
-import { RELAY_DAEMON_SERVICE_ENTRY_FILENAMES } from '../../shared/relay-artifacts'
+import { RELAY_DAEMON_SERVICE_ENTRY_FILENAMES } from './relay-install-artifacts'
 
 const posixOnly = process.platform === 'win32' ? describe.skip : describe
 

@@ -90,7 +90,7 @@ export function defaultEntryPoints(root = ROOT) {
 }
 
 // Native addons and electron cannot be bundled; externalising them is what the
-// relay build already does (config/scripts/build-relay.mjs).
+// relay build already does (config/scripts/build-wsl-guest.mjs).
 const EXTERNAL = [
   'electron',
   'node-pty',

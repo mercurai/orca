@@ -1,8 +1,10 @@
+import type * as ExecCommandModule from './ssh-relay-exec-command'
 import { describe, expect, it, vi } from 'vitest'
 import { RELAY_LSOF_PROBE_JS } from '@orca/process-host/posix-lsof-probe'
 
 const execCommand = vi.fn()
-vi.mock('./ssh-relay-deploy-helpers', () => ({
+vi.mock('./ssh-relay-exec-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof ExecCommandModule>()),
   execCommand: (...args: unknown[]) => execCommand(...args),
   isUnconfirmedSshCommandTermination: (error: unknown) =>
     (error as { sshChannelCloseConfirmed?: boolean } | null)?.sshChannelCloseConfirmed === false

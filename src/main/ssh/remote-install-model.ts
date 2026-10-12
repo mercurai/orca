@@ -19,7 +19,7 @@ import {
   relayArtifactFilenames,
   RELAY_INSTALL_COMPLETE_FILENAME,
   RELAY_VERSION_FILENAME
-} from '../../shared/relay-artifacts'
+} from './relay-install-artifacts'
 import {
   orcadArtifactFilenames,
   ORCAD_INSTALL_COMPLETE_FILENAME,

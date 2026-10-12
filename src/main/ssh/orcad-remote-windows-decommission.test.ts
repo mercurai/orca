@@ -3,13 +3,14 @@
  * a staged managed request run by the slot's node.exe, and GC screens every candidate in one
  * node.exe instead of one per version dir.
  */
+import type * as ExecCommandModule from './ssh-relay-exec-command'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as RecordFile from './orcad-remote-record-file'
 import type * as InstallLock from './ssh-relay-install-lock'
 
-vi.mock('./ssh-relay-deploy-helpers', () => ({
-  execCommand: vi.fn(),
-  isUnconfirmedSshCommandTermination: () => false
+vi.mock('./ssh-relay-exec-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof ExecCommandModule>()),
+  execCommand: vi.fn()
 }))
 vi.mock('./ssh-relay-install-lock', async (importOriginal) => ({
   ...(await importOriginal<typeof InstallLock>()),
@@ -24,7 +25,7 @@ vi.mock('./remote-install-gc', async (importOriginal) => ({
   gcOldRemoteInstallVersions: vi.fn().mockResolvedValue(undefined)
 }))
 
-import { execCommand } from './ssh-relay-deploy-helpers'
+import { execCommand } from './ssh-relay-exec-command'
 import { writeAtomicOrcadRemoteRecord } from './orcad-remote-record-file'
 import { gcOldRemoteInstallVersions } from './remote-install-gc'
 import { decommissionRemoteOrcad } from './orcad-remote-decommission'

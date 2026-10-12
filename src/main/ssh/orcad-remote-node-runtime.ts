@@ -24,8 +24,7 @@ import {
 } from '../../shared/orcad-artifacts'
 import type { OrcadHostTransport } from './orcad-host-transport'
 import { shellEscape } from './ssh-connection-utils'
-import { execCommand } from './ssh-relay-deploy-helpers'
-import { isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
+import { execCommand, isUnconfirmedSshCommandTermination } from './ssh-relay-exec-command'
 import { uploadRelayDirectory } from './ssh-relay-install-transfers'
 import {
   isWindowsRemoteHost,

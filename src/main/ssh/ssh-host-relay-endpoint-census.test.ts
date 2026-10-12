@@ -1,3 +1,4 @@
+import type * as ExecCommandModule from './ssh-relay-exec-command'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SshConnection } from './ssh-connection'
 import {
@@ -12,7 +13,10 @@ const { execCommand, probeRelayEndpointIncumbent, countRelayEndpointPtys } = vi.
   countRelayEndpointPtys: vi.fn()
 }))
 
-vi.mock('./ssh-relay-deploy-helpers', () => ({ execCommand }))
+vi.mock('./ssh-relay-exec-command', async (importOriginal) => ({
+  ...(await importOriginal<typeof ExecCommandModule>()),
+  execCommand
+}))
 vi.mock('./ssh-relay-endpoint-pty-count', () => ({ countRelayEndpointPtys }))
 vi.mock('./ssh-relay-endpoint-incumbent', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),

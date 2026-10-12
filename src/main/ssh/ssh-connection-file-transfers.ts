@@ -42,7 +42,7 @@ export async function uploadSshDirectory(
 ): Promise<void> {
   await withLinkedSftpTransfer(host, remoteDir, options, {
     sftp: async (sftp, targetDir, signal) => {
-      const { uploadDirectory } = await import('./ssh-relay-deploy-helpers')
+      const { uploadDirectory } = await import('./sftp-upload')
       await uploadDirectory(sftp, localDir, targetDir, localDir, { signal })
     },
     system: (signal) =>
