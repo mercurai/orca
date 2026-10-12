@@ -70,7 +70,13 @@ series.
   Upstream cuts release tags on release branches, so a new release is never inside `main` and is
   not mirrored on its own. Each such tag (and each tag whose guarded tree differs from the pin) gets
   a `fork-sync tag: <tag> needs owner review` issue, one per tag, matched by its exact title and
-  commented on again only when the tag's commit changes. It prints the tag's `git diff --stat` and
+  commented on again only when the tag's commit changes. The last step of the run
+  (`scripts/tag-issues.sh`, run whatever failed before it) pages through every issue, closed ones
+  included, so an issue the owner closed stays closed until the tag's commit changes (then it is
+  reopened and commented on); only the bot's own issue body or comments count as "already
+  reported", never a third party's. Upstream decides how many tags there are, so a run opens at
+  most 5 new issues and makes at most 20 updates, and lists the rest in one `fork-sync tag: summary`
+  issue (bounded, sanitised) that later runs work through. Each issue prints the tag's `git diff --stat` and
   paths under `.github/` and `config/mercurai/` against the trusted tree (the pin once it is guarded,
   `origin/main` as found when the guard refused), bounded to 50 lines and sanitised, and the exact
   input. To mirror the tag, dispatch from `mercurai` with `allow_tag=<tag>@<40-hex sha>`
@@ -80,7 +86,10 @@ series.
   the main-range guard (so it runs even when `main` is refused, and releases nothing else), then
   dispatches `fork-rebase-patches` for it with `tag_sha=<sha>`. The schedule never sets it.
   **Rule:** `allow_tag` may be dispatched only by the owner, or by a lane on orca-config-0f's explicit
-  order after an Opus security read of the diff printed in the issue.
+  order after an Opus security read of the diff printed in the issue. That read always recomputes the
+  tag's diff locally (`git diff <trusted> <sha> -- .github config/mercurai`) and never trusts the
+  issue text: the issue is a pointer, anyone with write access can edit it, and the sha in the
+  dispatch input is the only thing that is mirrored.
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
   `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where
