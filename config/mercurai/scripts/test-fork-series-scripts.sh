@@ -256,6 +256,11 @@ elif grep -qF "::error::the fork has no tag v1.0.2; fork-sync-upstream mirrors i
      ! git -C "$root/work" rev-parse -q --verify refs/heads/release/mercurai >/dev/null; then
   pass "assemble refuses a tag the fork does not hold"; else fail "assemble refuses a tag the fork does not hold"; fi
 
+# 19b. A name that is no stable tag is refused before git is asked about it, so the name is not echoed by the missing-tag error.
+if run_assemble 'v1.0.1;x'; then fail "assemble refuses a name that is no stable tag first"
+elif grep -qF "is not a stable upstream tag" "$root/log" && ! grep -qF "has no tag" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ]; then
+  pass "assemble refuses a name that is no stable tag first"; else fail "assemble refuses a name that is no stable tag first"; cat "$root/log"; fi
+
 # 19. assemble: branch names the push job would force-push are refused up front.
 fx_setup; fx_patch a v1.0.1
 for row in "mercurai|patch/a|release_branch 'mercurai' is not release/<name>" \

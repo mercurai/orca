@@ -73,6 +73,9 @@ test('the merge runs in merge-forward.sh, from copies, with its outputs defaulte
   const defaults = merge.indexOf('{ echo "conflict=false"; echo "guarded=false"; } >> "$GITHUB_OUTPUT"')
   const run = merge.indexOf('bash /tmp/merge-forward.sh')
   assert.ok(copy !== -1 && copy < defaults && defaults < run && run < merge.indexOf('git push origin'))
+  // The only push follows a successful try_merge in the same loop turn.
+  assert.equal(merge.split('git push').length - 1, 1)
+  assert.ok(merge.includes('try_merge || exit 0\n            if git push origin "$FORK_BRANCH"; then break; fi\n'))
   assert.doesNotMatch(merge, /git merge\b/)
   assert.match(merge, /^\s+GUARD_ALLOWED: \$\{\{ steps\.guard\.outputs\.allowed \}\}$/m)
   assert.match(merge, /10\) echo "conflict=true" >> "\$GITHUB_OUTPUT"; return 1 ;;/)
@@ -87,6 +90,7 @@ test('merge-forward.sh merges the pinned sha, checks the result unless allowed, 
   assert.ok(script.includes('bash "$here/merge-result-guard.sh" "$before"'))
   assert.match(script, /git reset -q --hard "\$before"\nexit 11$/m)
   assert.match(script, /git merge --abort\n {2}exit 10$/m)
+  assert.ok(script.includes(` | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > "$state/conflicts"`))
   assert.doesNotMatch(script, /\bgit (push|fetch)\b|GH_TOKEN|FORK_BOT_TOKEN/)
 })
 
@@ -98,13 +102,14 @@ test('merge-guard.sh refuses by exit 3 from the merge base, pins the sha, prints
   assert.ok(script.includes('[[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$sha" ]]'))
   assert.match(script, /^exit 3$/m)
   assert.match(script, /^ {2}exit 4$/m)
-  assert.ok(script.includes("LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'"))
+  // A here-string, not printf piped to head: a list over the pipe buffer would exit 141 under pipefail.
+  assert.ok(script.includes(`head -50 <<<"$paths" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'`))
   assert.doesNotMatch(script, /\bgit (push|fetch)\b|GH_TOKEN|FORK_BOT_TOKEN/)
 })
 
 test('merge-result-guard.sh diffs the result against the branch as pushed and prints a sanitised list', () => {
   const script = read('config', 'mercurai', 'scripts', 'merge-result-guard.sh')
   assert.match(script, /git diff --name-only --no-renames -z "\$1" HEAD -- \.github config\/mercurai/)
-  assert.ok(script.includes("LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'"))
+  assert.ok(script.includes(`head -50 <<<"$paths" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'`))
   assert.match(script, /^exit 3$/m)
 })
