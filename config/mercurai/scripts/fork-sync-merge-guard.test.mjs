@@ -224,7 +224,7 @@ test('every skipped release tag gets its own issue, matched by exact title, comm
   assert.ok(names.indexOf(SKIPPED_ISSUES) > names.indexOf(ALLOWED_TAG) && names.indexOf(SKIPPED_ISSUES) < names.indexOf(MERGE))
   assert.match(issues, /^\s+if: \$\{\{ steps\.mode\.outputs\.push == 'true' \}\}$/m)
   // The list is computed here, just before it is read.
-  assert.ok(issues.indexOf('bash config/mercurai/scripts/list-skipped-tags.sh\n') !== -1)
+  assert.ok(issues.includes('bash config/mercurai/scripts/list-skipped-tags.sh\n'))
   assert.ok(issues.indexOf('list-skipped-tags.sh') < issues.indexOf('done 3< /tmp/tags-skipped'))
   assert.ok(issues.includes('title="fork-sync tag: $tag needs owner review"'))
   // Both the lookup and the "seen" check match the title exactly, never by containment.
