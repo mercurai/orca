@@ -28,10 +28,10 @@ const WRITE_STEPS = [
   'Hand the owner-allowed tag to fork-rebase-patches',
   'Hand the newest release tag to fork-rebase-patches',
   'Mirror upstream branches under upstream/*',
-  'Open review issues for skipped release tags',
   'Merge main forward into the fork branch',
   'Report a guarded upstream range as an issue',
-  'Report a merge conflict as an issue'
+  'Report a merge conflict as an issue',
+  'Open review issues for skipped release tags'
 ]
 const GIT_WRITERS = [
   'Mirror main (fast-forward only)',
