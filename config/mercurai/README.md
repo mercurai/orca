@@ -74,7 +74,8 @@ series.
   builds as before (upstream's template scripts exist there, but that line was always released
   without one), and a ref at v1.4.224 or later without the patch fails the build. To add a
   target: add its build lane to `fork-orcad-template` first, then widen the list; a host on a
-  target outside the list gets no managed server and falls back to the legacy relay.
+  target outside the list gets no managed server and falls back to the legacy relay. A widened
+  list ships only with a new app version: the desktop keys its unsupported-host record by version.
 - `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch; no secret,
   no repository code), `orcad-template` and `build-win` (build and package the ref's code; no
   secret), `publish` (the only job given `FORK_BOT_TOKEN`; runs no repository code, only uploads

@@ -18,7 +18,7 @@ const workflow = readFileSync(
 /** The gate step's text: from its name line to the next step. */
 function gateStep() {
   const start = workflow.indexOf('      - name: Detect whether the ref ships the orcad template\n')
-  assert.ok(start >= 0, 'the gate step exists')
+  assert.ok(start !== -1, 'the gate step exists')
   const rest = workflow.slice(start + 1)
   const end = rest.search(/^ {6}(?:- |#)/m)
   return end < 0 ? rest : rest.slice(0, end)
@@ -28,10 +28,12 @@ function gateStep() {
 function gateScript(step) {
   const lines = step.split('\n')
   const at = lines.findIndex((line) => /^ {8}run: \|$/.test(line))
-  assert.ok(at >= 0, 'the gate step runs a block')
+  assert.ok(at !== -1, 'the gate step runs a block')
   const body = []
   for (const line of lines.slice(at + 1)) {
-    if (line !== '' && !line.startsWith(' '.repeat(10))) break
+    if (line !== '' && !line.startsWith(' '.repeat(10))) {
+      break
+    }
     body.push(line.slice(10))
   }
   return body.join('\n')
@@ -43,15 +45,20 @@ const firstWithOrcadHosts = /^ {10}FIRST_WITH_ORCAD_HOSTS: (\S+)$/m.exec(step)?.
 const roots = []
 
 after(() => {
-  for (const root of roots) rmSync(root, { recursive: true, force: true })
+  for (const root of roots) {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 /** Run the gate in a checkout whose package.json says `version` (null: no package.json). */
 function runGate({ version, template = false, packageJson }) {
   const root = mkdtempSync(join(tmpdir(), 'orca-ships-gate-'))
   roots.push(root)
-  if (packageJson !== undefined) writeFileSync(join(root, 'package.json'), packageJson)
-  else if (version !== null) writeFileSync(join(root, 'package.json'), `{\n  "name": "orca",\n  "version": "${version}",\n  "dependencies": {\n    "version": "9.9.9"\n  }\n}\n`)
+  if (packageJson !== undefined) {
+    writeFileSync(join(root, 'package.json'), packageJson)
+  } else if (version !== null) {
+    writeFileSync(join(root, 'package.json'), `{\n  "name": "orca",\n  "version": "${version}",\n  "dependencies": {\n    "version": "9.9.9"\n  }\n}\n`)
+  }
   if (template) {
     mkdirSync(join(root, 'config', 'scripts'), { recursive: true })
     writeFileSync(join(root, 'config', 'scripts', 'packaged-orcad-template-targets.cjs'), '')

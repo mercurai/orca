@@ -88,7 +88,9 @@ test('every step that pushes sets the extraheader, and gh gets GH_TOKEN, only in
     } else {
       assert.doesNotMatch(step, /GIT_CONFIG_|\bgit push\b/, name)
     }
-    if (!GH_WRITERS.includes(name)) assert.doesNotMatch(step, /^\s+gh /m, name)
+    if (!GH_WRITERS.includes(name)) {
+      assert.doesNotMatch(step, /^\s+gh /m, name)
+    }
   }
 })
 
