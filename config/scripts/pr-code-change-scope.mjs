@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import process from 'node:process'
 import { pathToFileURL } from 'node:url'
+import { isLayoutOracleSource } from './pr-layout-oracle-route.mjs'
 
 const DOCS_ONLY_FILES = new Set([
   'README.md',
@@ -30,7 +31,8 @@ export const PR_CHECK_JOBS = [
   'cross-version-wire',
   'managed_hook_node18',
   'package',
-  'package_windows'
+  'package_windows',
+  'layout_oracle'
 ]
 
 const ALWAYS_ON_CODE_JOBS = new Set(['static_analysis', 'typecheck', 'test'])
@@ -591,6 +593,8 @@ function jobDetector(job) {
       return (files) => files.some(isLinuxPackagePath)
     case 'package_windows':
       return (files) => files.some(isWindowsPackagePath)
+    case 'layout_oracle':
+      return (files) => files.some(isLayoutOracleSource)
     default:
       return () => true
   }

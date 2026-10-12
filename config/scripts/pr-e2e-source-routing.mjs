@@ -5,10 +5,9 @@ import {
   isDaemonInitTestSupportChange,
   isUnitTestSupportSource
 } from './pr-code-change-scope.mjs'
+import { LAYOUT_ORACLE_E2E_SPECS } from './pr-layout-oracle-route.mjs'
 
 const isProductSource = (file) => !/\.test\.tsx?$/.test(file) && !isUnitTestSupportSource(file)
-const isLayoutOracleSource = (file) =>
-  isProductSource(file) && !/\.spec\.ts$|-fixtures?\.ts$/.test(file)
 
 // Why config/patches: the xterm fork owns the helper textarea an input method attaches to, so a
 // patch edit can break composition without touching a file named "ime".
@@ -384,31 +383,6 @@ export const PR_E2E_SOURCE_ROUTES = [
       /^src\/.*(?:[Cc]lient-?[Hh]osted|browser-host-(?:lease|page|client-page)|browser-client-(?:host|page)|runtime-browser-(?:client-)?page|session-tabs-sync|host-session-snapshot-authority|orca-runtime(?:-browser)?\.ts|\/runtime-(?:status|types)\.ts)/.test(
         file
       )
-  },
-  {
-    // Why: the oracle is the only check that reads every view of the stored layout back. Runtime
-    // matches only the modules that create, move, close, persist or publish layout, not every
-    // session or terminal file, so the orcad build and Docker SSH lane stay off unrelated work.
-    id: 'workspace-layout.oracle',
-    specs: [
-      'tests/e2e/workspace-layout-oracle-headless.spec.ts',
-      'tests/e2e/workspace-layout-oracle.spec.ts'
-    ],
-    matches: (file) =>
-      isLayoutOracleSource(file) &&
-      /^(?:src\/shared\/workspace-layout\/|src\/main\/persistence\/(?:terminal-topology\/|restoring-sessions\/|loading-store\/pty-binding-)|src\/(?:main|renderer\/src)\/runtime\/(?:[^/]+\/)*[^/]*(?:pane-admission|workspace-layout|session-tab|headless-[^/]*tab|layout-client|create-terminal|split-pty-backed-terminal|terminal-split-layout|spawn-placement)[^/]*\.ts$|tests\/e2e\/(?:helpers\/)?(?:workspace-layout-oracle|headless-layout-oracle|terminal-layout-journeys))/.test(
-        file
-      )
-  },
-  {
-    // The window's tab store reaches SSH through the same layout writers, so not the SSH lane.
-    id: 'workspace-layout.oracle-tab-store',
-    specs: [
-      'tests/e2e/workspace-layout-oracle-headless.spec.ts',
-      'tests/e2e/workspace-layout-oracle.spec.ts'
-    ],
-    matches: (file) =>
-      isLayoutOracleSource(file) && file.startsWith('src/renderer/src/store/slices/tabs')
   }
 ]
 
@@ -420,7 +394,12 @@ export function selectPrE2eSpecs(
   const routePaths = isDaemonInitTestSupportChange(changedPaths, allowDaemonInitTestSupport)
     ? changedPaths.filter((file) => file !== DAEMON_INIT_TEST_SUPPORT)
     : changedPaths
-  const specs = new Set(changedPaths.filter((file) => /^tests\/e2e\/.*\.spec\.ts$/.test(file)))
+  // The required layout_oracle job owns the oracle specs; running them here too would double the cost.
+  const specs = new Set(
+    changedPaths.filter(
+      (file) => /^tests\/e2e\/.*\.spec\.ts$/.test(file) && !LAYOUT_ORACLE_E2E_SPECS.includes(file)
+    )
+  )
   for (const route of PR_E2E_SOURCE_ROUTES) {
     const matchedFiles = routePaths.filter(route.matches)
     if (matchedFiles.length === 0) {
