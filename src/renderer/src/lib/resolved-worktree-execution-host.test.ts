@@ -47,6 +47,21 @@ describe('getResolvedExecutionHostIdForWorktree', () => {
     )
   })
 
+  it('falls back from the repo host stamp to its connection id, then local', () => {
+    const state = (repo: { connectionId: string | null; executionHostId?: ExecutionHostId }) => ({
+      repos: [{ id: 'repo', ...repo }],
+      worktreesByRepo: { repo: [{ id: 'repo::wt', repoId: 'repo' }] }
+    })
+    const resolve = (repo: { connectionId: string | null; executionHostId?: ExecutionHostId }) =>
+      getResolvedExecutionHostIdForWorktree(state(repo), 'repo::wt')
+    expect(resolve({ connectionId: 'target-1', executionHostId: 'runtime:env-1' })).toBe(
+      'runtime:env-1'
+    )
+    expect(resolve({ connectionId: null, executionHostId: 'ssh:target-2' })).toBe('ssh:target-2')
+    expect(resolve({ connectionId: 'target-1' })).toBe('ssh:target-1')
+    expect(resolve({ connectionId: '  ' })).toBe('local')
+  })
+
   it('keeps missing folder catalogs unresolved but honors restored runtime ownership', () => {
     expect(getResolvedExecutionHostIdForWorktree({}, 'folder:missing')).toBeNull()
     expect(

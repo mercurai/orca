@@ -53,7 +53,8 @@ vi.mock('../pi/titlebar-extension-service', () => ({
   piTitlebarExtensionService: { buildPtyEnv: () => ({}), clearPty: vi.fn() }
 }))
 
-import { registerPtyHandlers, setLocalPtyProvider } from './pty'
+import { registerPtyHandlers } from './pty/register-handlers'
+import { setLocalPtyProvider } from './pty/provider/registry'
 import type { IPtyProvider, PtyProcessInfo } from '../providers/types'
 
 // The runtime's worktree.ps liveness refresh calls the aggregate inventory (no connectionId)

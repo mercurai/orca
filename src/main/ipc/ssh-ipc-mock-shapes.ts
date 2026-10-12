@@ -79,7 +79,6 @@ export type SshIpcMockModules = {
   sshConnectionStore: SshIpcMockModule
   sshConnectionManager: SshIpcMockModule
   sshChannelMultiplexer: SshIpcMockModule
-  pty: SshIpcMockModule
   sshPortForward: SshIpcMockModule
   sshPortScanner: SshIpcMockModule
 }

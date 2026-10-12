@@ -1,5 +1,6 @@
 import {
   LOCAL_EXECUTION_HOST_ID,
+  getRepoExecutionHostId,
   parseExecutionHostId,
   toSshExecutionHostId,
   type ExecutionHostId
@@ -91,13 +92,7 @@ export function getResolvedExecutionHostIdForWorktree(
   if (!repo) {
     return null
   }
-  const explicitRepoHost = parseExecutionHostId(repo.executionHostId)
-  if (explicitRepoHost) {
-    return explicitRepoHost.id
-  }
-  return repo.connectionId?.trim()
-    ? toSshExecutionHostId(repo.connectionId)
-    : LOCAL_EXECUTION_HOST_ID
+  return getRepoExecutionHostId(repo)
 }
 
 /**

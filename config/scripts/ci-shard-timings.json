@@ -8583,7 +8583,6 @@
       "src/renderer/src/components/terminal-pane/remote-layout-scrollback-retention.test.ts": 64,
       "src/renderer/src/components/terminal-pane/remote-pane-layout-push.test.ts": 71,
       "src/renderer/src/components/terminal-pane/remote-park-reveal-unverifiable-retry.test.ts": 988,
-      "src/renderer/src/components/terminal-pane/remote-reattach-input-buffer.test.ts": 84,
       "src/renderer/src/components/terminal-pane/remote-runtime-connect-failure-recovery.test.ts": 1519,
       "src/renderer/src/components/terminal-pane/remote-runtime-disconnected-input-grace-retry.test.ts": 2324,
       "src/renderer/src/components/terminal-pane/remote-runtime-disconnected-input-grace.test.ts": 43,

@@ -150,15 +150,6 @@ export function createSshIpcMocks(): SshIpcMocks {
         }
       }
     },
-    pty: {
-      clearPtyOwnershipForConnection: vi.fn(),
-      clearProviderPtyState: vi.fn(),
-      deletePtyOwnership: vi.fn(),
-      setPtyOwnership: vi.fn(),
-      getPtyIdsForConnection: vi.fn().mockReturnValue([]),
-      isCurrentPtyExit: vi.fn().mockReturnValue(true),
-      isRendererPtyOutputPaused: vi.fn().mockReturnValue(false)
-    },
     sshPortForward: {
       SshPortForwardManager: class MockPortForwardManager {
         constructor() {

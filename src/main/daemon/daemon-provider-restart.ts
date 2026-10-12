@@ -1,4 +1,7 @@
-import { rebindLocalProviderListeners, unbindLocalProviderListeners } from '../ipc/pty'
+import {
+  rebindLocalProviderListeners,
+  unbindLocalProviderListeners
+} from '../ipc/pty/provider/listener-lifecycle'
 import { DegradedDaemonPtyProvider } from './degraded-daemon-pty-provider'
 import {
   cleanupFailedDaemonAdoption,

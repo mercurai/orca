@@ -1,4 +1,5 @@
-import { getLocalPtyProvider, rebindLocalProviderListeners } from '../ipc/pty'
+import { getLocalPtyProvider } from '../ipc/pty/provider/registry'
+import { rebindLocalProviderListeners } from '../ipc/pty/provider/listener-lifecycle'
 import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from '../startup/startup-diagnostics'
 import { checkDaemonHealth } from './daemon-health'
 import { collectPinnedDaemonVersions, pruneOldDaemonHosts } from './daemon-host-relocation'

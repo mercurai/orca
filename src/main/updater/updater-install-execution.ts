@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron'
-import { killAllPty } from '../ipc/pty'
+import { killAllPty } from '../ipc/pty/kill-all'
 import { withUpdaterSpan } from '../observability/instrumentation'
 import { runWithLaunchPath } from '../startup/hydrate-shell-path'
 import {
