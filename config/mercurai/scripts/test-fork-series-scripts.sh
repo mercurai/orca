@@ -173,6 +173,7 @@ ported_setup() {
   pa=$(git rev-parse ported-a) pb=$(git rev-parse ported-b)
   git checkout -q -b onv1 v1; commit z.txt z "head on the old base"; stale=$(git rev-parse HEAD)
   git push -q origin onv1:refs/heads/ci-only/z; git checkout -q fork
+  git tag v2.0.0 v2; git push -q origin refs/tags/v2.0.0   # assemble-release takes stable vX.Y.Z tags only
   printf 'patch/a\npatch/b\n' > /tmp/active
 }
 runner_clone() {  # a runner checkout: only the fork branch and the patch branches, so a ported head must be fetched
@@ -212,7 +213,7 @@ if rebase_with "" && [ "$(line_of patch/a | cut -d' ' -f3)" != "$pa" ] && [ "$(w
   pass "without overrides every patch rebases"; else fail "without overrides every patch rebases"; fi
 
 assemble_with() {  # TAG v2 against a manifest still recorded on v1, as before the series is pushed
-  export GITHUB_OUTPUT="$root/out" MANIFEST="$root/patches.yaml" MANIFEST_WORK="$root/manifest-work.yaml" TAG=v2 UPSTREAM_REPO=test/up
+  export GITHUB_OUTPUT="$root/out" MANIFEST="$root/patches.yaml" MANIFEST_WORK="$root/manifest-work.yaml" TAG=v2.0.0 UPSTREAM_REPO=test/up
   : > "$GITHUB_OUTPUT"
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="url.$root/origin.git.insteadOf" GIT_CONFIG_VALUE_0=https://github.com/test/up.git \
     OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1 || { sed 's/^/  assemble: /' "$root/assemble.out"; return 1; }
@@ -220,7 +221,8 @@ assemble_with() {  # TAG v2 against a manifest still recorded on v1, as before t
 
 # 18. Without overrides an unrebased series does not assemble.
 ported_setup
-if assemble_with ""; then fail "an unrebased series does not assemble"; else pass "an unrebased series does not assemble"; fi
+if assemble_with ""; then fail "an unrebased series does not assemble"
+elif grep -q "manifest base is v1" "$root/assemble.out"; then pass "an unrebased series does not assemble"; else fail "an unrebased series does not assemble"; fi
 
 # 19. Ported heads for the whole series assemble on the tag before any patch/* ref moves.
 ported_setup
