@@ -14,7 +14,13 @@ import { execCommand } from './ssh-relay-deploy-helpers'
 import { readRemoteHomeCommand } from './ssh-remote-commands'
 import { resolveRemoteNodePath } from './ssh-remote-node-resolution'
 import { detectRemoteHostPlatform } from './ssh-remote-platform-detection'
-import { isWindowsRemoteHost, normalizeRemoteHome, validateRemoteHome } from './ssh-remote-platform'
+import {
+  isWindowsRemoteHost,
+  normalizeRemoteHome,
+  validateRemoteHome,
+  type RemoteHostPlatform
+} from './ssh-remote-platform'
+import { listOldRelayDaemonPids } from './ssh-old-relay-daemons'
 import {
   assessOrcadMigrationTerminals,
   terminalsRunElsewhere,
@@ -26,15 +32,19 @@ export async function relayTerminalsOnConnect(args: {
   targetId: string
   censusHost: () => Promise<HostRelayEndpointCensus>
 }): Promise<HostServerTerminalVerdict> {
-  const proof = await assessOrcadMigrationTerminals(args.store, args.targetId, async () =>
-    hostTerminalProofFromCensus(await args.censusHost())
-  )
+  let oldRelays: HostRelayEndpointCensus['oldRelays']
+  const proof = await assessOrcadMigrationTerminals(args.store, args.targetId, async () => {
+    const census = await args.censusHost()
+    oldRelays = census.oldRelays
+    return hostTerminalProofFromCensus(census)
+  })
   return proof.verdict === 'exited'
     ? { verdict: 'exited', count: 0 }
     : {
         verdict: proof.verdict,
         count: proof.ptyIds.length || (proof.hostTerminals ?? 0),
-        ...(terminalsRunElsewhere(proof) ? { elsewhere: true } : {})
+        ...(terminalsRunElsewhere(proof) ? { elsewhere: true } : {}),
+        ...(oldRelays ? { oldRelays } : {})
       }
 }
 
@@ -48,37 +58,61 @@ export function hostTerminalProofFromCensus(
   return { verdict: census.verdict === 'live' ? 'live' : 'unverifiable', count: census.count }
 }
 
+/** The host's platform and home, read the way every census reads them; null when unproven. */
+export async function readCensusHost(
+  conn: SshConnection,
+  signal?: AbortSignal
+): Promise<{ host: RemoteHostPlatform; remoteHome: string } | null> {
+  const host = await detectRemoteHostPlatform(conn, { signal })
+  if (!host) {
+    return null
+  }
+  const remoteHome = normalizeRemoteHome(
+    await execCommand(conn, readRemoteHomeCommand(host), {
+      signal,
+      wrapCommand: !isWindowsRemoteHost(host)
+    }),
+    host
+  )
+  return validateRemoteHome(remoteHome, host) ? { host, remoteHome } : null
+}
+
 /** The census over the connect's bootstrap connection, before any relay session exists. */
 export async function censusSshHostRelaysBeforeSession(
   conn: SshConnection,
   targetId: string,
   signal?: AbortSignal
 ): Promise<HostRelayEndpointCensus> {
-  const host = await detectRemoteHostPlatform(conn, { signal })
-  if (!host) {
+  const read = await readCensusHost(conn, signal)
+  if (!read) {
     return { verdict: 'unverifiable', count: 0 }
   }
-  const windows = isWindowsRemoteHost(host)
-  const remoteHome = normalizeRemoteHome(
-    await execCommand(conn, readRemoteHomeCommand(host), { signal, wrapCommand: !windows }),
-    host
-  )
-  if (!validateRemoteHome(remoteHome, host)) {
-    return { verdict: 'unverifiable', count: 0 }
-  }
-  if (windows) {
-    return censusWindowsHostRelays(conn, {
+  const { host, remoteHome } = read
+  if (isWindowsRemoteHost(host)) {
+    const census = await censusWindowsHostRelays(conn, {
       host,
       remoteHome,
       targetId,
       nodePath: () => windowsCensusNodePath(conn, host, remoteHome, signal),
       signal
     })
+    return blocksConversion(census)
+      ? { ...census, oldRelays: { hostOs: 'windows', pids: [] } }
+      : census
   }
-  return censusHostRelayEndpoints(conn, {
+  const census = await censusHostRelayEndpoints(conn, {
     host,
     remoteHome,
     fallbackNodePath: () => resolveRemoteNodePath(conn, host, { signal }),
     signal
   })
+  if (!blocksConversion(census)) {
+    return census
+  }
+  const pids = await listOldRelayDaemonPids(conn, remoteHome, signal)
+  return { ...census, oldRelays: { hostOs: 'posix', pids: pids ?? [] } }
+}
+
+function blocksConversion(census: HostRelayEndpointCensus): boolean {
+  return census.verdict !== 'none' && census.verdict !== 'idle'
 }

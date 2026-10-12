@@ -38,6 +38,11 @@ import { MacServeStartupAbortError } from './serve-signal-exit-diagnostic'
 import { superviseServeService } from './serve-supervised-service'
 import { isSupervisedSpawnHeld } from './serve-supervised-stop'
 import { openServeBundlePark } from './serve-bundle-park'
+import {
+  redactingSpawn,
+  shouldRedactSupervisedStdout,
+  type ServeSpawnChild
+} from './serve-pairing-redaction'
 
 const USER_NAMESPACE_PROBE_TIMEOUT_MS = 2_000
 const STARTUP_ABORT_MS = 30_000
@@ -229,6 +234,9 @@ function spawnElectronServe(
     ...getExecutableSpawnOptions(executable),
     env: childEnv
   }
+  const spawnServeChild: ServeSpawnChild = shouldRedactSupervisedStdout(args.supervise === true)
+    ? redactingSpawn(spawnProcess)
+    : spawnProcess
   const interruptedHandoff = handoffPath ? readServeUpdateHandoffSync(handoffPath) : null
   if (interruptedHandoff?.phase === 'install-requested') {
     // Why: the node-mode CLI is not an NSRunningApplication, so it can retain launchd ownership while ShipIt swaps the app.
@@ -236,7 +244,7 @@ function spawnElectronServe(
       executable,
       childArgs,
       spawnOptions,
-      spawnChild: spawnProcess,
+      spawnChild: spawnServeChild,
       handoffPath: handoffPath!,
       handoff: interruptedHandoff
     })
@@ -244,7 +252,7 @@ function spawnElectronServe(
   if (isSupervisedSpawnHeld()) {
     return Promise.resolve(0)
   }
-  const child = spawnProcess(executable, childArgs, spawnOptions)
+  const child = spawnServeChild(executable, childArgs, spawnOptions)
   const spawnedAt = Date.now()
 
   if (args.recipeJson) {
@@ -254,7 +262,7 @@ function spawnElectronServe(
     executable,
     childArgs,
     spawnOptions,
-    spawnChild: spawnProcess,
+    spawnChild: spawnServeChild,
     child,
     handoffPath,
     expectedHandoff: null

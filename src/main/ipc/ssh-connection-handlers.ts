@@ -10,6 +10,7 @@ import { connectionManager } from './ssh-ipc-context'
 import { getPublicSshState } from './ssh-renderer-broadcast'
 import { disconnectRegisteredSshTarget } from './ssh-session-teardown'
 import { errorMessage } from '../../shared/error-message'
+import { endOldRelayTerminalsForTarget } from './ssh-old-relay-terminals-handler'
 
 export function registerSshConnectionHandlers(): void {
   setSshTargetRegistryHandlers({
@@ -20,6 +21,10 @@ export function registerSshConnectionHandlers(): void {
   ipcMain.handle('ssh:connect', async (_event, args: { targetId: string }) => {
     return connectTarget(args.targetId)
   })
+
+  ipcMain.handle('ssh:endOldRelayTerminals', (_event, args: { targetId: string }) =>
+    endOldRelayTerminalsForTarget(args.targetId)
+  )
 
   ipcMain.handle('ssh:disconnect', async (_event, args: { targetId: string }) => {
     await disconnectRegisteredSshTarget(args.targetId)

@@ -6,6 +6,7 @@
  * Loss of contact is never evidence of exit (docs/reference/ssh-execution-boundary.md): a listing
  * that failed, ran out of room, or an endpoint the probe could not classify is `unverifiable`.
  */
+import type { SshOldRelayProcesses } from '../../shared/ssh-types'
 import type { SshConnection } from './ssh-connection'
 import { shellEscape } from './ssh-connection-utils'
 import { RELAY_REMOTE_DIR } from './relay-protocol'
@@ -20,7 +21,12 @@ import { isWindowsRemoteHost, type RemoteHostPlatform } from './ssh-remote-platf
 /** `unenumerable`: Windows named pipes cannot be listed, so the caller keeps today's path. */
 export type HostRelayEndpointVerdict = 'none' | 'idle' | 'live' | 'unverifiable' | 'unenumerable'
 
-export type HostRelayEndpointCensus = { verdict: HostRelayEndpointVerdict; count: number }
+export type HostRelayEndpointCensus = {
+  verdict: HostRelayEndpointVerdict
+  count: number
+  /** Set when the census blocks: the older Orca's relay processes, for the stop action. */
+  oldRelays?: SshOldRelayProcesses
+}
 
 const MAX_CENSUS_ENDPOINTS = 32
 

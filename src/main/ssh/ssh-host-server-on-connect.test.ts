@@ -96,6 +96,17 @@ describe('which server an SSH host runs on connect', () => {
     })
   })
 
+  it('carries the old relay processes the census found into the refusal', async () => {
+    const oldRelays = { hostOs: 'posix' as const, pids: [4101] }
+    const d = deps({ relayTerminals: async () => ({ verdict: 'live', count: 1, oldRelays }) })
+    await expect(resolveHostServerOnConnect(target, d)).resolves.toEqual({
+      route: 'relay',
+      reason: 'relay_terminals_live',
+      terminals: 1,
+      oldRelays
+    })
+  })
+
   it('surfaces a refusal for any other reason, naming it', async () => {
     const d = deps({
       convert: async () => ({

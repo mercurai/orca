@@ -12396,7 +12396,18 @@
           "olderTerminalsUnverifiable": "Orca 无法确认由旧版本 Orca 启动的终端是否已退出。请重新连接后重试。",
           "olderTerminals_one": "由旧版本 Orca 启动的 {{count}} 个终端仍在此主机上运行，且不会自行停止。请在该版本的 Orca 中关闭它们，或在主机上结束它们，然后重新连接。",
           "olderTerminals_other": "由旧版本 Orca 启动的 {{count}} 个终端仍在此主机上运行，且不会自行停止。请在该版本的 Orca 中关闭它们，或在主机上结束它们，然后重新连接。",
-          "olderTerminals": "由旧版本 Orca 启动的 {{count}} 个终端仍在此主机上运行，且不会自行停止。请在该版本的 Orca 中关闭它们，或在主机上结束它们，然后重新连接。"
+          "olderTerminals": "由旧版本 Orca 启动的 {{count}} 个终端仍在此主机上运行，且不会自行停止。请在该版本的 Orca 中关闭它们，或在主机上结束它们，然后重新连接。",
+          "oldTerminalsStopLead": "要在主机上结束它们，请运行：",
+          "oldTerminalsStopLeadPids": "要在主机上结束它们（进程 ID {{pids}}），请运行：",
+          "endOldTerminals": {
+            "action": "结束此主机上的旧终端",
+            "title": "结束此主机上的旧终端？",
+            "description": "这会结束旧版本 Orca 以此账户在此主机上留下并仍在运行的所有终端，包括从其他计算机打开的终端。其中运行的 shell 和代理都会停止。支持恢复的代理之后可以恢复；普通 shell 无法恢复。",
+            "confirm": "结束终端",
+            "running": "正在结束旧终端…",
+            "connected": "旧终端已结束。主机已连接。",
+            "failed": "Orca 无法结束旧终端。"
+          }
         },
         "deltaMove": {
           "action": "迁移新项目…",

@@ -5,6 +5,7 @@ import { RuntimeClientError, serveOrcaApp } from '../runtime-client'
 import { stripElectronRunAsNode } from '../runtime/launch'
 import { resolveCliStatusCaller } from '../runtime/status-caller'
 import { getServeSuperviseValidationError } from '../runtime/serve-supervised-service'
+import { getOptionalServePort } from '../runtime/serve-port-flag'
 import { getServeOptionValidationError } from '../../shared/serve-option-validation'
 
 function envRecord(): Record<string, string> {
@@ -43,21 +44,6 @@ async function runClaudeAgentTeams(env: Record<string, string>, args: string[]):
       resolve(signal ? 1 : 0)
     })
   })
-}
-
-function getOptionalServePort(flags: Map<string, string | boolean>): string | null {
-  if (!flags.has('port')) {
-    return null
-  }
-  const rawPort = flags.get('port')
-  if (typeof rawPort !== 'string' || rawPort.length === 0) {
-    throw new RuntimeClientError('invalid_argument', 'Missing value for --port.')
-  }
-  const port = Number(rawPort)
-  if (!Number.isInteger(port) || port < 0 || port > 65535) {
-    throw new RuntimeClientError('invalid_argument', `Invalid --port value: ${rawPort}`)
-  }
-  return rawPort
 }
 
 export const CORE_HANDLERS: Record<string, CommandHandler> = {

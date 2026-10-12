@@ -17,6 +17,7 @@ import type {
   SshManagedServerRelayReason,
   SshManagedServerServingNote,
   SshManagedServerUpdateNote,
+  SshOldRelayProcesses,
   SshTarget
 } from '../../shared/ssh-types'
 import type { OrcadManagedServing } from './orcad-managed-serving'
@@ -58,6 +59,7 @@ export type HostServerOnConnectResult =
       detail?: string
       terminals?: number
       terminalsElsewhere?: boolean
+      oldRelays?: SshOldRelayProcesses
     }
 
 export type HostServerTerminalVerdict = {
@@ -66,6 +68,8 @@ export type HostServerTerminalVerdict = {
   count: number
   /** Counted only by the host-wide census: another desktop or session runs them. */
   elsewhere?: boolean
+  /** The older Orca's relay processes the census found, for the stop action. */
+  oldRelays?: SshOldRelayProcesses
 }
 
 export type HostServerOnConnectDeps = {
@@ -208,7 +212,8 @@ async function convertHost(
         route: 'relay',
         reason: terminalReason(terminals.verdict),
         terminals: terminals.count,
-        ...(terminals.elsewhere ? { terminalsElsewhere: true } : {})
+        ...(terminals.elsewhere ? { terminalsElsewhere: true } : {}),
+        ...(terminals.oldRelays ? { oldRelays: terminals.oldRelays } : {})
       }
     }
     trace.path = 'convert'

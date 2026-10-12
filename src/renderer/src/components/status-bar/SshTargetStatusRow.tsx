@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { sshTargetConnectFailureText } from '@/ssh/ssh-host-server-status-copy'
+import { useSshConnectFailureToast } from '@/ssh/ssh-old-relay-terminals-action'
 import { translate } from '@/i18n/i18n'
 import { useMountedRef } from '@/hooks/useMountedRef'
 import { useAppStore } from '../../store'
@@ -32,6 +32,7 @@ export function SshTargetStatusRow({
   // must disable those too, in the window before main broadcasts 'connecting'.
   const connectInFlight = useSshConnectInFlight(targetId)
 
+  const showConnectFailure = useSshConnectFailureToast()
   const handleConnect = useCallback(async () => {
     if (isSshConnectInFlight(targetId)) {
       return
@@ -42,12 +43,10 @@ export function SshTargetStatusRow({
       await window.api.ssh.connect({ targetId })
       recordFeatureInteraction('ssh')
     } catch (err) {
-      toast.error(
-        sshTargetConnectFailureText(
-          targetId,
-          err,
-          translate('auto.components.status.bar.SshStatusSegment.2c29e2de68', 'Connection failed')
-        )
+      showConnectFailure(
+        targetId,
+        err,
+        translate('auto.components.status.bar.SshStatusSegment.2c29e2de68', 'Connection failed')
       )
     } finally {
       endSshConnect(targetId)
@@ -55,7 +54,7 @@ export function SshTargetStatusRow({
         setBusy(false)
       }
     }
-  }, [mountedRef, recordFeatureInteraction, targetId])
+  }, [mountedRef, recordFeatureInteraction, showConnectFailure, targetId])
 
   const handleDisconnect = useCallback(async () => {
     setBusy(true)

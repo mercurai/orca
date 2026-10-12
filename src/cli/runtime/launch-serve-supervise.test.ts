@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events'
+import { PassThrough } from 'node:stream'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,7 +13,7 @@ vi.mock('child_process', () => ({ spawn: spawnMock, spawnSync: vi.fn() }))
 import { serveOrcaApp } from './launch'
 
 class FakeChildProcess extends EventEmitter {
-  stdout = new EventEmitter()
+  stdout = new PassThrough()
   kill = vi.fn()
   pid = 5100
 }

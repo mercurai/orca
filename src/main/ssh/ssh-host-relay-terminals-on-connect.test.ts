@@ -53,6 +53,17 @@ describe('the connect-time relay terminal verdict', () => {
     await expect(decide(census).verdict).resolves.toMatchObject({ verdict: 'unverifiable' })
   })
 
+  it('passes the old relay processes a blocking census found to the verdict', async () => {
+    const oldRelays = { hostOs: 'posix' as const, pids: [4101, 4102] }
+    await expect(decide({ verdict: 'live', count: 2, oldRelays }).verdict).resolves.toMatchObject({
+      verdict: 'live',
+      oldRelays
+    })
+    await expect(
+      decide({ verdict: 'unverifiable', count: 1, oldRelays }).verdict
+    ).resolves.toMatchObject({ verdict: 'unverifiable', oldRelays })
+  })
+
   // A lease an older build left proves nothing; the host census decides.
   it('lets an idle host census prove a lease an older build left', async () => {
     const { censusHost, verdict } = decide(

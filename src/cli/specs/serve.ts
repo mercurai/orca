@@ -49,5 +49,40 @@ export const SERVE_COMMAND_SPECS: CommandSpec[] = [
       'It also lists restores from an older Orca client that this host refused, with the command that resumes each one.'
     ],
     examples: ['orca serve restore resume', 'orca serve restore resume --json']
+  },
+  {
+    path: ['serve', 'service', 'install'],
+    summary: 'Run orca serve as a per-user background service that restarts itself',
+    usage:
+      'orca serve service install [--port <port>] [--pairing-address <host>] [--command <path>] [--dry-run] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'port', 'pairing-address', 'command', 'dry-run'],
+    notes: [
+      'macOS writes a LaunchAgent; Linux writes a systemd user unit. Both run `orca serve --supervise --no-pairing` for this profile, so the server restarts with growing delays and gives up after repeated failures instead of looping.',
+      'The service never prints a pairing link to its log. Pair clients from the desktop app, or with `orca serve` in a terminal while the service is stopped.',
+      'On Linux the service stops at logout unless lingering is on (`loginctl enable-linger`); install reports it.',
+      'Reinstalling replaces the unit and clears a previous give-up. --command defaults to the `orca` command found on PATH. --dry-run prints the unit without installing it.',
+      'Not available on Windows yet.'
+    ],
+    examples: ['orca serve service install', 'orca serve service install --port 6768 --dry-run']
+  },
+  {
+    path: ['serve', 'service', 'status'],
+    summary: "Show whether this profile's orca serve service is running",
+    usage: 'orca serve service status [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    notes: [
+      'Reports live, exited, or unverifiable (when the service manager cannot be asked), plus why the supervisor gave up if it did.'
+    ],
+    examples: ['orca serve service status', 'orca serve service status --json']
+  },
+  {
+    path: ['serve', 'service', 'uninstall'],
+    summary: "Stop and remove this profile's orca serve service",
+    usage: 'orca serve service uninstall [--json]',
+    allowedFlags: [...GLOBAL_FLAGS],
+    notes: [
+      'Stops the service and removes its unit file. The terminal daemon and its sessions keep running.'
+    ],
+    examples: ['orca serve service uninstall']
   }
 ]
