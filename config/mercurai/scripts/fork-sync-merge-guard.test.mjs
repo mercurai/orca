@@ -1,8 +1,8 @@
-// fork-sync-upstream must not merge an upstream range that touches .github/ (workflows and the actions they run) or
-// config/mercurai without the owner: such files run with the fork's secrets once the fork pushes
-// them (claude-code-config#1148). The guard decides in merge-guard.sh, git only and no token; the
-// workflow runs it before the merge on one pinned upstream commit, the merge step cannot run when it
-// refuses, and the merge result is checked again before any push.
+// fork-sync-upstream must push nothing, and merge nothing, from an upstream range that touches .github/
+// (workflows and the actions they run) or config/mercurai without the owner: a pushed workflow file is active
+// at once and runs with the fork's secrets (claude-code-config#1148). The guard decides in merge-guard.sh, git
+// only and no token, before any push, on one pinned upstream commit; every push goes through sync-push.sh and
+// is gated on the guard; the merge result is checked again before it is pushed.
 // Run with `node --test "config/mercurai/scripts/*.test.mjs"` from the repo root.
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -21,22 +21,56 @@ for (const text of steps) {
   names.push(/^name: (.+)$/m.exec(text)?.[1])
 }
 const step = (name) => steps[names.indexOf(name)]
-const GUARD = 'Guard the merge-forward'
-const ISSUE = 'Report a guarded upstream range as an issue'
+const FETCH = 'Fetch upstream main and tags'
+const GUARD = 'Guard every push and the merge-forward'
+const MAIN = 'Mirror main (fast-forward only)'
+const TAGS = 'Mirror new tags'
+const DISPATCH = 'Hand the newest release tag to fork-rebase-patches'
+const BRANCHES = 'Mirror upstream branches under upstream/*'
 const MERGE = 'Merge main forward into the fork branch'
+const ISSUE = 'Report a guarded upstream range as an issue'
+const CONFLICT = 'Report a merge conflict as an issue'
 const SHA_ENV = /^\s+UPSTREAM_SHA: \$\{\{ steps\.fetch\.outputs\.upstream_sha \}\}$/m
+const GATE = /steps\.guard\.outputs\.refused == 'false'/
 
-test('the guard runs before the merge, with no token, on the one commit the run pinned', () => {
-  assert.ok(names.includes(GUARD) && names.indexOf(GUARD) < names.indexOf(MERGE))
-  assert.ok(names.indexOf(MERGE) < names.indexOf(ISSUE))
-  assert.match(step(GUARD), /bash config\/mercurai\/scripts\/merge-guard\.sh HEAD "\$UPSTREAM_SHA"/)
+test('the pin is made once, in the fetch step, and the guard runs before every push', () => {
+  assert.match(step(FETCH), /upstream_sha=\$\(bash config\/mercurai\/scripts\/pin-upstream-sha\.sh upstream\/main\)/)
+  assert.match(step(FETCH), /echo "upstream_sha=\$upstream_sha" >> "\$GITHUB_OUTPUT"/)
+  const order = [FETCH, GUARD, MAIN, TAGS, DISPATCH, BRANCHES, MERGE, ISSUE, CONFLICT].map((name) => names.indexOf(name))
+  assert.deepEqual(order, [...order].sort((a, b) => a - b))
+  assert.ok(!order.includes(-1))
+  assert.match(step(GUARD), /bash config\/mercurai\/scripts\/merge-guard\.sh HEAD "\$UPSTREAM_SHA" origin\/main > \/tmp\/guarded/)
   assert.doesNotMatch(step(GUARD), /\bsecrets\b|GH_TOKEN|GIT_CONFIG_|\bgit push\b|^\s+gh /m)
-  for (const name of [GUARD, MERGE, ISSUE]) {
+  for (const name of [GUARD, MAIN, TAGS, BRANCHES, MERGE, ISSUE]) {
     assert.match(step(name), SHA_ENV, name)
   }
-  for (const name of [GUARD, MERGE]) {
+  for (const name of [GUARD, MAIN, TAGS, BRANCHES, MERGE]) {
     assert.doesNotMatch(step(name), /upstream\/main/, name)
   }
+})
+
+test('every step that pushes or dispatches comes after the guard and is gated on its outcome', () => {
+  const guard = names.indexOf(GUARD)
+  const pushes = steps.filter((text) => /sync-push\.sh|\bgit push\b|gh workflow run/.test(text))
+  assert.deepEqual(pushes.map((text) => /^name: (.+)$/m.exec(text)[1]), [MAIN, TAGS, DISPATCH, BRANCHES, MERGE])
+  for (const text of pushes) {
+    const name = /^name: (.+)$/m.exec(text)[1]
+    assert.ok(names.indexOf(name) > guard, name)
+    assert.match(/^\s+if: (.*)$/m.exec(text)?.[1] ?? '', GATE, name)
+    if (/sync-push\.sh/.test(text)) {
+      assert.match(text, /^\s+GUARD_REFUSED: \$\{\{ steps\.guard\.outputs\.refused \}\}$/m, name)
+    }
+  }
+  assert.match(step(MAIN), /bash config\/mercurai\/scripts\/sync-push\.sh main$/m)
+  assert.match(step(TAGS), /bash config\/mercurai\/scripts\/sync-push\.sh tags$/m)
+  assert.match(step(BRANCHES), /bash config\/mercurai\/scripts\/sync-push\.sh branches$/m)
+  assert.doesNotMatch(code, /refs\/remotes\/upstream\/main:refs\/heads\/main/)
+})
+
+test('only a tag mirrored this run is handed to the rebase', () => {
+  assert.match(step(TAGS), /echo "rebase_tag=\$\(cat \/tmp\/rebase-tag\)" >> "\$GITHUB_OUTPUT"/)
+  assert.match(step(DISPATCH), /steps\.tags\.outputs\.rebase_tag != ''/)
+  assert.doesNotMatch(code, /steps\.fetch\.outputs\.rebase_tag/)
 })
 
 test('the merge step runs only when the guard did not refuse, and a refusal fails the run after filing', () => {
@@ -56,18 +90,28 @@ test('the merge step runs only when the guard did not refuse, and a refusal fail
   assert.ok(step(GUARD).indexOf('echo "allowed=false"') < step(GUARD).indexOf('cat /tmp/guarded'))
 })
 
-test('only an explicit dispatch can allow a guarded merge, and only for a pinned sha', () => {
+test('a guard refusal and a merge conflict each have their own issue title and lookup', () => {
+  assert.match(step(ISSUE), /title="fork-sync guard: /)
+  assert.ok(step(ISSUE).includes(`select(.title | startswith("fork-sync guard:"))`))
+  assert.match(step(CONFLICT), /title="fork-sync: /)
+  assert.ok(step(CONFLICT).includes(`select(.title | startswith("fork-sync: "))`))
+  assert.doesNotMatch(code, /--search/)
+  assert.match(step(CONFLICT), /\$\(cat \/tmp\/sync-conflicts\)/)
+})
+
+test('only an explicit dispatch can allow a guarded range, and only for a pinned sha', () => {
   assert.match(
-    step(GUARD),
-    /^\s+ALLOWED_SHA: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.allow_guarded_merge_sha \|\| '' \}\}$/m
+    code,
+    /^ {2}ALLOWED_SHA: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.allow_guarded_merge_sha \|\| '' \}\}$/m
   )
+  assert.ok(code.indexOf('  ALLOWED_SHA:') < code.indexOf('\njobs:\n'))
   assert.match(code, /^ {6}allow_guarded_merge_sha:\n(?: {8}.+\n)*? {8}type: string\n(?: {8}.+\n)*? {8}default: ''\n/m)
   const uses = code.split('\n').filter((line) => line.includes('inputs.allow_guarded_merge_sha'))
   assert.equal(uses.length, 1, uses.join('\n'))
   assert.doesNotMatch(code, /allow_guarded_merge\b(?!_sha)/)
 })
 
-test('the merge runs in merge-forward.sh, from copies, with its outputs defaulted, before any push', () => {
+test('the merge runs in merge-forward.sh, from copies, with its outputs defaulted, before it is pushed', () => {
   const merge = step(MERGE)
   const copy = merge.indexOf('cp config/mercurai/scripts/merge-forward.sh config/mercurai/scripts/merge-result-guard.sh /tmp/')
   const defaults = merge.indexOf('{ echo "conflict=false"; echo "guarded=false"; } >> "$GITHUB_OUTPUT"')
@@ -88,15 +132,17 @@ test('merge-forward.sh merges the pinned sha, checks the result unless allowed, 
   assert.ok(script.includes(`git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\\r'`))
   assert.ok(script.includes('if [ "${GUARD_ALLOWED:-false}" = true ]; then exit 0; fi'))
   assert.ok(script.includes('bash "$here/merge-result-guard.sh" "$before"'))
-  assert.match(script, /git reset -q --hard "\$before"\nexit 11$/m)
-  assert.match(script, /git merge --abort\n {2}exit 10$/m)
-  assert.ok(script.includes(` | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > "$state/conflicts"`))
+  // Reset first, whatever the check returned; only then the exit status.
+  assert.match(script, /git reset -q --hard "\$before"\nif \[ "\$rc" -ne 3 \]; then exit "\$rc"; fi\nexit 11$/m)
+  // Aborted before the list is written; the list has its own file name (rebase-series keeps a conflicts/ directory).
+  assert.ok(script.includes(`git merge --abort\n  head -50 <<<"$files" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > "$state/sync-conflicts"\n  exit 10\n`))
   assert.doesNotMatch(script, /\bgit (push|fetch)\b|GH_TOKEN|FORK_BOT_TOKEN/)
 })
 
-test('merge-guard.sh refuses by exit 3 from the merge base, pins the sha, prints a sanitised list', () => {
+test('merge-guard.sh refuses by exit 3 on the union of the ranges, pins the sha, prints a sanitised list', () => {
   const script = read('config', 'mercurai', 'scripts', 'merge-guard.sh')
-  assert.match(script, /git merge-base "\$fork" "\$upstream"/)
+  assert.match(script, /for ref in "\$fork" "\$@"; do/)
+  assert.match(script, /base=\$\(git merge-base "\$ref" "\$upstream"\) \|\| exit 1/)
   assert.match(script, /git diff --name-only --no-renames -z "\$base" "\$upstream"/)
   assert.ok(script.includes("grep -E '^(\\.github/|config/mercurai/)'"))
   assert.ok(script.includes('[[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$sha" ]]'))
@@ -112,4 +158,25 @@ test('merge-result-guard.sh diffs the result against the branch as pushed and pr
   assert.match(script, /git diff --name-only --no-renames -z "\$1" HEAD -- \.github config\/mercurai/)
   assert.ok(script.includes(`head -50 <<<"$paths" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'`))
   assert.match(script, /^exit 3$/m)
+})
+
+test('sync-push.sh pushes nothing unless the guard said false, and only refs inside the pinned commit', () => {
+  const script = read('config', 'mercurai', 'scripts', 'sync-push.sh')
+  const gate = script.indexOf('if [ "${GUARD_REFUSED:-true}" != false ]; then')
+  assert.ok(gate !== -1 && gate < script.indexOf('git push'))
+  assert.match(script, /if \[ "\$\{GUARD_REFUSED:-true\}" != false \]; then\n.*\n {2}exit 3\nfi/)
+  assert.ok(script.includes('git push origin "$UPSTREAM_SHA:refs/heads/main"'))
+  assert.ok(script.includes('if within "refs/upstream-tags/$tag^{commit}"; then'))
+  assert.ok(script.includes('if within "$sha"; then refspecs+=("$sha:refs/heads/upstream/$name")'))
+  assert.ok(script.includes('within() { git merge-base --is-ancestor "$1" "$UPSTREAM_SHA"; }'))
+  assert.doesNotMatch(script, /refs\/remotes\/upstream\/main|GH_TOKEN|FORK_BOT_TOKEN|--force|--tags|--mirror/)
+})
+
+test('pin-upstream-sha.sh takes the owner sha only when it is a full sha inside the upstream tip', () => {
+  const script = read('config', 'mercurai', 'scripts', 'pin-upstream-sha.sh')
+  assert.ok(
+    script.includes(
+      'if [[ "$allowed" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$allowed^{commit}" 2>/dev/null && git merge-base --is-ancestor "$allowed" "$tip"; then'
+    )
+  )
 })

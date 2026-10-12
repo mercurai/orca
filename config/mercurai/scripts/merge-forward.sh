@@ -7,8 +7,9 @@
 # may hold upstream's version of both.
 #
 # In:  UPSTREAM_SHA, GUARD_ALLOWED (true when the owner allowed this commit), FORK_STATE_DIR (/tmp).
-# Out: exit 0: merged. Exit 10: conflict, merge aborted, files in <state>/conflicts. Exit 11: the result
-#      changed guarded paths, branch reset to where it was, paths in <state>/guarded. Other: error.
+# Out: exit 0: merged. Exit 10: conflict, merge aborted, files in <state>/sync-conflicts. Exit 11: the
+#      result changed guarded paths, branch reset to where it was, paths in <state>/guarded. Other: the result
+#      check failed, branch reset, its exit status.
 #      Both lists are shown with odd characters as ?.
 set -euo pipefail
 state=${FORK_STATE_DIR:-/tmp}
@@ -17,14 +18,15 @@ before=$(git rev-parse HEAD)
 # A CR in git's output must not reach the job log (workflow-command injection).
 if ! git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\r'; then
   files=$(git diff --name-only --diff-filter=U)
-  head -50 <<<"$files" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > "$state/conflicts"
   git merge --abort
+  head -50 <<<"$files" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > "$state/sync-conflicts"
   exit 10
 fi
 if [ "${GUARD_ALLOWED:-false}" = true ]; then exit 0; fi
 rc=0
 bash "$here/merge-result-guard.sh" "$before" > "$state/guarded" || rc=$?
 if [ "$rc" -eq 0 ]; then exit 0; fi
-if [ "$rc" -ne 3 ]; then exit "$rc"; fi
+# Guarded paths changed, or the check itself failed: either way the merge does not stay.
 git reset -q --hard "$before"
+if [ "$rc" -ne 3 ]; then exit "$rc"; fi
 exit 11
