@@ -4,13 +4,14 @@
 // curl POST carries no payload. Shape, exit-code and stdout assertions all stayed green
 // through it, because none of them ever piped a payload. This suite pipes one and follows
 // it to the listener, so a launcher that takes stdin away from the hook fails here (#14818).
+// Every agent that registers a managed .cmd runs here under the shell its vendor uses.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runProcess } from '@orca/process-host'
 import { createServer, type Server } from 'node:http'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { removeTreeSync } from '../../shared/windows-transient-lock-removal'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import type * as osModule from 'node:os'
 
 const { homedirMock } = vi.hoisted(() => ({
@@ -32,9 +33,14 @@ vi.mock('os', async (importOriginal) => {
 })
 
 import { ClaudeHookService } from '../claude/hook-service'
+import { CommandCodeHookService } from '../command-code/hook-service'
+import { DroidHookService } from '../droid/hook-service'
+import { DshHookService } from '../dsh/hook-service'
+import { GeminiHookService } from '../gemini/hook-service'
+import { KiroHookService } from '../kiro/hook-service'
 import { MuseHookService } from '../muse/hook-service'
 import { getMuseManagedHooksPath } from '../muse/hook-settings'
-import { readHooksJson, WINDOWS_CMD_SAFE_PATH } from './installer-utils'
+import { readHooksJson, WINDOWS_CMD_SAFE_PATH, wrapWindowsHookCommand } from './installer-utils'
 import { getConfigPath, getWindowsManagedLifecycleHook } from '../claude/hook-settings'
 import { findGitBash } from './windows-git-bash-path.test-fixture'
 
@@ -66,10 +72,11 @@ async function startHookListener(): Promise<{
     })
     req.on('end', () => {
       const form = new URLSearchParams(body)
+      const token = req.headers['x-orca-agent-hook-token']
       posts.push({
         payload: form.get('payload'),
         paneKey: form.get('paneKey'),
-        token: req.headers['x-orca-agent-hook-token'] as string | null
+        token: typeof token === 'string' ? token : null
       })
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end('{}')
@@ -84,17 +91,176 @@ async function startHookListener(): Promise<{
   return { server, port, posts }
 }
 
-type HookRun = { exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }
-
-function runHookCommand(
-  executable: string,
-  args: string[],
-  env: NodeJS.ProcessEnv
-): Promise<HookRun> {
-  return runProcess({ program: executable, args, env, input: PAYLOAD, timeoutMs: 15_000 }).then(
-    (result) => ({ ...result, exitCode: result.code })
-  )
+type Runner = {
+  name: string
+  program: () => string
+  args: (command: string) => string[]
+  verbatim?: boolean
 }
+
+const SYSTEM32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+const CMD = join(SYSTEM32, 'cmd.exe')
+const POWERSHELL = join(SYSTEM32, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+
+const CMD_PLAIN: Runner = {
+  name: 'cmd.exe',
+  program: () => 'cmd.exe',
+  args: (command) => ['/d', '/c', command]
+}
+const GIT_BASH: Runner = { name: 'Git Bash', program: findGitBash, args: (c) => ['-c', c] }
+// Vendor argv below; runners that prefer pwsh fall back to Windows PowerShell 5.1.
+const CMD_NODE_SHELL: Runner = {
+  name: 'cmd.exe (Node shell:true)',
+  program: () => CMD,
+  args: (command) => ['/d', '/s', '/c', `"${command}"`],
+  verbatim: true
+}
+const CMD_FACTORY: Runner = {
+  name: 'cmd.exe (Factory)',
+  program: () => CMD,
+  args: (command) => ['/d', '/s', '/c', command],
+  verbatim: true
+}
+const POWERSHELL_GEMINI: Runner = {
+  name: 'Windows PowerShell (Gemini)',
+  program: () => POWERSHELL,
+  args: (command) => [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `${command}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`
+  ]
+}
+const POWERSHELL_DSH: Runner = {
+  name: 'Windows PowerShell (DSH)',
+  program: () => POWERSHELL,
+  args: (command) => [
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;$OutputEncoding=[System.Text.Encoding]::UTF8;${command}`
+  ]
+}
+const POWERSHELL_PLAIN: Runner = {
+  name: 'Windows PowerShell',
+  program: () => POWERSHELL,
+  args: (command) => ['-NoProfile', '-Command', command]
+}
+
+type Entry = { command?: string; hooks?: { command?: string }[] }
+const commandsOf = (entries: Entry[] | undefined): (string | undefined)[] =>
+  (entries ?? []).flatMap((entry) =>
+    entry.hooks ? entry.hooks.map((h) => h.command) : entry.command
+  )
+
+function readEvent(path: string, event: string): (string | undefined)[] {
+  return commandsOf(JSON.parse(readFileSync(path, 'utf8')).hooks?.[event])
+}
+
+function writeHooks(
+  path: string,
+  hooks: Record<string, Entry[]>,
+  extra: { name?: string } = {}
+): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify({ ...extra, hooks }))
+}
+
+type Provider = {
+  name: string
+  script: string
+  stdout: string
+  install: () => { state: string }
+  /** Managed commands registered for the event the row runs; exactly one is expected. */
+  commands: (home: string) => (string | undefined)[]
+  /** Seeds the pre-#27717 encoded registration so install must replace it, not add to it. */
+  seedStale?: (home: string, stale: string) => void
+  runners?: Runner[]
+}
+
+const PROVIDERS: Provider[] = [
+  {
+    name: 'Claude',
+    script: 'claude-hook.cmd',
+    stdout: '{}',
+    install: () => new ClaudeHookService().install(),
+    commands: () => commandsOf(readHooksJson(getConfigPath())?.hooks?.PreToolUse)
+  },
+  {
+    name: 'Muse',
+    script: 'muse-hook.cmd',
+    stdout: '',
+    install: () => new MuseHookService().install(),
+    commands: () => commandsOf(readHooksJson(getMuseManagedHooksPath())?.hooks?.PreToolUse)
+  },
+  {
+    name: 'Droid',
+    script: 'droid-hook.cmd',
+    stdout: '',
+    install: () => new DroidHookService().install(),
+    commands: (home) => readEvent(join(home, '.factory', 'settings.json'), 'UserPromptSubmit'),
+    seedStale: (home, stale) =>
+      writeHooks(join(home, '.factory', 'settings.json'), {
+        UserPromptSubmit: [{ hooks: [{ command: stale }] }]
+      }),
+    runners: [CMD_FACTORY]
+  },
+  {
+    name: 'Command Code',
+    script: 'command-code-hook.cmd',
+    stdout: '',
+    install: () => new CommandCodeHookService().install(),
+    commands: (home) => readEvent(join(home, '.commandcode', 'settings.json'), 'Stop'),
+    seedStale: (home, stale) =>
+      writeHooks(join(home, '.commandcode', 'settings.json'), {
+        Stop: [{ hooks: [{ command: stale }] }]
+      }),
+    runners: [CMD_NODE_SHELL]
+  },
+  {
+    name: 'Gemini',
+    script: 'gemini-hook.cmd',
+    stdout: '{}',
+    install: () => new GeminiHookService().install(),
+    commands: (home) => readEvent(join(home, '.gemini', 'settings.json'), 'BeforeAgent'),
+    seedStale: (home, stale) =>
+      writeHooks(join(home, '.gemini', 'settings.json'), {
+        BeforeAgent: [{ hooks: [{ command: stale }] }]
+      }),
+    runners: [POWERSHELL_GEMINI]
+  },
+  {
+    // dsh-hooks.json is Orca-owned and rewritten whole, so there is no stale entry to sweep.
+    name: 'DSH',
+    script: 'dsh-hook.cmd',
+    stdout: '',
+    install: () => new DshHookService().install(),
+    commands: (home) =>
+      readEvent(join(home, '.orca', 'agent-hooks', 'dsh-hooks.json'), 'UserPromptSubmit'),
+    runners: [POWERSHELL_DSH]
+  },
+  {
+    // Kiro is closed source; cover both shells it could use.
+    name: 'Kiro',
+    script: 'kiro-hook.cmd',
+    stdout: '',
+    install: () => new KiroHookService().install(),
+    commands: (home) => readEvent(join(home, '.kiro', 'agents', 'mine.json'), 'userPromptSubmit'),
+    seedStale: (home, stale) =>
+      writeHooks(
+        join(home, '.kiro', 'agents', 'mine.json'),
+        { userPromptSubmit: [{ command: stale }] },
+        { name: 'mine' }
+      ),
+    runners: [POWERSHELL_PLAIN, CMD_NODE_SHELL]
+  }
+]
+
+// A space keeps the bare path off the command line, so that profile takes the encoded launcher.
+const CASES = PROVIDERS.flatMap((provider) =>
+  ['user', 'user name'].map((homeName) => ({ ...provider, homeName }))
+)
 
 // Why: a developer box may set HKCU\...\Command Processor\AutoRun, which cmd.exe runs before
 // any .cmd — and MSYS spawns a .cmd without `/d`, so it fires on the Git Bash leg. Redirecting
@@ -105,9 +271,11 @@ function seedCmdAutoRunTarget(home: string): void {
   writeFileSync(join(home, '.cmd_aliases.cmd'), '@echo off\r\n', 'utf8')
 }
 
+// Why: strip every inherited ORCA_* so an endpoint file from a live Orca can never redirect the
+// hook's POST away from this listener.
 function hookEnvironment(extra: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const base = Object.fromEntries(
-    Object.entries(process.env).filter(([key]) => !key.startsWith('ORCA_'))
+    Object.entries(process.env).filter(([key]) => !key.toUpperCase().startsWith('ORCA_'))
   )
   return { ...base, ORCA_BACKGROUND_LAUNCH: '1', ...extra }
 }
@@ -125,7 +293,7 @@ describe('Windows managed hook launcher', () => {
 })
 
 describe.skipIf(process.platform !== 'win32')('Windows managed hook payload delivery', () => {
-  let home = ''
+  let root = ''
   let server: Server | null = null
 
   afterEach(() => {
@@ -133,47 +301,44 @@ describe.skipIf(process.platform !== 'win32')('Windows managed hook payload deli
     server?.close()
     server = null
     homedirMock.mockImplementation(() => process.env.HOME ?? tmpdir())
-    if (home) {
-      removeTreeSync(home)
-      home = ''
+    if (root) {
+      removeTreeSync(root)
+      root = ''
     }
   })
 
-  it.each([
-    {
-      name: 'Claude',
-      install: () => new ClaudeHookService().install(),
-      configPath: getConfigPath,
-      script: 'claude-hook.cmd',
-      stdout: '{}'
-    },
-    {
-      name: 'Muse',
-      install: () => new MuseHookService().install(),
-      configPath: getMuseManagedHooksPath,
-      script: 'muse-hook.cmd',
-      stdout: ''
-    }
-  ])(
-    '$name delivers the piped payload through cmd.exe and Git Bash',
+  it.each(CASES)(
+    '$name delivers the piped payload through its runners (home "$homeName")',
     async (provider) => {
-      home = mkdtempSync(join(tmpdir(), 'orca-hook-payload-'))
-      vi.stubEnv('XDG_CONFIG_HOME', undefined)
+      root = mkdtempSync(join(tmpdir(), 'orca-hook-payload-'))
+      const home = join(root, provider.homeName)
+      mkdirSync(home)
       homedirMock.mockReturnValue(home)
+      for (const name of ['USERPROFILE', 'HOME']) {
+        vi.stubEnv(name, home)
+      }
+      for (const name of ['XDG_CONFIG_HOME', 'KIRO_HOME', 'DSH_HOME']) {
+        vi.stubEnv(name, undefined)
+      }
       seedCmdAutoRunTarget(home)
+      const scriptPath = join(home, '.orca', 'agent-hooks', provider.script)
+      provider.seedStale?.(home, wrapWindowsHookCommand(scriptPath))
       expect(provider.install().state).toBe('installed')
 
-      const settings = readHooksJson(provider.configPath())
       // Why: assert nothing about the launcher's shape here — this test's whole value is
       // that it fails for any launcher that loses the payload, named conhost or not.
-      const registeredCommand = settings?.hooks?.PreToolUse[0]?.hooks?.[0]?.command
+      const commands = provider.commands(home)
+      expect(commands, 'exactly one managed registration').toHaveLength(1)
+      const registeredCommand = commands[0]
       if (!registeredCommand) {
-        throw new Error('Missing managed PreToolUse command')
+        throw new Error(`Missing managed ${provider.name} command`)
       }
       // ...with one exception: a cmd-safe profile must reach the script with no interpreter in
       // front of it, or #18875's per-event PowerShell start-up has quietly come back.
-      if (WINDOWS_CMD_SAFE_PATH.test(join(home, '.orca', 'agent-hooks', provider.script))) {
+      if (WINDOWS_CMD_SAFE_PATH.test(scriptPath)) {
         expect(registeredCommand).not.toMatch(/powershell|-EncodedCommand/i)
+      } else {
+        expect(registeredCommand).toMatch(/-EncodedCommand/)
       }
 
       const listener = await startHookListener()
@@ -185,41 +350,40 @@ describe.skipIf(process.platform !== 'win32')('Windows managed hook payload deli
         ORCA_AGENT_HOOK_TOKEN: HOOK_TOKEN,
         ORCA_PANE_KEY: PANE_KEY
       })
+      const run = (runner: Runner, runEnv: NodeJS.ProcessEnv) =>
+        runProcess({
+          program: runner.program(),
+          args: runner.args(registeredCommand),
+          windowsVerbatimArguments: runner.verbatim,
+          env: runEnv,
+          input: PAYLOAD,
+          timeoutMs: 15_000
+        })
 
-      const shells = [
-        { name: 'cmd.exe', executable: 'cmd.exe', args: ['/d', '/c', registeredCommand] },
-        { name: 'Git Bash', executable: findGitBash(), args: ['-c', registeredCommand] }
-      ]
-      for (const shell of shells) {
+      for (const runner of provider.runners ?? [CMD_PLAIN, GIT_BASH]) {
         const before = listener.posts.length
-        const result = await runHookCommand(shell.executable, shell.args, env)
-        expect(result.timedOut, `${shell.name} timed out`).toBe(false)
-        expect(result.exitCode, `${shell.name} exit code`).toBe(0)
+        const result = await run(runner, env)
+        expect(result.timedOut, `${runner.name} timed out`).toBe(false)
+        expect(result.code, `${runner.name} exit code; stderr: ${result.stderr}`).toBe(0)
 
         // Why: assert delivery before stdout so a launcher that swallows the payload fails
         // on the symptom users report, not on some downstream difference in what it printed.
-        const posts = listener.posts.slice(before)
-        expect(posts, `${shell.name} posted exactly one hook`).toHaveLength(1)
-        // Why: byte-exact, not "non-empty" — a pseudoconsole host delivers nothing, and a
+        // Byte-exact, not "non-empty" — a pseudoconsole host delivers nothing, and a
         // code-page-translating launcher delivers a corrupted body that still looks posted.
-        expect(posts[0].payload, `${shell.name} payload`).toBe(PAYLOAD)
-        expect(posts[0].paneKey, `${shell.name} paneKey`).toBe(PANE_KEY)
-        expect(posts[0].token, `${shell.name} token`).toBe(HOOK_TOKEN)
-
-        expect(result.stderr, `${shell.name} stderr`).toBe('')
+        expect(listener.posts.slice(before), `${runner.name} posts`).toEqual([
+          { payload: PAYLOAD, paneKey: PANE_KEY, token: HOOK_TOKEN }
+        ])
+        expect(result.stderr, `${runner.name} stderr`).toBe('')
         // Why: compat consumers gate the tool call on parseable stdout (#14818).
-        expect(result.stdout.trim(), `${shell.name} stdout`).toBe(provider.stdout)
+        expect(result.stdout.trim(), `${runner.name} stdout`).toBe(provider.stdout)
 
-        const outsideOrca = await runHookCommand(
-          shell.executable,
-          shell.args,
-          hookEnvironment({ USERPROFILE: home, HOME: home })
-        )
-        expect(outsideOrca.timedOut, `${shell.name} outside Orca timed out`).toBe(false)
-        expect(outsideOrca.exitCode, `${shell.name} outside Orca exit code`).toBe(0)
+        // Outside an Orca pane the hook exits without posting or waiting on stdin (#11549).
+        const outsideOrca = await run(runner, hookEnvironment({ USERPROFILE: home, HOME: home }))
+        expect(outsideOrca.timedOut, `${runner.name} outside Orca timed out`).toBe(false)
+        expect(outsideOrca.code, `${runner.name} outside Orca exit code`).toBe(0)
         expect(listener.posts).toHaveLength(before + 1)
       }
-      // Why: two shell launches plus a real install can overrun the default under load.
+      // Why: several shell launches plus a real install can overrun the default under load.
     },
     60_000
   )

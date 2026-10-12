@@ -124,6 +124,20 @@ describe('serveOrcaApp', () => {
     )
   })
 
+  it('names what to run when this orca is not an Orca app (an SSH host server CLI)', () => {
+    delete process.env.ORCA_APP_EXECUTABLE
+    const previous = process.env.ELECTRON_RUN_AS_NODE
+    delete process.env.ELECTRON_RUN_AS_NODE
+    try {
+      expect(() => serveOrcaApp({ supervise: true })).toThrow(
+        /Install the Orca app on this machine/
+      )
+      expect(spawnMock).not.toHaveBeenCalled()
+    } finally {
+      restoreEnv('ELECTRON_RUN_AS_NODE', previous)
+    }
+  })
+
   it('launches an isolated profile with the keychain mocked, so serve is not blocked on it', async () => {
     const previousUserData = process.env.ORCA_E2E_USER_DATA_DIR
     const previousHome = process.env.ORCA_E2E_HOME_DIR
@@ -686,7 +700,7 @@ describe('serveOrcaApp', () => {
     expect(child.unref).toHaveBeenCalledOnce()
   })
 
-  it('uses a shell when a Windows npm command shim is the Electron executable', async () => {
+  it('runs a Windows command-shim Electron executable through cmd.exe without a raw shell', async () => {
     const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')
     Object.defineProperty(process, 'platform', { value: 'win32' })
     process.env.ORCA_APP_EXECUTABLE = 'C:\\repo\\node_modules\\.bin\\electron.cmd'
@@ -705,12 +719,12 @@ describe('serveOrcaApp', () => {
 
     try {
       await expect(serveOrcaApp({ json: true })).resolves.toBe(0)
-      expect(spawnMock).toHaveBeenCalledWith(
-        'C:\\repo\\node_modules\\.bin\\electron.cmd',
-        [PIN_PROFILE, '--serve', '--serve-json'],
-        expect.objectContaining({
-          shell: true
-        })
+      const [program, [commandLine], options] = spawnMock.mock.calls[0]
+      expect(program).toMatch(/cmd\.exe$/i)
+      expect(commandLine).toContain('C:\\repo\\node_modules\\.bin\\electron.cmd')
+      expect(commandLine).toContain('--serve-json')
+      expect(options).toEqual(
+        expect.objectContaining({ shell: false, windowsHide: true, windowsVerbatimArguments: true })
       )
     } finally {
       if (platformDescriptor) {

@@ -40,9 +40,8 @@ export function getWindowsPowerShellExecutablePath(): string {
  * AV host for a flicker. The answer is to shorten the interpreter chain — the
  * shipped doctrine of #15520 and #15595 — or a launcher that owns no console.
  *
- * #18875 took that answer for the Claude lifecycle hook, which now registers the
- * managed `.cmd` path directly (`windows-direct-cmd-hook-command.ts`) and reaches
- * this launcher only when the profile path is not cmd-safe. Every other caller still comes through here on every event.
+ * #18875 took that answer for the Claude lifecycle hook, and `wrapWindowsBatchHookCommand`
+ * extends it to other `.cmd` hooks: they reach this launcher only when the profile path is not cmd-safe.
  */
 export const WINDOWS_POWERSHELL_HOOK_SWITCHES = '-NoProfile'
 

@@ -128,6 +128,33 @@ test('the push jobs push only what they derived and matched against what was tes
   assert.match(rebase, /while read -r branch before after; do\n/)
 })
 
+test('every script that feeds a force push checks the branch prefix first (SEC S7)', () => {
+  const dir = (name) => readFileSync(resolve(import.meta.dirname, name), 'utf8')
+  const prefix = String.raw`^patch/[A-Za-z0-9._-]+$`
+  const variables = { 'rebase-series.sh': 'branch', 'push-rebased-series.sh': 'branch', 'assemble-release.sh': 'patch' }
+  for (const [name, variable] of Object.entries(variables)) {
+    assert.ok(dir(name).includes(`[[ "$${variable}" =~ ${prefix} && `), name)
+  }
+  assert.ok(dir('assemble-release.sh').includes(String.raw`^release/[A-Za-z0-9._-]+$`))
+})
+
+test('assemble-release strips CR from the git output it prints', () => {
+  const assemble = readFileSync(resolve(import.meta.dirname, 'assemble-release.sh'), 'utf8')
+  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..HEAD" | tr -d '\r'`))
+  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..origin/$patch" 2>&1 | tr -d '\r' ||`))
+})
+
+test('rebase-series strips CR from the git rebase output it prints', () => {
+  const rebase = readFileSync(resolve(import.meta.dirname, 'rebase-series.sh'), 'utf8')
+  assert.ok(rebase.includes(String.raw`elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then`))
+})
+
+test('the rebase reads the target tag from the fork, never from upstream', () => {
+  const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
+  assert.doesNotMatch(fetch, /fetch[^\n]*upstream[^\n]*--tags/)
+  assert.ok(fetch.includes('git fetch --no-tags origin "+refs/tags/$TARGET:refs/tags/$TARGET"'))
+})
+
 test('a step holding the token never builds a yq expression from shell values', () => {
   for (const [file] of WORKFLOWS) {
     const push = code(jobsOf(read(file)).get('push'))
@@ -183,5 +210,7 @@ test('overrides reach the scripts as an env value only, and are checked strictly
   // Nor may a commit subject: every git log/diff line it prints drops carriage returns.
   const printed = parse.split('\n').filter((l) => /^\s*git (log|diff)\b/.test(l))
   assert.equal(printed.length, 2)
-  for (const line of printed) assert.match(line, /\| tr -d '\\r'$/, line)
+  for (const line of printed) {
+    assert.match(line, /\| tr -d '\\r'$/, line)
+  }
 })

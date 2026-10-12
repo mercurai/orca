@@ -15,7 +15,7 @@ import {
   agentSessionWriteNotDoneParts
 } from '../../../../shared/agent-session-refusal-notice'
 import type { AgentSessionWriteFailure } from '../../../../shared/agent-session-write-failure'
-import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import {
   attemptStructuredAgentSessionSend,
   forgetStructuredAgentSessionFence,

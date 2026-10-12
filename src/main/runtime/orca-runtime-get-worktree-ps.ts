@@ -36,7 +36,10 @@ import { structuredChatNamingDeps } from './structured-chat-naming-runtime'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { buildWorktreeListingPage } from './worktree-listing-host-scope'
-import { structuredWorkerOwesWork } from './structured-worker-custody'
+import {
+  structuredWorkerOpenTaskTitle,
+  structuredWorkerOwesWork
+} from './structured-worker-custody'
 import {
   resolvedTuiAgentArgsBypassPermissions,
   resolveTuiAgentLaunchEnv
@@ -186,8 +189,8 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVis
             return { path: target.worktree.path, executionHostId: target.executionHostId }
           },
           getAgentEnvResolvers: () => this.getCommitMessageAgentEnvironmentResolvers(),
-          hasOpenDispatch: (record) =>
-            structuredWorkerOwesWork(this.getOrchestrationDbIfAvailable?.() ?? null, record),
+          workerTaskTitle: (record) =>
+            structuredWorkerOpenTaskTitle(this.getOrchestrationDbIfAvailable?.() ?? null, record),
           retitleOpenTab: (workspaceId, sessionId) =>
             this.refreshStructuredConversationTabTitle(workspaceId, sessionId)
         },
@@ -210,10 +213,6 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVis
         resolveStructuredAgentCommand('codex', this.requireStore().getSettings(), options),
       resolveLaunchArgs: (agent) =>
         structuredAgentConfiguredArgs(agent, this.requireStore().getSettings()),
-      resolveLaunchEnvOverlay: () =>
-        resolveTuiAgentLaunchEnv('codex', this.requireStore().getSettings().agentDefaultEnv),
-      resolveClaudeLaunchEnv: () =>
-        resolveTuiAgentLaunchEnv('claude', this.requireStore().getSettings().agentDefaultEnv),
       // Wired only here, so a test runtime never runs a real `claude --version`.
       claudeCliFlags: claudeCliFlagSupport,
       nativeChatVisuals: {

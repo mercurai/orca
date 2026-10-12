@@ -5,10 +5,9 @@ import {
   isDaemonInitTestSupportChange,
   isUnitTestSupportSource
 } from './pr-code-change-scope.mjs'
+import { LAYOUT_ORACLE_E2E_SPECS } from './pr-layout-oracle-route.mjs'
 
 const isProductSource = (file) => !/\.test\.tsx?$/.test(file) && !isUnitTestSupportSource(file)
-const isLayoutOracleSource = (file) =>
-  isProductSource(file) && !/\.spec\.ts$|-fixtures?\.ts$/.test(file)
 
 // Why config/patches: the xterm fork owns the helper textarea an input method attaches to, so a
 // patch edit can break composition without touching a file named "ime".
@@ -18,6 +17,10 @@ const NATIVE_IME_PRODUCT_SOURCE =
 /** The harness itself: the session runner, the boundary probes, and the native specs. */
 const NATIVE_IME_HARNESS =
   /^(?:config\/scripts\/focus-nested-wayland-terminal\.sh$|config\/scripts\/(?:run-terminal-ibus-hangul-e2e|terminal-ime-engagement-receipt)\.mjs$|tests\/e2e\/terminal-ime-(?:boundary-probe|byte-reader|engagement-receipt)\.ts$|tests\/e2e\/terminal-(?:ibus-hangul|hangul-terminating-digit|macos-2set-korean)-native\.spec\.ts$)/
+
+/** Managed-SSH harness helpers; every managed-SSH spec runs in one job, so any route may claim them. */
+const MANAGED_SSH_HARNESS =
+  /^tests\/e2e\/helpers\/(?:orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-template-variant|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/
 
 export const PR_E2E_SOURCE_ROUTES = [
   {
@@ -109,11 +112,23 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-auto-convert',
     specs: ['tests/e2e/ssh-orcad-auto-convert.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:orcad-convert-(?:flow|host)|orcad-template-variant|orcad-upgrade-profile)\.ts$/.test(
+      MANAGED_SSH_HARNESS.test(file) ||
+      (isProductSource(file) &&
+        /^src\/main\/(?:ipc\/ssh-host-server-|ssh\/(?:ssh-host-server-|orcad-runtime-conversion|orcad-migration-|orcad-retained-source|orcad-runtime-deployment))/.test(
+          file
+        ))
+  },
+  // COMPAT(legacy-relay-bridge): revisit 2027-01-15 with src/main/ssh/legacy-relay-bridge/.
+  {
+    id: 'ssh.orcad-legacy-relay-bridge',
+    specs: ['tests/e2e/ssh-orcad-legacy-relay-bridge.spec.ts'],
+    matches: (file) =>
+      MANAGED_SSH_HARNESS.test(file) ||
+      /^tests\/e2e\/(?:helpers\/(?:legacy-relay-docker-host|build-released-relay-bundle)|cross-version-wire\/released-relay-(?:daemon|transport))\.m?ts$/.test(
         file
       ) ||
       (isProductSource(file) &&
-        /^src\/main\/(?:ipc\/ssh-host-server-|ssh\/(?:ssh-host-server-|orcad-runtime-conversion|orcad-migration-|orcad-retained-source|orcad-runtime-deployment))/.test(
+        /(?:legacy-relay-bridge|orcad-migration-terminal-gate|ssh-host-relay-terminals-on-connect)/.test(
           file
         ))
   },
@@ -148,9 +163,8 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-browser-drop-owner',
     specs: ['tests/e2e/ssh-orcad-browser-drop-owner.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target|browser-split-(?:guest-probes|page-server))\.ts$/.test(
-        file
-      ) ||
+      MANAGED_SSH_HARNESS.test(file) ||
+      /^tests\/e2e\/helpers\/browser-split-(?:guest-probes|page-server)\.ts$/.test(file) ||
       (isProductSource(file) &&
         /^src\/renderer\/src\/(?:lib\/(?:file-preview|workspace-file-drag|worktree-runtime-owner|connection-context)\.ts|components\/(?:right-sidebar\/FileExplorer(?:Row|VirtualRows)\.tsx|browser-pane\/(?:navigate\/use-browser-page-navigation-downloads\.ts|host-guest\/attach-browser-page-webview\.ts)))$/.test(
           file
@@ -160,9 +174,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-open-in-owner',
     specs: ['tests/e2e/ssh-orcad-open-in-owner.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/.test(
-        file
-      ) ||
+      MANAGED_SSH_HARNESS.test(file) ||
       (isProductSource(file) &&
         /^src\/renderer\/src\/(?:lib\/(?:local-path-open-guard|external-editor-open-capability|worktree-runtime-owner)\.ts|components\/(?:sidebar\/(?:WorktreeOpenInMenu|WorktreeContextMenuView)\.tsx|right-sidebar\/(?:FileExplorer(?:Toolbar)?\.tsx|source-control\/listing\/entry-context-menu\.tsx)))$/.test(
           file
@@ -172,9 +184,8 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-terminal-root-owner',
     specs: ['tests/e2e/ssh-orcad-terminal-root-owner.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:terminal-workspace-root-link|orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|docker-ssh-host-target)\.ts$/.test(
-        file
-      ) ||
+      MANAGED_SSH_HARNESS.test(file) ||
+      file === 'tests/e2e/helpers/terminal-workspace-root-link.ts' ||
       (isProductSource(file) &&
         /^src\/renderer\/src\/(?:components\/terminal-pane\/terminal-(?:worktree-path-link|file-link-actions|file-link-hit-testing|file-open-routing|link-handlers)\.ts|lib\/(?:workspace-file-host-routing|worktree-owner-route|worktree-operation-route|worktree-operation-catalog-route)\.ts)$/.test(
           file
@@ -184,7 +195,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     id: 'ssh.orcad-idle-exit',
     specs: ['tests/e2e/ssh-orcad-idle-exit.spec.ts'],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/orcad-convert-(?:flow|host)\.ts$/.test(file) ||
+      MANAGED_SSH_HARNESS.test(file) ||
       (isProductSource(file) &&
         /^src\/(?:main\/(?:orcad\/orcad-(?:idle-|managed-idle-)|ssh\/orcad-(?:managed-serving|managed-wake|managed-tunnel|recovery-slot|remote-launch|remote-runtime-control))|shared\/orcad-idle-exit)/.test(
           file
@@ -199,7 +210,8 @@ export const PR_E2E_SOURCE_ROUTES = [
       'tests/e2e/ssh-orcad-vm-provisioned-root.spec.ts'
     ],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/(?:orcad-managed-workspace|orcad-convert-(?:flow|host)|orcad-upgrade-profile|paired-host-terminal|terminal-workspace-root-link)\.ts$/.test(
+      MANAGED_SSH_HARNESS.test(file) ||
+      /^tests\/e2e\/helpers\/(?:paired-host-terminal|terminal-workspace-root-link)\.ts$/.test(
         file
       ) ||
       (isProductSource(file) &&
@@ -273,7 +285,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     specs: ['tests/e2e/paired-quick-open-large-tree.spec.ts'],
     matches: (file) =>
       isProductSource(file) &&
-      /^(?:src\/main\/ipc\/filesystem-(?:list-files|search-file-paths)\.ts|src\/main\/ripgrep\/bundled-ripgrep-path\.ts|src\/main\/providers\/(?:filesystem-provider-contract|ssh-filesystem-provider(?:-capabilities)?)\.ts|src\/main\/runtime\/(?:orca-runtime-files|rpc\/methods\/files)\.ts|src\/renderer\/src\/(?:components\/(?:QuickOpen|quick-open-file-list|quick-open-search)\.tsx?|runtime\/(?:runtime-file-client|runtime-legacy-quick-open-inventory)\.ts)|src\/shared\/(?:quick-open-(?:install-rg|path-search|transport-budget)|ripgrep-process-availability|bundled-ripgrep)\.ts)$/.test(
+      /^(?:src\/main\/ipc\/filesystem-(?:list-files|search-file-paths)\.ts|src\/main\/ripgrep\/bundled-ripgrep-path\.ts|src\/main\/providers\/(?:filesystem-provider-contract|ssh-filesystem-provider(?:-capabilities)?)\.ts|src\/main\/runtime\/(?:orca-runtime-files|rpc\/methods\/files)\.ts|src\/renderer\/src\/(?:components\/(?:QuickOpen|quick-open-file-list|quick-open-search)\.tsx?|runtime\/(?:runtime-file-search-client|runtime-legacy-quick-open-inventory)\.ts)|src\/shared\/(?:quick-open-(?:install-rg|path-search|transport-budget)|ripgrep-process-availability|bundled-ripgrep)\.ts)$/.test(
         file
       )
   },
@@ -325,7 +337,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     specs: ['tests/e2e/paired-remote-terminal-serve-restart-binding.spec.ts'],
     matches: (file) =>
       isProductSource(file) &&
-      /^(?:src\/main\/daemon\/(?:daemon-attach-only-retirement|daemon-pty-applied-size|daemon-pty-session-control|daemon-pty-spawn-result)\.ts|src\/renderer\/src\/components\/terminal-pane\/(?:remote-runtime-pty-transport|terminal-error-accumulation)\.ts|src\/renderer\/src\/runtime\/(?:web-runtime-session|web-session-tabs-sync|web-session-terminal-orphan-(?:topology|recovery(?:-(?:adoption|surface|inventory|inventory-validation|cache|queue|rpc-lane|pane))?))\.ts)$/.test(
+      /^(?:src\/main\/daemon\/(?:daemon-attach-only-retirement|daemon-pty-applied-size|daemon-pty-session-control|daemon-pty-spawn-result)\.ts|src\/renderer\/src\/components\/terminal-pane\/(?:remote-runtime-pty-transport|terminal-error-accumulation)\.ts|src\/renderer\/src\/runtime\/(?:web-runtime-terminal-creation|web-runtime-session-tab-lifecycle|web-session-tabs-sync\/use-web-session-tabs-sync|web-session-terminal-orphan-(?:topology|recovery(?:-(?:adoption|surface|inventory|inventory-validation|cache|queue|rpc-lane|pane))?))\.ts)$/.test(
         file
       )
   },
@@ -355,7 +367,7 @@ export const PR_E2E_SOURCE_ROUTES = [
     specs: ['tests/e2e/paired-remote-pane-layout-retry.spec.ts'],
     matches: (file) =>
       isProductSource(file) &&
-      /^(?:src\/renderer\/src\/components\/terminal-pane\/(?:remote-pane-layout-push|TerminalPane)\.tsx?|src\/renderer\/src\/lib\/terminal-layout-equality\.ts|src\/renderer\/src\/runtime\/web-session-tabs-sync\.ts|src\/renderer\/src\/store\/slices\/terminals\.ts)$/.test(
+      /^(?:src\/renderer\/src\/components\/terminal-pane\/(?:remote-pane-layout-push|TerminalPane)\.tsx?|src\/renderer\/src\/lib\/terminal-layout-equality\.ts|src\/renderer\/src\/runtime\/web-session-tabs-sync\/use-web-session-tabs-sync\.ts|src\/renderer\/src\/store\/slices\/terminals\.ts)$/.test(
         file
       )
   },
@@ -384,31 +396,6 @@ export const PR_E2E_SOURCE_ROUTES = [
       /^src\/.*(?:[Cc]lient-?[Hh]osted|browser-host-(?:lease|page|client-page)|browser-client-(?:host|page)|runtime-browser-(?:client-)?page|session-tabs-sync|host-session-snapshot-authority|orca-runtime(?:-browser)?\.ts|\/runtime-(?:status|types)\.ts)/.test(
         file
       )
-  },
-  {
-    // Why: the oracle is the only check that reads every view of the stored layout back. Runtime
-    // matches only the modules that create, move, close, persist or publish layout, not every
-    // session or terminal file, so the orcad build and Docker SSH lane stay off unrelated work.
-    id: 'workspace-layout.oracle',
-    specs: [
-      'tests/e2e/workspace-layout-oracle-headless.spec.ts',
-      'tests/e2e/workspace-layout-oracle.spec.ts'
-    ],
-    matches: (file) =>
-      isLayoutOracleSource(file) &&
-      /^(?:src\/shared\/workspace-layout\/|src\/main\/persistence\/(?:terminal-topology\/|restoring-sessions\/|loading-store\/pty-binding-)|src\/(?:main|renderer\/src)\/runtime\/(?:[^/]+\/)*[^/]*(?:pane-admission|workspace-layout|session-tab|headless-[^/]*tab|layout-client|create-terminal|split-pty-backed-terminal|terminal-split-layout|spawn-placement)[^/]*\.ts$|tests\/e2e\/(?:helpers\/)?(?:workspace-layout-oracle|headless-layout-oracle|terminal-layout-journeys))/.test(
-        file
-      )
-  },
-  {
-    // The window's tab store reaches SSH through the same layout writers, so not the SSH lane.
-    id: 'workspace-layout.oracle-tab-store',
-    specs: [
-      'tests/e2e/workspace-layout-oracle-headless.spec.ts',
-      'tests/e2e/workspace-layout-oracle.spec.ts'
-    ],
-    matches: (file) =>
-      isLayoutOracleSource(file) && file.startsWith('src/renderer/src/store/slices/tabs')
   }
 ]
 
@@ -420,7 +407,12 @@ export function selectPrE2eSpecs(
   const routePaths = isDaemonInitTestSupportChange(changedPaths, allowDaemonInitTestSupport)
     ? changedPaths.filter((file) => file !== DAEMON_INIT_TEST_SUPPORT)
     : changedPaths
-  const specs = new Set(changedPaths.filter((file) => /^tests\/e2e\/.*\.spec\.ts$/.test(file)))
+  // The required layout_oracle job owns the oracle specs; running them here too would double the cost.
+  const specs = new Set(
+    changedPaths.filter(
+      (file) => /^tests\/e2e\/.*\.spec\.ts$/.test(file) && !LAYOUT_ORACLE_E2E_SPECS.includes(file)
+    )
+  )
   for (const route of PR_E2E_SOURCE_ROUTES) {
     const matchedFiles = routePaths.filter(route.matches)
     if (matchedFiles.length === 0) {

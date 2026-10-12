@@ -150,6 +150,12 @@ test('preflight keeps both of its rules', () => {
   const preflight = releaseJobs.get('preflight')
   assert.ok(preflight.includes(String.raw`if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mercurai\.[0-9]+$ ]]; then`))
   assert.match(preflight, /if \[ "\$publish" = "true" \] && \[ -n "\$REF_INPUT" \]; then\n[^\n]*\n\s+exit 1\n/)
+  // publish=true keeps latest.yml and skips the dry-run strip, so it is set by the same rule as the publish gate.
+  assert.match(
+    preflight,
+    /\n\s+publish=false\n\s+if \[ "\$DRY_RUN" != "true" \] && \[ "\$DISPATCH_REF" = "refs\/heads\/\$DEFAULT_BRANCH" \]; then\n\s+publish=true\n\s+fi\n/
+  )
+  assert.equal(preflight.match(/publish=true/g).length, 1)
   // A run from the default branch writes the caches a release restores: it builds tags only.
   assert.match(
     preflight,
@@ -225,7 +231,9 @@ test('every action the release runs is pinned by commit', () => {
     ['template', template]
   ]) {
     for (const [, action] of code(workflow).matchAll(/^\s+(?:- )?uses: (\S+)/gm)) {
-      if (action === './.github/workflows/fork-orcad-template.yml') continue
+      if (action === './.github/workflows/fork-orcad-template.yml') {
+        continue
+      }
       assert.match(action, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, `${name} uses ${action}`)
     }
   }
@@ -293,6 +301,11 @@ test('every build checks the manifest and smokes the installer before upload', (
   assert.match(smokeStep, /\$env:LOCALAPPDATA = Join-Path \$root/)
   assert.ok(smokeStep.includes(String.raw`$_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '\.[cm]?js\b'`))
   assert.match(smokeStep, /if \(\$main\.Count -eq 0\) \{/)
+  // A main process held open by Electron's start-up error dialog has no renderer.
+  assert.ok(smokeStep.includes(`$renderers = @($running | Where-Object { $_.CommandLine -match '--type=renderer' })`))
+  assert.match(smokeStep, /if \(\$renderers\.Count -eq 0\) \{ throw/)
+  // Only the app's own logs reach the public job log, never the binary LevelDB profile.
+  assert.match(smokeStep, /Get-ChildItem \(Join-Path \$userData 'logs'\) -Recurse/)
   assert.match(smokeStep, /if \(\$dumps\.Count -gt 0\) \{ throw/)
   assert.match(smokeStep, /if \(\$appCrashes\.Count -gt 0\) \{ throw/)
   assert.match(smokeStep, /if \(\$werFaults\.Count -gt 0\) \{ throw/)
@@ -318,4 +331,26 @@ test('a dry run keeps no update manifest and marks the installer', () => {
   )
   assert.match(releaseUpload, /if: needs\.preflight\.outputs\.publish == 'true'/)
   assert.match(releaseUpload, /dist\/latest\.yml/)
+})
+
+// A template that ships is required and checked inside the packaged app, not skipped quietly.
+test('a shipping template is required at packaging and checked in the unpacked app', () => {
+  const build = releaseJobs.get('build-win')
+  const at = (name) => build.indexOf(`- name: ${name}`)
+  const stepAt = (start) => build.slice(start, build.indexOf('\n      - ', start + 1))
+  const packaging = stepAt(at('Build the Windows installer'))
+  assert.match(packaging, /SHIPS_ORCAD_TEMPLATE: \$\{\{ needs\.orcad-template\.outputs\.ships \}\}/)
+  assert.match(packaging, /ORCAD_TEMPLATE_TARGETS: \$\{\{ needs\.orcad-template\.outputs\.targets \}\}/)
+  assert.match(
+    packaging,
+    /if \[ "\$SHIPS_ORCAD_TEMPLATE" = "true" \]; then\n\s+export ORCA_REQUIRE_ORCAD_TEMPLATE=1\n\s+export ORCA_ORCAD_TEMPLATE_TARGETS="\$ORCAD_TEMPLATE_TARGETS"\n\s+fi\n/
+  )
+  const check = stepAt(at('Check the packaged orcad template'))
+  assert.ok(at('Check the packaged orcad template') > at('Build the Windows installer'))
+  assert.match(check, /if: needs\.orcad-template\.outputs\.ships == 'true'/)
+  assert.match(check, /ORCAD_TEMPLATE_TARGETS: \$\{\{ needs\.orcad-template\.outputs\.targets \}\}/)
+  assert.match(check, /--resources dist\/win-unpacked\/resources/)
+  assert.match(check, /--targets "\$ORCAD_TEMPLATE_TARGETS"/)
+  assert.match(check, /\n\s+grep -q '\^orcad template ok: ' <<<"\$report"\n/)
+  assert.doesNotMatch(check, /continue-on-error/)
 })

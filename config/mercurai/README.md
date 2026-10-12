@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-08.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-12.
 
 ## Branches
 
@@ -44,12 +44,13 @@ series.
 ## Workflows (all in the fork only, never sent upstream)
 
 - `fork-sync-upstream`: hourly. Fast-forwards `main` to `upstream/main` (a non-fast-forward push
-  fails the run; `main` never carries fork commits), mirrors tags (a moved tag is rejected, not
-  forced), dispatches `fork-rebase-patches` for the newest new tag (a stable `vX.Y.Z` wins over an
+  fails the run; `main` never carries fork commits), mirrors new upstream release tags
+  (`vX.Y.Z` and `vX.Y.Z-rc.N` names only; a tag the fork holds is never moved, a moved one warns), dispatches `fork-rebase-patches` for the newest new tag (a stable `vX.Y.Z` wins over an
   `-rc.N`; one dispatch per run), then merges `main` into `mercurai` (a conflict opens a
   `fork-sync` issue and fails the run; the tags were already handed on).
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
-  tag, runs its tests, pushes with `--force-with-lease` (patch branches are the only branches where
+  tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
+  `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where
   force is allowed), and when every patch rebased, records the base and marks patches the tag
   already carries. Daily without a tag it dry-rebases onto `upstream/main` and reports; a conflict
   opens or updates a `patch-conflict` issue naming the files. `rerere` is on, so a resolution done
@@ -82,7 +83,8 @@ series.
   builds as before (upstream's template scripts exist there, but that line was always released
   without one), and a ref at v1.4.224 or later without the patch fails the build. To add a
   target: add its build lane to `fork-orcad-template` first, then widen the list; a host on a
-  target outside the list gets no managed server and falls back to the legacy relay.
+  target outside the list gets no managed server and falls back to the legacy relay. A widened
+  list ships only with a new app version: the desktop keys its unsupported-host record by version.
 - `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch; no secret,
   no repository code), `orcad-template` and `build-win` (build and package the ref's code; no
   secret), `publish` (the only job given `FORK_BOT_TOKEN`; runs no repository code, only uploads
@@ -97,7 +99,8 @@ series.
   so nothing in it can be served as an update. `-f ref=<branch>` (dry run only) builds that ref
   under the tag's version. A dispatch from a branch other than the default branch is always a
   dry run.
-- `fork-scripts-test`: on a push or PR that touches `config/mercurai/`, runs the fork scripts'
+- `fork-scripts-test`: on a push or PR that touches `config/mercurai/` or any
+  `.github/workflows/fork-*.yml`, runs the fork scripts'
   own tests (`test-fork-series-scripts.sh`, `node --test "config/mercurai/scripts/*.test.mjs"`).
 
 Report-only runs: `dry_run=true`, or any dispatch from a branch other than the default branch,
@@ -144,7 +147,8 @@ Trust boundary:
    token) for `mercurai/orca` with Contents, Workflows, Issues and Actions write. `GITHUB_TOKEN`
    is not enough: it cannot push commits that touch `.github/workflows`, and upstream changes those
    in most releases, so the hourly merge-forward would fail; its pushes also trigger no workflow.
-   Every job fails at its first step while the secret is missing.
+   Only the jobs that write (the push and publish jobs, and the sync) use it, and they fail while
+   it is missing.
 2. Scheduled workflows in a fork are disabled until enabled once in the Actions tab ("Enable
    workflow" on each `fork-*` workflow), or via
    `gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/enable`.

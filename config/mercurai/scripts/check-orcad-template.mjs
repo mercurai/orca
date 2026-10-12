@@ -9,7 +9,7 @@
 import { existsSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
 /** Problems found, one line each; empty when the template can be shipped. */
 export async function checkOrcadTemplate({ repoRoot, resourcesDir, targets, required = [] }) {
@@ -74,7 +74,7 @@ export function parseArguments(argv) {
 function runsAsScript() {
   try {
     return (
-      realpathSync.native(fileURLToPath(import.meta.url)) === realpathSync.native(process.argv[1])
+      realpathSync.native(import.meta.filename) === realpathSync.native(process.argv[1])
     )
   } catch {
     return false
@@ -91,10 +91,8 @@ if (runsAsScript()) {
       }
       process.exit(1)
     }
-    console.log(
-      `orcad template ok: ${options.targets.join(',')} under ${options.resourcesDir}` +
-        (options.required.length ? `; requires ${options.required.join(',')}` : '')
-    )
+    const requires = options.required.length ? `; requires ${options.required.join(',')}` : ''
+    console.log(`orcad template ok: ${options.targets.join(',')} under ${options.resourcesDir}${requires}`)
   } catch (error) {
     console.error(`::error::${error instanceof Error ? error.message : String(error)}`)
     process.exit(2)
