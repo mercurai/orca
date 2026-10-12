@@ -236,6 +236,7 @@ elif grep -qF "does not contain v1.0.1" "$root/log" && ! git -C "$root/work" rev
 
 # 17. assemble: numbering counts the fork's own tags (numerically); a name only upstream holds is ignored.
 fx_setup; fx_patch a v1.0.1
+git remote add upstream "$root/up.git"   # a reintroduced `git fetch upstream --tags` would pull the upstream-only name
 git push -q origin v1.0.1:refs/tags/v1.0.1-mercurai.2 v1.0.1:refs/tags/v1.0.1-mercurai.10
 git push -q "$root/up.git" v1.0.1:refs/tags/v1.0.1-mercurai.50
 fx_manifest v1.0.1 release/mercurai patch/a=v1.0.1
@@ -243,11 +244,14 @@ if run_assemble v1.0.1 && [ "$(out_of release_tag)" = v1.0.1-mercurai.11 ]; then
   pass "assemble numbers from the fork's tags and ignores upstream-only names"; else fail "assemble numbers from the fork's tags and ignores upstream-only names"; cat "$root/log"; fi
 
 # 18. assemble: a release tag only upstream holds is not one the fork can build.
-fx_setup; fx_patch a v1.0.1
-git push -q "$root/up.git" fork:refs/tags/v1.0.2
+# patch/a sits on v1.0.2, so only the tag-source check can fail the run.
+fx_setup; git remote add upstream "$root/up.git"
+git commit -q --allow-empty -m "upstream 1.0.2"; git tag v1.0.2; fx_patch a v1.0.2
+git push -q "$root/up.git" refs/tags/v1.0.2; git tag -d v1.0.2 >/dev/null; git reset -q --hard v1.0.1
 fx_manifest v1.0.2 release/mercurai patch/a=v1.0.2
 if run_assemble v1.0.2; then fail "assemble refuses a tag the fork does not hold"
-elif [ ! -s "$GITHUB_OUTPUT" ] && ! git -C "$root/work" rev-parse -q --verify refs/heads/release/mercurai >/dev/null; then
+elif grep -qF "::error::the fork has no tag v1.0.2; fork-sync-upstream mirrors it first" "$root/log" && [ ! -s "$GITHUB_OUTPUT" ] &&
+     ! git -C "$root/work" rev-parse -q --verify refs/heads/release/mercurai >/dev/null; then
   pass "assemble refuses a tag the fork does not hold"; else fail "assemble refuses a tag the fork does not hold"; fi
 
 # 19. assemble: branch names the push job would force-push are refused up front.

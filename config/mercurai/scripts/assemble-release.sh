@@ -13,7 +13,8 @@ git config user.email 'fork-bot@users.noreply.github.com'
 # The fork's tags only: fork-sync-upstream mirrors each release tag once and never moves it, and
 # the mercurai.N numbering below must count the fork's releases, not names upstream invents.
 git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' --tags
-git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null
+git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null ||
+  { echo "::error::the fork has no tag $TAG; fork-sync-upstream mirrors it first"; exit 1; }
 echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }
 
 # The release branch starts from the upstream tag, which has no config/mercurai/, so every later read uses this copy.
