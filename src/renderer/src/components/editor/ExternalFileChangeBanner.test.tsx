@@ -15,7 +15,7 @@ vi.mock('@/store', () => ({
 vi.mock('@/runtime/runtime-file-read-client', () => ({
   readRuntimeFileContent: readRuntimeFileContentMock
 }))
-vi.mock('@/runtime/runtime-rpc-client', () => ({}))
+
 vi.mock('@/lib/connection-context', () => ({
   // Why: the floating workspace is always client-local; other owners are still loading.
   getConnectionIdForFile: (worktreeId: string) =>

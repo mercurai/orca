@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { requireGitOwnerTarget } from '../../worktree-git-owner-target'
-import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../../../shared/runtime-client-target'
 import { installWindowVisibilityInterval } from '@/lib/window-visibility-interval'
 import { getConnectionId } from '@/lib/connection-context'
 import { getRuntimeGitBranchCompare } from '@/runtime/runtime-git-diff-client'

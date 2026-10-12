@@ -1,9 +1,6 @@
 import { callHostRoute } from '@/runtime/host-route-call'
-import {
-  hostRouteForAuthority,
-  runtimeTargetEnvironmentId,
-  type RuntimeClientTarget
-} from '@/runtime/runtime-client-target'
+import { hostRouteForAuthority, runtimeTargetEnvironmentId } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { RuntimeFileOperationArgs } from '@/runtime/runtime-file-client-types'
 import { statRuntimePath } from '@/runtime/runtime-file-metadata-client'
 import { isRemoteRuntimeFileOperation } from '@/runtime/runtime-file-routing'

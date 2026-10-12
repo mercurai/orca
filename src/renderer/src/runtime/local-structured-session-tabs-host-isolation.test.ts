@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-types'
 import { toRuntimeExecutionHostId, toSshExecutionHostId } from '../../../shared/execution-host'
 import { toWebTerminalSurfaceTabId } from '../../../shared/terminal-surface-id'
-import {
-  applyLocalStructuredSessionTabSnapshots,
-  projectLocalStructuredSessionTabs
-} from './local-structured-session-tabs-sync'
+import { applyLocalStructuredSessionTabSnapshots } from './local-structured-session-tabs-sync/snapshot-apply'
+import { projectLocalStructuredSessionTabs } from './local-structured-session-tabs-sync/snapshot-projection'
 import { applyWebSessionTabsSnapshot } from './web-session-tabs-sync/snapshot-api'
 import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
 import {

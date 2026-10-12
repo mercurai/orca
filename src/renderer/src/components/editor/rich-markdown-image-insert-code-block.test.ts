@@ -30,8 +30,6 @@ vi.mock('@/store', () => ({
   }
 }))
 
-vi.mock('@/runtime/runtime-rpc-client', () => ({}))
-
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), info: vi.fn() }
 }))

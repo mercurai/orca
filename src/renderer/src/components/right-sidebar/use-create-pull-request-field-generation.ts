@@ -1,5 +1,5 @@
 import { useCallback, useEffect, type Dispatch, type RefObject, type SetStateAction } from 'react'
-import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import { getConnectionId } from '@/lib/connection-context'
 import { useAppStore, type AppState } from '@/store'
 import {

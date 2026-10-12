@@ -1,4 +1,4 @@
-import type { WorktreeRuntimeOwnerState } from '../lib/worktree-runtime-owner'
+import type { WorktreeRuntimeOwnerState } from '../lib/worktree-runtime-owner-state'
 import { folderWorkspaceKey } from '../../../shared/workspace-scope'
 import type { WebSessionTabsSyncState } from './web-session-tabs-sync/state'
 
