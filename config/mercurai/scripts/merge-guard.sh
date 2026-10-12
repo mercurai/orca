@@ -6,9 +6,11 @@
 # A workflow or fork script upstream edits runs with the fork's secrets once the fork pushes it, so
 # such a range waits for the owner (claude-code-config#1148).
 #
-# Usage: merge-guard.sh <fork ref> <upstream ref>
-# Out:   stdout lists the guarded paths, at most 50. Exit 0: merge. Exit 3: refused. Other: error.
-# Env:   ALLOW_GUARDED_MERGE=true lists the paths and exits 0 (the owner reviewed the range).
+# Usage: merge-guard.sh <fork ref> <upstream commit>
+# Out:   stdout lists the guarded paths, at most 50, odd characters shown as ? (upstream picks the
+#        names). Exit 0: merge. Exit 3: refused. Exit 4: guarded, but the owner allowed this commit.
+# Env:   ALLOWED_SHA, the full sha of the upstream commit the owner reviewed; any other value, a
+#        short sha, or a sha that is not <upstream commit> allows nothing.
 set -euo pipefail
 fork=$1 upstream=$2
 base=$(git merge-base "$fork" "$upstream")
@@ -17,11 +19,12 @@ if [ -z "$paths" ]; then
   echo "no guarded path in $base..$upstream"
   exit 0
 fi
-count=$(echo "$paths" | wc -l)
-echo "$paths" | head -50
+count=$(printf '%s\n' "$paths" | wc -l)
+printf '%s\n' "$paths" | head -50 | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'
 if [ "$count" -gt 50 ]; then echo "... and $((count - 50)) more"; fi
-if [ "${ALLOW_GUARDED_MERGE:-}" = "true" ]; then
-  echo "::warning::$count guarded path(s) in the range; merging because the owner allowed it"
-  exit 0
+sha=$(git rev-parse "$upstream^{commit}")
+if [[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$sha" ]]; then
+  echo "::warning::$count guarded path(s) in the range; merging because the owner allowed $sha"
+  exit 4
 fi
 exit 3

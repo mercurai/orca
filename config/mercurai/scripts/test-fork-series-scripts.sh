@@ -388,13 +388,36 @@ guard_expect "guard: a rename out of a guarded path is refused" 3 .github/workfl
 guard_setup; git rm -q config/mercurai/keep.md; git commit -qm "delete"
 guard_expect "guard: a delete in a guarded path is refused" 3 config/mercurai/keep.md
 
-# 33. The owner's override merges but still lists the paths; any other value does not.
+# 33. The owner's override is the full sha of the commit that is merged: it merges (exit 4) and still lists the paths.
+# true, a short sha, and the sha of an older reviewed commit, with upstream moved on since, all refuse.
 guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
-export ALLOW_GUARDED_MERGE=true
-guard_expect "guard: ALLOW_GUARDED_MERGE=true lets a reviewed range merge" 0 .github/workflows/evil.yml
-export ALLOW_GUARDED_MERGE=1
+reviewed=$(git rev-parse up)
+export ALLOWED_SHA=$reviewed
+guard_expect "guard: the full sha of the reviewed commit lets it merge" 4 .github/workflows/evil.yml
+export ALLOWED_SHA=true
 guard_expect "guard: any other override value still refuses" 3 .github/workflows/evil.yml
-unset ALLOW_GUARDED_MERGE
+export ALLOWED_SHA=${reviewed:0:12}
+guard_expect "guard: a short sha still refuses" 3 .github/workflows/evil.yml
+export ALLOWED_SHA=$reviewed
+commit .github/workflows/steal.yml steal "upstream moved on after the review"
+guard_expect "guard: an older reviewed sha refuses a range that moved on" 3 .github/workflows/steal.yml
+unset ALLOWED_SHA
+
+# 33b. A path name with a CR, "::" and a backtick is refused and printed without any of them.
+guard_setup; commit $'config/mercurai/a\r::error::x`b' x "hostile name"
+guard_expect "guard: a hostile path name is refused" 3 'config/mercurai/a???error??x?b'
+if ! grep -q $'\r' "$root/guard.out" && ! grep -q '`' "$root/guard.out"; then pass "guard: the printed list has no CR and no backtick"; else fail "guard: the printed list has no CR and no backtick"; fi
+
+# 33c. A range that nets to no guarded change passes; the fork then takes its first half in a reviewed merge, and the
+# merge of the second half changes the workflow: the result check refuses it, though the guard judged the old base.
+guard_setup; commit .github/workflows/ci.yml A "u1"; commit .github/workflows/ci.yml ci "u2 reverts u1"
+guard_expect "guard: a range that nets to no guarded change passes" 0
+git checkout -q fork; git merge -q --no-edit up~1; before=$(git rev-parse HEAD); git merge -q --no-edit up
+rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && grep -qxF .github/workflows/ci.yml "$root/guard.out"; then pass "result guard: a merge that moved the base is refused"; else fail "result guard: a merge that moved the base is refused"; cat "$root/guard.out"; fi
+guard_setup; commit docs/up.md up "upstream docs"; git checkout -q fork; before=$(git rev-parse HEAD); git merge -q --no-edit up
+rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ]; then pass "result guard: a merge outside the guarded paths passes"; else fail "result guard: a merge outside the guarded paths passes"; cat "$root/guard.out"; fi
 
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
