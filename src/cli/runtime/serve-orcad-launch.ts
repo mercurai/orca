@@ -12,6 +12,7 @@ import {
 } from '../../shared/orcad-local-serve-selection'
 import { waitForRecipeJson } from './serve-recipe-json'
 import { superviseForegroundServe } from './serve-update-supervisor'
+import { isSupervisedSpawnHeld } from './serve-supervised-stop'
 
 type SupervisorArgs = Parameters<typeof superviseForegroundServe>[0]
 
@@ -108,6 +109,9 @@ export function serveWithOrcad(
       ORCA_USER_DATA: userDataPath,
       ORCA_VERSION: selection.version
     }
+  }
+  if (isSupervisedSpawnHeld()) {
+    return Promise.resolve(0)
   }
   const child = spawnChild(selection.runtime, childArgs, spawnOptions)
   if (args.recipeJson) {

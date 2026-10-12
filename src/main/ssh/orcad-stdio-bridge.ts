@@ -1,5 +1,4 @@
 /** Which command runs the stdio bridge on a host, and whether it can run there at all. */
-import type { ClientChannel } from 'ssh2'
 import {
   OrcadHostUnsupportedError,
   OrcadStdioBridgeUnavailableError
@@ -12,6 +11,7 @@ import {
 } from './orcad-stdio-bridge-script'
 import { OrcadStdioBridgeDecoder, type OrcadStdioBridgeSignal } from './orcad-stdio-bridge-stream'
 import type { OrcadHostTransport } from './orcad-host-transport'
+import type { RemoteCommandChannel } from './remote-install-transport'
 import { isWindowsRemoteHost } from './ssh-remote-platform'
 import { detectRemoteHostPlatform } from './ssh-remote-platform-detection'
 
@@ -49,11 +49,11 @@ export async function resolveOrcadStdioBridge(
 export function openOrcadStdioBridgeChannel(
   conn: OrcadHostTransport,
   bridge: OrcadStdioBridge
-): Promise<ClientChannel> {
+): Promise<RemoteCommandChannel> {
   return conn.exec(bridge.command, { wrapCommand: bridge.wrapCommand })
 }
 
-function closeQuietly(channel: ClientChannel): void {
+function closeQuietly(channel: RemoteCommandChannel): void {
   try {
     channel.close()
   } catch {
@@ -70,7 +70,7 @@ export async function checkOrcadStdioBridge(
   bridge: OrcadStdioBridge,
   timeoutMs = ORCAD_STDIO_BRIDGE_CHECK_TIMEOUT_MS
 ): Promise<'running' | 'unverifiable'> {
-  let channel: ClientChannel
+  let channel: RemoteCommandChannel
   try {
     channel = await openOrcadStdioBridgeChannel(conn, bridge)
   } catch {
