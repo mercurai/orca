@@ -36,7 +36,7 @@ const SECRET = /\bsecrets\b|\$\{\{[^}]*\bsecrets\b/
 const DEFAULT_REF = "github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai')"
 const WORKFLOWS = [
   ['fork-assemble-release.yml', `\${{ ${DEFAULT_REF} && !inputs.dry_run }}`],
-  ['fork-rebase-patches.yml', `\${{ !cancelled() && inputs.tag != '' && ${DEFAULT_REF} }}`]
+  ['fork-rebase-patches.yml', `\${{ !cancelled() && inputs.tag != '' && !inputs.dry_run && ${DEFAULT_REF} }}`]
 ]
 
 for (const [file, pushGate] of WORKFLOWS) {
@@ -112,7 +112,7 @@ for (const [file, pushGate] of WORKFLOWS) {
 
 test('the push jobs push only what they derived and matched against what was tested', () => {
   const assemble = jobsOf(read('fork-assemble-release.yml')).get('push')
-  assert.match(assemble, /bash \/tmp\/assemble-release\.sh\n/)
+  assert.match(assemble, /bash \/tmp\/fork-scripts\/assemble-release\.sh\n/)
   assert.match(assemble, /if \[ "\$tree" != "\$TESTED_TREE" \] \|\| \[ "\$branch" != "\$TESTED_BRANCH" \]; then\n[^\n]*\n\s+exit 1\n/)
   const rebase = jobsOf(read('fork-rebase-patches.yml')).get('push')
   assert.match(rebase, /bash \/tmp\/fork-scripts\/rebase-series\.sh\n/)
@@ -136,4 +136,36 @@ test('a step holding the token never builds a yq expression from shell values', 
   // The tag that reaches the manifest is a release or release-candidate name.
   const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
   assert.ok(fetch.includes(String.raw`if [[ ! "$TARGET" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then`))
+})
+
+// claude-code-config#1123: a dry run from the default branch and hand-ported heads.
+test('fork-rebase-patches: dry_run keeps the push job shut and reports from the token-free test job', () => {
+  const workflow = read('fork-rebase-patches.yml')
+  assert.match(workflow, /^ {6}dry_run:\n(?: {8}.*\n)*? {8}type: boolean\n {8}default: false\n/m)
+  const jobs = jobsOf(workflow)
+  assert.match(jobs.get('test'), /- name: Report the dry run\n {8}if: \$\{\{ inputs\.dry_run && inputs\.tag != '' && /)
+  assert.match(jobs.get('test'), /bash \/tmp\/fork-scripts\/record-series\.sh\n/)
+  // The test job's own failure gate treats a dry run as report-only even from the default branch.
+  assert.match(jobs.get('test'), /!\(inputs\.tag != '' && !inputs\.dry_run && github\.ref == /)
+  assert.doesNotMatch(code(jobs.get('push')), /dry_run/)
+})
+
+test('overrides reach the scripts as an env value only, and are checked strictly', () => {
+  for (const file of ['fork-rebase-patches.yml', 'fork-assemble-release.yml']) {
+    const text = code(read(file))
+    const uses = text.split('\n').filter((line) => line.includes('inputs.overrides'))
+    for (const line of uses) {
+      assert.match(line.trim(), /^(OVERRIDES: \$\{\{ inputs\.overrides \}\}|if: \$\{\{ inputs\.overrides != '' && .*\}\})$/, `${file}: ${line.trim()}`)
+    }
+    assert.ok(uses.some((line) => line.includes('OVERRIDES: ')), file)
+  }
+  // Release assembly takes overrides on a dry run only: the guard runs before anything is assembled.
+  const assemble = jobsOf(read('fork-assemble-release.yml'))
+  assert.match(assemble.get('test'), /- name: Overrides are for a dry run only\n {8}if: \$\{\{ inputs\.overrides != '' && github\.ref == [^\n]*&& !inputs\.dry_run \}\}\n/)
+  assert.doesNotMatch(code(assemble.get('push')), /OVERRIDES/)
+  const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
+  assert.ok(parse.includes(String.raw`^(patch/[A-Za-z0-9._/-]+)=([0-9a-f]{40})$`))
+  assert.ok(parse.includes('grep -qxF "$_branch" /tmp/active'))
+  assert.ok(parse.includes('is not fetchable from origin'))
+  assert.ok(parse.includes('does not contain $2'))
 })

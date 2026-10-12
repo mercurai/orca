@@ -22,6 +22,10 @@ on:
         description: Assemble and test, but push nothing
         type: boolean
         default: false
+      overrides:
+        description: 'Dry run only: hand-ported patch heads to assemble instead of origin/patch/*, as patch/<name>=<40-hex sha> pairs, comma or space separated. Each must contain the tag; the manifest base is not checked'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -54,13 +58,22 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Heads that no patch/* ref holds yet can only be assembled, never released.
+      - name: Overrides are for a dry run only
+        if: ${{ inputs.overrides != '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
+        run: |
+          echo "::error::overrides need dry_run, or a dispatch from a branch other than the default"
+          exit 1
+
       - name: Assemble the release branch
         id: assemble
+        env:
+          OVERRIDES: ${{ inputs.overrides }}
         run: |
           set -euo pipefail
           # Copied out first: the checkout moves to the tag, which has no config/mercurai/.
-          cp config/mercurai/scripts/assemble-release.sh /tmp/assemble-release.sh
-          bash /tmp/assemble-release.sh
+          cp -r config/mercurai/scripts /tmp/fork-scripts
+          bash /tmp/fork-scripts/assemble-release.sh
 
       - name: Tests named by the series
         id: tests
@@ -131,8 +144,8 @@ jobs:
           TESTED_TREE: ${{ needs.test.outputs.tree }}
         run: |
           set -euo pipefail
-          cp config/mercurai/scripts/assemble-release.sh /tmp/assemble-release.sh
-          bash /tmp/assemble-release.sh
+          cp -r config/mercurai/scripts /tmp/fork-scripts
+          bash /tmp/fork-scripts/assemble-release.sh
           tree=$(git rev-parse 'HEAD^{tree}')
           branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
           if [ "$tree" != "$TESTED_TREE" ] || [ "$branch" != "$TESTED_BRANCH" ]; then
