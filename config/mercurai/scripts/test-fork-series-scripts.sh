@@ -554,6 +554,49 @@ if [ "$ok" = true ] && [ "$xp_origin" = "refs/heads/main refs/heads/upstream/tip
 else fail "intermediate refs: a tag and a branch on a commit whose guarded paths differ from the pin are not pushed; the pin's are"; echo "$xp_origin"; cat "$root/xp/out."*; fi
 if grep -qF v9.9.9 "$root/xp/out.tags" && grep -qF mid "$root/xp/out.branches"; then pass "intermediate refs: the skipped ones are named in a warning"; else fail "intermediate refs: the skipped ones are named in a warning"; fi
 
+# 33k. mirror-allowed-tag.sh: the owner's allow_tag=<tag>@<sha> mirrors exactly that tag, or nothing. A release tag sits on a release
+# branch, so it is not inside the pin; v1.2.3 carries a workflow, v1.2.4 is the base commit.
+at_setup() {
+  rm -rf "$root/at"; mkdir -p "$root/at"; git init -q --bare "$root/at/origin.git"
+  printf '#!/bin/sh\necho push >> "%s/at/pushes"\n' "$root" > "$root/at/origin.git/hooks/pre-receive"; chmod +x "$root/at/origin.git/hooks/pre-receive"; : > "$root/at/pushes"
+  git init -q -b fork "$root/at/work"; cd "$root/at/work"; git remote add origin "$root/at/origin.git"
+  commit a.txt 1 "base"; b0=$(git rev-parse HEAD)
+  git checkout -q -b relbranch; mkdir -p .github/workflows; commit .github/workflows/r.yml r "release branch workflow"; r1=$(git rev-parse HEAD); git checkout -q fork
+  git update-ref refs/upstream-tags/v1.2.3 "$r1"; git update-ref refs/upstream-tags/v1.2.4 "$b0"
+  printf '%s v1.0.0\n' "$b0" > "$FORK_STATE_DIR/origin-tags"; rm -f "$FORK_STATE_DIR/tags-pushed"
+}
+at_run() { local rc=0; ALLOW_TAG=$1 bash "$here/mirror-allowed-tag.sh" > "$root/at/out" 2>&1 || rc=$?; echo "$rc"; }
+at_state() { echo "rc=$1 pushes=$(wc -l < "$root/at/pushes") refs=[$(git --git-dir="$root/at/origin.git" for-each-ref --format='%(refname)' | tr '\n' ' ')]"; }
+at_setup; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag-sha")" = "$r1" ]; then
+  pass "allow_tag: the exact tag@sha mirrors that tag and only it"; else fail "allow_tag: the exact tag@sha mirrors that tag and only it"; at_state "$rc"; cat "$root/at/out"; fi
+at_setup; git update-ref refs/upstream-tags/v1.2.3 "$b0"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=4 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag upstream moved is refused with zero pushes"; else fail "allow_tag: a tag upstream moved is refused with zero pushes"; at_state "$rc"; fi
+at_setup; rc=$(at_run "v1.2.3@$b0")
+if [ "$(at_state "$rc")" = "rc=4 pushes=0 refs=[]" ]; then pass "allow_tag: a wrong sha is refused with zero pushes"; else fail "allow_tag: a wrong sha is refused with zero pushes"; at_state "$rc"; fi
+for bad in "v1.2.3" "v1.2.3@abc" "main@$r1" "v1.2.3@${r1^^}" "v1.2.3@${r1:0:39}" "v1.2@$r1" "v1.2.3@$r1 v1.2.4@$b0" "v1.2.3@$r1;x" ""; do
+  at_setup; rc=$(at_run "$bad")
+  if [ "$(at_state "$rc")" = "rc=2 pushes=0 refs=[]" ]; then pass "allow_tag: '$bad' is refused as malformed"; else fail "allow_tag: '$bad' is refused as malformed"; at_state "$rc"; fi
+done
+at_setup; printf '%s v1.2.3\n' "$r1" > "$FORK_STATE_DIR/origin-tags"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=5 pushes=0 refs=[]" ]; then pass "allow_tag: a tag the fork already holds is refused"; else fail "allow_tag: a tag the fork already holds is refused"; at_state "$rc"; fi
+at_setup; echo v1.2.3 > "$FORK_STATE_DIR/tags-pushed"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; else fail "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; at_state "$rc"; fi
+rm -f "$FORK_STATE_DIR/tags-pushed"
+
+# 33l. list-skipped-tags.sh and render-tag-review.sh: a release tag outside the pin gets a review issue body; the owner-allowed one does not.
+at_setup; printf 'v1.2.3\nv1.2.4\n' > "$FORK_STATE_DIR/tags-new"; rm -f "$FORK_STATE_DIR/allowed-tag"
+UPSTREAM_SHA="$b0" bash "$here/list-skipped-tags.sh"
+if [ "$(cat "$FORK_STATE_DIR/tags-skipped")" = v1.2.3 ]; then pass "skipped tags: the tag outside the pin is listed, the one inside it is not"; else fail "skipped tags: the tag outside the pin is listed, the one inside it is not"; cat "$FORK_STATE_DIR/tags-skipped"; fi
+echo v1.2.3 > "$FORK_STATE_DIR/allowed-tag"; UPSTREAM_SHA="$b0" bash "$here/list-skipped-tags.sh"
+if [ ! -s "$FORK_STATE_DIR/tags-skipped" ]; then pass "skipped tags: the owner-allowed tag is not listed"; else fail "skipped tags: the owner-allowed tag is not listed"; fi
+rm -f "$FORK_STATE_DIR/allowed-tag"
+git checkout -q relbranch; commit $'.github/we`ird' w "hostile name"; r2=$(git rev-parse HEAD); git checkout -q fork
+bash "$here/render-tag-review.sh" v1.2.3 "$r2" "$b0" mercurai > "$root/at/body" 2>&1
+if grep -qxF "gh workflow run fork-sync-upstream.yml --ref mercurai -f allow_tag=v1.2.3@$r2" "$root/at/body" && grep -qxF ".github/workflows/r.yml" "$root/at/body" &&
+   grep -qxF ".github/we?ird" "$root/at/body" && grep -q "files changed" "$root/at/body" && ! grep -qF 'we`ird' "$root/at/body"; then
+  pass "tag review body: the diff, the sanitised paths and the exact input"; else fail "tag review body: the diff, the sanitised paths and the exact input"; cat "$root/at/body"; fi
+
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
 git add config; git commit -qm "many"

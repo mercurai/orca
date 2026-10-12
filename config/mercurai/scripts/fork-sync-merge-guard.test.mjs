@@ -26,6 +26,9 @@ const GUARD = 'Guard every push and the merge-forward'
 const MAIN = 'Mirror main (fast-forward only)'
 const TAGS = 'Mirror new tags'
 const DISPATCH = 'Hand the newest release tag to fork-rebase-patches'
+const ALLOWED_TAG = 'Mirror the owner-allowed tag'
+const ALLOWED_DISPATCH = 'Hand the owner-allowed tag to fork-rebase-patches'
+const SKIPPED_ISSUES = 'Open review issues for skipped release tags'
 const BRANCHES = 'Mirror upstream branches under upstream/*'
 const MERGE = 'Merge main forward into the fork branch'
 const ISSUE = 'Report a guarded upstream range as an issue'
@@ -52,10 +55,21 @@ test('the pin is made once, in the fetch step, and the guard runs before every p
 test('every step that pushes or dispatches comes after the guard and is gated on its outcome', () => {
   const guard = names.indexOf(GUARD)
   const pushes = steps.filter((text) => /sync-push\.sh|\bgit push\b|gh workflow run/.test(text))
-  assert.deepEqual(pushes.map((text) => /^name: (.+)$/m.exec(text)[1]), [MAIN, TAGS, DISPATCH, BRANCHES, MERGE])
+  assert.deepEqual(pushes.map((text) => /^name: (.+)$/m.exec(text)[1]), [
+    MAIN,
+    TAGS,
+    ALLOWED_DISPATCH,
+    DISPATCH,
+    BRANCHES,
+    MERGE
+  ])
   for (const text of pushes) {
     const name = /^name: (.+)$/m.exec(text)[1]
     assert.ok(names.indexOf(name) > guard, name)
+    // The owner-allowed tag is its own approval, not part of the main range (see the allow_tag test).
+    if (name === ALLOWED_DISPATCH) {
+      continue
+    }
     assert.match(/^\s+if: (.*)$/m.exec(text)?.[1] ?? '', GATE, name)
     if (/sync-push\.sh/.test(text)) {
       assert.match(text, /^\s+GUARD_REFUSED: \$\{\{ steps\.guard\.outputs\.refused \}\}$/m, name)
@@ -184,4 +198,60 @@ test('pin-upstream-sha.sh takes the owner sha only when it is a full sha inside 
       'if [[ "$allowed" =~ ^[0-9a-f]{40}$ ]] && git cat-file -e "$allowed^{commit}" 2>/dev/null && git merge-base --is-ancestor "$allowed" "$tip"; then'
     )
   )
+})
+
+test('only an explicit dispatch can approve a release tag, and only that tag is mirrored and handed on', () => {
+  assert.match(
+    code,
+    /^ {2}ALLOW_TAG: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.allow_tag \|\| '' \}\}$/m
+  )
+  assert.ok(code.indexOf('  ALLOW_TAG:') < code.indexOf('\njobs:\n'))
+  assert.match(code, /^ {6}allow_tag:\n(?: {8}.+\n)*? {8}type: string\n(?: {8}.+\n)*? {8}default: ''\n/m)
+  const uses = code.split('\n').filter((line) => line.includes('inputs.allow_tag'))
+  assert.equal(uses.length, 1, uses.join('\n'))
+  const tag = step(ALLOWED_TAG)
+  assert.match(tag, /^\s+if: \$\{\{ steps\.mode\.outputs\.push == 'true' && env\.ALLOW_TAG != '' \}\}$/m)
+  assert.match(tag, /bash config\/mercurai\/scripts\/mirror-allowed-tag\.sh$/m)
+  assert.doesNotMatch(tag, /\bgit push\b|sync-push\.sh/)
+  assert.ok(names.indexOf(ALLOWED_TAG) > names.indexOf(GUARD) && names.indexOf(ALLOWED_TAG) < names.indexOf(MERGE))
+  assert.match(step(ALLOWED_DISPATCH), /^\s+if: \$\{\{ steps\.mode\.outputs\.push == 'true' && steps\.allowtag\.outputs\.tag != '' \}\}$/m)
+  assert.match(step(ALLOWED_DISPATCH), /-f "tag=\$tag" -f "tag_sha=\$sha"/)
+  assert.ok(names.indexOf(ALLOWED_TAG) < names.indexOf(ALLOWED_DISPATCH))
+})
+
+test('every skipped release tag gets its own issue, matched by exact title, commented on only when its sha changes', () => {
+  const issues = step(SKIPPED_ISSUES)
+  assert.ok(names.indexOf(SKIPPED_ISSUES) > names.indexOf(ALLOWED_TAG) && names.indexOf(SKIPPED_ISSUES) < names.indexOf(MERGE))
+  assert.match(issues, /^\s+if: \$\{\{ steps\.mode\.outputs\.push == 'true' \}\}$/m)
+  assert.ok(issues.includes('title="fork-sync tag: $tag needs owner review"'))
+  assert.ok(issues.includes(`select(.title == $t)`))
+  assert.ok(issues.includes(`([.body] + [.comments[].body]) | any(contains($s))`))
+  assert.ok(issues.includes('if [ "$seen" != true ]; then gh issue comment "$number" --body "$body"; fi'))
+  assert.ok(issues.includes('if [ "$GUARD_REFUSED" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi'))
+  assert.match(issues, /render-tag-review\.sh "\$tag" "\$sha" "\$trusted" "\$FORK_BRANCH"/)
+})
+
+test('mirror-allowed-tag.sh validates strictly, checks the peel and the fork, and pushes one refspec', () => {
+  const script = read('config', 'mercurai', 'scripts', 'mirror-allowed-tag.sh')
+  assert.ok(script.includes(String.raw`re='^(v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)@([0-9a-f]{40})$'`))
+  assert.ok(script.includes('peeled=$(git rev-parse --verify -q "refs/upstream-tags/$tag^{commit}" || true)'))
+  assert.ok(script.includes('if [ "$peeled" != "$sha" ]; then'))
+  assert.ok(script.includes(`awk -v t="$tag" '$2 == t { found = 1 } END { exit !found }' "$state/origin-tags"`))
+  assert.equal(script.split('git push').length - 1, 1)
+  assert.ok(script.includes('git push origin "refs/upstream-tags/$tag:refs/tags/$tag"'))
+  assert.doesNotMatch(script, /--force|--tags|--mirror|GH_TOKEN|FORK_BOT_TOKEN|\$\{ALLOW_TAG:-\}.*push/)
+})
+
+test('list-skipped-tags.sh uses the same eligibility test as sync-push.sh', () => {
+  const test_ = 'git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai'
+  assert.ok(read('config', 'mercurai', 'scripts', 'list-skipped-tags.sh').includes(test_))
+  assert.ok(read('config', 'mercurai', 'scripts', 'sync-push.sh').includes(test_))
+})
+
+test('render-tag-review.sh prints sanitised, bounded lists and the exact input', () => {
+  const script = read('config', 'mercurai', 'scripts', 'render-tag-review.sh')
+  assert.ok(script.includes(`clean() { LC_ALL=C sed 's#[^A-Za-z0-9._/@+ |=>{}()-]#?#g'; }`))
+  assert.ok(script.includes('list=$(head -50 <<<"$names" | clean)'))
+  assert.ok(script.includes('stat=$(head -50 <<<"$full_stat" | clean)'))
+  assert.ok(script.includes('-f allow_tag=%s@%s'))
 })
