@@ -139,10 +139,24 @@ test('every script that feeds a force push checks the branch prefix first (SEC S
 })
 
 test('the state files default to /tmp, where the workflows read them', () => {
-  for (const name of ['rebase-series.sh', 'assemble-release.sh']) {
+  for (const name of ['rebase-series.sh', 'assemble-release.sh', 'record-series.sh']) {
     const script = readFileSync(resolve(import.meta.dirname, name), 'utf8')
     assert.ok(script.includes('state=${FORK_STATE_DIR:-/tmp}\n'), name)
   }
+  // The sourced parser uses its caller's state, with the same default.
+  const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
+  assert.ok(parse.includes('state=${state:-${FORK_STATE_DIR:-/tmp}}\n'))
+})
+
+test('assemble-release strips CR from the git output it prints', () => {
+  const assemble = readFileSync(resolve(import.meta.dirname, 'assemble-release.sh'), 'utf8')
+  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..HEAD" | tr -d '\r'`))
+  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..${head_of[$patch]}" 2>&1 | tr -d '\r' ||`))
+})
+
+test('rebase-series strips CR from the git rebase output it prints', () => {
+  const rebase = readFileSync(resolve(import.meta.dirname, 'rebase-series.sh'), 'utf8')
+  assert.ok(rebase.includes(String.raw`elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then`))
 })
 
 test('the rebase reads the target tag from the fork, never from upstream', () => {
@@ -197,7 +211,7 @@ test('overrides reach the scripts as an env value only, and are checked strictly
   assert.doesNotMatch(code(assemble.get('push')), /OVERRIDES/)
   const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
   assert.ok(parse.includes(String.raw`^(patch/[A-Za-z0-9._/-]+)=([0-9a-f]{40})$`))
-  assert.ok(parse.includes('grep -qxF "$_branch" /tmp/active'))
+  assert.ok(parse.includes('grep -qxF "$_branch" "$state/active"'))
   assert.ok(parse.includes('is not on an origin patch/* or ci-only/* branch'))
   assert.ok(parse.includes('does not contain $2'))
   assert.ok(parse.includes('has no commits beyond $2'))
