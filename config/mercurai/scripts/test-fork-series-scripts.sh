@@ -481,7 +481,7 @@ pin() { ALLOWED_SHA=$1 bash "$here/pin-upstream-sha.sh" up; }
 if [ "$(pin '')" = "$tip" ] && [ "$(pin "$second")" = "$second" ] && [ "$(pin "$tip")" = "$tip" ] &&
    [ "$(pin "${second:0:12}")" = "$tip" ] && [ "$(pin true)" = "$tip" ] && [ "$(pin 0000000000000000000000000000000000000000)" = "$tip" ]; then
   pass "pin: the owner's full sha inside the tip is pinned, anything else gives the tip"; else fail "pin: the owner's full sha inside the tip is pinned, anything else gives the tip"; fi
-git checkout -q -b side "$(git rev-parse fork)"; commit docs/side.md side "not in up"; sideshot=$(git rev-parse HEAD); git checkout -q up
+git checkout -q -b side "$(git rev-parse fork)"; mkdir -p docs; commit docs/side.md side "not in up"; sideshot=$(git rev-parse HEAD); git checkout -q up
 if [ "$(pin "$sideshot")" = "$tip" ]; then pass "pin: an owner sha that is not inside the tip gives the tip"; else fail "pin: an owner sha that is not inside the tip gives the tip"; fi
 
 # 33h. sync-push.sh: nothing is pushed unless the guard said false, and only refs inside the pinned commit. The bare origin logs every push.
