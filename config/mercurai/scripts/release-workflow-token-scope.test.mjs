@@ -43,14 +43,31 @@ test('the release workflow has exactly the four jobs this test knows', () => {
   assert.deepEqual([...releaseJobs.keys()], ['preflight', 'orcad-template', 'build-win', 'publish'])
 })
 
+// Raw text, not code(): GitHub expands `${{ }}` on any line of a block scalar, `#` or not.
+const SECRET_EXPRESSION = /\$\{\{[^}]*\bsecrets\b/
+
 test('only the publish job references a secret', () => {
   for (const [name, text] of releaseJobs) {
-    const references = /\bsecrets\b/.test(code(text))
+    const references = /\bsecrets\b/.test(code(text)) || SECRET_EXPRESSION.test(text)
     assert.equal(references, name === 'publish', `${name} ${references ? 'references' : 'lacks'} a secret`)
   }
   // Nothing outside the jobs either: a workflow-level env reaches every job.
-  const outsideJobs = code(release.slice(0, release.indexOf('\njobs:\n')))
-  assert.doesNotMatch(outsideJobs, /\bsecrets\b/)
+  const outsideJobs = release.slice(0, release.indexOf('\njobs:\n'))
+  assert.doesNotMatch(code(outsideJobs), /\bsecrets\b/)
+  assert.doesNotMatch(outsideJobs, SECRET_EXPRESSION)
+})
+
+test('every job is a plain block key: none hides inside another', () => {
+  // A quoted key or a flow mapping would be read as part of the job above it.
+  const body = release.slice(release.indexOf('\njobs:\n') + '\njobs:\n'.length)
+  const topLevel = body.split('\n').filter((line) => /^ {2}\S/.test(line) && !/^ {2}#/.test(line))
+  assert.deepEqual(topLevel, ['  preflight:', '  orcad-template:', '  build-win:', '  publish:'])
+  // No flow-style mapping or sequence anywhere under jobs: (`${{` is an expression, not a mapping).
+  for (const line of code(body).split('\n')) {
+    // `needs: [a, b]` names jobs and is the one flow sequence allowed.
+    const stripped = line.replaceAll(/\$\{\{.*?\}\}/g, '').replace(/^\s+needs: \[[\w, -]+\]$/, '')
+    assert.doesNotMatch(stripped, /:\s*[{[]|^\s*-\s*[{[]/, `flow style in: ${line.trim()}`)
+  }
 })
 
 test('no YAML anchor or alias can carry a value from one job into another', () => {
@@ -114,13 +131,19 @@ test('the publish job runs no repository code: its steps are exactly these', () 
     'Verify the update manifest is public'
   ])
   // The one action it uses, and no other: no checkout, no local or third-party action.
-  assert.deepEqual(publish.match(/^\s+(- )?uses: .+$/gm), ['        uses: actions/download-artifact@v8'])
+  assert.deepEqual(publish.match(/^\s+(- )?uses: .+$/gm), [
+    '        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2'
+  ])
   // No interpreter or fetch that could run code other than these steps' own shell.
   assert.doesNotMatch(
     publish,
     /\b(pnpm|npm|npx|node|python3?|git\s+clone|gh\s+repo\s+clone|curl|wget|source|eval|exec|chmod)\b/
   )
   assert.doesNotMatch(publish, /\b(bash|sh)\s+\S+\.sh\b|\.\/dist\//)
+  assert.doesNotMatch(publish, /\|\s*(bash|sh|pwsh|powershell)\b|\b(bash|sh|pwsh)\s+-c\b|^\s*\.\s+\S/m)
+  // The default shell or bash only: another interpreter could run a script the job fetched.
+  assert.doesNotMatch(publish, /^\s+shell:(?!\s*bash\s*$)/m)
+  assert.doesNotMatch(publish, /base64\s+(-d|--decode)/)
 })
 
 test('preflight keeps both of its rules', () => {
