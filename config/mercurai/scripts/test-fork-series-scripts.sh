@@ -378,6 +378,16 @@ guard_expect "guard: a change under .github/workflows is refused" 3 .github/work
 guard_setup; mkdir -p config/mercurai/scripts; commit config/mercurai/scripts/x.sh x "upstream fork script"
 guard_expect "guard: a change under config/mercurai is refused" 3 config/mercurai/scripts/x.sh
 
+# 30b. Composite actions and other .github files run inside workflows or steer them: refused; a lookalike outside is not.
+guard_setup; mkdir -p .github/actions/x; commit .github/actions/x/action.yml x "upstream composite action"
+guard_expect "guard: a change under .github/actions is refused" 3 .github/actions/x/action.yml
+guard_setup; commit .github/CODEOWNERS owners "upstream CODEOWNERS"
+guard_expect "guard: a plain .github file is refused" 3 .github/CODEOWNERS
+guard_setup; commit .github/dependabot.yml dep "upstream dependabot"
+guard_expect "guard: .github/dependabot.yml is refused" 3 .github/dependabot.yml
+guard_setup; commit docs/.github-notes.md notes "lookalike"; commit .githubx.md x "lookalike root file"
+guard_expect "guard: a lookalike outside .github merges" 0
+
 # 31. A rename into a guarded path, and one out of it, are refused.
 guard_setup; git mv src/a.txt config/mercurai/a.txt; git commit -qm "rename in"
 guard_expect "guard: a rename into a guarded path is refused" 3 config/mercurai/a.txt
@@ -418,6 +428,9 @@ if [ "$rc" = 3 ] && grep -qxF .github/workflows/ci.yml "$root/guard.out"; then p
 guard_setup; commit docs/up.md up "upstream docs"; git checkout -q fork; before=$(git rev-parse HEAD); git merge -q --no-edit up
 rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
 if [ "$rc" = 0 ]; then pass "result guard: a merge outside the guarded paths passes"; else fail "result guard: a merge outside the guarded paths passes"; cat "$root/guard.out"; fi
+guard_setup; mkdir -p .github/actions/x; commit .github/actions/x/action.yml x "upstream composite action"; git checkout -q fork; before=$(git rev-parse HEAD); git merge -q --no-edit up
+rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && grep -qxF .github/actions/x/action.yml "$root/guard.out"; then pass "result guard: a merge that changed .github/actions is refused"; else fail "result guard: a merge that changed .github/actions is refused"; cat "$root/guard.out"; fi
 
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done

@@ -49,7 +49,7 @@ series.
   `-rc.N`; one dispatch per run), then merges `main` into `mercurai` (a conflict opens a
   `fork-sync` issue and fails the run; the tags were already handed on). Before the merge,
   `scripts/merge-guard.sh` (git only, no token) lists what upstream changed since the merge base
-  under `.github/workflows/` or `config/mercurai/` (a rename or delete counts): such a range is not
+  under `.github/` (workflows, and the composite actions they run) or `config/mercurai/` (a rename or delete counts): such a range is not
   merged; the run opens or updates a `fork-sync` issue naming up to 50 of the paths (odd characters
   shown as `?`) and fails. The run guards, merges and names one pinned upstream commit, and checks
   the merge result against the branch again before any push. Review the range, then merge it
