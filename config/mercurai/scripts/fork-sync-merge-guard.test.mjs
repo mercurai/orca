@@ -224,7 +224,9 @@ test('every skipped release tag gets its own issue, matched by exact title, comm
   assert.ok(names.indexOf(SKIPPED_ISSUES) > names.indexOf(ALLOWED_TAG) && names.indexOf(SKIPPED_ISSUES) < names.indexOf(MERGE))
   assert.match(issues, /^\s+if: \$\{\{ steps\.mode\.outputs\.push == 'true' \}\}$/m)
   assert.ok(issues.includes('title="fork-sync tag: $tag needs owner review"'))
-  assert.ok(issues.includes(`select(.title == $t)`))
+  // Both the lookup and the "seen" check match the title exactly, never by containment.
+  assert.equal(issues.split(`select(.title == $t)`).length - 1, 2)
+  assert.doesNotMatch(issues, /contains\(\$t\)|startswith|test\(/)
   assert.ok(issues.includes(`([.body] + [.comments[].body]) | any(contains($s))`))
   assert.ok(issues.includes('if [ "$seen" != true ]; then gh issue comment "$number" --body "$body"; fi'))
   assert.ok(issues.includes('if [ "$GUARD_REFUSED" = false ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi'))
