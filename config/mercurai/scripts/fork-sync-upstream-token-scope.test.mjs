@@ -24,8 +24,11 @@ const stepName = (step) => /^name: (.+)$/m.exec(step)?.[1] ?? step.split('\n')[0
 const WRITE_STEPS = [
   'Mirror main (fast-forward only)',
   'Mirror new tags',
+  'Mirror the owner-allowed tag',
+  'Hand the owner-allowed tag to fork-rebase-patches',
   'Hand the newest release tag to fork-rebase-patches',
   'Mirror upstream branches under upstream/*',
+  'Open review issues for skipped release tags',
   'Merge main forward into the fork branch',
   'Report a guarded upstream range as an issue',
   'Report a merge conflict as an issue'
@@ -33,11 +36,14 @@ const WRITE_STEPS = [
 const GIT_WRITERS = [
   'Mirror main (fast-forward only)',
   'Mirror new tags',
+  'Mirror the owner-allowed tag',
   'Mirror upstream branches under upstream/*',
   'Merge main forward into the fork branch'
 ]
 const GH_WRITERS = [
+  'Hand the owner-allowed tag to fork-rebase-patches',
   'Hand the newest release tag to fork-rebase-patches',
+  'Open review issues for skipped release tags',
   'Report a guarded upstream range as an issue',
   'Report a merge conflict as an issue'
 ]
