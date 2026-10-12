@@ -151,6 +151,13 @@ test('carry-ci-base strips CR from the cherry-pick output it prints', () => {
   assert.ok(carry.includes(String.raw`if ! git cherry-pick -x "$commit" 2>&1 >/dev/null | tr -d '\r' >&2; then`))
 })
 
+test('the state files default to /tmp, where the workflows read them', () => {
+  for (const name of ['rebase-series.sh', 'assemble-release.sh']) {
+    const script = readFileSync(resolve(import.meta.dirname, name), 'utf8')
+    assert.ok(script.includes('state=${FORK_STATE_DIR:-/tmp}\n'), name)
+  }
+})
+
 test('the rebase reads the target tag from the fork, never from upstream', () => {
   const fetch = readFileSync(resolve(import.meta.dirname, 'fetch-rebase-inputs.sh'), 'utf8')
   assert.doesNotMatch(fetch, /fetch[^\n]*upstream[^\n]*--tags/)
