@@ -129,6 +129,8 @@ describe('daemon-init: macOS stable-bundle launch fallback', () => {
   })
 
   it('hands off to the fork early enough for its readiness wait and adapter to fit the gate', async () => {
+    // Compare the configured budgets without wall-clock ticks between the two reads.
+    vi.spyOn(Date, 'now').mockReturnValue(1_000_000)
     stableLaunch.failure = 'unavailable'
     await launchOnce()
     const handoffMs = (stableLaunch.deadlinesMs[0] ?? Infinity) - launcherCalledAtMs
