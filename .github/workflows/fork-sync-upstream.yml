@@ -171,14 +171,21 @@ jobs:
           git checkout -q "$FORK_BRANCH"
           rc=0
           bash config/mercurai/scripts/merge-guard.sh HEAD "$UPSTREAM_SHA" > /tmp/guarded || rc=$?
-          cat /tmp/guarded
+          # Outputs first: nothing the script prints (upstream picks path names) can then set them.
           echo "allowed=false" >> "$GITHUB_OUTPUT"
           case "$rc" in
             0) echo "refused=false" >> "$GITHUB_OUTPUT" ;;
             3) echo "refused=true" >> "$GITHUB_OUTPUT" ;;
-            4) echo "refused=false" >> "$GITHUB_OUTPUT"; echo "allowed=true" >> "$GITHUB_OUTPUT" ;;
+            # 4 is also what sed exits with on an I/O error: only a full sha equal to the pinned commit counts.
+            4)
+              if [[ "$ALLOWED_SHA" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then
+                echo "refused=false" >> "$GITHUB_OUTPUT"; echo "allowed=true" >> "$GITHUB_OUTPUT"
+              else
+                exit 4
+              fi ;;
             *) exit "$rc" ;;
           esac
+          cat /tmp/guarded
 
       - name: Merge main forward into the fork branch
         id: merge
@@ -192,26 +199,19 @@ jobs:
         run: |
           set -euo pipefail
           git checkout -q "$FORK_BRANCH"
-          # Run from a copy: after a merge the tree may hold upstream's version of the script.
-          cp config/mercurai/scripts/merge-result-guard.sh /tmp/merge-result-guard.sh
-          echo "conflict=false" >> "$GITHUB_OUTPUT"
+          # Run from copies: after a merge the tree may hold upstream's version of these scripts.
+          cp config/mercurai/scripts/merge-forward.sh config/mercurai/scripts/merge-result-guard.sh /tmp/
+          # Every output has its default before anything upstream-controlled is printed.
+          { echo "conflict=false"; echo "guarded=false"; } >> "$GITHUB_OUTPUT"
           try_merge() {
-            # A CR in git's output must not reach the job log (workflow-command injection).
-            if ! git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\r'; then
-              git diff --name-only --diff-filter=U | head -50 | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > /tmp/conflicts
-              git merge --abort
-              echo "conflict=true" >> "$GITHUB_OUTPUT"
-              return 1
-            fi
-            if [ "$GUARD_ALLOWED" = true ]; then return 0; fi
-            # What the push would change, whatever the merge base was: refuse a guarded path the merge touched.
-            rc=0
-            bash /tmp/merge-result-guard.sh "origin/$FORK_BRANCH" > /tmp/guarded || rc=$?
-            if [ "$rc" -eq 0 ]; then return 0; fi
-            if [ "$rc" -ne 3 ]; then exit "$rc"; fi
-            git reset -q --hard "origin/$FORK_BRANCH"
-            echo "guarded=true" >> "$GITHUB_OUTPUT"
-            return 1
+            local rc=0
+            bash /tmp/merge-forward.sh || rc=$?
+            case "$rc" in
+              0) return 0 ;;
+              10) echo "conflict=true" >> "$GITHUB_OUTPUT"; return 1 ;;
+              11) echo "guarded=true" >> "$GITHUB_OUTPUT"; return 1 ;;
+              *) exit "$rc" ;;
+            esac
           }
           if [ "${{ steps.mode.outputs.push }}" != "true" ]; then
             try_merge && echo "merge is clean; not pushed (report-only run)"

@@ -37,7 +37,6 @@ test('the guard runs before the merge, with no token, on the one commit the run 
   for (const name of [GUARD, MERGE]) {
     assert.doesNotMatch(step(name), /upstream\/main/, name)
   }
-  assert.match(step(MERGE), /git merge --no-edit "\$UPSTREAM_SHA"/)
 })
 
 test('the merge step runs only when the guard did not refuse, and a refusal fails the run after filing', () => {
@@ -49,8 +48,12 @@ test('the merge step runs only when the guard did not refuse, and a refusal fail
   assert.ok(step(ISSUE).trimEnd().endsWith('exit 1'))
   assert.match(step(ISSUE), /allow_guarded_merge_sha=%s/)
   assert.match(step(GUARD), /3\) echo "refused=true" >> "\$GITHUB_OUTPUT" ;;/)
-  assert.match(step(GUARD), /4\) echo "refused=false" >> "\$GITHUB_OUTPUT"; echo "allowed=true" >> "\$GITHUB_OUTPUT" ;;/)
+  // Exit 4 is also sed's I/O error: the arm re-checks the full sha against the pinned commit.
+  assert.match(step(GUARD), /4\)\n\s+if \[\[ "\$ALLOWED_SHA" =~ \^\[0-9a-f\]\{40\}\$ && "\$ALLOWED_SHA" = "\$UPSTREAM_SHA" \]\]; then\n/)
+  assert.match(step(GUARD), /echo "refused=false" >> "\$GITHUB_OUTPUT"; echo "allowed=true" >> "\$GITHUB_OUTPUT"\n\s+else\n\s+exit 4/)
   assert.match(step(GUARD), /\*\) exit "\$rc" ;;/)
+  // The outputs are written before the script's output is printed.
+  assert.ok(step(GUARD).indexOf('echo "allowed=false"') < step(GUARD).indexOf('cat /tmp/guarded'))
 })
 
 test('only an explicit dispatch can allow a guarded merge, and only for a pinned sha', () => {
@@ -64,15 +67,27 @@ test('only an explicit dispatch can allow a guarded merge, and only for a pinned
   assert.doesNotMatch(code, /allow_guarded_merge\b(?!_sha)/)
 })
 
-test('the merge result is checked, from a copy, before any push', () => {
+test('the merge runs in merge-forward.sh, from copies, with its outputs defaulted, before any push', () => {
   const merge = step(MERGE)
-  const copy = merge.indexOf('cp config/mercurai/scripts/merge-result-guard.sh /tmp/merge-result-guard.sh')
-  assert.ok(copy !== -1 && copy < merge.indexOf('git merge --no-edit'))
-  assert.match(merge, /git merge --no-edit "\$UPSTREAM_SHA" 2>&1 \| tr -d '\\r'/)
+  const copy = merge.indexOf('cp config/mercurai/scripts/merge-forward.sh config/mercurai/scripts/merge-result-guard.sh /tmp/')
+  const defaults = merge.indexOf('{ echo "conflict=false"; echo "guarded=false"; } >> "$GITHUB_OUTPUT"')
+  const run = merge.indexOf('bash /tmp/merge-forward.sh')
+  assert.ok(copy !== -1 && copy < defaults && defaults < run && run < merge.indexOf('git push origin'))
+  assert.doesNotMatch(merge, /git merge\b/)
   assert.match(merge, /^\s+GUARD_ALLOWED: \$\{\{ steps\.guard\.outputs\.allowed \}\}$/m)
-  const check = merge.indexOf('bash /tmp/merge-result-guard.sh "origin/$FORK_BRANCH"')
-  assert.ok(check !== -1 && check < merge.indexOf('git push origin'))
-  assert.match(merge, /git reset -q --hard "origin\/\$FORK_BRANCH"\n\s+echo "guarded=true" >> "\$GITHUB_OUTPUT"/)
+  assert.match(merge, /10\) echo "conflict=true" >> "\$GITHUB_OUTPUT"; return 1 ;;/)
+  assert.match(merge, /11\) echo "guarded=true" >> "\$GITHUB_OUTPUT"; return 1 ;;/)
+  assert.match(merge, /\*\) exit "\$rc" ;;/)
+})
+
+test('merge-forward.sh merges the pinned sha, checks the result unless allowed, and resets a refused one', () => {
+  const script = read('config', 'mercurai', 'scripts', 'merge-forward.sh')
+  assert.ok(script.includes(`git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\\r'`))
+  assert.ok(script.includes('if [ "${GUARD_ALLOWED:-false}" = true ]; then exit 0; fi'))
+  assert.ok(script.includes('bash "$here/merge-result-guard.sh" "$before"'))
+  assert.match(script, /git reset -q --hard "\$before"\nexit 11$/m)
+  assert.match(script, /git merge --abort\n {2}exit 10$/m)
+  assert.doesNotMatch(script, /\bgit (push|fetch)\b|GH_TOKEN|FORK_BOT_TOKEN/)
 })
 
 test('merge-guard.sh refuses by exit 3 from the merge base, pins the sha, prints a sanitised list', () => {
