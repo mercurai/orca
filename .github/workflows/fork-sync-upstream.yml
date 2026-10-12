@@ -18,7 +18,7 @@ on:
         type: boolean
         default: false
       allow_guarded_merge_sha:
-        description: Full sha of the upstream commit whose range you reviewed (it touches .github/workflows or config/mercurai); merges only that commit. The schedule never sets it
+        description: Full sha of the upstream commit whose range you reviewed (it touches .github/ or config/mercurai); merges only that commit. The schedule never sets it
         type: string
         default: ''
 
@@ -241,7 +241,7 @@ jobs:
         run: |
           set -euo pipefail
           title="fork-sync: upstream main $UPSTREAM_SHA changes guarded paths; ${FORK_BRANCH} is not merged"
-          body=$(printf 'Merging upstream/main (%s) into `%s` would change files under `.github/workflows/` or `config/mercurai/`, which run with the fork token once pushed. Nothing was merged.\n\nGuarded paths (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview the range, then either merge it through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it merges only that commit).\n' \
+          body=$(printf 'Merging upstream/main (%s) into `%s` would change files under `.github/` or `config/mercurai/`, which run with the fork token once pushed. Nothing was merged.\n\nGuarded paths (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview the range, then either merge it through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it merges only that commit).\n' \
             "$UPSTREAM_SHA" "$FORK_BRANCH" "$(cat /tmp/guarded)" "$FORK_BRANCH" "$UPSTREAM_SHA")
           if [ "${{ steps.mode.outputs.push }}" != "true" ]; then echo "$body"; exit 1; fi
           existing=$(gh issue list --label "$SYNC_ISSUE_LABEL" --state open --search "in:title fork-sync:" --json number --jq '.[0].number')

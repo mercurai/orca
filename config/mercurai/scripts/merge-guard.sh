@@ -14,7 +14,7 @@
 set -euo pipefail
 fork=$1 upstream=$2
 base=$(git merge-base "$fork" "$upstream")
-paths=$(git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n' | { grep -E '^(\.github/workflows/|config/mercurai/)' || true; } | sort -u)
+paths=$(git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n' | { grep -E '^(\.github/|config/mercurai/)' || true; } | sort -u)
 if [ -z "$paths" ]; then
   echo "no guarded path in $base..$upstream"
   exit 0
