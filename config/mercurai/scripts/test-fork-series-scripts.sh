@@ -614,6 +614,7 @@ case "$1 $2" in
   *) : ;;
 esac
 STUB
+chmod +x "$root/stub-gh"
 ti_setup() {  # ti_setup <tag>...: those release tags sit on the release-branch commit, outside the pin (b0)
   at_setup; local t; : > "$FORK_STATE_DIR/tags-new"
   for t in "$@"; do git update-ref "refs/upstream-tags/$t" "$r1"; echo "$t" >> "$FORK_STATE_DIR/tags-new"; done
