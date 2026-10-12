@@ -50,9 +50,12 @@ series.
   `fork-sync` issue and fails the run; the tags were already handed on). Before the merge,
   `scripts/merge-guard.sh` (git only, no token) lists what upstream changed since the merge base
   under `.github/workflows/` or `config/mercurai/` (a rename or delete counts): such a range is not
-  merged; the run opens or updates a `fork-sync` issue naming up to 50 of the paths and fails.
-  Review the range, then dispatch the workflow from `mercurai` with `allow_guarded_merge=true`
-  (the schedule never sets it), or merge through a reviewed PR.
+  merged; the run opens or updates a `fork-sync` issue naming up to 50 of the paths (odd characters
+  shown as `?`) and fails. The run guards, merges and names one pinned upstream commit, and checks
+  the merge result against the branch again before any push. Review the range, then merge it
+  through a reviewed PR, or dispatch the workflow from `mercurai` with `allow_guarded_merge_sha=<the
+  full sha from the issue>`: it allows only that commit, so an upstream push after the review is
+  refused again (the schedule never sets it).
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
   `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where
