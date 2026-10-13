@@ -737,6 +737,21 @@ printf 'v2.0.1\nv2.0.2\n' > "$FORK_STATE_DIR/tags-new"
 rc=0; ti_run || rc=$?
 if [ "$rc" = 0 ] && grep -q '^::warning::v2.0.1 does not point at a commit; skipped' "$root/at/ti.out" && [ "$(ti_calls 'issue create')" = 1 ] && grep -q '^issue create .*--title fork-sync tag: v2.0.2 needs owner review' "$STUB_DIR/calls.log"; then
   pass "tag issues: a tag that points at a tree is skipped with a warning, the next tag still gets its issue"; else fail "tag issues: a tag that points at a tree is skipped with a warning, the next tag still gets its issue"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
+# Each layer skips a tag that points at a tree on its own: list-skipped-tags.sh leaves it out of the list with the warning...
+ti_setup v2.0.2
+git update-ref refs/upstream-tags/v2.0.1 "$(git rev-parse 'fork^{tree}')"
+printf 'v2.0.1\nv2.0.2\n' > "$FORK_STATE_DIR/tags-new"
+UPSTREAM_SHA="$b0" bash "$here/list-skipped-tags.sh" > "$root/at/ls.out" 2>&1
+if [ "$(cat "$FORK_STATE_DIR/tags-skipped")" = v2.0.2 ] && grep -qx '::warning::v2.0.1 does not point at a commit; skipped' "$root/at/ls.out"; then
+  pass "skipped tags: a tag that points at a tree is left out of the list with a warning"; else fail "skipped tags: a tag that points at a tree is left out of the list with a warning"; cat "$FORK_STATE_DIR/tags-skipped" "$root/at/ls.out"; fi
+# ... and tag-issues.sh skips it itself when it is handed one (a list-skipped-tags.sh stand-in puts it in the list).
+rm -rf "$root/tiwrap"; mkdir -p "$root/tiwrap"; cp "$here/tag-issues.sh" "$here/render-tag-review.sh" "$root/tiwrap/"
+printf '#!/usr/bin/env bash\nprintf "v2.0.1\\nv2.0.2\\n" > "$FORK_STATE_DIR/tags-skipped"\n' > "$root/tiwrap/list-skipped-tags.sh"
+rm -f "$STUB_DIR/calls.log"
+rc=0; UPSTREAM_SHA="$b0" FORK_MAIN="$b0" GUARD_REFUSED=true FORK_BRANCH=mercurai GH_REPO=o/r GH="$root/stub-gh" bash "$root/tiwrap/tag-issues.sh" > "$root/at/ti.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ] && grep -qx '::warning::v2.0.1 does not point at a commit; skipped' "$root/at/ti.out" && [ "$(ti_calls 'issue create')" = 1 ] &&
+   grep -q '^issue create .*--title fork-sync tag: v2.0.2 needs owner review' "$STUB_DIR/calls.log"; then
+  pass "tag issues: handed a tag that points at a tree, it skips it and still files the next"; else fail "tag issues: handed a tag that points at a tree, it skips it and still files the next"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
 # The update cap: 25 tags with an issue of the bot's that names an older commit: 20 comments, the other 5 in the summary.
 tags25=(); for i in $(seq 1 25); do tags25+=("v3.0.$i"); done
 ti_setup "${tags25[@]}"
