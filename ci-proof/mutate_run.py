@@ -122,6 +122,10 @@ M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148
 M1148.update(M1148B)
 M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148D}
 M1148.update(M1148D)
+from mutants_1148e import DROP as DROP_1148E, MUTANTS as M1148E  # noqa: E402
+
+M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148E}
+M1148.update(M1148E)
 
 NEW.update(SEC201)
 NEW.update({f"1148-{name}": mutant for name, mutant in M1148.items()})

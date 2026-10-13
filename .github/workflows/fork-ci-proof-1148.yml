@@ -5,7 +5,7 @@ name: fork-ci-proof-1148
 
 on:
   push:
-    branches: [ci-only/sec-proof-1148-d]
+    branches: [ci-only/sec-proof-1148-e]
 
 permissions:
   contents: read
