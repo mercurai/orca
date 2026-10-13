@@ -586,6 +586,26 @@ MUTANTS = {
         "'any(.[]; .login == $me and (.body | contains($a)))'",
         "'any(.[]; .body | contains($a))'",
     ),
+    "tagissue-user-failure-exits-zero": (
+        TI,
+        "  exit 1\n}\nissues=",
+        "  exit 0\n}\nissues=",
+    ),
+    "tagissue-user-failure-not-an-error-annotation": (
+        TI,
+        'echo "::error::tag review issues need',
+        'echo "tag review issues need',
+    ),
+    "tagissue-user-failure-silent": (
+        TI,
+        "  echo \"::error::tag review issues need a user token; 'gh api user' failed, so FORK_BOT_TOKEN looks like an App installation token\"\n",
+        "",
+    ),
+    "tagissue-user-failure-ignored": (
+        TI,
+        'me=$("$gh" api user --jq .login) || {',
+        'me=$("$gh" api user --jq .login || true) || {',
+    ),
     "tagissue-me-is-not-the-token": (
         TI,
         'me=$("$gh" api user --jq .login)',
