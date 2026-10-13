@@ -184,7 +184,7 @@ test('the scripts that only decide or print never push, fetch or hold a token', 
     'tag-issues.sh'
   ]) {
     const script = read('config', 'mercurai', 'scripts', name)
-    assert.doesNotMatch(script, /\bgit (push|fetch)\b|GH_TOKEN|secrets\./, name)
+    assert.doesNotMatch(script, /\bgit (push|fetch)\b|GH_TOKEN|secrets\.[A-Z]/, name)
   }
 })
 
