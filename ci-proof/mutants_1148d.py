@@ -19,7 +19,16 @@ GUARD_ARGS = '"$UPSTREAM_SHA" "$FORK_BRANCH" "$(cat "$state/guarded")" "$FORK_BR
 TI_IF = "if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}"
 
 # The render wording changed (D2): the old anchor no longer exists; d-render-rule-internal replaces it.
-DROP = {"render-names-internal-lane"}
+# Equivalent mutants, no behaviour can tell them apart:
+# - guard-mergebase-failure-masked: an empty base makes the next `git diff "" <sha>` fail (fatal: ambiguous argument
+#   ''), and that diff's own `|| exit 1` ends the guard with the same status and output.
+# - tagissue-seen-any-author-body: `existing` comes from find_issue, which already requires `.login == $me`, so the
+#   issue-body check never sees a third party's issue.
+DROP = {
+    "render-names-internal-lane",
+    "guard-mergebase-failure-masked",
+    "tagissue-seen-any-author-body",
+}
 
 MUTANTS = {
     # D2: public texts name no internal session, model or role; the rule sentence is exact.
