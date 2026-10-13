@@ -604,7 +604,7 @@ cat > "$root/stub-gh" <<'STUB'
 d=$STUB_DIR
 echo "$*" >> "$d/calls.log"
 case "$1 $2" in
-  "api user") cat "$d/login" ;;
+  "api user") if [ -n "${STUB_FAIL_USER:-}" ]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi; cat "$d/login" ;;
   "api --paginate")
     case "$3" in
       */comments*) n=${3#*issues/}; n=${n%%/*}; cat "$d/comments-$n.ndjson" 2>/dev/null || true ;;
@@ -684,6 +684,12 @@ issue_line 40 "fork-sync tag: summary" closed the-bot "an older list" > "$STUB_D
 ti_run
 if [ "$(ti_calls 'issue create')" = 5 ] && grep -q '^issue reopen 40' "$STUB_DIR/calls.log" && grep -q '^issue edit 40 ' "$STUB_DIR/calls.log"; then
   pass "tag issues: an existing summary is reopened and edited, not duplicated"; else fail "tag issues: an existing summary is reopened and edited, not duplicated"; cat "$STUB_DIR/calls.log"; fi
+# An App installation token has no user: one clear error, non-zero, and nothing written to GitHub.
+ti_setup v2.0.1 v2.0.2
+rc=0; STUB_FAIL_USER=1 ti_run || rc=$?
+if [ "$rc" != 0 ] && [ "$(grep -c '^::error::' "$root/at/ti.out")" = 1 ] && grep -q "::error::tag review issues need a user token; 'gh api user' failed, so FORK_BOT_TOKEN looks like an App installation token" "$root/at/ti.out" &&
+   ! grep -q '^issue \|^label ' "$STUB_DIR/calls.log"; then
+  pass "tag issues: a failing 'gh api user' gives one clear error and writes nothing"; else fail "tag issues: a failing 'gh api user' gives one clear error and writes nothing"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
 # The update cap: 25 tags with an issue of the bot's that names an older commit: 20 comments, the other 5 in the summary.
 tags25=(); for i in $(seq 1 25); do tags25+=("v3.0.$i"); done
 ti_setup "${tags25[@]}"
