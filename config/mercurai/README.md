@@ -98,11 +98,13 @@ series.
   before the tag issues), so a failure in them cannot skip the pushes, the merge or the issues
   above them, and a tag the automatic mirror pushed earlier in the same run still gets its hand-off.
   The schedule never sets it.
-  **Rule:** `allow_tag` may be dispatched only by the owner, or by a lane on orca-config-0f's explicit
-  order after an Opus security read of the diff printed in the issue. That read always recomputes the
-  tag's diff locally (`git diff <trusted> <sha> -- .github config/mercurai`) and never trusts the
+  **Rule:** `allow_tag` and `allow_guarded_merge_sha` may be dispatched only by the owner, or by a
+  lane on orca-config-0f's explicit order after an independent security read (the fleet's default
+  reviewer, never the lane itself) of the diff the issue points at. Either one publishes
+  upstream-authored `.github/` content that runs with the fork token. That read always recomputes the
+  diff locally (`git diff <trusted> <sha> -- .github config/mercurai`) and never trusts the
   issue text: the issue is a pointer, anyone with write access can edit it, and the sha in the
-  dispatch input is the only thing that is mirrored.
+  dispatch input is the only thing that is mirrored or merged.
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
   `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where
