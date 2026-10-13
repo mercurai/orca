@@ -15,5 +15,10 @@ eligible() {
 : > "$state/tags-skipped"
 while read -r tag; do
   if [ -z "$tag" ] || [ "$tag" = "$allowed" ]; then continue; fi
+  # A release-named tag upstream points at a tree or a blob has no commit to review or mirror.
+  if ! git rev-parse --verify -q "refs/upstream-tags/$tag^{commit}" > /dev/null; then
+    echo "::warning::$(printf '%s' "$tag" | LC_ALL=C sed 's#[^A-Za-z0-9._/@+ -]#?#g') does not point at a commit; skipped"
+    continue
+  fi
   if ! eligible "refs/upstream-tags/$tag^{commit}"; then echo "$tag" >> "$state/tags-skipped"; fi
 done < "$state/tags-new"

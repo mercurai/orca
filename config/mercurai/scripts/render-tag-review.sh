@@ -19,4 +19,4 @@ printf 'Changes under `.github/` and `config/mercurai/` against the trusted tree
 printf 'Paths (first 50 of %s):\n\n```\n%s\n```\n\n' "$count" "$list"
 printf 'Pushing this tag runs its push workflows with the repository secrets. Review the diff, then mirror exactly this tag, from `%s`:\n\n```\ngh workflow run fork-sync-upstream.yml --ref %s -f allow_tag=%s@%s\n```\n\n' \
   "$branch" "$branch" "$tag" "$sha"
-printf 'Dispatch it only yourself, or from a lane on orca-config-0f'"'"'s explicit order after an Opus security read of the diff above. It mirrors that tag at that commit and nothing else, then hands it to fork-rebase-patches; a moved tag or a different sha pushes nothing and fails the run.\n'
+printf 'Dispatch it only yourself, or from a lane the owner'"'"'s orchestrator orders after a security review of this diff. It mirrors that tag at that commit and nothing else, then hands it to fork-rebase-patches; a moved tag or a different sha pushes nothing and fails the run.\n'
