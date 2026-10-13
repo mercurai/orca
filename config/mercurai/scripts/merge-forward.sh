@@ -11,15 +11,20 @@
 #      result changed guarded paths, branch reset to where it was, paths in <state>/guarded. Other: the result
 #      check failed, branch reset, its exit status.
 #      Both lists are shown with odd characters as ?.
+#      Step outputs `conflict` and `guarded` (GITHUB_OUTPUT), both false first, before anything upstream-controlled
+#      is printed, then true for exit 10 and exit 11 respectively.
 set -euo pipefail
 state=${FORK_STATE_DIR:-/tmp}
 here=$(cd "$(dirname "$0")" && pwd)
+out=${GITHUB_OUTPUT:-/dev/null}
+{ echo "conflict=false"; echo "guarded=false"; } >> "$out"
 before=$(git rev-parse HEAD)
 # A CR in git's output must not reach the job log (workflow-command injection).
 if ! git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\r'; then
   files=$(git diff --name-only --diff-filter=U)
   git merge --abort
   head -50 <<<"$files" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g' > "$state/sync-conflicts"
+  echo "conflict=true" >> "$out"
   exit 10
 fi
 if [ "${GUARD_ALLOWED:-false}" = true ]; then exit 0; fi
@@ -29,4 +34,5 @@ if [ "$rc" -eq 0 ]; then exit 0; fi
 # Guarded paths changed, or the check itself failed: either way the merge does not stay.
 git reset -q --hard "$before"
 if [ "$rc" -ne 3 ]; then exit "$rc"; fi
+echo "guarded=true" >> "$out"
 exit 11

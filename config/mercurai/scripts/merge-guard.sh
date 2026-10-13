@@ -19,7 +19,8 @@ shift 2
 paths=$(
   for ref in "$fork" "$@"; do
     base=$(git merge-base "$ref" "$upstream") || exit 1
-    git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n'
+    # errexit is off inside $( ): a diff that fails (an unreadable tree) must not read as "nothing changed".
+    git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n' || exit 1
   done | { grep -E '^(\.github/|config/mercurai/)' || true; } | sort -u
 )
 if [ -z "$paths" ]; then
