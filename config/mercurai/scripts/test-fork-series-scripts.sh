@@ -9,6 +9,8 @@ export PUSH_RETRY_SLEEP=0 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_N
 fails=0
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1"; fails=$((fails + 1)); }
+# Public issue text names no internal session, model or role.
+internal_names() { grep -qiE 'orca-config-0f|opus|sonnet|\blane\b|orchestrat' "$1"; }
 commit() { echo "$2" > "$1"; git add "$1"; git commit -qm "$3"; }
 remote_sha() { git --git-dir="$root/origin.git" rev-parse "refs/heads/$1"; }
 remote_has() { git --git-dir="$root/origin.git" merge-base --is-ancestor "$1" "$2"; }
@@ -624,8 +626,15 @@ git checkout -q relbranch; commit $'.github/we`ird' w "hostile name"; r2=$(git r
 bash "$here/render-tag-review.sh" v1.2.3 "$r2" "$b0" mercurai > "$root/at/body" 2>&1
 if grep -qxF "gh workflow run fork-sync-upstream.yml --ref mercurai -f allow_tag=v1.2.3@$r2" "$root/at/body" && grep -qxF ".github/workflows/r.yml" "$root/at/body" &&
    grep -qxF ".github/we?ird" "$root/at/body" && grep -q "files changed" "$root/at/body" && ! grep -qF 'we`ird' "$root/at/body" &&
-   ! grep -qiE 'orca-config-0f|opus' "$root/at/body" && grep -q 'a lane the owner.s orchestrator orders after a security review of this diff' "$root/at/body"; then
+   ! internal_names "$root/at/body" && grep -qF 'Only the owner dispatches this, or someone the owner authorises after a security review of this diff.' "$root/at/body"; then
   pass "tag review body: the diff, the sanitised paths and the exact input"; else fail "tag review body: the diff, the sanitised paths and the exact input"; cat "$root/at/body"; fi
+# Both lists stop at 50 lines: 62 guarded paths (2 under .github/, sorted first, then 60) list 48 of the 60, and say of how many.
+git checkout -q relbranch; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done; git add config; git commit -qm "many"
+r3=$(git rev-parse HEAD); git checkout -q fork
+bash "$here/render-tag-review.sh" v1.2.3 "$r3" "$b0" mercurai > "$root/at/body" 2>&1
+if grep -qxF 'Paths (first 50 of 62):' "$root/at/body" && [ "$(grep -cE '^config/mercurai/many/f[0-9]+$' "$root/at/body")" = 48 ] &&
+   [ "$(grep -cE '^ config/mercurai/many/f[0-9]+ +\|' "$root/at/body")" = 48 ] && ! grep -q 'files changed' "$root/at/body"; then
+  pass "tag review body: the stat and the path list stop at 50 lines"; else fail "tag review body: the stat and the path list stop at 50 lines"; cat "$root/at/body"; fi
 
 # 33m. tag-issues.sh against a stub gh: the per-run cap and the summary, closed issues, and whose words count as "reported".
 cat > "$root/stub-gh" <<'STUB'
@@ -667,7 +676,8 @@ if [ "$(ti_calls 'issue create')" = 6 ] && [ "$(grep -c '^issue create .*--title
    [ "$(grep -c '^issue create --label fork-sync-tag ' "$STUB_DIR/calls.log")" = 6 ]; then
   pass "tag issues: at most 5 new issues a run, the rest in one summary, all under the tag label"; else fail "tag issues: at most 5 new issues a run, the rest in one summary, all under the tag label"; cat "$STUB_DIR/calls.log" "$root/at/ti.out"; fi
 # The summary lists what is left: each overflow tag with its commit, one per line (not an empty fence).
-if grep -qx "v2.0.6 $r1" "$STUB_DIR/calls.log" && grep -qx "v2.0.7 $r1" "$STUB_DIR/calls.log" && grep -qx "v2.0.8 $r1" "$STUB_DIR/calls.log" && ! grep -qx "v2.0.1 $r1" "$STUB_DIR/calls.log"; then
+if grep -qx "v2.0.6 $r1" "$STUB_DIR/calls.log" && grep -qx "v2.0.7 $r1" "$STUB_DIR/calls.log" && grep -qx "v2.0.8 $r1" "$STUB_DIR/calls.log" && ! grep -qx "v2.0.1 $r1" "$STUB_DIR/calls.log" &&
+   ! internal_names "$STUB_DIR/calls.log"; then
   pass "tag issues: the summary names every tag over the cap, with its commit"; else fail "tag issues: the summary names every tag over the cap, with its commit"; cat "$STUB_DIR/calls.log"; fi
 # Listings are paged, never limited, and include closed issues; only the tag label is read.
 if grep -q 'api --paginate repos/o/r/issues?state=all&labels=fork-sync-tag&per_page=100' "$STUB_DIR/calls.log" && ! grep -q -- '--limit\|state=open' "$STUB_DIR/calls.log"; then
@@ -765,7 +775,8 @@ ti_setup
 for t in "${big[@]}"; do echo "create refs/upstream-tags/$t $r1"; done | git update-ref --stdin
 printf '%s\n' "${big[@]}" > "$FORK_STATE_DIR/tags-new"
 rc=0; ti_run || rc=$?
-if [ "$rc" = 0 ] && [ "$(ti_calls 'issue create')" = 6 ] && grep -q '^issue create .*--title fork-sync tag: summary --body 1995 release tags' "$STUB_DIR/calls.log"; then
+if [ "$rc" = 0 ] && [ "$(ti_calls 'issue create')" = 6 ] && grep -q '^issue create .*--title fork-sync tag: summary --body 1995 release tags' "$STUB_DIR/calls.log" &&
+   [ "$(grep -cE "^v5\.0\.[0-9]+ $r1\$" "$STUB_DIR/calls.log")" = 50 ]; then
   pass "tag issues: a summary list past the pipe buffer is bounded without failing the step"; else fail "tag issues: a summary list past the pipe buffer is bounded without failing the step"; echo "rc=$rc"; head -c 600 "$root/at/ti.out"; fi
 # The trusted tree is the pin only when the guard passed AND the main mirror succeeded.
 ti_setup v2.0.1
@@ -836,11 +847,12 @@ rs_run() {  # rs_run <stage> [PUSH]: prints the exit status
 rs_setup; rc=$(rs_run guard)
 if [ "$rc" = 1 ] && grep -q "^issue create --label fork-sync --title fork-sync guard: upstream main $r1 changes guarded paths; nothing was pushed or merged into mercurai --body " "$STUB_DIR/calls.log" &&
    grep -qxF '.github/workflows/evil.yml' "$STUB_DIR/calls.log" && grep -q 'Nothing was pushed or merged: no main, no tags, no branches, no merge-forward' "$STUB_DIR/calls.log" &&
-   grep -q "allow_guarded_merge_sha=$r1 " "$STUB_DIR/calls.log"; then
+   grep -q "allow_guarded_merge_sha=$r1 " "$STUB_DIR/calls.log" && ! internal_names "$STUB_DIR/calls.log"; then
   pass "sync issue: a guard refusal files an issue saying nothing was pushed"; else fail "sync issue: a guard refusal files an issue saying nothing was pushed"; echo "rc=$rc"; cat "$STUB_DIR/calls.log"; fi
 rs_setup; rc=$(rs_run merge)
 if [ "$rc" = 1 ] && grep -q "^issue create --label fork-sync --title fork-sync guard: upstream main $r1: the merge into mercurai changed guarded paths and was reset --body " "$STUB_DIR/calls.log" &&
-   grep -q 'so main, tags and branches were already mirrored from it' "$STUB_DIR/calls.log" && ! grep -q 'no main, no tags, no branches' "$STUB_DIR/calls.log" && grep -qxF '.github/workflows/evil.yml' "$STUB_DIR/calls.log"; then
+   grep -q 'so main, tags and branches were already mirrored from it' "$STUB_DIR/calls.log" && ! grep -q 'no main, no tags, no branches' "$STUB_DIR/calls.log" && grep -qxF '.github/workflows/evil.yml' "$STUB_DIR/calls.log" &&
+   ! internal_names "$STUB_DIR/calls.log"; then
   pass "sync issue: a reset merge says main, tags and branches were already mirrored"; else fail "sync issue: a reset merge says main, tags and branches were already mirrored"; echo "rc=$rc"; cat "$STUB_DIR/calls.log"; fi
 rs_setup; rc=$(rs_run conflict)
 if [ "$rc" = 1 ] && grep -q "^issue create --label fork-sync --title fork-sync: mercurai does not merge with upstream main $r1 --body " "$STUB_DIR/calls.log" && grep -qxF 'base.txt' "$STUB_DIR/calls.log"; then
@@ -881,6 +893,9 @@ guard_setup; commit .github/workflows/ci.yml A "upstream changes the workflow"
 tree=$(git rev-parse up:.github); rm -f ".git/objects/${tree:0:2}/${tree:2}"
 rc=0; bash "$here/merge-guard.sh" fork up > "$root/guard.out" 2>&1 || rc=$?
 if [ "$rc" = 1 ] && ! grep -q 'no guarded path' "$root/guard.out"; then pass "guard: an unreadable tree is an error, not 'no guarded path'"; else fail "guard: an unreadable tree is an error, not 'no guarded path'"; echo "rc=$rc"; cat "$root/guard.out"; fi
+# The union: the fork range's diff fails and a later range (empty, so it reads no tree) succeeds; the failure still counts.
+rc=0; bash "$here/merge-guard.sh" fork up up > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 1 ] && ! grep -q 'no guarded path' "$root/guard.out"; then pass "guard: a failed diff in an earlier range of the union is an error"; else fail "guard: a failed diff in an earlier range of the union is an error"; echo "rc=$rc"; cat "$root/guard.out"; fi
 
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done
