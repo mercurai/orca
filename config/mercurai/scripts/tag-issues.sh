@@ -26,7 +26,12 @@ bash "$here/list-skipped-tags.sh"
 if [ ! -s "$state/tags-skipped" ]; then exit 0; fi
 # The trusted tree: the pin once it is guarded AND the main mirror pushed it, otherwise origin/main as the run found it.
 if [ "${GUARD_REFUSED:-true}" = false ] && [ "${MAIN_MIRRORED:-}" = success ]; then trusted=$UPSTREAM_SHA; else trusted=$FORK_MAIN; fi
-me=$("$gh" api user --jq .login)
+# The bot's own login, to tell its words from anyone else's. A GitHub App installation token has no user: say so
+# once, plainly, and stop before anything is written.
+me=$("$gh" api user --jq .login) || {
+  echo "::error::tag review issues need a user token; 'gh api user' failed, so FORK_BOT_TOKEN looks like an App installation token"
+  exit 1
+}
 issues=$("$gh" api --paginate "repos/$GH_REPO/issues?state=all&labels=$SYNC_ISSUE_LABEL&per_page=100" \
   --jq '.[] | {number, title, state, login: .user.login, body: (.body // "")}')
 # Only the bot's own issues: a third party's issue with the same title is not ours to reuse, edit or reopen.

@@ -248,7 +248,8 @@ test('every skipped release tag gets its own issue, matched by exact title, comm
   assert.ok(script.includes(`'[.[] | select(.title == $t and .login == $me)][0] // empty'`))
   assert.doesNotMatch(script, /contains\(\$t\)|startswith|test\(/)
   // Only the bot's own words count as "reported": the issue's author and the comment authors, against the token's login.
-  assert.ok(script.includes('me=$("$gh" api user --jq .login)'))
+  assert.ok(script.includes('me=$("$gh" api user --jq .login) || {\n'))
+  assert.ok(script.includes(`echo "::error::tag review issues need a user token; 'gh api user' failed, so FORK_BOT_TOKEN looks like an App installation token"\n  exit 1\n}`))
   assert.ok(script.includes(`'.login == $me and (.body | contains($a))'`))
   assert.ok(script.includes(`'any(.[]; .login == $me and (.body | contains($a)))'`))
   // "Reported" means the exact input that mirrors the tag, not the bare sha.

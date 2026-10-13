@@ -74,7 +74,9 @@ series.
   (`scripts/tag-issues.sh`, run whatever failed before it) pages through every issue, closed ones
   included, so an issue the owner closed stays closed until the tag's commit changes (then it is
   reopened and commented on); only the bot's own issue body or comments count as "already
-  reported", never a third party's. Upstream decides how many tags there are, so a run opens at
+  reported", never a third party's. That needs a user token (`gh api user` names the bot): with a
+  GitHub App installation token the step prints one `::error::` naming the cause and writes nothing.
+  Upstream decides how many tags there are, so a run opens at
   most 5 new issues and makes at most 20 updates, and lists the rest in one `fork-sync tag: summary`
   issue (bounded, sanitised) that later runs work through. Each issue prints the tag's `git diff --stat` and
   paths under `.github/` and `config/mercurai/` against the trusted tree (the pin once it is guarded,
