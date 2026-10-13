@@ -105,6 +105,17 @@ git checkout -q -b up5 v2; commit ci.yml "upstream changed it" "upstream ci"; gi
 rc=0; bash "$here/carry-ci-base.sh" v1 v5 "$(git rev-parse v5)" > "$root/carry.out" 2>&1 || rc=$?
 if [ "$rc" != 0 ] && grep -q evil "$root/carry.out" && ! grep -q $'\r' "$root/carry.out"; then
   pass "carry-ci-base strips CR from git's cherry-pick output"; else fail "carry-ci-base strips CR from git's cherry-pick output"; cat -v "$root/carry.out"; fi
+# 7c. Current git prints a control character in a subject as "?"; a git that does not must still not reach the log with a CR.
+real_git=$(command -v git); mkdir -p "$root/oldgit"
+cat > "$root/oldgit/git" <<EOF
+#!/bin/sh
+if [ "\$1" = cherry-pick ] && [ "\$2" = -x ]; then "$real_git" "\$@"; rc=\$?; printf 'error: could not apply x... ci: evil\r::error::injected\n' >&2; exit \$rc; fi
+exec "$real_git" "\$@"
+EOF
+chmod +x "$root/oldgit/git"
+rc=0; PATH="$root/oldgit:$PATH" bash "$here/carry-ci-base.sh" v1 v5 "$(git rev-parse v5)" > "$root/carry.out" 2>&1 || rc=$?
+if [ "$rc" != 0 ] && grep -q 'ci: evil::error::injected' "$root/carry.out" && ! grep -q $'\r' "$root/carry.out"; then
+  pass "carry-ci-base strips a CR an older git echoes from a subject"; else fail "carry-ci-base strips a CR an older git echoes from a subject"; cat -v "$root/carry.out"; fi
 
 # 8. A rerun after upstream changed the lines around a carried change: no duplicate pick, no failure.
 setup
@@ -567,6 +578,27 @@ if grep -qF v9.9.9 "$root/xp/out.tags" && grep -qF mid "$root/xp/out.branches"; 
 # list-skipped-tags.sh, which feeds the review issues, lists exactly the tag sync-push.sh did not push.
 UPSTREAM_SHA="$x2" bash "$here/list-skipped-tags.sh"
 if [ "$(cat "$FORK_STATE_DIR/tags-skipped")" = v9.9.9 ]; then pass "intermediate refs: the review-issue list is the tag sync-push skipped"; else fail "intermediate refs: the review-issue list is the tag sync-push skipped"; cat "$FORK_STATE_DIR/tags-skipped"; fi
+# The same under config/mercurai/: Y1 adds a fork script, Y2 (the pin) removes it; the tag and branch on Y1 stay behind.
+rm -rf "$root/yp"; mkdir -p "$root/yp"; git init -q --bare "$root/yp/origin.git"
+git init -q -b fork "$root/yp/work"; cd "$root/yp/work"; git remote add origin "$root/yp/origin.git"
+commit a.txt 1 "base"; y0=$(git rev-parse HEAD); mkdir -p config/mercurai
+commit config/mercurai/y.sh y "Y1 adds a fork script"; y1=$(git rev-parse HEAD)
+git rm -q config/mercurai/y.sh; git commit -qm "Y2 removes it"; y2=$(git rev-parse HEAD)
+git update-ref refs/upstream-tags/v9.8.1 "$y1"; git update-ref refs/upstream-tags/v9.8.2 "$y2"
+git update-ref refs/remotes/upstream/ymid "$y1"; git update-ref refs/remotes/upstream/ytip "$y2"
+printf 'v9.8.1\nv9.8.2\n' > "$FORK_STATE_DIR/tags-new"
+ok=true
+for kind in tags branches; do GUARD_REFUSED=false UPSTREAM_SHA="$y2" bash "$here/sync-push.sh" "$kind" > "$root/yp/out.$kind" 2>&1 || ok=false; done
+UPSTREAM_SHA="$y2" bash "$here/list-skipped-tags.sh"
+if [ "$ok" = true ] && [ "$(git --git-dir="$root/yp/origin.git" for-each-ref --format='%(refname)' | tr '\n' ' ')" = "refs/heads/upstream/ytip refs/tags/v9.8.2 " ] &&
+   [ "$(cat "$FORK_STATE_DIR/tags-skipped")" = v9.8.1 ]; then
+  pass "intermediate refs: a commit whose config/mercurai differs from the pin is not pushed, and is listed for review"
+else fail "intermediate refs: a commit whose config/mercurai differs from the pin is not pushed, and is listed for review"; cat "$root/yp/out."* "$FORK_STATE_DIR/tags-skipped"; fi
+# A tag origin already holds at another commit is never rewritten, even when a stale list calls it new.
+git push -q origin "$y0:refs/tags/v9.8.3"; git update-ref refs/upstream-tags/v9.8.3 "$y2"; echo v9.8.3 > "$FORK_STATE_DIR/tags-new"
+rc=0; GUARD_REFUSED=false UPSTREAM_SHA="$y2" bash "$here/sync-push.sh" tags > "$root/yp/out.tags" 2>&1 || rc=$?
+if [ "$rc" != 0 ] && [ "$(git --git-dir="$root/yp/origin.git" rev-parse refs/tags/v9.8.3)" = "$y0" ]; then pass "sync-push: a tag origin holds at another commit is not rewritten"
+else fail "sync-push: a tag origin holds at another commit is not rewritten"; echo "rc=$rc"; cat "$root/yp/out.tags"; fi
 
 # 33k. mirror-allowed-tag.sh: the owner's allow_tag=<tag>@<sha> mirrors exactly that tag, or nothing. A release tag sits on a release
 # branch, so it is not inside the pin; v1.2.3 carries a workflow, v1.2.4 is the base commit.
@@ -643,7 +675,7 @@ cat > "$root/stub-gh" <<'STUB'
 d=$STUB_DIR
 echo "$*" >> "$d/calls.log"
 case "$1 $2" in
-  "api user") if [ -n "${STUB_FAIL_USER:-}" ]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi; cat "$d/login" ;;
+  "api user") if [ -n "${STUB_FAIL_USER:-}" ]; then if [ "$STUB_FAIL_USER" = prints ]; then cat "$d/login"; fi; echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi; cat "$d/login" ;;
   "api --paginate")
     case "$3" in
       */comments*) n=${3#*issues/}; n=${n%%/*}; cat "$d/comments-$n.ndjson" 2>/dev/null || true ;;
@@ -712,6 +744,11 @@ issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open the-bot "old commit
 jq -nc --arg b "the commit $r1 again" '{login:"the-bot",body:$b}' > "$STUB_DIR/comments-7.ndjson"
 rm -f "$STUB_DIR/calls.log"; ti_run
 if grep -q '^issue comment 7 ' "$STUB_DIR/calls.log"; then pass "tag issues: the bare sha does not count as reported"; else fail "tag issues: the bare sha does not count as reported"; cat "$STUB_DIR/calls.log"; fi
+# The input for the tag at an older commit is not the input for this one: the tag moved, so the bot reports again.
+ti_setup v2.0.1
+issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open the-bot "allow_tag=v2.0.1@0000000000000000000000000000000000000000" > "$STUB_DIR/issues.ndjson"
+rm -f "$STUB_DIR/calls.log"; ti_run
+if grep -q '^issue comment 7 ' "$STUB_DIR/calls.log" && grep -q "allow_tag=v2.0.1@$r1" "$STUB_DIR/calls.log"; then pass "tag issues: the input for an older commit does not count as reported"; else fail "tag issues: the input for an older commit does not count as reported"; cat "$STUB_DIR/calls.log"; fi
 ti_setup v2.0.1
 issue_line 7 "fork-sync tag: v2.0.1 needs owner review" open the-bot "old commit" > "$STUB_DIR/issues.ndjson"
 jq -nc --arg b "seen allow_tag=v2.0.1@$r1" '{login:"the-bot",body:$b}' > "$STUB_DIR/comments-7.ndjson"
@@ -740,6 +777,11 @@ ti_setup v2.0.1 v2.0.2
 rc=0; ti_run || rc=$?
 if [ "$rc" != 0 ] && [ "$(grep -c '^::error::' "$root/at/ti.out")" = 1 ] && grep -q "need a user token" "$root/at/ti.out" && ! grep -q '^issue \|^label ' "$STUB_DIR/calls.log"; then
   pass "tag issues: an empty login is an error and writes nothing"; else fail "tag issues: an empty login is an error and writes nothing"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
+# A 'gh api user' that fails is an error even when it printed a login first.
+ti_setup v2.0.1 v2.0.2
+rc=0; STUB_FAIL_USER=prints ti_run || rc=$?
+if [ "$rc" != 0 ] && grep -q "need a user token" "$root/at/ti.out" && ! grep -q '^issue \|^label ' "$STUB_DIR/calls.log"; then
+  pass "tag issues: a failing 'gh api user' that printed a login still writes nothing"; else fail "tag issues: a failing 'gh api user' that printed a login still writes nothing"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
 # A release-named tag upstream points at a tree is skipped with a warning; the next tag still gets its issue.
 ti_setup v2.0.2
 git update-ref refs/upstream-tags/v2.0.1 "$(git rev-parse 'fork^{tree}')"
@@ -762,6 +804,14 @@ rc=0; UPSTREAM_SHA="$b0" FORK_MAIN="$b0" GUARD_REFUSED=true FORK_BRANCH=mercurai
 if [ "$rc" = 0 ] && grep -qx '::warning::v2.0.1 does not point at a commit; skipped' "$root/at/ti.out" && [ "$(ti_calls 'issue create')" = 1 ] &&
    grep -q '^issue create .*--title fork-sync tag: v2.0.2 needs owner review' "$STUB_DIR/calls.log"; then
   pass "tag issues: handed a tag that points at a tree, it skips it and still files the next"; else fail "tag issues: handed a tag that points at a tree, it skips it and still files the next"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
+# Handed a name with a backtick (a stand-in list again), the summary prints it sanitised, so it cannot break the fence.
+ti_setup
+printf 'v6.0.1\nv6.0.2\nv6.0.3\nv6.0.4\nv6.0.5\nv6.0.6`x\n' > "$root/tiwrap/names"
+while read -r t; do git update-ref "refs/upstream-tags/$t" "$r1"; done < "$root/tiwrap/names"
+printf '#!/usr/bin/env bash\ncp "%s/tiwrap/names" "$FORK_STATE_DIR/tags-skipped"\n' "$root" > "$root/tiwrap/list-skipped-tags.sh"
+rc=0; UPSTREAM_SHA="$b0" FORK_MAIN="$b0" GUARD_REFUSED=true FORK_BRANCH=mercurai GH_REPO=o/r GH="$root/stub-gh" bash "$root/tiwrap/tag-issues.sh" > "$root/at/ti.out" 2>&1 || rc=$?
+if [ "$rc" = 0 ] && grep -qx "v6.0.6?x $r1" "$STUB_DIR/calls.log" && ! grep -q "v6.0.6\`x $r1" "$STUB_DIR/calls.log"; then
+  pass "tag issues: the summary list is sanitised"; else fail "tag issues: the summary list is sanitised"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
 # The update cap: 25 tags with an issue of the bot's that names an older commit: 20 comments, the other 5 in the summary.
 tags25=(); for i in $(seq 1 25); do tags25+=("v3.0.$i"); done
 ti_setup "${tags25[@]}"
@@ -787,6 +837,10 @@ ti_setup v2.0.1
 git checkout -q fork; commit u.txt u "a newer upstream commit"; u1=$(git rev-parse HEAD)
 TI_UP=$u1 TI_REFUSED=false TI_MIRRORED=failure ti_run
 if grep -q "trusted one (\`$b0\`)" "$STUB_DIR/calls.log"; then pass "tag issues: origin/main is the trusted tree when the main mirror failed"; else fail "tag issues: origin/main is the trusted tree when the main mirror failed"; head -c 800 "$STUB_DIR/calls.log"; fi
+ti_setup v2.0.1
+git checkout -q fork; commit u.txt u "a newer upstream commit"; u1=$(git rev-parse HEAD)
+TI_UP=$u1 TI_REFUSED=true TI_MIRRORED=success ti_run
+if grep -q "trusted one (\`$b0\`)" "$STUB_DIR/calls.log"; then pass "tag issues: origin/main is the trusted tree when the guard refused"; else fail "tag issues: origin/main is the trusted tree when the guard refused"; head -c 800 "$STUB_DIR/calls.log"; fi
 
 # 33n. guard-step.sh: the guard's exit code becomes the step outputs, and nothing the script prints can set them.
 gs_setup() { guard_setup; git update-ref refs/remotes/origin/main up; }
@@ -811,6 +865,12 @@ if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=true " ]; then pa
 mkdir -p "$root/fakebin"; printf '#!/bin/sh\nexit 4\n' > "$root/fakebin/sed"; chmod +x "$root/fakebin/sed"
 rc=$(PATH="$root/fakebin:$PATH" gs_run '')
 if [ "$rc" = 4 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: an exit 4 that is not the owner's sha fails the step"; else fail "guard step: an exit 4 that is not the owner's sha fails the step"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
+rc=$(PATH="$root/fakebin:$PATH" gs_run 0123456789abcdef0123456789abcdef01234567)
+if [ "$rc" = 4 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: an exit 4 with a full sha that is not the pin fails the step"; else fail "guard step: an exit 4 with a full sha that is not the pin fails the step"; echo "rc=$rc $(gs_outputs)"; fi
+# Only a full sha allows, even one spelled like the pin: here both are the ref name `up`.
+rc=0; git checkout -q fork; : > "$root/gs.gho"
+PATH="$root/fakebin:$PATH" FORK_BRANCH=fork UPSTREAM_SHA=up ALLOWED_SHA=up GITHUB_OUTPUT="$root/gs.gho" bash "$here/guard-step.sh" > "$root/gs.out" 2>&1 || rc=$?
+if [ "$rc" = 4 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: an owner value that is not a full sha allows nothing"; else fail "guard step: an owner value that is not a full sha allows nothing"; echo "rc=$rc $(gs_outputs)"; fi
 git update-ref -d refs/remotes/origin/main; rc=$(gs_run '')
 if [ "$rc" = 1 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: a guard that fails sets no refused output"; else fail "guard step: a guard that fails sets no refused output"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
 
@@ -884,6 +944,12 @@ rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || r
 if [ "$rc" = 3 ] && ! grep -q $'\r' "$root/guard.out" && ! grep -q '`' "$root/guard.out" && grep -qxF '.github/workflows/x???error??y?z' "$root/guard.out" &&
    [ "$(grep -c . "$root/guard.out")" = 51 ] && grep -qxF '... and 11 more' "$root/guard.out"; then
   pass "result guard: hostile names are sanitised and the list is bounded"; else fail "result guard: hostile names are sanitised and the list is bounded"; cat -v "$root/guard.out"; fi
+# A rename inside the guarded paths lists both names, as the range guard does.
+guard_setup; before=$(git rev-parse fork); git mv .github/workflows/ci.yml .github/workflows/renamed.yml; git commit -qm "rename"
+git checkout -q fork; git merge -q --no-edit up
+rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && grep -qxF .github/workflows/ci.yml "$root/guard.out" && grep -qxF .github/workflows/renamed.yml "$root/guard.out"; then
+  pass "result guard: a rename lists the old and the new name"; else fail "result guard: a rename lists the old and the new name"; cat "$root/guard.out"; fi
 
 # 33s. merge-guard.sh fails closed: a ref it cannot resolve, or a tree it cannot read, is an error, never "nothing changed".
 guard_setup; commit docs/up.md up "upstream docs"
@@ -902,6 +968,12 @@ guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" >
 git add config; git commit -qm "many"
 guard_expect "guard: many guarded paths are refused" 3
 if [ "$(grep -c . "$root/guard.out")" = 51 ] && grep -qxF "... and 10 more" "$root/guard.out"; then pass "guard: the list is bounded"; else fail "guard: the list is bounded"; cat "$root/guard.out"; fi
+# A path list past the pipe buffer (about 110 KB) is bounded without a SIGPIPE failing the guard.
+guard_setup; mkdir -p config/mercurai/long; long=$(printf 'x%.0s' $(seq 1 80))
+for i in $(seq 1 1200); do echo "$i" > "config/mercurai/long/$long-$i"; done
+git add config; git commit -qm "long names"
+guard_expect "guard: a path list past the pipe buffer is refused" 3
+if [ "$(grep -c . "$root/guard.out")" = 51 ] && grep -qxF "... and 1150 more" "$root/guard.out"; then pass "guard: a path list past the pipe buffer is bounded"; else fail "guard: a path list past the pipe buffer is bounded"; tail -3 "$root/guard.out"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
