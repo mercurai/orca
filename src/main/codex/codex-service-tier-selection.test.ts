@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { AgentSessionModelOption } from '../../shared/agent-session-wire'
 import { fetchCodexModelCatalogListing } from './codex-structured-model-catalog'
 import { restoredCodexSessionOptions } from './codex-structured-session-options'
 
@@ -43,10 +44,18 @@ async function listedModel(row: Record<string, unknown>) {
   return { model, listing }
 }
 
-// Read through unknown so a red run reports absent behavior, not a missing type.
-function tierValues(model: object): unknown[] | null {
-  const tiers: unknown = Reflect.get(model, 'serviceTiers')
-  return Array.isArray(tiers) ? tiers.map((tier) => Reflect.get(tier, 'value')) : null
+// Narrow additive metadata from unknown so a red run reports absent behavior, not a missing type.
+function tierValues(model: AgentSessionModelOption): unknown[] | null {
+  if (!('serviceTiers' in model)) {
+    return null
+  }
+  const tiers: unknown = model.serviceTiers
+  if (!Array.isArray(tiers)) {
+    return null
+  }
+  return tiers.map((tier: unknown) =>
+    typeof tier === 'object' && tier !== null && 'value' in tier ? tier.value : undefined
+  )
 }
 
 describe('Codex catalog service tiers', () => {
@@ -124,7 +133,7 @@ describe('Codex catalog service tiers', () => {
     ['non-array legacy metadata', { additionalSpeedTiers: 'fast', additional_speed_tiers: 7 }]
   ])('leaves serviceTiers absent for %s', async (_name, metadata) => {
     const { model } = await listedModel(modelRow('synthetic-model-a', metadata))
-    expect(Reflect.has(model, 'serviceTiers')).toBe(false)
+    expect('serviceTiers' in model).toBe(false)
   })
 
   it('never invents an Ultrafast choice from a model name or a Fast-only list', async () => {
@@ -137,7 +146,7 @@ describe('Codex catalog service tiers', () => {
     )
     expect(tierValues(legacy.model)).not.toContain('ultrafast')
     const unknown = await listedModel(modelRow('synthetic-ultra-model', {}))
-    expect(Reflect.has(unknown.model, 'serviceTiers')).toBe(false)
+    expect('serviceTiers' in unknown.model).toBe(false)
   })
 })
 
