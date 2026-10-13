@@ -69,6 +69,27 @@ describe('canonical serviceTier in launch seeds', () => {
     expect(narrowStructuredLaunchSeedOptions({ model: MODEL, serviceTier: null })).toEqual({
       model: MODEL
     })
+    expect(narrowStructuredLaunchSeedOptions({ model: MODEL, serviceTier: true })).toEqual({
+      model: MODEL
+    })
+    expect(parseStructuredLaunchSeedOptions({ model: MODEL, serviceTier: 5 })).toEqual({
+      model: MODEL
+    })
+  })
+
+  it('keeps a legacy fastMode when the canonical tier beside it is unusable', () => {
+    expect(
+      narrowStructuredLaunchSeedOptions({ model: MODEL, serviceTier: '  ', fastMode: true })
+    ).toEqual({ model: MODEL, fastMode: 'true' })
+    expect(
+      parseStructuredLaunchSeedOptions({ model: MODEL, serviceTier: '', fastMode: 'false' })
+    ).toEqual({ model: MODEL, fastMode: 'false' })
+  })
+
+  it('seeds nothing for an untouched launch', () => {
+    expect(narrowStructuredLaunchSeedOptions({})).toBeUndefined()
+    expect(narrowStructuredLaunchSeedOptions(undefined)).toBeUndefined()
+    expect(parseStructuredLaunchSeedOptions(undefined)).toBeUndefined()
   })
 })
 
@@ -129,6 +150,18 @@ describe('resolveStructuredLaunchSeedOptions with a canonical serviceTier', () =
     expect(modelOnly).not.toHaveProperty('serviceTier')
     expect(modelOnly).not.toHaveProperty('fastMode')
   })
+
+  it.each(['gemini', 'opencode', 'cursor'] as const)(
+    'never gives %s the Codex-only serviceTier',
+    (agent) => {
+      expect(
+        resolveStructuredLaunchSeedOptions(
+          persisted(agent, { effort: 'high', serviceTier: CUSTOM_TIER }),
+          agent
+        )
+      ).toEqual({ model: MODEL, effort: 'high' })
+    }
+  )
 
   it('does not carry a tier saved for another model into this launch', () => {
     expect(

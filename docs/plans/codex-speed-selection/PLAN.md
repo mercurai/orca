@@ -2,7 +2,7 @@
 owner: codex-01a1273e
 last-reviewed: 2026-10-13
 stability: draft
-status: red-ci-pending
+status: shared-contract-implementation
 ---
 
 # Catalog-backed Codex speed selection
@@ -13,8 +13,11 @@ Implement Standard, Fast and Ultrafast selection through Orca's existing model c
 This is the authoritative specification, ownership map and execution plan for this change.
 The user authorized core implementation and rollout; the fleet retains landing and release ordering.
 Independent local GPT-6 Astra/ultra plan review approved the revised contract. Regression tests are written;
-production changes have not started. CI must establish the expected behavior failures first. Run 38466839474 stopped at the root-directory
-guard before tests: the plan has moved under docs/plans without bypassing that guard.
+CI run 38468679286 established expected missing-tier/seed/migration behavior failures at dcd4aaf3ef.
+Static/type checks passed. Shard 1 also failed an unrelated filesystem-watcher test; shard 3 includes
+win32-test-lane-registration baseline failures. Local Sonnet slice A implements the shared contract. Independent GPT-6.1/medium review requires
+rejecting malformed explicit legacy toggles before mutation and bounding advertised IDs to storage limits.
+Generic callbacks use provider-neutral shared types, optional speed facts, and a direct complete-map return.
 Owner override: "There's no reason to use server one for the implementation. Go ahead and execute everything here."
 Implementation and independent review run locally. Build freeze and CI-only test admission remain in force.
 
@@ -152,6 +155,9 @@ Writable production paths:
 `src/shared/native-chat-session-option-defaults.ts`, `src/shared/native-chat-session-options.ts`,
 `src/shared/agent-session-option-catalog-types.ts`, `src/shared/structured-agent-session-option-codec.ts`.
 Also own `src/main/native-chat/agent-session-wire/structured-agent-definition.ts` to freeze the provider validator.
+Also own `src/shared/agent-session-speed-facts.ts` and `src/shared/structured-agent-session-resting-options.ts`
+for focused wire facts and provider-neutral callback types. The initial writer added the facts file outside its
+explicit assignment; root reviewed the extraction and records ownership before further writes.
 Add `src/shared/codex-service-tier-selection.ts` and its behavioral tests for pure selection/normalization reused
 by live, at-rest and presentation consumers; existing fast-mode reconciliation is the closest analog.
 Add the seed key and optional metadata/capability without changing other providers' boolean encoding.
@@ -210,7 +216,9 @@ Guard local and host-owned canonical seeds before create and before first delive
 intent across model changes, refusals and reload. A speed refusal blocks publication and inventory-driven
 unblocking, while a model refusal keeps its existing behavior. Retain the created session receipt and
 staged text; an explicit replacement retries the same conversation rather than creating another.
-D and L share capability contracts but never edit each other's files.
+D exposes `readStructuredAgentSessionCodexSpeedSupport(target)` from the runtime client, returning
+`unknown|supported|unsupported` through the existing capability probe. L imports this frozen helper;
+D and L never edit each other's files or duplicate probes.
 A adds optional `SessionOptionSelectChoice.disabled` for unavailable presentation rows.
 
 ### E: root-owned integration and delivery
@@ -284,4 +292,4 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: obtain red behavioral CI evidence on PR 42, then implement A before the independent B/C/D/L slices.
+Next action: implement and independently review A, then consume its frozen interfaces in B/C/D/L.

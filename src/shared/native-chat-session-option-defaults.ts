@@ -34,8 +34,16 @@ export function resolveNativeChatSessionOptionDefaults(
 }
 
 /** Canonical values seed through the existing durable string record; the codec
- *  is the only boundary that represents the boolean Fast preference as text. */
-export const STRUCTURED_LAUNCH_SEED_OPTION_IDS = ['model', 'effort', 'fastMode'] as const
+ *  is the only boundary that represents the boolean Fast preference as text.
+ *  `serviceTier` is Codex's canonical speed and outranks a coexisting `fastMode`. */
+export const STRUCTURED_LAUNCH_SEED_OPTION_IDS = [
+  'model',
+  'effort',
+  'serviceTier',
+  'fastMode'
+] as const
+
+const NON_BLANK_SEED_OPTION_IDS: ReadonlySet<string> = new Set(['model', 'effort', 'serviceTier'])
 
 /** Any chosen option set narrowed to what a structured create may seed: the seedable ids only,
  *  each encoded as a bounded string. An empty result is `undefined` rather than `{}` — an empty map fails
@@ -50,7 +58,10 @@ export function narrowStructuredLaunchSeedOptions(
   const seeded: Record<string, string> = {}
   for (const id of STRUCTURED_LAUNCH_SEED_OPTION_IDS) {
     const value = values?.[id]
-    if ((id === 'model' || id === 'effort') && !(typeof value === 'string' && value.trim())) {
+    if (id === 'fastMode' && seeded.serviceTier !== undefined) {
+      continue
+    }
+    if (NON_BLANK_SEED_OPTION_IDS.has(id) && !(typeof value === 'string' && value.trim())) {
       continue
     }
     if (typeof value === 'string' || typeof value === 'boolean') {
@@ -75,6 +86,9 @@ export function parseStructuredLaunchSeedOptions(
   const parsed: Record<string, string> = {}
   for (const id of STRUCTURED_LAUNCH_SEED_OPTION_IDS) {
     const encoded = entries.get(id)
+    if (id === 'fastMode' && parsed.serviceTier !== undefined) {
+      continue
+    }
     if (
       typeof encoded === 'string' &&
       encoded.trim() &&
@@ -86,12 +100,18 @@ export function parseStructuredLaunchSeedOptions(
   return Object.keys(parsed).length > 0 ? parsed : undefined
 }
 
-/** The saved selection a structured create seeds into its string-valued reservation. */
+/** The saved selection a structured create seeds into its string-valued reservation. Only Codex
+ *  keeps `serviceTier`; Claude and every other agent seed their own controls. */
 export function resolveStructuredLaunchSeedOptions(
   persisted: PersistedNativeChatSessionOptions | null | undefined,
   agent: AgentType
 ): Record<string, string> | undefined {
-  return narrowStructuredLaunchSeedOptions(resolveNativeChatSessionOptionDefaults(persisted, agent))
+  const values = resolveNativeChatSessionOptionDefaults(persisted, agent)
+  if (!values || agent === 'codex') {
+    return narrowStructuredLaunchSeedOptions(values)
+  }
+  const { serviceTier: _codexOnly, ...others } = values
+  return narrowStructuredLaunchSeedOptions(others)
 }
 
 /** Fold a settled batch of picks onto the durable record. A surface that must send the

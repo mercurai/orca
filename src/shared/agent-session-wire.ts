@@ -15,6 +15,8 @@ import type {
 export * from './agent-session-wire-refusals'
 export * from './agent-session-queued-message-wire'
 export * from './agent-session-turn-completion-wire'
+export * from './agent-session-speed-facts'
+import type { AgentSessionSpeedFacts } from './agent-session-speed-facts'
 import type { AgentSessionConversationCommand } from './agent-session-conversation-command'
 import type { AgentSessionContextUsage } from './agent-session-context-usage'
 // ─── Structured agent-session wire contract ─────────────────────────────────
@@ -395,6 +397,9 @@ export type AgentSessionModelOption = {
   efforts: AgentSessionOptionChoice[]
   /** Provider catalog fact. Absent means the host could not determine support. */
   supportsFastMode?: boolean
+  /** Request tiers the provider advertises for this model, Standard included, with exact ids.
+   *  Absent means support is unknown; an explicit list holding only Standard means known Standard-only. */
+  serviceTiers?: AgentSessionOptionChoice[]
 }
 
 export type AgentSessionFastModeState = 'off' | 'cooldown' | 'on'
@@ -488,11 +493,15 @@ export type AgentSessionOptionsResult = {
   models: AgentSessionModelOption[]
   /** Session/account/transport support. Absent means unknown, never unsupported. */
   fastModeSupport?: AgentSessionFastModeSupport
+  /** Codex speed facts; absent from an older host or another provider, which never means Standard. */
+  speed?: AgentSessionSpeedFacts
   current: {
     model?: string
     effort?: string
     /** Canonical preference for the next turn. Explicit false is meaningful. */
     fastMode?: boolean
+    /** Canonical request tier for the next turn: the exact id the host stored, advertised or not. */
+    serviceTier?: string
     /** Provider-reported effective routing, distinct from the next-turn preference. */
     fastModeState?: AgentSessionFastModeState
     /**
