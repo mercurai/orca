@@ -73,11 +73,16 @@ import {
   holdStructuredAgentSessionLaunchOption
 } from './structured-agent-session-launch-options'
 import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
+import { hasStagedStructuredLaunchPrompt } from './structured-agent-session-launch-prompt'
 import {
   resetStructuredAgentLaunchRegistryForTests,
   subscribeStructuredAgentLaunchStatus
 } from './structured-agent-session-launch-registry'
-import { markStructuredAgentSessionLaunchPublished } from './structured-agent-session-launch-publication'
+import {
+  markStructuredAgentSessionLaunchesPublished,
+  markStructuredAgentSessionLaunchPublished,
+  publishedStructuredSessions
+} from './structured-agent-session-launch-publication'
 
 const WORKTREE_ID = 'wt-1'
 const SESSION_ID = 'session-1'
@@ -361,5 +366,215 @@ describe('picks made while a chat launches', () => {
 
     expect(seen[0]).toEqual({ seed: { model: 'gpt-seeded', effort: 'high' }, held: {} })
     expect(lifecycle()).toBeNull()
+  })
+
+  it('keeps a held speed pick through a later model pick while dropping other held options', async () => {
+    const created = deferred<{ sessionId: string; fence: number }>()
+    mocks.launch.mockReturnValue(created.promise)
+    const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'request-8' })
+
+    const speedPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'ultrafast')
+    const effortPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'effort', 'high')
+    const modelPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'model', 'gpt-picked')
+
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({
+      model: 'gpt-picked',
+      serviceTier: 'ultrafast'
+    })
+    await expect(effortPick).resolves.toEqual({ kind: 'superseded' })
+
+    created.resolve({ sessionId: SESSION_ID, fence: 7 })
+    await settle()
+    expect(mutations()).toEqual([
+      { method: 'agentSession.setOption', fence: 7, key: 'model', value: 'gpt-picked' }
+    ])
+    setOptionReplies[0]!.resolve({
+      ok: true,
+      value: { key: 'model', value: 'gpt-picked', options: { model: 'gpt-picked' } }
+    })
+    await expect(modelPick).resolves.toEqual({
+      kind: 'accepted',
+      options: { model: 'gpt-picked' }
+    })
+    await settle()
+    expect(mutations()).toEqual([
+      { method: 'agentSession.setOption', fence: 7, key: 'model', value: 'gpt-picked' },
+      { method: 'agentSession.setOption', fence: 7, key: 'serviceTier', value: 'ultrafast' }
+    ])
+    setOptionReplies[1]!.resolve({
+      ok: true,
+      value: {
+        key: 'serviceTier',
+        value: 'ultrafast',
+        options: { model: 'gpt-picked', serviceTier: 'ultrafast' }
+      }
+    })
+    await expect(speedPick).resolves.toEqual({
+      kind: 'accepted',
+      options: { model: 'gpt-picked', serviceTier: 'ultrafast' }
+    })
+    await launch.launchResult
+
+    expect(mutations().map((mutation) => mutation.key)).toEqual(['model', 'serviceTier'])
+  })
+
+  it('keeps a held speed pick when the model is picked again', async () => {
+    mocks.launch.mockReturnValue(deferred<{ sessionId: string; fence: number }>().promise)
+    startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'request-8b' })
+
+    const firstModelPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'model', 'gpt-picked')
+    holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'ultrafast')
+    holdStructuredAgentSessionLaunchOption(SESSION_ID, 'model', 'gpt-repicked')
+
+    await expect(firstModelPick).resolves.toEqual({ kind: 'superseded' })
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({
+      model: 'gpt-repicked',
+      serviceTier: 'ultrafast'
+    })
+  })
+
+  describe('when the host refuses the held speed pick', () => {
+    type RefusedLaunchSeen = {
+      launch?: 'resolved' | 'rejected'
+      delivered?: boolean
+      promptRejected?: true
+    }
+
+    async function launchWithRefusedSpeedPick() {
+      const created = deferred<{ sessionId: string; fence: number }>()
+      mocks.launch.mockReturnValue(created.promise)
+      const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', {
+        requestId: 'request-9',
+        prompt: 'first turn'
+      })
+      const seen: RefusedLaunchSeen = {}
+      void launch.launchResult.then(
+        () => {
+          seen.launch = 'resolved'
+        },
+        () => {
+          seen.launch = 'rejected'
+        }
+      )
+      void launch.promptDeliveryResult?.then(
+        (result) => {
+          seen.delivered = result.delivered
+        },
+        () => {
+          seen.promptRejected = true
+        }
+      )
+
+      const speedPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'ultrafast')
+      // Attached before the refusal arrives so the picker's outcome is never left unobserved.
+      const reported = expect(speedPick).resolves.toMatchObject({
+        kind: 'refused',
+        failure: { kind: 'refused', code: 'agent_session_operation_invalid' }
+      })
+      created.resolve({ sessionId: SESSION_ID, fence: 7 })
+      await settle()
+      setOptionReplies[0]!.resolve({
+        ok: false,
+        refusal: {
+          code: 'agent_session_operation_invalid',
+          message: 'Service tier ultrafast is unavailable'
+        }
+      })
+      await reported
+      await settle()
+      return { launch, seen }
+    }
+
+    function expectLaunchStillBlocked(seen: RefusedLaunchSeen) {
+      expect(mutations()).toEqual([
+        { method: 'agentSession.setOption', fence: 7, key: 'serviceTier', value: 'ultrafast' }
+      ])
+      expect(seen.launch).not.toBe('resolved')
+      expect(seen.delivered).not.toBe(true)
+      expect(lifecycle()).not.toBeNull()
+      expect(lifecycle()).not.toBe('published')
+      // The requested tier is kept as picked, never swapped for the seed's or a default speed.
+      expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)).toEqual({
+        seed: { model: 'gpt-seeded' },
+        held: { serviceTier: 'ultrafast' }
+      })
+    }
+
+    it('sends no first turn and does not publish, keeping the pick and the created chat', async () => {
+      const { launch, seen } = await launchWithRefusedSpeedPick()
+
+      expectLaunchStillBlocked(seen)
+      expect(launch.sessionId).toBe(SESSION_ID)
+      expect(mocks.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('is not unblocked by the host inventory showing the chat', async () => {
+      const { seen } = await launchWithRefusedSpeedPick()
+
+      markStructuredAgentSessionLaunchesPublished('local', publishedStructuredSessions([PUBLISHED]))
+      markStructuredAgentSessionLaunchPublished(WORKTREE_ID, SESSION_ID, 'local')
+      await settle()
+
+      expectLaunchStillBlocked(seen)
+      expect(mocks.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('sends the first turn once, on the same chat, when a replacement speed is picked', async () => {
+      const { launch, seen } = await launchWithRefusedSpeedPick()
+      expectLaunchStillBlocked(seen)
+      // The refused pick is still held, and the first turn still waits in the chat's send slot.
+      expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(true)
+
+      const replacement = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'fast')
+      // Attached before the host replies so the picker's outcome is never left unobserved.
+      const accepted = expect(replacement).resolves.toEqual({
+        kind: 'accepted',
+        options: { model: 'gpt-seeded', serviceTier: 'fast' }
+      })
+      const launched = expect(launch.launchResult).resolves.toEqual({
+        sessionId: SESSION_ID,
+        fence: 7
+      })
+      const delivered = expect(launch.promptDeliveryResult).resolves.toEqual({
+        delivered: true,
+        failureNotified: false
+      })
+      await settle()
+
+      // The replacement goes to the host against the same receipt fence, still ahead of the turn.
+      expect(setOptionReplies).toHaveLength(2)
+      expect(mutations()).toEqual([
+        { method: 'agentSession.setOption', fence: 7, key: 'serviceTier', value: 'ultrafast' },
+        { method: 'agentSession.setOption', fence: 7, key: 'serviceTier', value: 'fast' }
+      ])
+      setOptionReplies[1]!.resolve({
+        ok: true,
+        value: {
+          key: 'serviceTier',
+          value: 'fast',
+          options: { model: 'gpt-seeded', serviceTier: 'fast' }
+        }
+      })
+      await Promise.all([accepted, launched, delivered])
+
+      expect(mutations().map((mutation) => mutation.method)).toEqual([
+        'agentSession.setOption',
+        'agentSession.setOption',
+        'agentSession.send'
+      ])
+      const sends = mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.send')
+      expect(sends).toHaveLength(1)
+      expect(sends[0]?.[2]).toMatchObject({
+        envelope: { sessionId: SESSION_ID, expectedRuntimeFence: 7 },
+        body: { blocks: [{ type: 'text', text: 'first turn' }] }
+      })
+      expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(false)
+      expect(lifecycle()).toBeNull()
+      // One create for the whole recovery: no relaunch, so no second chat and no second fence.
+      expect(mocks.launch).toHaveBeenCalledTimes(1)
+      expect(mocks.createIntent).toHaveBeenCalledTimes(1)
+      expect(mocks.retryIntent).not.toHaveBeenCalled()
+      expect(seen.promptRejected).toBeUndefined()
+    })
   })
 })
