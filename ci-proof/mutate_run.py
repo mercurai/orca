@@ -116,8 +116,12 @@ from mutants_pr40 import MUTANTS as PR40  # noqa: E402
 from mutants_1148 import MUTANTS as M1148  # noqa: E402
 from mutants_1148b import DROP as DROP_1148, MUTANTS as M1148B  # noqa: E402
 
+from mutants_1148d import DROP as DROP_1148D, MUTANTS as M1148D  # noqa: E402
+
 M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148}
 M1148.update(M1148B)
+M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148D}
+M1148.update(M1148D)
 
 NEW.update(SEC201)
 NEW.update({f"1148-{name}": mutant for name, mutant in M1148.items()})
