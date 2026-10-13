@@ -663,7 +663,7 @@ issue_line() {  # issue_line <number> <title> <state> <login> <body>
 ti_setup v2.0.1 v2.0.2 v2.0.3 v2.0.4 v2.0.5 v2.0.6 v2.0.7 v2.0.8
 ti_run
 if [ "$(ti_calls 'issue create')" = 6 ] && [ "$(grep -c '^issue create .*--title fork-sync tag: summary' "$STUB_DIR/calls.log")" = 1 ] &&
-   [ "$(grep -c 'needs owner review' "$STUB_DIR/calls.log")" = 5 ] && grep -q '3 release tags need owner review' "$STUB_DIR/calls.log" &&
+   [ "$(grep -c '^issue create .*--title fork-sync tag: v2.0.[0-9] needs owner review' "$STUB_DIR/calls.log")" = 5 ] && grep -q '3 release tags need owner review' "$STUB_DIR/calls.log" &&
    [ "$(grep -c '^issue create --label fork-sync-tag ' "$STUB_DIR/calls.log")" = 6 ]; then
   pass "tag issues: at most 5 new issues a run, the rest in one summary, all under the tag label"; else fail "tag issues: at most 5 new issues a run, the rest in one summary, all under the tag label"; cat "$STUB_DIR/calls.log" "$root/at/ti.out"; fi
 # The summary lists what is left: each overflow tag with its commit, one per line (not an empty fence).
@@ -789,7 +789,7 @@ git update-ref -d refs/remotes/origin/main; rc=$(gs_run '')
 if [ "$rc" = 1 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: a guard that fails sets no refused output"; else fail "guard step: a guard that fails sets no refused output"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
 
 # 33o. merge-forward.sh: a CR in git's merge output never reaches the log; the conflict list is sanitised.
-guard_setup; commit $'docs/c\r::error::x' up "upstream adds it"; git checkout -q fork; commit $'docs/c\r::error::x' fork "fork adds it too"
+guard_setup; commit $'docs/c\r::error::x' up "upstream adds it"; git checkout -q fork; mkdir -p docs; commit $'docs/c\r::error::x' fork "fork adds it too"
 rc=$(mf_run false)
 if [ "$rc" = 10 ] && ! grep -q $'\r' "$root/mf.out" && [ "$(grep -c . "$FORK_STATE_DIR/sync-conflicts")" = 1 ] && grep -q 'docs/c' "$FORK_STATE_DIR/sync-conflicts" &&
    ! grep -q $'\r' "$FORK_STATE_DIR/sync-conflicts" && ! grep -q '::' "$FORK_STATE_DIR/sync-conflicts"; then
