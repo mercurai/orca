@@ -2,7 +2,7 @@
 owner: codex-01a1273e
 last-reviewed: 2026-10-13
 stability: draft
-status: shared-contract-implementation
+status: implementation-model-decision
 ---
 
 # Catalog-backed Codex speed selection
@@ -15,9 +15,29 @@ The user authorized core implementation and rollout; the fleet retains landing a
 Independent local GPT-6 Astra/ultra plan review approved the revised contract. Regression tests are written;
 CI run 38468679286 established expected missing-tier/seed/migration behavior failures at dcd4aaf3ef.
 Static/type checks passed. Shard 1 also failed an unrelated filesystem-watcher test; shard 3 includes
-win32-test-lane-registration baseline failures. Local Sonnet slice A implements the shared contract. Independent GPT-6.1/medium review requires
-rejecting malformed explicit legacy toggles before mutation and bounding advertised IDs to storage limits.
+win32-test-lane-registration baseline failures. Shared contract commit 254d965abd passed independent GPT-6.1/medium slice review after malformed-toggle
+and storage-bound corrections; static/type checks passed in CI run 38482816065. Its shared parser/migration
+suite passed 80 tests and its seed suite passed 21 tests. Windows/main packaging, relay integration and
+cross-version wire compatibility passed. The full run failed on remaining host/restoration/launch/presentation
+red tests and two Windows registration baseline cases; this is not final candidate verification.
 Generic callbacks use provider-neutral shared types, optional speed facts, and a direct complete-map return.
+Real local Sonnet B/C/D/L writers now implement the non-overlapping host, at-rest, picker and launch slices.
+Slice C passed independent GPT-6.1/medium review after canonical model/effort ordering correction; its new
+tests passed in CI run 38485011107 at b0206bb095: 24 at-rest tests and five disk round-trip tests.
+That revision also passed static/type checks, Windows/main packaging and wire compatibility. F's new
+explicit-default tests produced the expected red result: 11 tests, nine failed, two passed.
+The completed run failed with 54 cases: 51 expected feature regressions, two Windows registration
+baseline failures and one new SQLite test registration omission. The five disk cases ran under Bun;
+register them in the required Node project and rerun before claiming accepted persistence coverage.
+Review identified a live-refusal gap: preserving the
+previous accepted tier alone permits autonomous queued sends to fall back after a refused new selection.
+Retain refused requested intent separately, block next-turn admission until explicit accepted replacement,
+and protect client pending picks and already-reserved sends with host/generation fencing.
+Independent B/D/L review found additional catalog provenance, transport submission, live/resting,
+launch admission/reload and mobile identity/facts issues. Correction regression writers hit the real
+Sonnet weekly limit; some test edits are saved but not accepted or run. No correction writer remains
+running. User decision is pending on Codex implementation versus waiting for Sonnet, because the fleet
+reviewer order explicitly retains Sonnet implementation. Continue read-only reviews and CI meanwhile.
 Owner override: "There's no reason to use server one for the implementation. Go ahead and execute everything here."
 Implementation and independent review run locally. Build freeze and CI-only test admission remain in force.
 
@@ -171,6 +191,16 @@ Writable production paths under `src/main/codex/`:
 `codex-structured-background-catalog.ts`, `codex-structured-session-options.ts`,
 `codex-structured-session-acquire.ts`, `codex-structured-session-state.ts`,
 `codex-structured-turn-start.ts`, `codex-configured-launch-defaults.ts`, `codex-structured-agent-definition.ts`.
+Also own `codex-structured-session-adapter.ts` if provider acquisition/report merging requires preserving
+refused requested intent. Use one bounded provider-private rejected-tier marker in the existing option map;
+keep the accepted canonical tier unchanged. Preserve the marker across refresh, model/effort changes and
+restart. Clear it only after an explicit accepted replacement. Do not admit it as a public option key or
+serialize it into provider requests. Expose blocked requested intent through existing speed selection facts.
+Own `codex-structured-speed-intent.ts` if focused provider wrappers need extraction, and
+`codex-app-server-connection.ts` / `codex-app-server-connection-types.ts` with matching tests for
+an optional internal submission callback at the transport write boundary. Record no `sent` fact for
+closed/exited/serialization refusals. Use shared A's valid legacy-toggle intent policy consistently
+in live and resting paths; unresolved Fast remains blocked at next-turn admission.
 Also own `src/main/native-chat/agent-model-catalog/agent-model-catalog-persistence.ts` and
 `agent-model-catalog-store.ts` and `agent-model-catalog-entry.ts` in that directory when metadata requires changes.
 Reuse catalog models for tier storage, keeping legacy Fast projections; avoid a second catalog service or registry.
@@ -182,9 +212,13 @@ Use synthetic models and custom tier IDs; test catalog refresh, server refusal a
 Writable production paths under `src/main/native-chat/agent-session-wire/`:
 `structured-agent-session-options-read.ts`,
 `structured-agent-session-option-restoration.ts`, `structured-agent-session-turns-options.ts` only if required.
+Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
+provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
+must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
 B supplies Codex's definition implementation through A's frozen interface; C never edits either definition file.
 Preserve complete option maps through at-rest writes, live writes, record reload and same-conversation resume.
 Verify existing account-home and provider-handle identity survives. Test Claude with the optional validator absent.
+Own the one test-path addition to `config/scripts/vitest-node-runtime-files.mjs`; no broader CI changes.
 
 ### D: selector, loading/unknown/unavailable states and execution-host gating
 
@@ -195,11 +229,26 @@ Writable desktop paths under `src/renderer/src/`:
 `components/native-chat/use-structured-agent-session-options.ts`, `use-structured-agent-session-option-state.ts`,
 `use-host-model-catalog-upgrade.ts`, `NativeChatSessionOptionPickers.tsx`, `native-chat-session-option-labels.ts`,
 `lib/structured-agent-session-host-admission.ts`.
+Focused presentation modules are also owned by D: `src/shared/codex-service-tier-presentation.ts`,
+`codex-speed-facts-presentation.ts`, `structured-agent-session-option-picks.ts`, and desktop
+`use-structured-agent-session-speed-gate.ts`. Root records these extractions before further corrections.
+Live send admission additionally owns desktop `components/native-chat/structured-agent-session-send-attempt.ts`,
+`components/native-chat/use-structured-agent-session.ts` and
+`use-structured-agent-session-queued-messages.ts`, with matching tests. Reuse central send holds;
+retain refused requested intent until an explicit replacement is acknowledged for the same host generation.
+The existing desktop `structured-agent-session-pending-sends.ts` is also owned by D for host-scoped
+speed admission through that central state. Add `codex-speed-send-admission.test.tsx` for bounded integration
+coverage; do not build a second pending-send registry.
 Writable mobile paths under `mobile/src/session/`:
 `use-mobile-structured-agent-options.ts`, `use-mobile-host-model-catalog-upgrade.ts`,
 `MobileNativeChatSessionOptionPickers.tsx`, `MobileNativeChatSessionOptionRows.tsx`,
 `mobile-native-chat-session-option-labels.ts`, `mobile-structured-agent-session-host-support.ts`,
 `use-mobile-structured-agent-session.ts`.
+Mobile actual-send and queue seams also belong to D: `use-mobile-structured-send-with-outcome.ts`
+and `use-mobile-structured-queued-message-controls.ts`, with matching tests.
+Focused tests may use `mobile-codex-speed-options-facts.test.ts` and
+`mobile-codex-speed-send-admission.test.ts`; extract the saved oversized mobile options additions
+before further corrections. Preserve actual controller forwarding and both clients' write assertions.
 Generated localization catalogs may change only for the new strings using repository localization tooling.
 If a launch boundary needs another file, update this ownership map before writing; do not broaden scope silently.
 Use existing UI primitives and style tokens. Old-host controls remain selectable; new speed controls require capability.
@@ -212,6 +261,11 @@ Writable production paths under `src/renderer/src/lib/`:
 `structured-agent-session-launch-publication.ts`, `structured-agent-session-launch-registry.ts`,
 `structured-agent-session-launch-persistence.ts`, and matching reload/error/failure/outcome helpers only
 when needed for the existing recovery path. Matching tests belong to L.
+The focused `structured-agent-session-launch-speed-record.ts` extraction belongs to L; root records
+its path before further corrections.
+L also owns `structured-agent-session-launch-recovery.ts` and `structured-agent-session-launch-draft.ts`
+for same-conversation recovery and existing composer draft preservation. Add focused
+`codex-speed-launch-admission.test.ts` rather than extending tests past the repository cap.
 Guard local and host-owned canonical seeds before create and before first delivery. Preserve held speed
 intent across model changes, refusals and reload. A speed refusal blocks publication and inventory-driven
 unblocking, while a model refusal keeps its existing behavior. Retain the created session receipt and
@@ -220,6 +274,17 @@ D exposes `readStructuredAgentSessionCodexSpeedSupport(target)` from the runtime
 `unknown|supported|unsupported` through the existing capability probe. L imports this frozen helper;
 D and L never edit each other's files or duplicate probes.
 A adds optional `SessionOptionSelectChoice.disabled` for unavailable presentation rows.
+
+### F: explicit saved-default actions (root-owned)
+
+`native-chat-session-option-defaults.ts` remains root/A-owned. Matching behavioral tests include
+`src/shared/codex-service-tier-default-actions.test.ts`. Verify that an explicit Codex Fast toggle
+replaces previously saved canonical speed and that an explicit canonical choice removes stale Fast.
+Restore precedence still favors canonical values; action precedence must not accidentally seed the
+previous paid tier after an older-host Fast-off action. No callback or consumer signature changes.
+When a committed batch contains canonical and compatibility values together, canonical wins in either
+pick order. A full settings replacement has no explicit-action provenance and retains restore precedence.
+Execute this bounded correction after independent trace and red CI evidence, without writing B/C/D/L files.
 
 ### E: root-owned integration and delivery
 
@@ -231,6 +296,19 @@ edit those shared files. Supply the reviewed patch SHA and targeted test list fo
 Do not independently bump upstream `package.json` or choose a released version; assembly provides build identity.
 
 ## Acceptance evidence
+
+### Pending review corrections
+
+| Slice | Production corrections | Regression corrections before red CI |
+| --- | --- | --- |
+| B | Keep absent tier metadata unknown; remove stale legacy synthesis; record submission at actual write; align live/resting legacy intent; retain refused requested tier separately and block starts. | Add newer-unknown-after-old-Fast and real closed/terminal connection cases; legacy acknowledgement equivalence. |
+| C/F | Persist typed provider refusal-state maps before returning refusal; propagate persistence failures; register disk test in Node. Explicit defaults replace stale counterpart; canonical batch wins. | Assert refresh cannot unblock refused intent; refused-state and replacement persistence failure preserve durable state. F already has nine expected red failures. |
+| D | Rebuild controls on metadata/capability loss; capable unknown models show Standard recovery; fence mobile client/source changes; expose mobile facts; retain pending/refused intent and gate ordinary/reserved/queued sends. | Use real queue-controller wiring instead of test-only sessionId; attempt paired target after cutover; assert both clients receive no stale settings writes; add stable-client/source and late-unknown cases; test actual mobile forwarding; extract focused mobile additions. |
+| L | Recheck generations/cancellation after awaits and at delivery; capability-gate every canonical seed/write including Standard; explicit legacy replacement supersedes canonical; preserve both speed forms across model change; recover authoritative selection and existing receipt/draft. | Clear draft cache before setting storage; discard parked prompts and reset sends/fences in original/fresh module instances; replace fake reload; add host/catalog/model probe cutovers, delivery invalidation and held SSH picks; assert successful recovery publication and no persisted private diagnostic. |
+
+Reviews were independent and read-only on slice diffs, not immutable final-head acceptance. The saved L
+regression file is not ready until fixture isolation is corrected. Do not count a passing fake reload
+as proof of fresh-renderer recovery. Local Sonnet limit interrupted those corrections; no worker is running.
 
 | Criterion | Required proof | State |
 | --- | --- | --- |
@@ -292,4 +370,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: implement and independently review A, then consume its frozen interfaces in B/C/D/L.
+Next action: resolve the implementation model, finish the saved regression corrections, then run red CI
+before the focused production fixes. Final review, exact-candidate CI and owner rollout remain open.
