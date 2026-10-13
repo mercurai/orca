@@ -97,9 +97,9 @@ NEW = {
         "          git fetch upstream --tags --force\n          git fetch --no-tags --force upstream '+refs/tags/*:refs/upstream-tags/*'\n",
     ),
     "sync-mirror-mercurai": (
-        SYNC,
-        "            | (grep -E ' v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$' || true) | sort -k2 > /tmp/upstream-tags\n",
-        "            | sort -k2 > /tmp/upstream-tags\n",
+        pathlib.Path("config/mercurai/scripts/list-new-tags.sh"),
+        "  | (grep -E ' v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$' || true) | sort -k2 > \"$state/upstream-tags\"\n",
+        '  | sort -k2 > "$state/upstream-tags"\n',
     ),
     "sync-push-all-upstream": (
         PUSH,
@@ -114,6 +114,10 @@ from mutants_sec201 import ASM, REB, MUTANTS as SEC201  # noqa: E402
 from mutants_pr40 import MUTANTS as PR40  # noqa: E402
 
 from mutants_1148 import MUTANTS as M1148  # noqa: E402
+from mutants_1148b import DROP as DROP_1148, MUTANTS as M1148B  # noqa: E402
+
+M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148}
+M1148.update(M1148B)
 
 NEW.update(SEC201)
 NEW.update({f"1148-{name}": mutant for name, mutant in M1148.items()})
