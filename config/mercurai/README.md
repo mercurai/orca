@@ -96,7 +96,8 @@ series.
   the main-range guard (so it runs even when `main` is refused, and releases nothing else), then
   dispatches `fork-rebase-patches` for it with `tag_sha=<sha>`. Those two steps come last (just
   before the tag issues), so a failure in them cannot skip the pushes, the merge or the issues
-  above them, and a tag the automatic mirror pushed earlier in the same run still gets its hand-off.
+  above them. The approved tag is handed on unless the automatic step already dispatched that exact
+  tag at that commit in the same run (it hands on only the newest tag, and its dispatch can fail).
   The schedule never sets it.
   **Rule:** `allow_tag` and `allow_guarded_merge_sha` may be dispatched only by the owner, or by a
   lane on orca-config-0f's explicit order after an independent security read (the fleet's default

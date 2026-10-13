@@ -158,6 +158,17 @@ test('the owner-allowed tag comes last, ungated by the main-range guard, and fai
   assert.match(step(ALLOWED_DISPATCH), /-f "tag=\$tag" -f "tag_sha=\$sha"/)
 })
 
+test('the owner-allowed tag sees what the automatic hand-off dispatched, recorded only after it dispatched', () => {
+  const dispatch = step(DISPATCH)
+  assert.match(dispatch, /^\s+id: dispatch$/m)
+  const run = dispatch.indexOf('gh workflow run fork-rebase-patches.yml')
+  const record = dispatch.indexOf('{ echo "dispatched_tag=$tag"; echo "dispatched_sha=$tag_sha"; } >> "$GITHUB_OUTPUT"')
+  assert.ok(run !== -1 && record > run)
+  assert.match(dispatch, /^\s+set -euo pipefail$/m)
+  assert.match(step(ALLOWED_TAG), /^\s+DISPATCHED_TAG: \$\{\{ steps\.dispatch\.outputs\.dispatched_tag \}\}$/m)
+  assert.match(step(ALLOWED_TAG), /^\s+DISPATCHED_SHA: \$\{\{ steps\.dispatch\.outputs\.dispatched_sha \}\}$/m)
+})
+
 test('the tag issues are the last step, run after a failure, and see the main mirror and the guard', () => {
   const issues = step(SKIPPED_ISSUES)
   assert.match(

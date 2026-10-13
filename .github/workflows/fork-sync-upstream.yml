@@ -149,8 +149,9 @@ jobs:
           bash config/mercurai/scripts/sync-push.sh tags
 
       - name: Hand the newest release tag to fork-rebase-patches
+        id: dispatch
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
-        # Only a tag that was mirrored this run.
+        # Only a tag that was mirrored this run. The outputs name what was dispatched, written only once it was.
         if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && steps.tags.outputs.rebase_tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
@@ -161,6 +162,7 @@ jobs:
           # Hand over the commit this run saw: a tag upstream re-cuts in between fails the rebase instead of moving it.
           tag_sha=$(git rev-parse --verify "refs/upstream-tags/$tag^{commit}")
           gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$tag_sha"
+          { echo "dispatched_tag=$tag"; echo "dispatched_sha=$tag_sha"; } >> "$GITHUB_OUTPUT"
 
       - name: Mirror upstream branches under upstream/*
         if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && inputs.mirror_branches == true }}
@@ -241,7 +243,7 @@ jobs:
         run: bash /tmp/report-sync-issue.sh conflict
 
       # The owner-allowed tag comes last, so a failure in it cannot skip the pushes, the merge or the issues above
-      # (a tag pushed earlier in the same run still gets its hand-off), and before the tag issues, which leave out
+      # (the approved tag is handed on here unless the automatic step already dispatched it at that commit), and before the tag issues, which leave out
       # the tag the owner just allowed. Deliberately not gated on the main-range guard: the owner approved this one
       # tag at this one commit after reading its diff in the tag's issue, so it is an independent push of that tag
       # and nothing else. A refused main range still pushes nothing else, and this does not release it.
@@ -249,6 +251,9 @@ jobs:
         id: allowtag
         if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && env.ALLOW_TAG != '' }}
         env:
+          # Set only when the automatic hand-off dispatched; the script leaves the hand-off to it for that exact tag@sha.
+          DISPATCHED_TAG: ${{ steps.dispatch.outputs.dispatched_tag }}
+          DISPATCHED_SHA: ${{ steps.dispatch.outputs.dispatched_sha }}
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
