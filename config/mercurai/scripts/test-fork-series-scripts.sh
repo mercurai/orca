@@ -643,9 +643,33 @@ if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at
 # Origin cannot be asked: nothing is pushed and nothing is handed on.
 at_setup; git remote set-url origin "$root/at/nonexistent.git"; rc=$(at_run "v1.2.3@$r1")
 if [ "$rc" = 6 ] && [ -z "$(at_outputs)" ] && grep -q '::error::could not ask origin about v1.2.3' "$root/at/out"; then pass "allow_tag: an unreachable origin is an error, not 'not held'"; else fail "allow_tag: an unreachable origin is an error, not 'not held'"; echo "rc=$rc"; cat "$root/at/out"; fi
-at_setup; echo v1.2.3 > "$FORK_STATE_DIR/tags-pushed"; rc=$(at_run "v1.2.3@$r1")
-if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; else fail "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; at_state "$rc"; fi
-rm -f "$FORK_STATE_DIR/tags-pushed"
+# The automatic mirror pushed the approved tag earlier in the run (pin r1, so v1.2.3 and v1.2.3-rc.1 are both
+# eligible); it hands on only the newest tag, and only if its dispatch worked (Finding 2fd3023b95eb).
+at_auto() {  # at_auto: sync-push.sh tags on the pin r1; its rebase_tag output is what the automatic step would dispatch
+  at_setup; git update-ref refs/upstream-tags/v1.2.3-rc.1 "$r1"; printf 'v1.2.3\nv1.2.3-rc.1\n' > "$FORK_STATE_DIR/tags-new"
+  GUARD_REFUSED=false UPSTREAM_SHA="$r1" GITHUB_OUTPUT="$root/at/gho" bash "$here/sync-push.sh" tags > "$root/at/auto.out" 2>&1
+}
+at_auto; auto=$(cat "$root/at/gho"); rc=$(DISPATCHED_TAG=v1.2.3 DISPATCHED_SHA=$r1 at_run "v1.2.3-rc.1@$r1")
+if [ "$auto" = "rebase_tag=v1.2.3" ] && [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 refs/tags/v1.2.3-rc.1 ]" ] &&
+   [ "$(at_outputs)" = "tag=v1.2.3-rc.1 sha=$r1 " ]; then
+  pass "allow_tag: an approved tag the automatic step pushed but did not hand on is handed on, not pushed again"
+else fail "allow_tag: an approved tag the automatic step pushed but did not hand on is handed on, not pushed again"; echo "$auto"; at_state "$rc"; at_outputs; cat "$root/at/out"; fi
+at_auto; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 refs/tags/v1.2.3-rc.1 ]" ] && [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ]; then
+  pass "allow_tag: when the automatic dispatch of the approved tag failed, allow_tag hands it on"
+else fail "allow_tag: when the automatic dispatch of the approved tag failed, allow_tag hands it on"; at_state "$rc"; at_outputs; cat "$root/at/out"; fi
+at_auto; rc=$(DISPATCHED_TAG=v1.2.3 DISPATCHED_SHA=$r1 at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 refs/tags/v1.2.3-rc.1 ]" ] && [ -z "$(at_outputs)" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then
+  pass "allow_tag: the exact tag@sha the automatic step dispatched is not dispatched twice"
+else fail "allow_tag: the exact tag@sha the automatic step dispatched is not dispatched twice"; at_state "$rc"; at_outputs; cat "$root/at/out"; fi
+at_auto; rc=$(DISPATCHED_TAG=v1.2.3 DISPATCHED_SHA=$b0 at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 refs/tags/v1.2.3-rc.1 ]" ] && [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ]; then
+  pass "allow_tag: the same tag dispatched at another commit does not count: the approved commit is handed on"
+else fail "allow_tag: the same tag dispatched at another commit does not count: the approved commit is handed on"; at_state "$rc"; at_outputs; cat "$root/at/out"; fi
+at_setup; git push -q origin "$b0:refs/tags/v1.2.3"; : > "$root/at/pushes"; rc=$(DISPATCHED_TAG=v1.2.3 DISPATCHED_SHA=$b0 at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=5 pushes=0 refs=[refs/tags/v1.2.3 ]" ] && [ -z "$(at_outputs)" ]; then
+  pass "allow_tag: the same tag dispatched at another commit, and held there, is still refused"
+else fail "allow_tag: the same tag dispatched at another commit, and held there, is still refused"; at_state "$rc"; cat "$root/at/out"; fi
 
 # 33l. list-skipped-tags.sh and render-tag-review.sh: a release tag outside the pin gets a review issue body; the owner-allowed one does not.
 at_setup; printf 'v1.2.3\nv1.2.4\n' > "$FORK_STATE_DIR/tags-new"; rm -f "$FORK_STATE_DIR/allowed-tag"

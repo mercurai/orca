@@ -10,12 +10,15 @@
 # tag on origin at the approved commit, pushes nothing, and emits the outputs again so the hand-off can run.
 # A tag on origin at any other commit is never touched.
 #
-# Env:  ALLOW_TAG (<tag>@<sha>), FORK_STATE_DIR (/tmp), GITHUB_OUTPUT. Reads <state>/tags-pushed (tags the
-#       automatic mirror pushed this run).
+# The automatic mirror may push the approved tag too, but it hands on only the newest tag, and that dispatch can
+# fail: the hand-off is left to it only when it dispatched exactly this tag at this commit.
+#
+# Env:  ALLOW_TAG (<tag>@<sha>), DISPATCHED_TAG and DISPATCHED_SHA (what the automatic hand-off dispatched this
+#       run, set only after it succeeded), FORK_STATE_DIR (/tmp), GITHUB_OUTPUT.
 # Out:  <state>/allowed-tag and <state>/allowed-tag-sha (empty when nothing is to be handed on), and the step
 #       outputs `tag` and `sha` under the same condition.
-# Exit: 0 mirrored, or already on origin at the approved commit (outputs emitted), or mirrored by the automatic
-#       step this run (the hand-off is that step's; no outputs); 2 malformed value; 4 upstream's tag does not
+# Exit: 0 mirrored, or already on origin at the approved commit (outputs emitted), or already dispatched by the
+#       automatic hand-off at the approved commit (no outputs); 2 malformed value; 4 upstream's tag does not
 #       peel to the approved commit (moved or wrong sha); 5 origin holds the tag at another commit; 6 origin
 #       could not be asked. No push in any failing case.
 set -euo pipefail
@@ -40,8 +43,8 @@ if [ "$peeled" != "$sha" ]; then
   echo "::error::upstream's $tag is not at the approved commit $sha; nothing was pushed"
   exit 4
 fi
-if grep -qxF "$tag" "$state/tags-pushed" 2>/dev/null; then
-  echo "$tag was mirrored by the automatic step this run; its hand-off to the rebase is that step's"
+if [ "${DISPATCHED_TAG:-}" = "$tag" ] && [ "${DISPATCHED_SHA:-}" = "$sha" ]; then
+  echo "$tag at $sha was handed to the rebase by the automatic step this run; nothing more to do"
   exit 0
 fi
 held=$(git ls-remote origin "refs/tags/$tag" "refs/tags/$tag^{}") || {
