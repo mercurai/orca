@@ -192,9 +192,8 @@ jobs:
           echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          # The script writes the step outputs `tag` and `sha` itself (also on a retry that finds the tag on origin).
           bash config/mercurai/scripts/mirror-allowed-tag.sh
-          # A release name and a 40-hex sha (the script matched both), so they cannot carry a workflow command.
-          { echo "tag=$(cat /tmp/allowed-tag)"; echo "sha=$(cat /tmp/allowed-tag-sha)"; } >> "$GITHUB_OUTPUT"
 
       - name: Hand the owner-allowed tag to fork-rebase-patches
         if: ${{ steps.mode.outputs.push == 'true' && steps.allowtag.outputs.tag != '' }}

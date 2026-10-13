@@ -84,7 +84,9 @@ series.
   input. To mirror the tag, dispatch from `mercurai` with `allow_tag=<tag>@<40-hex sha>`
   (`scripts/mirror-allowed-tag.sh`): the tag must match the release-name pattern, the sha must be
   lowercase 40-hex, upstream's tag must still peel to that commit, and the fork must not hold the tag
-  yet; any other case pushes nothing and fails the run. It pushes only that tag, is independent of
+  at another commit; any other case pushes nothing and fails the run. A tag already on origin at the
+  approved commit (the push worked, the hand-off after it failed) is not pushed again: the same
+  input just hands it to the rebase again. It pushes only that tag, is independent of
   the main-range guard (so it runs even when `main` is refused, and releases nothing else), then
   dispatches `fork-rebase-patches` for it with `tag_sha=<sha>`. The schedule never sets it.
   **Rule:** `allow_tag` may be dispatched only by the owner, or by a lane on orca-config-0f's explicit

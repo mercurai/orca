@@ -273,15 +273,12 @@ test('every skipped release tag gets its own issue, matched by exact title, comm
   assert.match(script, /render-tag-review\.sh" "\$tag" "\$sha" "\$trusted" "\$FORK_BRANCH"/)
 })
 
-test('mirror-allowed-tag.sh validates strictly, checks the peel and the fork, and pushes one refspec', () => {
+// Scope, not output: the validation, the peel, the held-tag and retry behaviour are asserted on what the script does
+// in the harness (test-fork-series-scripts.sh, "allow_tag" cases).
+test('mirror-allowed-tag.sh has exactly one push, never forced, and holds no token', () => {
   const script = read('config', 'mercurai', 'scripts', 'mirror-allowed-tag.sh')
-  assert.ok(script.includes(String.raw`re='^(v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?)@([0-9a-f]{40})$'`))
-  assert.ok(script.includes('peeled=$(git rev-parse --verify -q "refs/upstream-tags/$tag^{commit}" || true)'))
-  assert.ok(script.includes('if [ "$peeled" != "$sha" ]; then'))
-  assert.ok(script.includes(`awk -v t="$tag" '$2 == t { found = 1 } END { exit !found }' "$state/origin-tags"`))
   assert.equal(script.split('git push').length - 1, 1)
-  assert.ok(script.includes('git push origin "refs/upstream-tags/$tag:refs/tags/$tag"'))
-  assert.doesNotMatch(script, /--force|--tags|--mirror|GH_TOKEN|FORK_BOT_TOKEN|\$\{ALLOW_TAG:-\}.*push/)
+  assert.doesNotMatch(script, /--force|--tags|--mirror|GH_TOKEN|FORK_BOT_TOKEN|git push .*\+/)
 })
 
 test('list-skipped-tags.sh uses the same eligibility test as sync-push.sh', () => {

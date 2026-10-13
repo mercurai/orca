@@ -565,10 +565,12 @@ at_setup() {
   git update-ref refs/upstream-tags/v1.2.3 "$r1"; git update-ref refs/upstream-tags/v1.2.4 "$b0"
   printf '%s v1.0.0\n' "$b0" > "$FORK_STATE_DIR/origin-tags"; rm -f "$FORK_STATE_DIR/tags-pushed"
 }
-at_run() { local rc=0; ALLOW_TAG=$1 bash "$here/mirror-allowed-tag.sh" > "$root/at/out" 2>&1 || rc=$?; echo "$rc"; }
+at_run() { local rc=0; : > "$root/at/gho"; ALLOW_TAG=$1 GITHUB_OUTPUT="$root/at/gho" bash "$here/mirror-allowed-tag.sh" > "$root/at/out" 2>&1 || rc=$?; echo "$rc"; }
+at_outputs() { tr '\n' ' ' < "$root/at/gho"; }
 at_state() { echo "rc=$1 pushes=$(wc -l < "$root/at/pushes") refs=[$(git --git-dir="$root/at/origin.git" for-each-ref --format='%(refname)' | tr '\n' ' ')]"; }
 at_setup; rc=$(at_run "v1.2.3@$r1")
-if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag-sha")" = "$r1" ]; then
+if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag-sha")" = "$r1" ] &&
+   [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ]; then
   pass "allow_tag: the exact tag@sha mirrors that tag and only it"; else fail "allow_tag: the exact tag@sha mirrors that tag and only it"; at_state "$rc"; cat "$root/at/out"; fi
 at_setup; git update-ref refs/upstream-tags/v1.2.3 "$b0"; rc=$(at_run "v1.2.3@$r1")
 if [ "$(at_state "$rc")" = "rc=4 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag upstream moved is refused with zero pushes"; else fail "allow_tag: a tag upstream moved is refused with zero pushes"; at_state "$rc"; fi
@@ -578,8 +580,23 @@ for bad in "v1.2.3" "v1.2.3@abc" "main@$r1" "v1.2.3@${r1^^}" "v1.2.3@${r1:0:39}"
   at_setup; rc=$(at_run "$bad")
   if [ "$(at_state "$rc")" = "rc=2 pushes=0 refs=[]" ]; then pass "allow_tag: '$bad' is refused as malformed"; else fail "allow_tag: '$bad' is refused as malformed"; at_state "$rc"; fi
 done
-at_setup; printf '%s v1.2.3\n' "$r1" > "$FORK_STATE_DIR/origin-tags"; rc=$(at_run "v1.2.3@$r1")
-if [ "$(at_state "$rc")" = "rc=5 pushes=0 refs=[]" ]; then pass "allow_tag: a tag the fork already holds is refused"; else fail "allow_tag: a tag the fork already holds is refused"; at_state "$rc"; fi
+# Origin holds the tag at another commit: refused (exit 5), nothing pushed, no outputs.
+at_setup; git push -q origin "$b0:refs/tags/v1.2.3"; : > "$root/at/pushes"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=5 pushes=0 refs=[refs/tags/v1.2.3 ]" ] && [ -z "$(at_outputs)" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ] &&
+   grep -q '::error::the fork already holds v1.2.3 at another commit' "$root/at/out"; then
+  pass "allow_tag: a tag the fork holds at another commit is refused"; else fail "allow_tag: a tag the fork holds at another commit is refused"; at_state "$rc"; cat "$root/at/out"; fi
+# A successful push, then a failed hand-off, then the same input again: zero further pushes, and the outputs come back.
+at_setup; rc=$(at_run "v1.2.3@$r1"); first=$(at_state "$rc"); rc=$(at_run "v1.2.3@$r1")
+if [ "$first" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ] &&
+   [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && grep -q 'already on origin at' "$root/at/out"; then
+  pass "allow_tag: a retry after a failed hand-off pushes nothing and emits the outputs again"; else fail "allow_tag: a retry after a failed hand-off pushes nothing and emits the outputs again"; echo "$first"; at_state "$rc"; cat "$root/at/out"; fi
+# An annotated tag already on origin: its commit is on the peeled line.
+at_setup; git tag -a -m annotated v1.2.3 "$r1"; git push -q origin refs/tags/v1.2.3; git tag -d v1.2.3 > /dev/null; : > "$root/at/pushes"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ]; then
+  pass "allow_tag: an annotated tag already on origin at the approved commit is handed on without a push"; else fail "allow_tag: an annotated tag already on origin at the approved commit is handed on without a push"; at_state "$rc"; cat "$root/at/out"; fi
+# Origin cannot be asked: nothing is pushed and nothing is handed on.
+at_setup; git remote set-url origin "$root/at/nonexistent.git"; rc=$(at_run "v1.2.3@$r1")
+if [ "$rc" = 6 ] && [ -z "$(at_outputs)" ] && grep -q '::error::could not ask origin about v1.2.3' "$root/at/out"; then pass "allow_tag: an unreachable origin is an error, not 'not held'"; else fail "allow_tag: an unreachable origin is an error, not 'not held'"; echo "rc=$rc"; cat "$root/at/out"; fi
 at_setup; echo v1.2.3 > "$FORK_STATE_DIR/tags-pushed"; rc=$(at_run "v1.2.3@$r1")
 if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; else fail "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; at_state "$rc"; fi
 rm -f "$FORK_STATE_DIR/tags-pushed"
