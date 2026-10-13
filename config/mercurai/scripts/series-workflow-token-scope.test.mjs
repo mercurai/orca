@@ -135,22 +135,6 @@ test('every script that feeds a force push checks the branch prefix first (SEC S
   assert.ok(dir('assemble-release.sh').includes(String.raw`^release/[A-Za-z0-9._-]+$`))
 })
 
-test('assemble-release strips CR from the git output it prints', () => {
-  const assemble = readFileSync(resolve(import.meta.dirname, 'assemble-release.sh'), 'utf8')
-  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..HEAD" | tr -d '\r'`))
-  assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..origin/$patch" 2>&1 | tr -d '\r' ||`))
-})
-
-test('rebase-series strips CR from the git rebase output it prints', () => {
-  const rebase = readFileSync(resolve(import.meta.dirname, 'rebase-series.sh'), 'utf8')
-  assert.ok(rebase.includes(String.raw`elif ! git rebase --onto "$BASE" "$old" </dev/null 2>&1 | tr -d '\r'; then`))
-})
-
-test('carry-ci-base strips CR from the cherry-pick output it prints', () => {
-  const carry = readFileSync(resolve(import.meta.dirname, 'carry-ci-base.sh'), 'utf8')
-  assert.ok(carry.includes(String.raw`if ! git cherry-pick -x "$commit" 2>&1 >/dev/null | tr -d '\r' >&2; then`))
-})
-
 test('the state files default to /tmp, where the workflows read them', () => {
   for (const name of ['rebase-series.sh', 'assemble-release.sh']) {
     const script = readFileSync(resolve(import.meta.dirname, name), 'utf8')

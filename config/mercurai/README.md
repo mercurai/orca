@@ -59,10 +59,13 @@ series.
   push it), the rest skipped with a warning and tried again next run; the `fork-rebase-patches`
   dispatch for the newest tag mirrored this run (a stable `vX.Y.Z` wins over an `-rc.N`; one dispatch
   per run); with `mirror_branches`, the upstream branches that pass the same test; then the merge
-  into `mercurai` in
-  `scripts/merge-forward.sh`, which checks the merge result against the branch again and resets a
-  merge that changed a guarded path before anything is pushed. A merge conflict opens a `fork-sync:`
-  issue and fails the run; the tags were already handed on. To release a reviewed range, merge it
+  into `mercurai` in `scripts/merge-forward.sh`, which checks the merge result against the branch
+  again and resets a merge that changed a guarded path before anything is pushed (that run's
+  `fork-sync guard:` issue says main, tags and branches were already mirrored, unlike a refusal,
+  which says nothing was pushed). A merge conflict opens a `fork-sync:` issue and fails the run;
+  the tags were already handed on. Both kinds of issue are looked up through every open
+  `fork-sync` issue (paged, not just the first 30) by an exact title prefix of their own. To
+  release a reviewed range, merge it
   through a reviewed PR, or dispatch the workflow from `mercurai` with `allow_guarded_merge_sha=<the
   full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
   commit lands even if upstream moved on (newer commits wait for the next run); any other value, a
@@ -70,23 +73,31 @@ series.
   Upstream cuts release tags on release branches, so a new release is never inside `main` and is
   not mirrored on its own. Each such tag (and each tag whose guarded tree differs from the pin) gets
   a `fork-sync tag: <tag> needs owner review` issue, one per tag, matched by its exact title and
-  commented on again only when the tag's commit changes. The last step of the run
-  (`scripts/tag-issues.sh`, run whatever failed before it) pages through every issue, closed ones
-  included, so an issue the owner closed stays closed until the tag's commit changes (then it is
-  reopened and commented on); only the bot's own issue body or comments count as "already
-  reported", never a third party's. That needs a user token (`gh api user` names the bot): with a
-  GitHub App installation token the step prints one `::error::` naming the cause and writes nothing.
-  Upstream decides how many tags there are, so a run opens at
-  most 5 new issues and makes at most 20 updates, and lists the rest in one `fork-sync tag: summary`
-  issue (bounded, sanitised) that later runs work through. Each issue prints the tag's `git diff --stat` and
-  paths under `.github/` and `config/mercurai/` against the trusted tree (the pin once it is guarded,
-  `origin/main` as found when the guard refused), bounded to 50 lines and sanitised, and the exact
+  commented on again only when the tag's commit changes. The tag issues have their own label,
+  `fork-sync-tag`. The last step of the run (`scripts/tag-issues.sh`, run whatever failed before
+  it) pages through every issue of that label, closed ones included, so an issue the owner closed
+  stays closed until the tag's commit changes (then it is reopened and commented on); only the
+  bot's own issues count (a third party's issue with the same title is not reused), and only the
+  bot's own body or comments naming the exact `allow_tag=<tag>@<sha>` input count as "already
+  reported". That needs a user token (`gh api user` names the bot): with a GitHub App installation
+  token, or an empty login, the step prints one `::error::` naming the cause and writes nothing.
+  A release-named tag that points at a tree or a blob is skipped with a warning. Upstream decides
+  how many tags there are, so a run opens at most 5 new issues and makes at most 20 updates, and
+  lists the rest in one `fork-sync tag: summary` issue (bounded, sanitised) that later runs work
+  through. Each issue prints the tag's `git diff --stat` and paths under `.github/` and
+  `config/mercurai/` against the trusted tree (the pin once it is guarded and the main mirror
+  succeeded, `origin/main` as found otherwise), bounded to 50 lines and sanitised, and the exact
   input. To mirror the tag, dispatch from `mercurai` with `allow_tag=<tag>@<40-hex sha>`
   (`scripts/mirror-allowed-tag.sh`): the tag must match the release-name pattern, the sha must be
   lowercase 40-hex, upstream's tag must still peel to that commit, and the fork must not hold the tag
-  yet; any other case pushes nothing and fails the run. It pushes only that tag, is independent of
+  at another commit; any other case pushes nothing and fails the run. A tag already on origin at the
+  approved commit (the push worked, the hand-off after it failed) is not pushed again: the same
+  input just hands it to the rebase again. It pushes only that tag, is independent of
   the main-range guard (so it runs even when `main` is refused, and releases nothing else), then
-  dispatches `fork-rebase-patches` for it with `tag_sha=<sha>`. The schedule never sets it.
+  dispatches `fork-rebase-patches` for it with `tag_sha=<sha>`. Those two steps come last (just
+  before the tag issues), so a failure in them cannot skip the pushes, the merge or the issues
+  above them, and a tag the automatic mirror pushed earlier in the same run still gets its hand-off.
+  The schedule never sets it.
   **Rule:** `allow_tag` may be dispatched only by the owner, or by a lane on orca-config-0f's explicit
   order after an Opus security read of the diff printed in the issue. That read always recomputes the
   tag's diff locally (`git diff <trusted> <sha> -- .github config/mercurai`) and never trusts the

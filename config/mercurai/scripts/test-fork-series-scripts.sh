@@ -96,6 +96,14 @@ if bash "$here/carry-ci-base.sh" v1 v3 "$(git rev-parse v3)" >/dev/null 2>&1; th
 elif ! git --git-dir="$root/origin.git" rev-parse -q --verify refs/heads/ci-base/v3 >/dev/null; then
   pass "a conflicting carry fails and pushes nothing"; else fail "a conflicting carry fails and pushes nothing"; fi
 
+# 7b. A CR in the subject of the conflicting fork-CI commit never reaches the log (git echoes it in "could not apply").
+setup
+git checkout -q -b ci1c v1; commit ci.yml fetch $'ci: evil\r::error::injected'; git push -q origin ci1c:refs/heads/ci-base/v1
+git checkout -q -b up5 v2; commit ci.yml "upstream changed it" "upstream ci"; git tag v5; git push -q origin v5:refs/tags/v5; git checkout -q fork
+rc=0; bash "$here/carry-ci-base.sh" v1 v5 "$(git rev-parse v5)" > "$root/carry.out" 2>&1 || rc=$?
+if [ "$rc" != 0 ] && grep -q evil "$root/carry.out" && ! grep -q $'\r' "$root/carry.out"; then
+  pass "carry-ci-base strips CR from git's cherry-pick output"; else fail "carry-ci-base strips CR from git's cherry-pick output"; cat -v "$root/carry.out"; fi
+
 # 8. A rerun after upstream changed the lines around a carried change: no duplicate pick, no failure.
 setup
 git checkout -q -b old-b v1; printf 'a
@@ -439,24 +447,25 @@ if [ "$rc" = 3 ] && grep -qxF .github/actions/x/action.yml "$root/guard.out"; th
 
 # 33d. merge-forward.sh: the merge, the result check and the reset, as the workflow runs them (the push stays outside).
 mf_run() {  # mf_run <GUARD_ALLOWED>: merges `up` into `fork`; prints the exit status
-  local rc=0; git checkout -q fork
-  UPSTREAM_SHA=$(git rev-parse up) GUARD_ALLOWED=$1 bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || rc=$?
+  local rc=0; git checkout -q fork; : > "$root/mf.gho"
+  GITHUB_OUTPUT="$root/mf.gho" UPSTREAM_SHA=$(git rev-parse up) GUARD_ALLOWED=$1 bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || rc=$?
   echo "$rc"
 }
+mf_outputs() { tr '\n' ' ' < "$root/mf.gho"; }
 guard_setup; commit docs/up.md up "upstream docs"
 rc=$(mf_run false)
-if [ "$rc" = 0 ] && [ -f docs/up.md ] && git merge-base --is-ancestor up fork; then pass "merge-forward: a clean range merges"; else fail "merge-forward: a clean range merges"; cat "$root/mf.out"; fi
+if [ "$rc" = 0 ] && [ -f docs/up.md ] && git merge-base --is-ancestor up fork && [ "$(mf_outputs)" = "conflict=false guarded=false " ]; then pass "merge-forward: a clean range merges, both outputs false"; else fail "merge-forward: a clean range merges, both outputs false"; cat "$root/mf.out"; mf_outputs; fi
 guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
 git checkout -q fork; before=$(git rev-parse HEAD)
 rc=$(mf_run false)
-if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/workflows/evil.yml ] && grep -qxF .github/workflows/evil.yml "$FORK_STATE_DIR/guarded"; then
-  pass "merge-forward: an unallowed guarded result is reset and exits 11"; else fail "merge-forward: an unallowed guarded result is reset and exits 11"; cat "$root/mf.out"; fi
+if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/workflows/evil.yml ] && grep -qxF .github/workflows/evil.yml "$FORK_STATE_DIR/guarded" && [ "$(mf_outputs)" = "conflict=false guarded=false guarded=true " ]; then
+  pass "merge-forward: an unallowed guarded result is reset, exits 11 and sets guarded"; else fail "merge-forward: an unallowed guarded result is reset, exits 11 and sets guarded"; cat "$root/mf.out"; mf_outputs; fi
 git checkout -q up; rc=$(mf_run true)
 if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ]; then pass "merge-forward: an allowed guarded commit merges"; else fail "merge-forward: an allowed guarded commit merges"; cat "$root/mf.out"; fi
 guard_setup; commit base.txt upside "upstream edits base"; git checkout -q fork; commit base.txt forkside "fork edits base"
 before=$(git rev-parse HEAD); rc=$(mf_run false)
-if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$FORK_STATE_DIR/sync-conflicts"; then
-  pass "merge-forward: a conflict is aborted and exits 10"; else fail "merge-forward: a conflict is aborted and exits 10"; cat "$root/mf.out"; fi
+if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$FORK_STATE_DIR/sync-conflicts" && [ "$(mf_outputs)" = "conflict=false guarded=false conflict=true " ]; then
+  pass "merge-forward: a conflict is aborted, exits 10 and sets conflict"; else fail "merge-forward: a conflict is aborted, exits 10 and sets conflict"; cat "$root/mf.out"; mf_outputs; fi
 # The rebase cases left a conflicts/ directory in this same state dir: the sync list has a name of its own.
 if [ -d "$FORK_STATE_DIR/conflicts" ] && [ -f "$FORK_STATE_DIR/sync-conflicts" ]; then pass "merge-forward: its conflict list does not clash with rebase-series'"; else fail "merge-forward: its conflict list does not clash with rebase-series'"; fi
 
@@ -500,8 +509,8 @@ sp_run() {  # sp_run <GUARD_REFUSED or ->; runs main, tags, branches; prints the
   local r=() k
   for k in main tags branches; do
     local rc=0
-    if [ "$1" = - ]; then env -u GUARD_REFUSED UPSTREAM_SHA="$u2" bash "$here/sync-push.sh" "$k" > "$root/sp/out.$k" 2>&1 || rc=$?
-    else GUARD_REFUSED=$1 UPSTREAM_SHA="$u2" bash "$here/sync-push.sh" "$k" > "$root/sp/out.$k" 2>&1 || rc=$?; fi
+    if [ "$1" = - ]; then env -u GUARD_REFUSED GITHUB_OUTPUT="$root/sp/gho" UPSTREAM_SHA="$u2" bash "$here/sync-push.sh" "$k" > "$root/sp/out.$k" 2>&1 || rc=$?
+    else GUARD_REFUSED=$1 GITHUB_OUTPUT="$root/sp/gho" UPSTREAM_SHA="$u2" bash "$here/sync-push.sh" "$k" > "$root/sp/out.$k" 2>&1 || rc=$?; fi
     r+=("$rc")
   done
   echo "${r[*]}"
@@ -514,7 +523,7 @@ if [ "$(sp_run 1)" = "3 3 3" ] && [ ! -s "$root/sp/pushes" ]; then pass "sync-pu
 if [ "$(sp_run false)" = "0 0 0" ] &&
    [ "$(sp_origin)" = "refs/heads/main refs/heads/upstream/rel refs/tags/v1.0.0 refs/tags/v1.0.1-rc.1 " ] &&
    [ "$(git --git-dir="$root/sp/origin.git" rev-parse refs/heads/main)" = "$u2" ] &&
-   [ "$(cat "$FORK_STATE_DIR/rebase-tag")" = v1.0.0 ] && [ "$(wc -l < "$root/sp/pushes")" = 3 ]; then
+   [ "$(cat "$FORK_STATE_DIR/rebase-tag")" = v1.0.0 ] && [ "$(wc -l < "$root/sp/pushes")" = 3 ] && [ "$(cat "$root/sp/gho")" = "rebase_tag=v1.0.0" ]; then
   pass "sync-push: a clean range pushes main at the pin, the tags and branches inside it, and skips the rest"; else fail "sync-push: a clean range pushes main at the pin, the tags and branches inside it, and skips the rest"; sp_origin; cat "$root/sp/out."*; fi
 if grep -qF "tags not mirrored" "$root/sp/out.tags" && grep -qF "v1.0.2" "$root/sp/out.tags" && grep -qF "branches not mirrored" "$root/sp/out.branches" &&
    grep -qF "feat" "$root/sp/out.branches"; then pass "sync-push: what is skipped is named in a warning"; else fail "sync-push: what is skipped is named in a warning"; cat "$root/sp/out.tags" "$root/sp/out.branches"; fi
@@ -553,6 +562,9 @@ if [ "$ok" = true ] && [ "$xp_origin" = "refs/heads/main refs/heads/upstream/tip
   pass "intermediate refs: a tag and a branch on a commit whose guarded paths differ from the pin are not pushed; the pin's are"
 else fail "intermediate refs: a tag and a branch on a commit whose guarded paths differ from the pin are not pushed; the pin's are"; echo "$xp_origin"; cat "$root/xp/out."*; fi
 if grep -qF v9.9.9 "$root/xp/out.tags" && grep -qF mid "$root/xp/out.branches"; then pass "intermediate refs: the skipped ones are named in a warning"; else fail "intermediate refs: the skipped ones are named in a warning"; fi
+# list-skipped-tags.sh, which feeds the review issues, lists exactly the tag sync-push.sh did not push.
+UPSTREAM_SHA="$x2" bash "$here/list-skipped-tags.sh"
+if [ "$(cat "$FORK_STATE_DIR/tags-skipped")" = v9.9.9 ]; then pass "intermediate refs: the review-issue list is the tag sync-push skipped"; else fail "intermediate refs: the review-issue list is the tag sync-push skipped"; cat "$FORK_STATE_DIR/tags-skipped"; fi
 
 # 33k. mirror-allowed-tag.sh: the owner's allow_tag=<tag>@<sha> mirrors exactly that tag, or nothing. A release tag sits on a release
 # branch, so it is not inside the pin; v1.2.3 carries a workflow, v1.2.4 is the base commit.
@@ -565,10 +577,12 @@ at_setup() {
   git update-ref refs/upstream-tags/v1.2.3 "$r1"; git update-ref refs/upstream-tags/v1.2.4 "$b0"
   printf '%s v1.0.0\n' "$b0" > "$FORK_STATE_DIR/origin-tags"; rm -f "$FORK_STATE_DIR/tags-pushed"
 }
-at_run() { local rc=0; ALLOW_TAG=$1 bash "$here/mirror-allowed-tag.sh" > "$root/at/out" 2>&1 || rc=$?; echo "$rc"; }
+at_run() { local rc=0; : > "$root/at/gho"; ALLOW_TAG=$1 GITHUB_OUTPUT="$root/at/gho" bash "$here/mirror-allowed-tag.sh" > "$root/at/out" 2>&1 || rc=$?; echo "$rc"; }
+at_outputs() { tr '\n' ' ' < "$root/at/gho"; }
 at_state() { echo "rc=$1 pushes=$(wc -l < "$root/at/pushes") refs=[$(git --git-dir="$root/at/origin.git" for-each-ref --format='%(refname)' | tr '\n' ' ')]"; }
 at_setup; rc=$(at_run "v1.2.3@$r1")
-if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag-sha")" = "$r1" ]; then
+if [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && [ "$(cat "$FORK_STATE_DIR/allowed-tag-sha")" = "$r1" ] &&
+   [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ]; then
   pass "allow_tag: the exact tag@sha mirrors that tag and only it"; else fail "allow_tag: the exact tag@sha mirrors that tag and only it"; at_state "$rc"; cat "$root/at/out"; fi
 at_setup; git update-ref refs/upstream-tags/v1.2.3 "$b0"; rc=$(at_run "v1.2.3@$r1")
 if [ "$(at_state "$rc")" = "rc=4 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag upstream moved is refused with zero pushes"; else fail "allow_tag: a tag upstream moved is refused with zero pushes"; at_state "$rc"; fi
@@ -578,8 +592,23 @@ for bad in "v1.2.3" "v1.2.3@abc" "main@$r1" "v1.2.3@${r1^^}" "v1.2.3@${r1:0:39}"
   at_setup; rc=$(at_run "$bad")
   if [ "$(at_state "$rc")" = "rc=2 pushes=0 refs=[]" ]; then pass "allow_tag: '$bad' is refused as malformed"; else fail "allow_tag: '$bad' is refused as malformed"; at_state "$rc"; fi
 done
-at_setup; printf '%s v1.2.3\n' "$r1" > "$FORK_STATE_DIR/origin-tags"; rc=$(at_run "v1.2.3@$r1")
-if [ "$(at_state "$rc")" = "rc=5 pushes=0 refs=[]" ]; then pass "allow_tag: a tag the fork already holds is refused"; else fail "allow_tag: a tag the fork already holds is refused"; at_state "$rc"; fi
+# Origin holds the tag at another commit: refused (exit 5), nothing pushed, no outputs.
+at_setup; git push -q origin "$b0:refs/tags/v1.2.3"; : > "$root/at/pushes"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=5 pushes=0 refs=[refs/tags/v1.2.3 ]" ] && [ -z "$(at_outputs)" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ] &&
+   grep -q '::error::the fork already holds v1.2.3 at another commit' "$root/at/out"; then
+  pass "allow_tag: a tag the fork holds at another commit is refused"; else fail "allow_tag: a tag the fork holds at another commit is refused"; at_state "$rc"; cat "$root/at/out"; fi
+# A successful push, then a failed hand-off, then the same input again: zero further pushes, and the outputs come back.
+at_setup; rc=$(at_run "v1.2.3@$r1"); first=$(at_state "$rc"); rc=$(at_run "v1.2.3@$r1")
+if [ "$first" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at_state "$rc")" = "rc=0 pushes=1 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ] &&
+   [ "$(cat "$FORK_STATE_DIR/allowed-tag")" = v1.2.3 ] && grep -q 'already on origin at' "$root/at/out"; then
+  pass "allow_tag: a retry after a failed hand-off pushes nothing and emits the outputs again"; else fail "allow_tag: a retry after a failed hand-off pushes nothing and emits the outputs again"; echo "$first"; at_state "$rc"; cat "$root/at/out"; fi
+# An annotated tag already on origin: its commit is on the peeled line.
+at_setup; git tag -a -m annotated v1.2.3 "$r1"; git push -q origin refs/tags/v1.2.3; git tag -d v1.2.3 > /dev/null; : > "$root/at/pushes"; rc=$(at_run "v1.2.3@$r1")
+if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[refs/tags/v1.2.3 ]" ] && [ "$(at_outputs)" = "tag=v1.2.3 sha=$r1 " ]; then
+  pass "allow_tag: an annotated tag already on origin at the approved commit is handed on without a push"; else fail "allow_tag: an annotated tag already on origin at the approved commit is handed on without a push"; at_state "$rc"; cat "$root/at/out"; fi
+# Origin cannot be asked: nothing is pushed and nothing is handed on.
+at_setup; git remote set-url origin "$root/at/nonexistent.git"; rc=$(at_run "v1.2.3@$r1")
+if [ "$rc" = 6 ] && [ -z "$(at_outputs)" ] && grep -q '::error::could not ask origin about v1.2.3' "$root/at/out"; then pass "allow_tag: an unreachable origin is an error, not 'not held'"; else fail "allow_tag: an unreachable origin is an error, not 'not held'"; echo "rc=$rc"; cat "$root/at/out"; fi
 at_setup; echo v1.2.3 > "$FORK_STATE_DIR/tags-pushed"; rc=$(at_run "v1.2.3@$r1")
 if [ "$(at_state "$rc")" = "rc=0 pushes=0 refs=[]" ] && [ ! -s "$FORK_STATE_DIR/allowed-tag" ]; then pass "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; else fail "allow_tag: a tag the automatic mirror pushed this run is not pushed or handed on twice"; at_state "$rc"; fi
 rm -f "$FORK_STATE_DIR/tags-pushed"
@@ -594,7 +623,8 @@ rm -f "$FORK_STATE_DIR/allowed-tag"
 git checkout -q relbranch; commit $'.github/we`ird' w "hostile name"; r2=$(git rev-parse HEAD); git checkout -q fork
 bash "$here/render-tag-review.sh" v1.2.3 "$r2" "$b0" mercurai > "$root/at/body" 2>&1
 if grep -qxF "gh workflow run fork-sync-upstream.yml --ref mercurai -f allow_tag=v1.2.3@$r2" "$root/at/body" && grep -qxF ".github/workflows/r.yml" "$root/at/body" &&
-   grep -qxF ".github/we?ird" "$root/at/body" && grep -q "files changed" "$root/at/body" && ! grep -qF 'we`ird' "$root/at/body"; then
+   grep -qxF ".github/we?ird" "$root/at/body" && grep -q "files changed" "$root/at/body" && ! grep -qF 'we`ird' "$root/at/body" &&
+   ! grep -qiE 'orca-config-0f|opus' "$root/at/body" && grep -q 'a lane the owner.s orchestrator orders after a security review of this diff' "$root/at/body"; then
   pass "tag review body: the diff, the sanitised paths and the exact input"; else fail "tag review body: the diff, the sanitised paths and the exact input"; cat "$root/at/body"; fi
 
 # 33m. tag-issues.sh against a stub gh: the per-run cap and the summary, closed issues, and whose words count as "reported".
@@ -633,10 +663,14 @@ issue_line() {  # issue_line <number> <title> <state> <login> <body>
 ti_setup v2.0.1 v2.0.2 v2.0.3 v2.0.4 v2.0.5 v2.0.6 v2.0.7 v2.0.8
 ti_run
 if [ "$(ti_calls 'issue create')" = 6 ] && [ "$(grep -c '^issue create .*--title fork-sync tag: summary' "$STUB_DIR/calls.log")" = 1 ] &&
-   [ "$(grep -c 'needs owner review' "$STUB_DIR/calls.log")" = 5 ] && grep -q '3 release tags need owner review' "$STUB_DIR/calls.log"; then
-  pass "tag issues: at most 5 new issues a run, the rest in one summary"; else fail "tag issues: at most 5 new issues a run, the rest in one summary"; cat "$STUB_DIR/calls.log" "$root/at/ti.out"; fi
-# Listings are paged, never limited, and include closed issues.
-if grep -q 'api --paginate repos/o/r/issues?state=all&labels=fork-sync&per_page=100' "$STUB_DIR/calls.log" && ! grep -q -- '--limit\|state=open' "$STUB_DIR/calls.log"; then
+   [ "$(grep -c '^issue create .*--title fork-sync tag: v2.0.[0-9] needs owner review' "$STUB_DIR/calls.log")" = 5 ] && grep -q '3 release tags need owner review' "$STUB_DIR/calls.log" &&
+   [ "$(grep -c '^issue create --label fork-sync-tag ' "$STUB_DIR/calls.log")" = 6 ]; then
+  pass "tag issues: at most 5 new issues a run, the rest in one summary, all under the tag label"; else fail "tag issues: at most 5 new issues a run, the rest in one summary, all under the tag label"; cat "$STUB_DIR/calls.log" "$root/at/ti.out"; fi
+# The summary lists what is left: each overflow tag with its commit, one per line (not an empty fence).
+if grep -qx "v2.0.6 $r1" "$STUB_DIR/calls.log" && grep -qx "v2.0.7 $r1" "$STUB_DIR/calls.log" && grep -qx "v2.0.8 $r1" "$STUB_DIR/calls.log" && ! grep -qx "v2.0.1 $r1" "$STUB_DIR/calls.log"; then
+  pass "tag issues: the summary names every tag over the cap, with its commit"; else fail "tag issues: the summary names every tag over the cap, with its commit"; cat "$STUB_DIR/calls.log"; fi
+# Listings are paged, never limited, and include closed issues; only the tag label is read.
+if grep -q 'api --paginate repos/o/r/issues?state=all&labels=fork-sync-tag&per_page=100' "$STUB_DIR/calls.log" && ! grep -q -- '--limit\|state=open' "$STUB_DIR/calls.log"; then
   pass "tag issues: the lookup pages through every issue, open or closed"; else fail "tag issues: the lookup pages through every issue, open or closed"; cat "$STUB_DIR/calls.log"; fi
 # A match found on the last of 250 listed issues is still found (no duplicate).
 ti_setup v2.0.1
@@ -687,9 +721,22 @@ if [ "$(ti_calls 'issue create')" = 5 ] && grep -q '^issue reopen 40' "$STUB_DIR
 # An App installation token has no user: one clear error, non-zero, and nothing written to GitHub.
 ti_setup v2.0.1 v2.0.2
 rc=0; STUB_FAIL_USER=1 ti_run || rc=$?
-if [ "$rc" != 0 ] && [ "$(grep -c '^::error::' "$root/at/ti.out")" = 1 ] && grep -q "::error::tag review issues need a user token; 'gh api user' failed, so FORK_BOT_TOKEN looks like an App installation token" "$root/at/ti.out" &&
+if [ "$rc" != 0 ] && [ "$(grep -c '^::error::' "$root/at/ti.out")" = 1 ] && grep -q "::error::tag review issues need a user token; 'gh api user' failed or named no login, so FORK_BOT_TOKEN looks like an App installation token" "$root/at/ti.out" &&
    ! grep -q '^issue \|^label ' "$STUB_DIR/calls.log"; then
   pass "tag issues: a failing 'gh api user' gives one clear error and writes nothing"; else fail "tag issues: a failing 'gh api user' gives one clear error and writes nothing"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
+# An empty login (exit 0, no name) is the same error: without a login the bot would not recognise its own issues.
+ti_setup v2.0.1 v2.0.2
+: > "$STUB_DIR/login"
+rc=0; ti_run || rc=$?
+if [ "$rc" != 0 ] && [ "$(grep -c '^::error::' "$root/at/ti.out")" = 1 ] && grep -q "need a user token" "$root/at/ti.out" && ! grep -q '^issue \|^label ' "$STUB_DIR/calls.log"; then
+  pass "tag issues: an empty login is an error and writes nothing"; else fail "tag issues: an empty login is an error and writes nothing"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
+# A release-named tag upstream points at a tree is skipped with a warning; the next tag still gets its issue.
+ti_setup v2.0.2
+git update-ref refs/upstream-tags/v2.0.1 "$(git rev-parse 'fork^{tree}')"
+printf 'v2.0.1\nv2.0.2\n' > "$FORK_STATE_DIR/tags-new"
+rc=0; ti_run || rc=$?
+if [ "$rc" = 0 ] && grep -q '^::warning::v2.0.1 does not point at a commit; skipped' "$root/at/ti.out" && [ "$(ti_calls 'issue create')" = 1 ] && grep -q '^issue create .*--title fork-sync tag: v2.0.2 needs owner review' "$STUB_DIR/calls.log"; then
+  pass "tag issues: a tag that points at a tree is skipped with a warning, the next tag still gets its issue"; else fail "tag issues: a tag that points at a tree is skipped with a warning, the next tag still gets its issue"; echo "rc=$rc"; cat "$root/at/ti.out"; cat "$STUB_DIR/calls.log"; fi
 # The update cap: 25 tags with an issue of the bot's that names an older commit: 20 comments, the other 5 in the summary.
 tags25=(); for i in $(seq 1 25); do tags25+=("v3.0.$i"); done
 ti_setup "${tags25[@]}"
@@ -714,6 +761,111 @@ ti_setup v2.0.1
 git checkout -q fork; commit u.txt u "a newer upstream commit"; u1=$(git rev-parse HEAD)
 TI_UP=$u1 TI_REFUSED=false TI_MIRRORED=failure ti_run
 if grep -q "trusted one (\`$b0\`)" "$STUB_DIR/calls.log"; then pass "tag issues: origin/main is the trusted tree when the main mirror failed"; else fail "tag issues: origin/main is the trusted tree when the main mirror failed"; head -c 800 "$STUB_DIR/calls.log"; fi
+
+# 33n. guard-step.sh: the guard's exit code becomes the step outputs, and nothing the script prints can set them.
+gs_setup() { guard_setup; git update-ref refs/remotes/origin/main up; }
+gs_run() {  # gs_run <ALLOWED_SHA>: runs the guard step on `up`; prints the exit status
+  local rc=0; git checkout -q fork; : > "$root/gs.gho"
+  FORK_BRANCH=fork UPSTREAM_SHA=$(git rev-parse up) ALLOWED_SHA=$1 GITHUB_OUTPUT="$root/gs.gho" bash "$here/guard-step.sh" > "$root/gs.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+gs_outputs() { tr '\n' ' ' < "$root/gs.gho"; }
+gs_setup; git checkout -q up; commit docs/up.md up "upstream docs"
+rc=$(gs_run '')
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false " ]; then pass "guard step: a clean range is not refused"; else fail "guard step: a clean range is not refused"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
+gs_setup; git checkout -q up; commit .github/workflows/evil.yml evil "upstream workflow"
+rc=$(gs_run '')
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=true " ] && grep -qxF .github/workflows/evil.yml "$root/gs.out" && grep -qxF .github/workflows/evil.yml "$FORK_STATE_DIR/guarded"; then
+  pass "guard step: a guarded range is refused and its paths listed"; else fail "guard step: a guarded range is refused and its paths listed"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
+sha=$(git rev-parse up); rc=$(gs_run "$sha")
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false allowed=true " ]; then pass "guard step: the owner's exact sha allows the range"; else fail "guard step: the owner's exact sha allows the range"; echo "rc=$rc $(gs_outputs)"; fi
+rc=$(gs_run "${sha:0:12}")
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=true " ]; then pass "guard step: a short sha allows nothing"; else fail "guard step: a short sha allows nothing"; echo "rc=$rc $(gs_outputs)"; fi
+# Exit 4 is also sed's I/O error: with no matching owner sha the step fails and sets neither refused nor allowed=true.
+mkdir -p "$root/fakebin"; printf '#!/bin/sh\nexit 4\n' > "$root/fakebin/sed"; chmod +x "$root/fakebin/sed"
+rc=$(PATH="$root/fakebin:$PATH" gs_run '')
+if [ "$rc" = 4 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: an exit 4 that is not the owner's sha fails the step"; else fail "guard step: an exit 4 that is not the owner's sha fails the step"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
+git update-ref -d refs/remotes/origin/main; rc=$(gs_run '')
+if [ "$rc" = 1 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: a guard that fails sets no refused output"; else fail "guard step: a guard that fails sets no refused output"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
+
+# 33o. merge-forward.sh: a CR in git's merge output never reaches the log; the conflict list is sanitised.
+guard_setup; commit $'docs/c\r::error::x' up "upstream adds it"; git checkout -q fork; mkdir -p docs; commit $'docs/c\r::error::x' fork "fork adds it too"
+rc=$(mf_run false)
+if [ "$rc" = 10 ] && ! grep -q $'\r' "$root/mf.out" && [ "$(grep -c . "$FORK_STATE_DIR/sync-conflicts")" = 1 ] && grep -q 'docs/c' "$FORK_STATE_DIR/sync-conflicts" &&
+   ! grep -q $'\r' "$FORK_STATE_DIR/sync-conflicts" && ! grep -q '::' "$FORK_STATE_DIR/sync-conflicts"; then
+  pass "merge-forward: no CR in the merge output, and the conflict list is sanitised"; else fail "merge-forward: no CR in the merge output, and the conflict list is sanitised"; echo "rc=$rc"; cat -v "$root/mf.out"; cat -v "$FORK_STATE_DIR/sync-conflicts"; fi
+
+# 33p. list-new-tags.sh: new release names only, moved ones warned about, the fork's own names left out.
+at_setup
+git push -q origin "$b0:refs/tags/v1.0.0" "$b0:refs/tags/v1.0.1" "$b0:refs/tags/v1.0.4-mercurai.1"
+for t in v1.0.0:$b0 v1.0.1:$r1 v1.0.2:$r1 v1.0.3-rc.1:$r1 v1.0.4-mercurai.1:$r1 main:$b0 v1:$b0; do git update-ref "refs/upstream-tags/${t%%:*}" "${t#*:}"; done
+git update-ref -d refs/upstream-tags/v1.2.3; git update-ref -d refs/upstream-tags/v1.2.4
+bash "$here/list-new-tags.sh" > "$root/at/out" 2>&1
+if [ "$(tr '\n' ' ' < "$FORK_STATE_DIR/tags-new")" = "v1.0.2 v1.0.3-rc.1 " ] && [ "$(cat "$FORK_STATE_DIR/tags-moved")" = v1.0.1 ] &&
+   grep -qxF '::warning::upstream moved tags the fork already holds; they are not mirrored: v1.0.1 ' "$root/at/out" && grep -qxF 'new tags: v1.0.2 v1.0.3-rc.1 ' "$root/at/out"; then
+  pass "new tags: only new release names, the moved one warned about, the fork's own left out"; else fail "new tags: only new release names, the moved one warned about, the fork's own left out"; cat "$FORK_STATE_DIR/tags-new" "$root/at/out"; fi
+at_setup; git update-ref -d refs/upstream-tags/v1.2.4
+bash "$here/list-new-tags.sh" > "$root/at/out" 2>&1
+if [ "$(cat "$FORK_STATE_DIR/tags-new")" = v1.2.3 ] && [ ! -s "$FORK_STATE_DIR/tags-moved" ]; then pass "new tags: an origin with no tags at all is fine"; else fail "new tags: an origin with no tags at all is fine"; cat "$root/at/out"; fi
+
+# 33q. report-sync-issue.sh against a stub gh: the text of each stage, the lookups, and a report-only run.
+rs_setup() {  # rs_setup: a fresh stub, and the state files the issue texts read
+  at_setup; export STUB_DIR="$root/at/stub"; rm -rf "$STUB_DIR"; mkdir -p "$STUB_DIR"; echo the-bot > "$STUB_DIR/login"
+  printf '.github/workflows/evil.yml\nconfig/mercurai/x.sh\n' > "$FORK_STATE_DIR/guarded"; printf 'base.txt\n' > "$FORK_STATE_DIR/sync-conflicts"
+}
+rs_run() {  # rs_run <stage> [PUSH]: prints the exit status
+  local rc=0
+  UPSTREAM_SHA="$r1" FORK_BRANCH=mercurai GH_REPO=o/r PUSH="${2:-true}" GH="$root/stub-gh" bash "$here/report-sync-issue.sh" "$1" > "$root/at/rs.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+rs_setup; rc=$(rs_run guard)
+if [ "$rc" = 1 ] && grep -q "^issue create --label fork-sync --title fork-sync guard: upstream main $r1 changes guarded paths; nothing was pushed or merged into mercurai --body " "$STUB_DIR/calls.log" &&
+   grep -qxF '.github/workflows/evil.yml' "$STUB_DIR/calls.log" && grep -q 'Nothing was pushed or merged: no main, no tags, no branches, no merge-forward' "$STUB_DIR/calls.log" &&
+   grep -q "allow_guarded_merge_sha=$r1 " "$STUB_DIR/calls.log"; then
+  pass "sync issue: a guard refusal files an issue saying nothing was pushed"; else fail "sync issue: a guard refusal files an issue saying nothing was pushed"; echo "rc=$rc"; cat "$STUB_DIR/calls.log"; fi
+rs_setup; rc=$(rs_run merge)
+if [ "$rc" = 1 ] && grep -q "^issue create --label fork-sync --title fork-sync guard: upstream main $r1: the merge into mercurai changed guarded paths and was reset --body " "$STUB_DIR/calls.log" &&
+   grep -q 'so main, tags and branches were already mirrored from it' "$STUB_DIR/calls.log" && ! grep -q 'no main, no tags, no branches' "$STUB_DIR/calls.log" && grep -qxF '.github/workflows/evil.yml' "$STUB_DIR/calls.log"; then
+  pass "sync issue: a reset merge says main, tags and branches were already mirrored"; else fail "sync issue: a reset merge says main, tags and branches were already mirrored"; echo "rc=$rc"; cat "$STUB_DIR/calls.log"; fi
+rs_setup; rc=$(rs_run conflict)
+if [ "$rc" = 1 ] && grep -q "^issue create --label fork-sync --title fork-sync: mercurai does not merge with upstream main $r1 --body " "$STUB_DIR/calls.log" && grep -qxF 'base.txt' "$STUB_DIR/calls.log"; then
+  pass "sync issue: a merge conflict files its own issue"; else fail "sync issue: a merge conflict files its own issue"; echo "rc=$rc"; cat "$STUB_DIR/calls.log"; fi
+# Lookups page through every open issue; a refusal comments on an earlier refusal 35 issues down, never on a conflict issue.
+rs_setup
+{ for i in $(seq 1 34); do issue_line "$i" "unrelated $i" open the-bot x; done; issue_line 35 "fork-sync guard: upstream main 0000 changes guarded paths; nothing was pushed or merged into mercurai" open the-bot x; issue_line 36 "fork-sync: mercurai does not merge with upstream main 0000" open the-bot x; } > "$STUB_DIR/issues.ndjson"
+rc=$(rs_run guard)
+if grep -q '^issue comment 35 ' "$STUB_DIR/calls.log" && [ "$(ti_calls 'issue create')" = 0 ] && grep -q 'api --paginate repos/o/r/issues?state=open&labels=fork-sync&per_page=100' "$STUB_DIR/calls.log" && ! grep -q -- '--limit' "$STUB_DIR/calls.log"; then
+  pass "sync issue: a guard refusal finds an earlier one far down the listing and comments on it"; else fail "sync issue: a guard refusal finds an earlier one far down the listing and comments on it"; cat "$STUB_DIR/calls.log"; fi
+rc=$(rs_run conflict)
+if grep -q '^issue comment 36 ' "$STUB_DIR/calls.log"; then pass "sync issue: a conflict comments on the earlier conflict issue"; else fail "sync issue: a conflict comments on the earlier conflict issue"; cat "$STUB_DIR/calls.log"; fi
+rs_setup; issue_line 36 "fork-sync: mercurai does not merge with upstream main 0000" open the-bot x > "$STUB_DIR/issues.ndjson"; rc=$(rs_run guard)
+if [ "$(ti_calls 'issue create')" = 1 ] && ! grep -q '^issue comment' "$STUB_DIR/calls.log"; then pass "sync issue: a refusal never lands on a conflict issue"; else fail "sync issue: a refusal never lands on a conflict issue"; cat "$STUB_DIR/calls.log"; fi
+rs_setup; issue_line 35 "fork-sync guard: upstream main 0000 changes guarded paths; nothing was pushed or merged into mercurai" open the-bot x > "$STUB_DIR/issues.ndjson"; rc=$(rs_run conflict)
+if [ "$(ti_calls 'issue create')" = 1 ] && ! grep -q '^issue comment' "$STUB_DIR/calls.log"; then pass "sync issue: a conflict never lands on a refusal issue"; else fail "sync issue: a conflict never lands on a refusal issue"; cat "$STUB_DIR/calls.log"; fi
+# A report-only run prints the text and files nothing.
+rs_setup; rc=$(rs_run guard false)
+if [ "$rc" = 1 ] && [ ! -e "$STUB_DIR/calls.log" ] && grep -q '^fork-sync guard: upstream main' "$root/at/rs.out" && grep -qxF '.github/workflows/evil.yml' "$root/at/rs.out"; then
+  pass "sync issue: a report-only run prints the issue and files nothing"; else fail "sync issue: a report-only run prints the issue and files nothing"; echo "rc=$rc"; cat "$root/at/rs.out"; fi
+rs_setup; rc=$(rs_run nonsense)
+if [ "$rc" = 2 ]; then pass "sync issue: an unknown stage is refused"; else fail "sync issue: an unknown stage is refused"; echo "rc=$rc"; fi
+
+# 33r. merge-result-guard.sh: hostile path names are printed sanitised, and the list is bounded.
+guard_setup; before=$(git rev-parse fork); git checkout -q up; commit $'.github/workflows/x\r::error::y`z' h "hostile"; mkdir -p config/mercurai/many
+for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done; git add config; git commit -qm "many"
+git checkout -q fork; git merge -q --no-edit up
+rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && ! grep -q $'\r' "$root/guard.out" && ! grep -q '`' "$root/guard.out" && grep -qxF '.github/workflows/x???error??y?z' "$root/guard.out" &&
+   [ "$(grep -c . "$root/guard.out")" = 51 ] && grep -qxF '... and 11 more' "$root/guard.out"; then
+  pass "result guard: hostile names are sanitised and the list is bounded"; else fail "result guard: hostile names are sanitised and the list is bounded"; cat -v "$root/guard.out"; fi
+
+# 33s. merge-guard.sh fails closed: a ref it cannot resolve, or a tree it cannot read, is an error, never "nothing changed".
+guard_setup; commit docs/up.md up "upstream docs"
+rc=0; bash "$here/merge-guard.sh" fork up nosuchref > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 1 ] && ! grep -q 'no guarded path' "$root/guard.out"; then pass "guard: an unresolvable ref is an error"; else fail "guard: an unresolvable ref is an error"; echo "rc=$rc"; cat "$root/guard.out"; fi
+guard_setup; commit .github/workflows/ci.yml A "upstream changes the workflow"
+tree=$(git rev-parse up:.github); rm -f ".git/objects/${tree:0:2}/${tree:2}"
+rc=0; bash "$here/merge-guard.sh" fork up > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 1 ] && ! grep -q 'no guarded path' "$root/guard.out"; then pass "guard: an unreadable tree is an error, not 'no guarded path'"; else fail "guard: an unreadable tree is an error, not 'no guarded path'"; echo "rc=$rc"; cat "$root/guard.out"; fi
 
 # 34. The list is bounded.
 guard_setup; mkdir -p config/mercurai/many; for i in $(seq 1 60); do echo "$i" > "config/mercurai/many/f$i"; done

@@ -56,6 +56,8 @@ case "${1:-}" in
     stable=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' "$state/tags-pushed" || true) | sort -V | tail -1)
     rc=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' "$state/tags-pushed" || true) | sort -V | tail -1)
     echo "${stable:-$rc}" > "$state/rebase-tag"
+    # Only tags that passed eligible() and matched the release pattern get here: a name, never a workflow command.
+    echo "rebase_tag=${stable:-$rc}" >> "${GITHUB_OUTPUT:-/dev/null}"
     ;;
   branches)
     refspecs=() skipped=()
