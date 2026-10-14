@@ -67,23 +67,23 @@ MUTANTS = {
     ),
     "guardstep-clean-mislabelled": (
         GS,
-        '0) echo "refused=false" >> "$out" ;;',
-        '0) echo "refused=true" >> "$out" ;;',
+        '  0)\n    echo "refused=false" >> "$out"\n',
+        '  0)\n    echo "refused=true" >> "$out"\n',
     ),
     "guardstep-exit4-recheck-removed": (
         GS,
-        'if [[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then',
-        "if true; then",
+        '  4)\n    if [[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then',
+        "  4)\n    if true; then",
     ),
     "guardstep-exit4-sha-compare-dropped": (
         GS,
-        ' && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]',
-        " ]]",
+        '=~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then\n      echo',
+        "=~ ^[0-9a-f]{40}$ ]]; then\n      echo",
     ),
     "guardstep-exit4-hex-check-dropped": (
         GS,
-        '[[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && ',
-        "[[ ",
+        '[[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then\n      echo',
+        '[[ "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then\n      echo',
     ),
     "guardstep-failure-swallowed": (
         GS,
