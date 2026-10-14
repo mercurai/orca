@@ -136,6 +136,126 @@ describe('an explicit canonical tier replaces a saved Codex Fast boolean', () =>
   )
 })
 
+describe('a batch keeps launch-default adoption in the original pick order', () => {
+  // The Fast projection is applied early so the tier wins, but it must not change which
+  // model the last pick adopts: here model A's pick is last, so A stays the launch default.
+  it.each([
+    { order: 'tier, other effort, Fast', tierFirst: true },
+    { order: 'Fast, other effort, tier', tierFirst: false }
+  ])('adopts the last-picked model and seeds its canonical tier ($order)', ({ tierFirst }) => {
+    const tierPick = { modelId: MODEL, optionId: 'serviceTier', value: CUSTOM_TIER }
+    const effortPick = { modelId: OTHER_MODEL, optionId: 'effort', value: 'low' }
+    const fastPick = { modelId: MODEL, optionId: 'fastMode', value: true }
+    const next = applyNativeChatSessionOptionPicks({
+      persisted: {
+        codex: {
+          model: OTHER_MODEL,
+          valuesByModel: { [OTHER_MODEL]: { serviceTier: 'synthetic-paid-tier' } }
+        }
+      },
+      agent: 'codex',
+      picks: tierFirst ? [tierPick, effortPick, fastPick] : [fastPick, effortPick, tierPick]
+    })
+
+    expect(next.codex?.model).toBe(MODEL)
+    expect(next.codex?.valuesByModel).toEqual({
+      [MODEL]: { serviceTier: CUSTOM_TIER },
+      [OTHER_MODEL]: { serviceTier: 'synthetic-paid-tier', effort: 'low' }
+    })
+    expect(resolveStructuredLaunchSeedOptions(next, 'codex')).toEqual({
+      model: MODEL,
+      serviceTier: CUSTOM_TIER
+    })
+  })
+})
+
+describe('a malformed speed choice is ignored before it is stored or adopted', () => {
+  const MALFORMED: {
+    name: string
+    saved: Record<string, SessionOptionValue>
+    optionId: 'fastMode' | 'serviceTier'
+    value: SessionOptionValue
+  }[] = [
+    {
+      name: 'blank tier over a saved tier',
+      saved: { serviceTier: CUSTOM_TIER },
+      optionId: 'serviceTier',
+      value: '   '
+    },
+    {
+      name: 'blank tier over a saved Fast',
+      saved: { fastMode: true },
+      optionId: 'serviceTier',
+      value: '   '
+    },
+    {
+      name: 'text Fast over a saved tier',
+      saved: { serviceTier: CUSTOM_TIER },
+      optionId: 'fastMode',
+      value: 'false'
+    },
+    {
+      name: 'text Fast over a saved Fast',
+      saved: { fastMode: true },
+      optionId: 'fastMode',
+      value: 'false'
+    }
+  ]
+
+  // The launch default is the other model, so adopting the malformed pick's model is visible.
+  function persistedWith(
+    saved: Record<string, SessionOptionValue>
+  ): PersistedNativeChatSessionOptions {
+    return {
+      codex: {
+        model: OTHER_MODEL,
+        valuesByModel: { [MODEL]: saved, [OTHER_MODEL]: { effort: 'high' } }
+      },
+      claude: { model: MODEL, valuesByModel: { [MODEL]: { effort: 'max', fastMode: true } } }
+    }
+  }
+
+  it.each(MALFORMED)('leaves every map, scope, and seed unchanged: $name', (malformed) => {
+    const persisted = persistedWith(malformed.saved)
+    const seedBefore = resolveStructuredLaunchSeedOptions(persisted, 'codex')
+
+    const next = updateNativeChatSessionOptionDefaults({
+      persisted,
+      agent: 'codex',
+      modelId: MODEL,
+      optionId: malformed.optionId,
+      value: malformed.value
+    })
+
+    expect(next).toEqual(persisted)
+    expect(resolveStructuredLaunchSeedOptions(next, 'codex')).toEqual(seedBefore)
+  })
+
+  it.each(MALFORMED)('drops it from a batch and applies the rest: $name', (malformed) => {
+    const persisted = persistedWith(malformed.saved)
+
+    const next = applyNativeChatSessionOptionPicks({
+      persisted,
+      agent: 'codex',
+      picks: [
+        { modelId: OTHER_MODEL, optionId: 'effort', value: 'low' },
+        { modelId: MODEL, optionId: malformed.optionId, value: malformed.value }
+      ]
+    })
+
+    expect(next.codex?.model).toBe(OTHER_MODEL)
+    expect(next.codex?.valuesByModel).toEqual({
+      [MODEL]: malformed.saved,
+      [OTHER_MODEL]: { effort: 'low' }
+    })
+    expect(next.claude).toEqual(persisted.claude)
+    expect(resolveStructuredLaunchSeedOptions(next, 'codex')).toEqual({
+      model: OTHER_MODEL,
+      effort: 'low'
+    })
+  })
+})
+
 describe('Fast actions stay scoped to the Codex entry', () => {
   it('keeps Claude Fast and unrelated values when a Codex Fast action is applied', () => {
     const persisted: PersistedNativeChatSessionOptions = {

@@ -1,4 +1,5 @@
 import type { AgentType } from './agent-status-types'
+import { isAgentSessionOptions } from './agent-session-record'
 import { sessionOptionValueIsValid } from './agent-session-option-catalog'
 import type {
   NativeChatSessionOptionSettingsMutation,
@@ -114,6 +115,31 @@ export function resolveStructuredLaunchSeedOptions(
   return narrowStructuredLaunchSeedOptions(others)
 }
 
+const CODEX_SPEED_COUNTERPART: Readonly<Record<string, string>> = {
+  fastMode: 'serviceTier',
+  serviceTier: 'fastMode'
+}
+
+/** A Codex speed value the seed boundary would accept: a boolean Fast toggle or a non-blank tier
+ *  id that fits the durable record's bounded string. Anything else supersedes nothing. */
+function isExplicitCodexSpeedChoice(
+  agent: AgentType,
+  optionId: string,
+  value: SessionOptionValue
+): boolean {
+  if (agent !== 'codex' || (optionId !== 'fastMode' && optionId !== 'serviceTier')) {
+    return false
+  }
+  const encoded = encodeStructuredAgentSessionOptionValue(optionId, value)
+  if (encoded === null) {
+    return false
+  }
+  return (
+    optionId === 'fastMode' ||
+    (encoded.trim() !== '' && isAgentSessionOptions({ serviceTier: encoded }))
+  )
+}
+
 /** Fold a settled batch of picks onto the durable record. A surface that must send the
  *  whole object back — rather than merging key by key — applies them in one pass so a
  *  later pick in the batch cannot drop an earlier one. */
@@ -123,7 +149,24 @@ export function applyNativeChatSessionOptionPicks(args: {
   picks: Extract<NativeChatSessionOptionSettingsMutation, { type: 'apply-picks' }>['picks']
 }): PersistedNativeChatSessionOptions {
   let persisted = args.persisted ?? {}
-  for (const pick of args.picks) {
+  // Why: a canonical snapshot batch carries a compatibility fastMode projection for the same
+  // model; applying it first lets the explicit tier win whatever the pick order.
+  const tierModelIds = new Set(
+    args.picks
+      .filter(
+        (pick) =>
+          pick.optionId === 'serviceTier' &&
+          isExplicitCodexSpeedChoice(args.agent, pick.optionId, pick.value)
+      )
+      .map((pick) => pick.modelId)
+  )
+  const isProjection = (pick: (typeof args.picks)[number]): boolean =>
+    pick.optionId === 'fastMode' && tierModelIds.has(pick.modelId)
+  const ordered = [
+    ...args.picks.filter(isProjection),
+    ...args.picks.filter((pick) => !isProjection(pick))
+  ]
+  for (const pick of ordered) {
     persisted = updateNativeChatSessionOptionDefaults({ persisted, agent: args.agent, ...pick })
   }
   return persisted
@@ -178,12 +221,19 @@ export function updateNativeChatSessionOptionDefaults(args: {
 }): PersistedNativeChatSessionOptions {
   const currentAgent = args.persisted?.[args.agent]
   const currentModelValues = currentAgent?.valuesByModel?.[args.modelId] ?? {}
+  // Why: an explicit speed action is a new user choice, so the other spelling of speed is stale.
+  const supersededId = isExplicitCodexSpeedChoice(args.agent, args.optionId, args.value)
+    ? CODEX_SPEED_COUNTERPART[args.optionId]
+    : undefined
+  const keptModelValues = Object.fromEntries(
+    Object.entries(currentModelValues).filter(([id]) => id !== supersededId)
+  )
   const valuesByModel = {
     ...currentAgent?.valuesByModel,
     ...(args.optionId === 'model'
       ? {}
       : {
-          [args.modelId]: { ...currentModelValues, [args.optionId]: args.value }
+          [args.modelId]: { ...keptModelValues, [args.optionId]: args.value }
         })
   }
   return {

@@ -2,7 +2,7 @@
 owner: codex-01a1273e
 last-reviewed: 2026-10-13
 stability: draft
-status: implementation-model-decision
+status: review-corrections
 ---
 
 # Catalog-backed Codex speed selection
@@ -34,10 +34,10 @@ previous accepted tier alone permits autonomous queued sends to fall back after 
 Retain refused requested intent separately, block next-turn admission until explicit accepted replacement,
 and protect client pending picks and already-reserved sends with host/generation fencing.
 Independent B/D/L review found additional catalog provenance, transport submission, live/resting,
-launch admission/reload and mobile identity/facts issues. Correction regression writers hit the real
-Sonnet weekly limit; some test edits are saved but not accepted or run. No correction writer remains
-running. User decision is pending on Codex implementation versus waiting for Sonnet, because the fleet
-reviewer order explicitly retains Sonnet implementation. Continue read-only reviews and CI meanwhile.
+launch admission/reload and mobile identity/facts issues. Sonnet hit its weekly limit on October 13;
+saved test edits required correction. On October 14 the real Sonnet writer completed F's saved-default
+fix and bounded B/C/D/L regression correction writers resumed. Keep the established implementation
+model and independent Codex review; no model switch was required. Tests remain CI-only.
 Owner override: "There's no reason to use server one for the implementation. Go ahead and execute everything here."
 Implementation and independent review run locally. Build freeze and CI-only test admission remain in force.
 
@@ -201,6 +201,11 @@ Own `codex-structured-speed-intent.ts` if focused provider wrappers need extract
 an optional internal submission callback at the transport write boundary. Record no `sent` fact for
 closed/exited/serialization refusals. Use shared A's valid legacy-toggle intent policy consistently
 in live and resting paths; unresolved Fast remains blocked at next-turn admission.
+Own `codex-app-server-request-not-submitted-error.ts` for an internal typed proof of closed/exited/
+serialization refusal before writing. Post-submission transport failures remain uncertain; synchronous
+write failures must not claim definite non-delivery without proof. Provider replies remain distinct.
+The generic internal option rejection constructor gains optional third argument
+`refusalOptions?: Readonly<Record<string, string>>`; B supplies a complete map and C persists it.
 Also own `src/main/native-chat/agent-model-catalog/agent-model-catalog-persistence.ts` and
 `agent-model-catalog-store.ts` and `agent-model-catalog-entry.ts` in that directory when metadata requires changes.
 Reuse catalog models for tier storage, keeping legacy Fast projections; avoid a second catalog service or registry.
@@ -215,6 +220,8 @@ Writable production paths under `src/main/native-chat/agent-session-wire/`:
 Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
 provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
+Own focused `structured-agent-session-speed-refusal-persistence.test.ts` for the real generic live
+mutation boundary, including refused-state persistence failure and unchanged other-provider errors.
 B supplies Codex's definition implementation through A's frozen interface; C never edits either definition file.
 Preserve complete option maps through at-rest writes, live writes, record reload and same-conversation resume.
 Verify existing account-home and provider-handle identity survives. Test Claude with the optional validator absent.
@@ -308,7 +315,7 @@ Do not independently bump upstream `package.json` or choose a released version; 
 
 Reviews were independent and read-only on slice diffs, not immutable final-head acceptance. The saved L
 regression file is not ready until fixture isolation is corrected. Do not count a passing fake reload
-as proof of fresh-renderer recovery. Local Sonnet limit interrupted those corrections; no worker is running.
+as proof of fresh-renderer recovery. Real Sonnet correction workers resumed on October 14.
 
 | Criterion | Required proof | State |
 | --- | --- | --- |
@@ -370,5 +377,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: resolve the implementation model, finish the saved regression corrections, then run red CI
+Next action: finish the saved regression corrections, then run red CI
 before the focused production fixes. Final review, exact-candidate CI and owner rollout remain open.

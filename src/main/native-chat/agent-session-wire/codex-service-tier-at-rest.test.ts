@@ -103,6 +103,13 @@ const CODEX_AGENTS = new StructuredAgentRegistry([
 const CLAUDE_AGENTS = new StructuredAgentRegistry([
   { definition: CLAUDE_STRUCTURED_AGENT, adapter: fakeAdapter() }
 ])
+// Codex exactly as the app registers it: its own resting callbacks, no stand-in.
+const REAL_CODEX_AGENTS = new StructuredAgentRegistry([
+  {
+    definition: CODEX_STRUCTURED_AGENT,
+    adapter: { ...fakeAdapter(), rewind: vi.fn(), recoverRewind: vi.fn() }
+  }
+])
 
 function recordWith(
   provider: 'codex' | 'claude',
@@ -464,4 +471,194 @@ describe('reading a chat at rest through readOptions', () => {
     expect(read.current).not.toHaveProperty('serviceTier')
     expect(read).not.toHaveProperty('speed')
   })
+})
+
+const CUSTOM_ID = 'Tier.Custom-31b'
+const BLOCKED_PRIOR = { model: MODEL_A, serviceTier: FAST_ID, ...UNRELATED }
+
+/** A Codex chat at rest whose stubbed persistence owns the record's options, so a pick and the
+ *  read after it see what was actually stored. The catalog can be swapped to model a refresh. */
+function restingCodexChat(options: Readonly<Record<string, string>>) {
+  let record = recordWith('codex', options)
+  let catalog = listedCatalog()
+  let persistFailure: Error | null = null
+  const reader: CatalogReader = { read: (input) => catalog.read(input) }
+  // A failed write rejects before touching the durable record, like a store that did not commit.
+  const persistOptions = vi.fn(async (next: Readonly<Record<string, string>>) => {
+    if (persistFailure) {
+      const failure = persistFailure
+      persistFailure = null
+      throw failure
+    }
+    record = { ...record, options: next }
+  })
+  const publish = vi.fn()
+  const { sessionId } = record
+  return {
+    persistOptions,
+    publish,
+    stored: (): Readonly<Record<string, string>> => record.options ?? {},
+    refreshCatalog: (models: AgentSessionModelOption[]) => {
+      catalog = listedCatalog(models)
+    },
+    failNextPersist: (error: Error) => {
+      persistFailure = error
+    },
+    pick: (key: string, value: string) =>
+      recordStructuredAgentSessionOptionIntent(
+        {
+          store: { getRecord: () => record },
+          agents: REAL_CODEX_AGENTS,
+          modelCatalog: reader
+        },
+        { sessionId, persistOptions, publish },
+        { key, value }
+      ),
+    read: () => readAtRest(REAL_CODEX_AGENTS, record, reader)
+  }
+}
+
+// The marker that holds refused intent is private, so a stored map is judged by behavior: every
+// prior entry is untouched, the refused id is carried by some extra entry, and it is not canonical.
+function expectBlockedIntent(
+  stored: Readonly<Record<string, string>>,
+  prior: Readonly<Record<string, string>>,
+  refusedId: string
+): void {
+  expect(stored).toMatchObject(prior)
+  const extras = Object.entries(stored).filter(([key]) => !(key in prior))
+  expect(extras.some(([, value]) => value.includes(refusedId))).toBe(true)
+  expect(stored.serviceTier).not.toBe(refusedId)
+}
+
+type RestingCodexChat = ReturnType<typeof restingCodexChat>
+
+const CATALOG_ADVERTISING_CUSTOM: AgentSessionModelOption[] = CATALOG_MODELS.map((model) => ({
+  ...model,
+  serviceTiers: [...(model.serviceTiers ?? []), { value: CUSTOM_ID, label: 'Custom' }]
+}))
+
+// The host keeps running on the accepted tier, and the refused id is never reported usable, even
+// when the catalog now advertises it: only a new explicit pick may unblock it.
+async function expectRefusedTierStillBlocked(
+  chat: RestingCodexChat,
+  acceptedId: string
+): Promise<void> {
+  const read = await chat.read()
+  expect(read.current).toMatchObject({ serviceTier: acceptedId })
+  expect(read.speed?.selection.tierId).toBe(CUSTOM_ID)
+  expect(['unknown', 'unavailable']).toContain(read.speed?.selection.state)
+}
+
+describe('a refused explicit tier at rest, through the registered Codex definition', () => {
+  it('returns the refusal and persists the complete map with the refused id as blocked intent', async () => {
+    const chat = restingCodexChat(BLOCKED_PRIOR)
+
+    const result = await chat.pick('serviceTier', CUSTOM_ID)
+
+    expect(result).toMatchObject(REFUSED)
+    expect(chat.persistOptions).toHaveBeenCalledOnce()
+    expect(chat.publish).toHaveBeenCalledOnce()
+    expectBlockedIntent(chat.stored(), BLOCKED_PRIOR, CUSTOM_ID)
+  })
+
+  it('reads back the accepted tier as current and the refused id as the blocked selection', async () => {
+    const chat = restingCodexChat(BLOCKED_PRIOR)
+    await chat.pick('serviceTier', CUSTOM_ID)
+
+    const read = await chat.read()
+
+    expect(read.current).toMatchObject({ model: MODEL_A, serviceTier: FAST_ID })
+    expect(read.speed?.selection.tierId).toBe(CUSTOM_ID)
+    expect(['unknown', 'unavailable']).toContain(read.speed?.selection.state)
+  })
+
+  it('keeps the block through a model pick, an effort pick and a refreshed catalog', async () => {
+    const chat = restingCodexChat(BLOCKED_PRIOR)
+    await chat.pick('serviceTier', CUSTOM_ID)
+
+    await chat.pick('model', MODEL_B)
+    expectBlockedIntent(chat.stored(), { ...BLOCKED_PRIOR, model: MODEL_B }, CUSTOM_ID)
+
+    chat.refreshCatalog(CATALOG_ADVERTISING_CUSTOM)
+    await chat.pick('effort', 'high')
+    expectBlockedIntent(
+      chat.stored(),
+      { ...BLOCKED_PRIOR, model: MODEL_B, effort: 'high' },
+      CUSTOM_ID
+    )
+    await expectRefusedTierStillBlocked(chat, FAST_ID)
+  })
+
+  it('does not unblock the refused id when a refreshed catalog now advertises it', async () => {
+    const chat = restingCodexChat(BLOCKED_PRIOR)
+    await chat.pick('serviceTier', CUSTOM_ID)
+    const blocked = { ...chat.stored() }
+
+    chat.refreshCatalog(CATALOG_ADVERTISING_CUSTOM)
+
+    await expectRefusedTierStillBlocked(chat, FAST_ID)
+    expect(chat.stored()).toEqual(blocked)
+  })
+
+  it.each([ULTRA_ID, 'default'])(
+    'drops the block only when an explicit valid %s replacement is accepted',
+    async (tierId) => {
+      const chat = restingCodexChat(BLOCKED_PRIOR)
+      await chat.pick('serviceTier', CUSTOM_ID)
+
+      const result = await chat.pick('serviceTier', tierId)
+
+      expect(result).toMatchObject({ ok: true })
+      expect(chat.stored()).toEqual({ ...BLOCKED_PRIOR, serviceTier: tierId })
+      expect((await chat.read()).speed).toEqual({ selection: { tierId, state: 'ready' } })
+    }
+  )
+})
+
+describe('a refused explicit tier at rest when the store rejects the write', () => {
+  it('propagates a failed refusal-state write and leaves the record and the accepted Fast unchanged', async () => {
+    const chat = restingCodexChat(BLOCKED_PRIOR)
+    const failure = new Error('store unavailable')
+    chat.failNextPersist(failure)
+
+    await expect(chat.pick('serviceTier', CUSTOM_ID)).rejects.toBe(failure)
+
+    expect(chat.persistOptions).toHaveBeenCalledOnce()
+    expect(chat.publish).not.toHaveBeenCalled()
+    expect(chat.stored()).toEqual(BLOCKED_PRIOR)
+    expect((await chat.read()).speed).toEqual({ selection: { tierId: FAST_ID, state: 'ready' } })
+
+    // The failure left no half-recorded block behind: the same pick refuses and stores it now.
+    const retried = await chat.pick('serviceTier', CUSTOM_ID)
+    expect(retried).toMatchObject(REFUSED)
+    expectBlockedIntent(chat.stored(), BLOCKED_PRIOR, CUSTOM_ID)
+  })
+
+  it.each([ULTRA_ID, 'default'])(
+    'propagates a failed %s replacement write and keeps the stored block and accepted Fast',
+    async (tierId) => {
+      const chat = restingCodexChat(BLOCKED_PRIOR)
+      // The block is created by the real first refusal, so its stored shape is never assumed.
+      await chat.pick('serviceTier', CUSTOM_ID)
+      const blocked = { ...chat.stored() }
+      expectBlockedIntent(blocked, BLOCKED_PRIOR, CUSTOM_ID)
+      const writesBefore = chat.persistOptions.mock.calls.length
+      const publishesBefore = chat.publish.mock.calls.length
+      const failure = new Error('store unavailable')
+      chat.failNextPersist(failure)
+
+      await expect(chat.pick('serviceTier', tierId)).rejects.toBe(failure)
+
+      expect(chat.persistOptions).toHaveBeenCalledTimes(writesBefore + 1)
+      expect(chat.publish).toHaveBeenCalledTimes(publishesBefore)
+      expect(chat.stored()).toEqual(blocked)
+      await expectRefusedTierStillBlocked(chat, FAST_ID)
+
+      // Only a replacement that is actually stored drops the block.
+      const retried = await chat.pick('serviceTier', tierId)
+      expect(retried).toMatchObject({ ok: true })
+      expect(chat.stored()).toEqual({ ...BLOCKED_PRIOR, serviceTier: tierId })
+    }
+  )
 })
