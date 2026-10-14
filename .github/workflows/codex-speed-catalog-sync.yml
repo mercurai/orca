@@ -100,6 +100,7 @@ jobs:
             src/shared/codex-service-tier-host-gating.test.ts \
             src/shared/codex-service-tier-presentation.test.ts \
             src/shared/codex-speed-facts-presentation.test.ts \
+            src/shared/structured-agent-session-option-acknowledgement.test.ts \
             src/main/codex/codex-service-tier-selection.test.ts \
             src/main/codex/codex-service-tier-turns.test.ts \
             src/main/codex/codex-service-tier-speed-facts.test.ts \

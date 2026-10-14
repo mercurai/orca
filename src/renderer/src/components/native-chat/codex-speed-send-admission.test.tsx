@@ -152,6 +152,21 @@ const CUSTOM = { value: 'synthetic-custom-lane', label: 'Custom lane' }
 // A tier the host refused before this client existed: only its facts say so, current stays accepted.
 const hostRefused = { tierId: null as string | null, catalogOffersIt: false }
 
+// The live catalog and the resting read report the stored tier in `current` and name no `confirmed`
+// list; the host's own ready selection fact then says what it stored.
+let hostOmitsConfirmed = false
+
+// A read the test holds open: the first `agentSession.options` request after it is set waits on it.
+type HeldRead = Deferred<unknown> & { taken: boolean }
+let heldRead: HeldRead | null = null
+
+function hostSpeedFacts(): { speed?: unknown } {
+  if (hostRefused.tierId) {
+    return { speed: { selection: { tierId: hostRefused.tierId, state: 'unavailable' } } }
+  }
+  return hostOmitsConfirmed ? { speed: { selection: { tierId: hostTier, state: 'ready' } } } : {}
+}
+
 function optionsReply() {
   const { tierId, catalogOffersIt } = hostRefused
   return {
@@ -160,8 +175,12 @@ function optionsReply() {
       ...model,
       serviceTiers: [...model.serviceTiers, ...(tierId && catalogOffersIt ? [CUSTOM] : [])]
     })),
-    current: { model: MODEL_ID, serviceTier: hostTier, confirmed: ['model', 'serviceTier'] },
-    ...(tierId ? { speed: { selection: { tierId, state: 'unavailable' } } } : {})
+    current: {
+      model: MODEL_ID,
+      serviceTier: hostTier,
+      ...(hostOmitsConfirmed ? {} : { confirmed: ['model', 'serviceTier'] })
+    },
+    ...hostSpeedFacts()
   }
 }
 
@@ -180,6 +199,10 @@ function recordedSend(clientMessageId: string) {
 
 function answerRpc(_target: unknown, method: string, params?: SendParams): Promise<unknown> {
   if (method === 'agentSession.options') {
+    if (heldRead && !heldRead.taken) {
+      heldRead.taken = true
+      return heldRead.promise
+    }
     return Promise.resolve(optionsReply())
   }
   if (method === 'agentSession.history') {
@@ -318,6 +341,8 @@ describe('Codex speed pick and the chat sends', () => {
     hostTier = FAST.value
     hostRefused.tierId = null
     hostRefused.catalogOffersIt = false
+    hostOmitsConfirmed = false
+    heldRead = null
     mutate.mockClear()
     mocks.call.mockReset()
     mocks.history.mockReset()
@@ -433,6 +458,117 @@ describe('Codex speed pick and the chat sends', () => {
     await acceptWrite(0, replacement)
     expect(await replacement).toBe(true)
     await expectChatTakesSend('typed after the replacement')
+  })
+
+  // A read that began before the pick describes the host before it. Landing while the pick still
+  // waits on its capability probe, it can neither commit nor end the hold: the pick restates the
+  // stored tier, so that very read would otherwise look like its acknowledgement.
+  describe('a read begun before the pick that lands during its capability probe', () => {
+    async function pickWhileStaleReadLands(chat: Chat) {
+      const stale: HeldRead = { ...deferred<unknown>(), taken: false }
+      heldRead = stale
+      // The turn change is the real seam that begins an options read.
+      chat.rerender({ turnId: 'turn-2' })
+      await waitFor(() => expect(stale.taken).toBe(true))
+
+      const capability = deferred<'supported' | 'unsupported'>()
+      mocks.speedSupport.mockReturnValueOnce(capability.promise)
+      const outcome = pick(chat, FAST.value)
+      expectChatBlocked()
+
+      await act(async () => {
+        stale.resolve({
+          ...optionsReply(),
+          speed: {
+            selection: { tierId: FAST.value, state: 'ready' },
+            lastRequest: {
+              clientMessageId: 'before-the-pick',
+              tierId: FAST.value,
+              state: 'accepted'
+            }
+          }
+        })
+        await stale.promise
+      })
+
+      expectChatBlocked('typed while the probe is pending')
+      expect(writes).toHaveLength(0)
+      expect(mutate).not.toHaveBeenCalled()
+      expect(speedLines(chat).some((line) => line.kind === 'last-request')).toBe(false)
+      return { outcome, capability }
+    }
+
+    it('writes only after a fresh probe supports it, and sends only after the host accepts', async () => {
+      const chat = await mountChat()
+      const { outcome, capability } = await pickWhileStaleReadLands(chat)
+
+      await act(async () => {
+        capability.resolve('supported')
+      })
+      await waitFor(() => expect(writes).toHaveLength(1))
+      expectChatBlocked('typed while the write is unanswered')
+
+      await acceptWrite(0, outcome)
+      expect(await outcome).toBe(true)
+      await expectChatTakesSend('typed after the acceptance')
+    })
+
+    it('leaves every send out when the fresh probe refuses, until an accepted replacement', async () => {
+      const chat = await mountChat()
+      const { outcome, capability } = await pickWhileStaleReadLands(chat)
+
+      await act(async () => {
+        capability.resolve('unsupported')
+      })
+      expect(await outcome).toBe(false)
+      expect(writes).toHaveLength(0)
+      expectChatBlocked('typed after the refusal')
+
+      const replacement = pick(chat, STANDARD.value)
+      await acceptWrite(0, replacement)
+      expect(await replacement).toBe(true)
+      await expectChatTakesSend('typed after the replacement')
+    })
+  })
+
+  // B's live catalog and C's resting read report the stored tier without naming it confirmed, so a
+  // pick whose answer was lost is recovered only through the host's own ready selection fact.
+  it('releases a pick whose answer was lost once a read reports it stored with no confirmed list', async () => {
+    hostOmitsConfirmed = true
+    const chat = await mountChat()
+    const outcome = pick(chat, ULTRAFAST.value)
+    // The host stored it, but the answer never reached this client.
+    hostTier = ULTRAFAST.value
+    await refuseWrite(0, outcome)
+    expect(await outcome).toBe(false)
+    expectChatBlocked()
+
+    const reads = optionsReads()
+    chat.rerender({ turnId: 'turn-2' })
+    await waitFor(() => expect(optionsReads()).toBeGreaterThan(reads))
+    await waitFor(() => expect(structuredAgentSessionSendOut(SESSION)).toBe(false))
+
+    // Stored on the host and reported by it, not a pick still waiting for an answer.
+    expect(speedLines(chat)).toContainEqual({ kind: 'stored', label: 'Ultrafast' })
+    expect(speedLines(chat)).not.toContainEqual(PENDING_ULTRAFAST)
+    await expectChatTakesSend('typed after the host reported it stored')
+  })
+
+  it('keeps blocking when a read with no confirmed list still shows the prior tier', async () => {
+    hostOmitsConfirmed = true
+    const chat = await mountChat()
+    await refuseWrite(0, pick(chat, ULTRAFAST.value))
+
+    const reads = optionsReads()
+    chat.rerender({ turnId: 'turn-2' })
+    await waitFor(() => expect(optionsReads()).toBeGreaterThan(reads))
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    expect(speedLines(chat)).toContainEqual(PENDING_ULTRAFAST)
+    expectChatBlocked()
+    expect(writes).toHaveLength(1)
   })
 
   it.each([

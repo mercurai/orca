@@ -9,6 +9,15 @@ status: review-corrections
 
 ## Purpose and current state
 
+Current checkpoint (2026-10-14): focused CI38624845738 at c2f29ccb6243 passed 585 tests
+and failed 24 across core/mobile. This is intermediate evidence, not final release verification.
+Generic live persistence recovery passed independent C review; B review requires preserving
+memory-only blocked exact/legacy intent across subsequent failed non-speed saves and projecting
+unresolved legacy quarantine accurately. Sequential real-adapter red coverage is in progress.
+Five final picker regression files passed independent red-readiness review; source corrections await
+CI red proof. L's receipt/recheck/draft changes passed source inspection, with line-cap simplification
+and a visible first-send refusal notice still needed. No source landing, installation or runtime proof.
+
 Implement Standard, Fast and Ultrafast selection through Orca's existing model catalog and option picker.
 This is the authoritative specification, ownership map and execution plan for this change.
 The user authorized core implementation and rollout; the fleet retains landing and release ordering.
@@ -226,7 +235,10 @@ fence-scoped and fail-closed; no transport or storage work. Preserve the origina
 and publish no success. Route to the registered provider without provider-name branches. Codex
 restores prior canonical options while retaining blocked requested intent; failed replacement never
 clears an earlier block. If recovery cannot establish safe admission, quarantine admission rather
-than declaring the child exited. This is additive internal behavior, not a wire/API/schema change.
+than declaring the child exited. `StructuredAgentSessionSetOptionInput.priorOptions?` may carry the copied durable map to the
+provider for complete-map settlement, preserving unrelated saved options without restoring stale
+speed/private fields. It is optional internal input; other adapters ignore it. This adds no
+public wire field or database schema. Verify provider forwarding cannot leak it into requests.
 Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
 provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
@@ -391,6 +403,16 @@ The reviewed temporary auxiliary CI workflow formats only task paths,
 generates English catalogs with repository tools and runs sequential bounded core/mobile targets. It
 returns explicit failure for red tests and uploads only a scoped patch and source/outcome metadata.
 The workflow is not a release gate and will be excluded from the final product patch.
+Second auxiliary snapshot c2f29ccb6243cb0a4ce9818e7f7b49b565f3aa53 ran CI38624845738:
+26 core files/546 tests, 525 passed and21 failed; mobile63 tests,60 passed and3 failed.
+All parser/catalog, generic atrest/refusal/disk, defaults, originaldesktop options/send, andoriginal
+launchoptions suites passed. Remaining failures are live failed-persistence/unrelated-map cases,
+L final admission/draft cases, three mobile source/fence cases and one Bun backpressure fixture
+that synchronously drains its Writable instead of holding a genuine saturated write.
+Six closed-db continuity cases passed, including pinned account/thread and refused-tier restart.
+Root checked/applied the bounded generated patch before new writers: B/C integrates atomic
+failed-write recovery/full-map preservation, L fixes reviewed final boundaries, D authors four
+new picker regressions. These are independent tasks with non-overlapping write ownership.
 
 | Criterion | Required proof | State |
 | --- | --- | --- |

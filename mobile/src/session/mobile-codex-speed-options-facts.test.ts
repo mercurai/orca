@@ -290,6 +290,72 @@ describe('useMobileStructuredAgentOptions speed facts', () => {
   })
 })
 
+// What the host reported of the last turn stays until a later read replaces it: an acknowledgement
+// is next-turn intent, and a failed or late follow-up read must not leave the picker blank.
+describe('useMobileStructuredAgentOptions last turn evidence', () => {
+  const lastTurn: AgentSessionOptionsResult = {
+    ...FAST_SELECTED,
+    speed: {
+      selection: { tierId: FAST_TIER.value, state: 'ready' },
+      lastRequest: {
+        clientMessageId: 'turn-1-message',
+        tierId: FAST_TIER.value,
+        turnId: 'turn-1',
+        state: 'accepted'
+      },
+      applied: { clientMessageId: 'turn-1-message', tierId: FAST_TIER.value, turnId: 'turn-1' },
+      processing: { turnId: 'turn-1', tierId: FAST_TIER.value }
+    }
+  }
+
+  it.each(['rejected', 'unanswered'] as const)(
+    'keeps it beside a newly accepted tier while the follow-up read is %s',
+    async (followUp) => {
+      let reads = 0
+      const host = optionsClient(() => {
+        reads += 1
+        if (reads === 1) {
+          return Promise.resolve(lastTurn)
+        }
+        return followUp === 'rejected'
+          ? Promise.reject(new Error('options_read_failed'))
+          : new Promise<AgentSessionOptionsResult>(() => {})
+      })
+      const { mutate } = recordingMutate(async () =>
+        accepted(
+          {
+            key: 'serviceTier',
+            value: ULTRAFAST_TIER.value,
+            options: { serviceTier: ULTRAFAST_TIER.value }
+          },
+          true
+        )
+      )
+      const harness = await mountOptions({
+        client: host.client,
+        mutate,
+        codexSpeedHost: 'supported'
+      })
+      expect(speedLines(harness.current())).toContainEqual({ kind: 'processing', label: 'Fast' })
+
+      let outcome = false
+      await act(async () => {
+        outcome = await harness.current().setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
+      })
+      await vi.waitFor(() => expect(host.optionReads()).toBe(2))
+
+      expect(outcome).toBe(true)
+      expect(tierValue(harness.current().optionSnapshot)).toBe(ULTRAFAST_TIER.value)
+      expect(speedLines(harness.current())).toEqual([
+        { kind: 'pending', label: 'Ultrafast' },
+        { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+        { kind: 'processing', label: 'Fast' }
+      ])
+      await harness.unmount()
+    }
+  )
+})
+
 // v1.4.224 merges the prior options into every acknowledgement, so an explicit Fast-off comes back
 // beside the saved canonical tier. The action is the person's, not the stored tier.
 describe('useMobileStructuredAgentOptions older-host acknowledgement', () => {

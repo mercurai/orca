@@ -4,7 +4,11 @@ import {
   CODEX_SESSION_OPTION_CATALOG
 } from './agent-session-option-catalog-claude-codex'
 import type { AgentSessionSpeedFacts } from './agent-session-speed-facts'
-import type { AgentSessionModelCatalogResult } from './agent-session-wire'
+import type {
+  AgentSessionFastModeSupport,
+  AgentSessionModelCatalogResult,
+  AgentSessionModelOption
+} from './agent-session-wire'
 import {
   codexSpeedChoiceStatus,
   codexSpeedDescriptorCaptions,
@@ -429,6 +433,81 @@ describe('Codex speed metadata refresh', () => {
       expect(refreshed.record.valuesByModel[MODEL_ID]?.serviceTier?.value).toBe(FAST.value)
     }
   )
+})
+
+// A host before the catalog tiers answers a Fast toggle and nothing else. A later listing that says
+// outright the model has no Fast must remove the toggle; one that says nothing must not.
+describe('Codex legacy Fast toggle on a host listing refresh', () => {
+  const OLD_HOST: CodexSpeedHostSupport = 'unsupported'
+  const legacy = () =>
+    liveState(liveResult(tieredModel([STANDARD, FAST], true), { fastMode: false }), OLD_HOST)
+
+  const refreshed = (catalog: AgentSessionModelCatalogResult) =>
+    applyStructuredAgentSessionModelCatalog(legacy(), CODEX_SESSION_OPTION_CATALOG, catalog, {
+      newLaunch: false,
+      codexSpeedHost: OLD_HOST
+    })
+
+  // Neither says anything about Fast: support stays unknown, never unsupported.
+  const silentModel: AgentSessionModelOption = {
+    id: MODEL_ID,
+    label: 'Synthetic Speed Model',
+    isDefault: true,
+    efforts: []
+  }
+  const listing = (
+    model: AgentSessionModelOption,
+    fastModeSupport?: AgentSessionFastModeSupport
+  ): AgentSessionModelCatalogResult => ({
+    origin: 'probe',
+    models: [model],
+    fetchedAt: 1_000,
+    ...(fastModeSupport ? { fastModeSupport } : {})
+  })
+
+  it('starts from a live session that offers the toggle', () => {
+    const state = legacy()
+
+    expect(state.catalogSource).toBe('live')
+    expect(idsOf(state)).toContain('fastMode')
+    expect(idsOf(state)).not.toContain('serviceTier')
+  })
+
+  it('removes the toggle when the refreshed listing says the model has no Fast mode', () => {
+    const next = refreshed(
+      listing({ ...silentModel, supportsFastMode: false }, { supported: true })
+    )
+
+    expect(idsOf(next)).not.toContain('fastMode')
+    expect(canSetStructuredAgentSessionOption(next, 'fastMode', true)).toBe(false)
+    // The session's stored speed is intent, kept for when a listing offers a control again.
+    expect(next.record.valuesByModel[MODEL_ID]?.fastMode?.value).toBe(false)
+  })
+
+  it('removes the toggle when the refreshed listing says the account has no Fast mode', () => {
+    const next = refreshed(
+      listing({ ...silentModel, supportsFastMode: true }, { supported: false })
+    )
+
+    expect(idsOf(next)).not.toContain('fastMode')
+    expect(canSetStructuredAgentSessionOption(next, 'fastMode', true)).toBe(false)
+  })
+
+  it('keeps the toggle when the refreshed listing says nothing about Fast mode', () => {
+    const next = refreshed(listing(silentModel))
+
+    expect(idsOf(next)).toContain('fastMode')
+    expect(canSetStructuredAgentSessionOption(next, 'fastMode', true)).toBe(true)
+  })
+
+  it('keeps the toggle when only the model, or only the account, names support', () => {
+    const modelOnly = refreshed(listing({ ...silentModel, supportsFastMode: true }))
+    const accountOnly = refreshed(listing(silentModel, { supported: true }))
+
+    expect(idsOf(modelOnly)).toContain('fastMode')
+    expect(idsOf(accountOnly)).toContain('fastMode')
+  })
+
 })
 
 describe('Codex speed facts in option state', () => {

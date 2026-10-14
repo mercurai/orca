@@ -308,6 +308,70 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
     unmount()
   })
 
+  // The acknowledgement is next-turn intent. What the host reported of the last turn stays until a
+  // later read replaces it, so a failed or late follow-up read never leaves the picker blank.
+  it.each(['rejected', 'unanswered'] as const)(
+    'keeps the last turn speed evidence beside a newly accepted tier while the follow-up read is %s',
+    async (followUp) => {
+      setLocalRuntimeCapabilitiesForTests([AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY])
+      mocks.speedSupport.mockResolvedValue('supported')
+      let written = false
+      mocks.call.mockImplementation((_target: unknown, method: string) => {
+        if (method !== 'agentSession.options') {
+          return new Promise(() => {})
+        }
+        if (!written) {
+          return Promise.resolve({
+            ...TIERED_OPTIONS,
+            current: { ...TIERED_OPTIONS.current, serviceTier: FAST.value },
+            speed: {
+              selection: { tierId: FAST.value, state: 'ready' },
+              lastRequest: {
+                clientMessageId: 'turn-1-message',
+                tierId: FAST.value,
+                turnId: 'turn-1',
+                state: 'accepted'
+              },
+              applied: { clientMessageId: 'turn-1-message', tierId: FAST.value, turnId: 'turn-1' },
+              processing: { turnId: 'turn-1', tierId: FAST.value }
+            }
+          })
+        }
+        return followUp === 'rejected'
+          ? Promise.reject(new Error('options_read_failed'))
+          : new Promise(() => {})
+      })
+      const { mutate } = mutateWith(async () => {
+        written = true
+        return {
+          key: 'serviceTier',
+          value: ULTRAFAST.value,
+          options: { serviceTier: ULTRAFAST.value }
+        }
+      })
+      const { result, unmount } = renderOptions(mutate)
+      const lines = () => result.current.optionSurface.getSpeedLines()
+      await waitFor(() => expect(lines()).toContainEqual({ kind: 'processing', label: 'Fast' }))
+
+      let applied = false
+      await act(async () => {
+        applied = await result.current.setStructuredOption('serviceTier', ULTRAFAST.value)
+      })
+
+      expect(applied).toBe(true)
+      expect(lines()).toEqual([
+        { kind: 'pending', label: 'Ultrafast' },
+        { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+        { kind: 'processing', label: 'Fast' }
+      ])
+      const tier = descriptor(result.current.optionSnapshot, 'serviceTier')
+      expect(tier?.kind.type === 'select' ? tier.kind.currentValue : undefined).toBe(
+        ULTRAFAST.value
+      )
+      unmount()
+    }
+  )
+
   it('drops a response read for the previous execution host after the session moves', async () => {
     setLocalRuntimeCapabilitiesForTests([AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY])
     let resolveLocal: (value: unknown) => void = () => {}
