@@ -279,11 +279,32 @@ export function recoverCodexSpeedAfterFailedSave(
   }
 }
 
+/** Legacy Fast that never saved lives only in memory beside a durable Standard, so any settled map
+ *  would drop it; refuses a non-speed write before it changes or settles anything. A refusal marker
+ *  in the live map, the capture or the saved record already keeps an exact request, so it passes. */
+function assertLegacyFastSurvivesWrite(
+  host: CodexSpeedProviderHost,
+  key: string,
+  saved: Readonly<Record<string, string>> | undefined
+): void {
+  // A speed pick replaces the tier, so it never reads a saved record that may be unreadable.
+  if (!host.blockedLegacyFastMode || key === 'serviceTier' || key === 'fastMode') {
+    return
+  }
+  const marker =
+    refusedCodexServiceTier({ ...saved, ...Object.fromEntries(host.options) }) ??
+    host.speedCapture?.refusedTier
+  if (!marker) {
+    throw new CodexSpeedQuarantinedError()
+  }
+}
+
 /**
  * Takes the record's canonical speed back into a session whose live map a failed save left without
  * one, and keeps the captured exact tier as the refusal marker every settled map then carries.
  * With no readable saved record at hand the capture stays, and only an explicit speed pick, which
  * replaces the tier, may go on; any other write throws before it settles anything from that map.
+ * Legacy Fast no durable record holds is likewise only replaced by an explicit speed pick.
  */
 export function reconcileCodexSpeedCapture(
   host: CodexSpeedProviderHost,
@@ -291,6 +312,7 @@ export function reconcileCodexSpeedCapture(
   saved: Readonly<Record<string, string>> | undefined,
   restore: RestoreCodexOptions
 ): void {
+  assertLegacyFastSurvivesWrite(host, key, saved)
   const capture = host.speedCapture
   if (!capture) {
     return

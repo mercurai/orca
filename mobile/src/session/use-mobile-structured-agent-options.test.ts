@@ -335,10 +335,15 @@ describe('useMobileStructuredAgentOptions post-write refresh', () => {
     })
     await settle()
 
-    // Another fence's answer: no success, no read back, and the pick is not shown as stored.
+    // Another fence's answer: no success, no read back and nothing persisted. The request stays
+    // unresolved, so it overlays the stored value as dispatched, never accepted, and holds sends.
     expect(outcome).toBe(false)
     expect(client.optionReads()).toBe(1)
-    expect(currentValueOf(harness.current().optionSnapshot, 'fastMode')).toBe(false)
+    expect(currentValueOf(harness.current().optionSnapshot, 'fastMode')).toBe(true)
+    expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')?.valueSource).toBe(
+      'dispatched'
+    )
+    expect(harness.current().isSpeedSendBlocked()).toBe(true)
     expect(client.methods('settings.mutateNativeChatSessionOptions')).toEqual([])
     await harness.unmount()
   })
@@ -577,6 +582,106 @@ describe('useMobileStructuredAgentOptions speed select', () => {
     expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
     expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')).toBeDefined()
     await harness.unmount()
+  })
+})
+
+describe('useMobileStructuredAgentOptions canonical read model provenance', () => {
+  const MODEL_A = 'canonical-default'
+  const MODEL_B = 'canonical-nondefault'
+  const B_STANDARD = { value: 'synthetic-b-standard', label: 'Standard' }
+  const B_FAST = { value: 'synthetic-b-fast', label: 'Fast' }
+  const B_ULTRA = { value: 'synthetic-b-ultra', label: 'Ultrafast' }
+  // The real canonical read shape: speed facts name the stored tier and `confirmed` is absent.
+  const CANONICAL: AgentSessionOptionsResult = {
+    models: [
+      {
+        id: MODEL_A,
+        label: 'Canonical default',
+        isDefault: true,
+        efforts: [],
+        supportsFastMode: true,
+        serviceTiers: [STANDARD_TIER, FAST_TIER, ULTRAFAST_TIER]
+      },
+      {
+        id: MODEL_B,
+        label: 'Canonical other',
+        isDefault: false,
+        efforts: [],
+        supportsFastMode: true,
+        serviceTiers: [B_STANDARD, B_FAST, B_ULTRA]
+      }
+    ],
+    fastModeSupport: { supported: true },
+    current: { model: MODEL_B, serviceTier: B_FAST.value },
+    speed: { selection: { tierId: B_FAST.value, state: 'ready' } }
+  }
+
+  function enabledTierValues(snapshot: readonly SessionOptionDescriptor[]): string[] {
+    const kind = descriptorFor(snapshot, 'serviceTier')?.kind
+    return kind?.type === 'select'
+      ? kind.choices.filter((choice) => !choice.disabled).map((choice) => choice.value)
+      : []
+  }
+
+  it('keeps the host-read nondefault model and its tiers across a fence reset, then persists a replacement against it', async () => {
+    const reread = deferred<AgentSessionOptionsResult>()
+    let reads = 0
+    // The catalog method is refused as on an older host, so the options read is the only model source.
+    const client = optionsClient(() => (reads++ === 0 ? Promise.resolve(CANONICAL) : reread.promise))
+    const { calls, mutate } = recordingMutate(async (call) => {
+      const tier = call === 0 ? B_ULTRA.value : B_STANDARD.value
+      return accepted({ key: 'serviceTier', value: tier, options: { serviceTier: tier } }, call !== 0)
+    })
+    const harness = await mountOptions({
+      ...BASE,
+      client: client.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+
+    try {
+      expect(currentValueOf(harness.current().optionSnapshot, 'model')).toBe(MODEL_B)
+
+      let refused: boolean | null = null
+      await act(async () => {
+        refused = await harness.current().setStructuredOption('serviceTier', B_ULTRA.value)
+      })
+      expect(refused).toBe(false)
+      expect(harness.current().isSpeedSendBlocked()).toBe(true)
+
+      await harness.rerender({ fence: 2 })
+      // The fresh read is still pending: only what survived the reset can answer the picker.
+      expect(client.optionReads()).toBe(2)
+      const held = harness.current().optionSnapshot
+      expect(currentValueOf(held, 'model')).toBe(MODEL_B)
+      expect(enabledTierValues(held)).toEqual([B_STANDARD.value, B_FAST.value, B_ULTRA.value])
+
+      let replaced: boolean | null = null
+      await act(async () => {
+        replaced = await harness.current().setStructuredOption('serviceTier', B_STANDARD.value)
+      })
+      await settle()
+
+      expect(replaced).toBe(true)
+      expect(calls.map((call) => call.fields)).toEqual([
+        { key: 'serviceTier', value: B_ULTRA.value },
+        { key: 'serviceTier', value: B_STANDARD.value }
+      ])
+      expect(harness.current().isSpeedSendBlocked()).toBe(false)
+      const settings = () => client.methods('settings.mutateNativeChatSessionOptions')
+      await vi.waitFor(() => expect(settings()).toHaveLength(1))
+      expect(settings()[0]?.params).toMatchObject({
+        type: 'apply-picks',
+        agent: 'codex',
+        picks: expect.arrayContaining([
+          { modelId: MODEL_B, optionId: 'serviceTier', value: B_STANDARD.value }
+        ])
+      })
+      expect(JSON.stringify(settings()[0]?.params)).not.toContain(MODEL_A)
+    } finally {
+      reread.resolve(CANONICAL)
+      await harness.unmount()
+    }
   })
 })
 

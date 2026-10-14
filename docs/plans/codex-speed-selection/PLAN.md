@@ -20,12 +20,12 @@ The fleet still owns landing, assembly and release ordering. Local builds/tests 
 - Committed main HEAD: `c9f164ad921173f48f145588654d442191410c15`; remote PR head remains `691b3b5cc3`.
 - Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
 
-Latest focused CI38634227375 at `dc046c2a11d202c3c39cc5a19dfe84d0881e93c4` passed
-876 feature tests and failed 14: four host quarantine/settlement, three shared provenance,
-seven mobile fence/admission regressions. Subsequent B/D corrections passed independent source
-review for those cases; one HIGH remains for unresolved legacy Fast after a successful non-speed
-save. Add its real-adapter regression and refuse non-speed settlement before persistence until an
-explicit accepted speed replacement. This is not final candidate verification.
+Latest focused CI38638173160 at `9311f6c983f3e622efab59e8e2b44fb16281b32e` passed
+884 feature tests and failed ten: eight expected unresolved-legacy non-speed settlement cases,
+one mobile same-session fence recovery defect and one obsolete stored-versus-requested assertion.
+All prior host quarantine and shared stored-provenance regressions passed. Independent review
+accepted the new legacy fixtures and diagnosed both mobile failures. B/D bounded corrections
+are in progress. This is not final candidate verification.
 All eight closed-database resume cases and the expanded launch suites passed this focused run.
 The separate pinned upstream baseline passed 32 tests and failed two Windows registration checks.
 Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
@@ -336,8 +336,8 @@ Do not independently bump upstream `package.json` or choose a released version; 
 ### Current evidence and open gates
 
 Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
-can admit the release patch. Latest run: [CI38634227375](https://github.com/mercurai/orca/actions/runs/38634227375).
-Core: 812 passed, seven failed (819). Mobile: 64 passed, seven failed (71). Pinned upstream:
+can admit the release patch. Latest run: [CI38638173160](https://github.com/mercurai/orca/actions/runs/38638173160).
+Core: 815 passed, eight failed (823). Mobile: 69 passed, two failed (71). Pinned upstream:
 32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
 Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
 B review accepted the four proven corrections; the unresolved legacy lifecycle regression and a
@@ -348,11 +348,11 @@ before settlement rather than making the prior canonical tier look like an accep
 | Criterion | Required proof | Current state |
 | --- | --- | --- |
 | Catalogs and missing Ultrafast | Modern/legacy exact IDs, empty precedence, unknown metadata; no invented choices | Deterministic focused CI passed |
-| Migration, defaults and persistence | Canonical/action precedence; unavailable intent; complete maps and disk | Focused CI passed except four final quarantine/settlement regressions |
+| Migration, defaults and persistence | Canonical/action precedence; unavailable intent; complete maps and disk | Prior quarantine cases passed; eight legacy non-speed refusal cases are red |
 | Conversation continuity | Actual database close/reopen, same thread/account, released lease/new fence | Eight focused resume cases passed |
 | Next-turn request and evidence | Exact IDs, mid-turn steer unchanged, submitted/accepted provenance, no processing inference | Deterministic transport/host coverage passed; installed live proof not run |
 | Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
-| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Seven final mobile fence cases and three stored-provenance cases were red; source corrected, CI pending |
+| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Stored provenance and hold cases passed; same-session fence replacement requires retaining the validated live catalog |
 | Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
 | Exact product candidate | All required CI, independent final review and Opus verifier | Not run |
 | Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |

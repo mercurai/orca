@@ -127,14 +127,20 @@ export function useMobileStructuredAgentOptions(args: {
     optionIdentityRef.current = identity
     const previous = optionStateRef.current
     const seeded = createStructuredAgentSessionOptionState(agent ?? 'codex', optionCatalog)
-    // A host answer is the account's, not the fence's: keep it rather than fall back to the
-    // placeholder. So is a speed the person asked for and what the host said of it; another host
-    // or session never inherits either.
-    const keepsHostCatalog =
-      sameSession && (previous.catalogSource === 'host' || previous.catalogSource === 'builtin')
+    // A host or live answer is the account's, not the fence's: keep it, and the model it reported,
+    // rather than fall back to a placeholder that offers no speed tier. Picks the host never
+    // reported stay behind. So is a speed the person asked for and what the host said of it;
+    // another host or session never inherits any of it.
+    const keepsCatalog =
+      sameSession && previous.catalogSource !== null && previous.catalogSource !== 'seed'
     const next: StructuredAgentSessionOptionState = {
-      ...(keepsHostCatalog
-        ? { ...seeded, catalog: previous.catalog, catalogSource: previous.catalogSource }
+      ...(keepsCatalog
+        ? {
+            ...seeded,
+            catalog: previous.catalog,
+            catalogSource: previous.catalogSource,
+            record: reportedOptionRecord(previous.record)
+          }
         : seeded),
       ...(sameSession && previous.requested ? { requested: previous.requested } : {}),
       ...(sameSession && previous.speed ? { speed: previous.speed } : {})
