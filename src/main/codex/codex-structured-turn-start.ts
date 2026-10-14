@@ -1,9 +1,5 @@
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
-import {
-  agentSessionFailureFact,
-  providerDiagnostic,
-  providerDiagnosticOf
-} from '../../shared/agent-session-failure'
+import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import type {
   AgentJournalMessageItem,
   AgentJournalTurnJoin
@@ -12,6 +8,7 @@ import type { NativeChatBlock } from '../../shared/native-chat-types'
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import {
   isCodexAppServerRequestError,
+  isCodexAppServerRequestNotSubmittedError,
   type CodexAppServerConnection
 } from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
@@ -32,6 +29,7 @@ import {
   trackCodexSpeedRequest,
   type CodexSpeedEvidence
 } from './codex-structured-fast-mode'
+import { isCodexRefusedTierKey } from './codex-structured-speed-intent'
 import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 
 // Writing a Codex turn and learning which message landed where, which are not
@@ -93,13 +91,19 @@ function turnInputFor(body: AgentJournalMessageItem): Record<string, unknown>[] 
 }
 
 // The stored speed rides as the one canonical `serviceTier`; a session that never chose sends none,
-// so the provider's configured default stands.
+// so the provider's configured default stands. The private refused-tier record is never a parameter.
 function codexTurnOptions(host: CodexTurnHost, tierId: string | undefined): Record<string, string> {
   const options = Object.fromEntries(
-    [...host.options].filter(([key]) => key !== 'fastMode' && key !== 'serviceTier')
+    [...host.options].filter(
+      ([key]) => key !== 'fastMode' && key !== 'serviceTier' && !isCodexRefusedTierKey(key)
+    )
   )
   return tierId === undefined ? options : { ...options, serviceTier: tierId }
 }
+
+// A steer tracks nothing, but supplying a submission callback makes the transport report a refusal
+// made before any write as typed proof, so a closed connection never falls through to `turn/start`.
+const STEER_SUBMISSION_PROOF = (): void => {}
 
 /**
  * Steers a send into the turn Codex last reported running. Null when Codex refused the steer,
@@ -120,7 +124,7 @@ async function steerCodexTurn(
         clientUserMessageId: input.clientMessageId,
         input: turnInputFor(input.body)
       },
-      { timeoutMs: input.timeoutMs }
+      { timeoutMs: input.timeoutMs, onSubmitted: STEER_SUBMISSION_PROOF }
     )
     return { turnId: readCodexTurnId(answer) ?? expectedTurnId, via: 'steer' }
   } catch (error) {
@@ -170,7 +174,7 @@ export async function startCodexTurn(
   const answer = await trackCodexSpeedRequest(
     host,
     { clientMessageId: input.clientMessageId, tierId },
-    () =>
+    (onSubmitted) =>
       host.connection.request(
         'turn/start',
         {
@@ -179,7 +183,7 @@ export async function startCodexTurn(
           input: turnInputFor(input.body),
           ...codexTurnOptions(host, tierId)
         },
-        { timeoutMs: input.timeoutMs }
+        { timeoutMs: input.timeoutMs, onSubmitted }
       ),
     readCodexTurnId
   )
@@ -206,17 +210,17 @@ export async function dispatchCodexTurn(
   try {
     answer = await startCodexTurn(session, { ...input, timeoutMs })
   } catch (error) {
-    if (error instanceof CodexServiceTierSelectionError) {
-      // Refused before the write: nothing was sent, so no echo can arrive and the send stays
-      // retryable with its options intact. Never retried at another tier.
+    if (
+      error instanceof CodexServiceTierSelectionError ||
+      isCodexAppServerRequestNotSubmittedError(error)
+    ) {
+      // Refused here, before any frame was written: nothing was sent, so no echo can arrive and the
+      // send stays retryable with its options intact. Never retried at another tier. The words are
+      // Orca's own, so the fact carries no provider diagnostic; the selection facts explain why.
       session.dispatchEchoes.disarm(input.clientMessageId)
       return {
         state: 'rejected',
-        ...codexDispatchRejection(
-          agentSessionFailureFact('providerRejected', {
-            detail: providerDiagnostic(error.message, 'person')
-          })
-        )
+        ...codexDispatchRejection(agentSessionFailureFact('writeFailed'))
       }
     }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {

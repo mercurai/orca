@@ -213,9 +213,7 @@ describe('Codex speed pick and the phone sends', () => {
     })
     await vi.waitFor(() => expect(host.listener()).toEqual(expect.any(Function)))
     act(() =>
-      host.listener()?.(
-        snapshotEvent({ queuedMessages: [queuedDraft({ messageId: 'draft-1' })] })
-      )
+      host.listener()?.(snapshotEvent({ queuedMessages: [queuedDraft({ messageId: 'draft-1' })] }))
     )
     await vi.waitFor(() => expect(tierValue()).toBe(storedTier))
   }
@@ -256,9 +254,11 @@ describe('Codex speed pick and the phone sends', () => {
   }
 
   const wireSends = (host: Host) =>
-    ['agentSession.send', 'agentSession.queuedMessageSend', 'agentSession.queuedMessagesResume'].flatMap(
-      (method) => host.calls(method)
-    )
+    [
+      'agentSession.send',
+      'agentSession.queuedMessageSend',
+      'agentSession.queuedMessagesResume'
+    ].flatMap((method) => host.calls(method))
 
   beforeEach(() => {
     appendText.mockClear()

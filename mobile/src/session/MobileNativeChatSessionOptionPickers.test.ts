@@ -340,9 +340,7 @@ describe('MobileNativeChatSessionOptionPickers', () => {
       expect(texts()).toContain(
         'Changes apply to the next turn, including while a turn is running.'
       )
-      expect(texts()).toContain(
-        'Quicker replies. Uses more of your usage allowance than Standard.'
-      )
+      expect(texts()).toContain('Quicker replies. Uses more of your usage allowance than Standard.')
       expect(texts()).toContain('Not offered for this model.')
       expect(rowByText('Ultrafast').props.accessibilityState).toMatchObject({
         checked: false,

@@ -130,7 +130,9 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
       options: { serviceTier: FAST.value }
     }))
     const { result, unmount } = renderOptions(mutate)
-    await waitFor(() => expect(descriptor(result.current.optionSnapshot, 'serviceTier')).toBeDefined())
+    await waitFor(() =>
+      expect(descriptor(result.current.optionSnapshot, 'serviceTier')).toBeDefined()
+    )
     expect(descriptor(result.current.optionSnapshot, 'fastMode')).toBeUndefined()
 
     let applied = false
@@ -205,7 +207,9 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
     )
     const { mutate, calls } = mutateWith(async () => null)
     const { result, unmount } = renderOptions(mutate)
-    await waitFor(() => expect(descriptor(result.current.optionSnapshot, 'serviceTier')).toBeDefined())
+    await waitFor(() =>
+      expect(descriptor(result.current.optionSnapshot, 'serviceTier')).toBeDefined()
+    )
     const unavailable = descriptor(result.current.optionSnapshot, 'serviceTier')
     const row =
       unavailable?.kind.type === 'select'
@@ -234,7 +238,9 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
         : Promise.reject(new Error('method_not_found'))
     )
     const { result, unmount } = renderOptions(mutateWith(async () => null).mutate)
-    await waitFor(() => expect(descriptor(result.current.optionSnapshot, 'serviceTier')).toBeDefined())
+    await waitFor(() =>
+      expect(descriptor(result.current.optionSnapshot, 'serviceTier')).toBeDefined()
+    )
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
     })
@@ -314,7 +320,9 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
     )
     const { result, rerender, unmount } = renderOptions(mutateWith(async () => null).mutate)
     await waitFor(() =>
-      expect(mocks.call.mock.calls.some(([, method]) => method === 'agentSession.options')).toBe(true)
+      expect(mocks.call.mock.calls.some(([, method]) => method === 'agentSession.options')).toBe(
+        true
+      )
     )
 
     rerender({ paired: true })

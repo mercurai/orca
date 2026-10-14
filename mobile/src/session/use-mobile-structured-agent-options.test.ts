@@ -490,7 +490,9 @@ describe('useMobileStructuredAgentOptions speed select', () => {
     'keeps the Fast toggle and refuses a tier write when the host is %s',
     async (codexSpeedHost) => {
       const client = optionsClient(queuedReads(TIERED_OPTIONS))
-      const { calls, mutate } = recordingMutate(async () => accepted({ key: 'x', value: 'y' }, true))
+      const { calls, mutate } = recordingMutate(async () =>
+        accepted({ key: 'x', value: 'y' }, true)
+      )
       const harness = await mountOptions({ ...BASE, client: client.client, mutate, codexSpeedHost })
 
       expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')).toBeDefined()

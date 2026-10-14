@@ -42,7 +42,8 @@ export function markStructuredAgentSessionLaunchPublished(
   if (state.callers.outcome === 'pending') {
     return true
   }
-  if (state.speedBlock || state.selection.held.serviceTier !== undefined) {
+  const { held } = state.selection
+  if (state.speedBlock || held.serviceTier !== undefined || held.fastMode !== undefined) {
     return false
   }
   state.callers.outcome = 'published'

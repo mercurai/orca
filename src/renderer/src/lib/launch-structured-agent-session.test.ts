@@ -611,7 +611,9 @@ describe('structured agent session launch', () => {
 
         expect(error).toBeInstanceOf(StructuredAgentSessionSpeedHostUnsupportedError)
         expect(error).toBeInstanceOf(StructuredAgentSessionCreateRefusalError)
-        expect(error).toMatchObject({ block: { tierId: 'ultrafast', reason: 'host-update-needed' } })
+        expect(error).toMatchObject({
+          block: { tierId: 'ultrafast', reason: 'host-update-needed' }
+        })
         expect(createCalls()).toHaveLength(0)
         expect(intent.seedOptions).toEqual({ model: 'gpt-5.5', serviceTier: 'ultrafast' })
       })
@@ -636,7 +638,7 @@ describe('structured agent session launch', () => {
       })
     })
 
-    it("asks the paired server about the speed it reports, and tells the picker the seed either way", async () => {
+    it('asks the paired server about the speed it reports, and tells the picker the seed either way', async () => {
       const server = { kind: 'environment', environmentId: 'server-1' }
       mockHost({ model: 'gpt-5.5', serviceTier: 'ultrafast' })
       const reported = vi.fn()
@@ -663,17 +665,20 @@ describe('structured agent session launch', () => {
     it.each([
       ['a legacy Fast seed from an older server', { model: 'opus', fastMode: 'true' }],
       ['a seed with no speed', { model: 'gpt-5.5' }]
-    ])('creates on a server that cannot take service tiers with %s, without asking', async (_name, seed) => {
-      mockHost(seed)
-      probe.mockResolvedValue('unsupported')
+    ])(
+      'creates on a server that cannot take service tiers with %s, without asking',
+      async (_name, seed) => {
+        mockHost(seed)
+        probe.mockResolvedValue('unsupported')
 
-      await launchStructuredAgentSession(
-        createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'runtime:server-1')
-      )
+        await launchStructuredAgentSession(
+          createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'runtime:server-1')
+        )
 
-      expect(probe).not.toHaveBeenCalled()
-      expect(createCalls()).toHaveLength(1)
-    })
+        expect(probe).not.toHaveBeenCalled()
+        expect(createCalls()).toHaveLength(1)
+      }
+    )
 
     it("never seeds another provider's launch with Codex's speed", async () => {
       mockHost({ model: 'opus', serviceTier: 'ultrafast' })

@@ -275,9 +275,10 @@ async function requireHostCreateSupport(
 }
 
 /**
- * A canonical Codex speed in the seed needs the executing host's affirmative capability before
- * create, so an older or unreachable host never runs the chat at a speed it cannot honor. Nothing is
- * swapped in: the person updates the host or retries. Legacy seeds and Standard need no capability.
+ * A canonical Codex speed in the seed, Standard included, needs the executing host's affirmative
+ * capability before create, so an older or unreachable host never runs the chat at a speed it cannot
+ * honor. Nothing is swapped in: the person updates the host or retries. The legacy Fast boolean and
+ * a seed with no speed need no capability.
  */
 async function requireHostSpeedSupport(
   intent: StructuredAgentSessionLaunchIntent,

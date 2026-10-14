@@ -87,26 +87,39 @@ jobs:
         timeout-minutes: 10
         env:
           ORCA_BACKGROUND_LAUNCH: '1'
-        run: >-
-          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
-          src/shared/codex-service-tier-selection.test.ts
-          src/shared/codex-service-tier-seed.test.ts
-          src/shared/codex-service-tier-default-actions.test.ts
-          src/shared/codex-service-tier-host-gating.test.ts
-          src/shared/codex-service-tier-presentation.test.ts
-          src/shared/codex-speed-facts-presentation.test.ts
-          src/main/codex/codex-service-tier-selection.test.ts
-          src/main/codex/codex-service-tier-turns.test.ts
-          src/main/codex/codex-service-tier-speed-facts.test.ts
-          src/main/codex/codex-structured-catalog-entry.test.ts
-          src/main/native-chat/agent-session-wire/codex-service-tier-at-rest.test.ts
-          src/main/native-chat/agent-session-wire/codex-service-tier-record-round-trip.test.ts
-          src/main/native-chat/agent-session-wire/codex-service-tier-restoration.test.ts
-          src/main/native-chat/agent-session-wire/structured-agent-session-speed-refusal-persistence.test.ts
-          src/renderer/src/lib/structured-agent-session-launch-options.test.ts
-          src/renderer/src/lib/codex-speed-launch-admission.test.ts
-          src/renderer/src/components/native-chat/codex-speed-send-admission.test.tsx
-          src/renderer/src/components/native-chat/use-structured-agent-session-options.speed.test.tsx
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f src/main/native-chat/agent-session-wire/codex-speed-live-persistence.test.ts
+          test -f src/main/native-chat/agent-session-wire/codex-speed-resume-continuity.test.ts
+          test -f src/renderer/src/lib/codex-speed-launch-draft-recovery.test.ts
+          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 \
+            src/shared/codex-service-tier-selection.test.ts \
+            src/shared/codex-service-tier-seed.test.ts \
+            src/shared/codex-service-tier-default-actions.test.ts \
+            src/shared/codex-service-tier-host-gating.test.ts \
+            src/shared/codex-service-tier-presentation.test.ts \
+            src/shared/codex-speed-facts-presentation.test.ts \
+            src/main/codex/codex-service-tier-selection.test.ts \
+            src/main/codex/codex-service-tier-turns.test.ts \
+            src/main/codex/codex-service-tier-speed-facts.test.ts \
+            src/main/codex/codex-structured-catalog-entry.test.ts \
+            src/main/native-chat/agent-session-wire/codex-service-tier-at-rest.test.ts \
+            src/main/native-chat/agent-session-wire/codex-service-tier-record-round-trip.test.ts \
+            src/main/native-chat/agent-session-wire/codex-service-tier-restoration.test.ts \
+            src/main/native-chat/agent-session-wire/structured-agent-session-speed-refusal-persistence.test.ts \
+            src/renderer/src/lib/structured-agent-session-launch-options.test.ts \
+            src/renderer/src/lib/codex-speed-launch-admission.test.ts \
+            src/renderer/src/components/native-chat/codex-speed-send-admission.test.tsx \
+            src/renderer/src/components/native-chat/use-structured-agent-session-options.speed.test.tsx \
+            src/main/codex/codex-structured-speed-intent.test.ts \
+            src/main/codex/codex-structured-session-options.test.ts \
+            src/main/codex/codex-structured-fast-mode.test.ts \
+            src/main/codex/codex-app-server-connection.test.ts \
+            src/main/codex/codex-structured-session-adapter.test.ts \
+            src/main/native-chat/agent-session-wire/codex-speed-live-persistence.test.ts \
+            src/main/native-chat/agent-session-wire/codex-speed-resume-continuity.test.ts \
+            src/renderer/src/lib/codex-speed-launch-draft-recovery.test.ts
 
       - name: Install mobile dependencies
         id: mobile-install

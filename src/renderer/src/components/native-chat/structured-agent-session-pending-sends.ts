@@ -31,6 +31,9 @@ type SessionSends = {
   notice: string | null
   /** Writes that keep every send out meanwhile: a /clear, whose host refuses them. */
   holds: number
+  /** How many of `holds` are a speed the host has not accepted: those also stop a send that
+   *  already holds its slot, right before its request goes out. */
+  speedHolds: number
   listeners: Set<() => void>
 }
 
@@ -44,6 +47,7 @@ function sessionSends(sessionId: string): SessionSends {
       entries: EMPTY_STRUCTURED_AGENT_SESSION_SENDS,
       notice: null,
       holds: 0,
+      speedHolds: 0,
       listeners: new Set()
     }
     sessions.set(sessionId, state)
@@ -120,6 +124,29 @@ export function holdStructuredAgentSessionSends(sessionId: string): () => void {
   }
 }
 
+/** Keeps every send of the chat out, and stops one already taking its slot before it issues, while
+ *  a speed the host has not accepted is requested or refused. Releases once. */
+export function holdStructuredAgentSessionSpeedSends(sessionId: string): () => void {
+  const release = holdStructuredAgentSessionSends(sessionId)
+  publishStructuredAgentSessionSends(sessionId, {
+    speedHolds: sessionSends(sessionId).speedHolds + 1
+  })
+  let held = true
+  return () => {
+    if (held) {
+      held = false
+      publishStructuredAgentSessionSends(sessionId, {
+        speedHolds: Math.max(0, sessionSends(sessionId).speedHolds - 1)
+      })
+      release()
+    }
+  }
+}
+
+export function structuredAgentSessionSpeedSendsHeld(sessionId: string): boolean {
+  return (sessions.get(sessionId)?.speedHolds ?? 0) > 0
+}
+
 export function getStructuredAgentSessionSendNotice(sessionId: string): string | null {
   return sessions.get(sessionId)?.notice ?? null
 }
@@ -146,7 +173,8 @@ export function clearStructuredAgentSessionPendingSends(sessionId: string): void
   if (state) {
     publishStructuredAgentSessionSends(sessionId, {
       entries: EMPTY_STRUCTURED_AGENT_SESSION_SENDS,
-      notice: null
+      notice: null,
+      speedHolds: 0
     })
     if (state.listeners.size === 0 && state.holds === 0) {
       sessions.delete(sessionId)

@@ -656,11 +656,7 @@ describe('configured launch defaults', () => {
     expect(b).toMatchObject({ id: MODEL_B, isDefault: true })
     expect(a?.isDefault).toBe(false)
     expect(a?.serviceTiers?.map((tier) => tier.value)).toEqual([STANDARD.id, FAST.id])
-    expect(b?.serviceTiers?.map((tier) => tier.value)).toEqual([
-      STANDARD.id,
-      FAST.id,
-      ULTRAFAST.id
-    ])
+    expect(b?.serviceTiers?.map((tier) => tier.value)).toEqual([STANDARD.id, FAST.id, ULTRAFAST.id])
   })
 
   it('send no speed override for a session that never chose one', async () => {
@@ -739,7 +735,7 @@ describe('a saved selection through the real catalog store and a resumed convers
 })
 
 describe('an explicit serviceTier write on the live path', () => {
-  it('stores nothing and reports nothing when the catalog does not advertise the tier', async () => {
+  it('accepts nothing when the catalog does not advertise the tier, and blocks the request', async () => {
     const r = await rig({
       options: { model: MODEL_A },
       rows: [modelRow(MODEL_A, [STANDARD, FAST])]
@@ -749,8 +745,13 @@ describe('an explicit serviceTier write on the live path', () => {
       applyCodexStructuredSessionOption(r.session, 'serviceTier', ULTRAFAST.id)
     ).rejects.toThrow('is not offered')
 
+    // No accepted tier, request evidence or application is invented; the refused request is only
+    // held as blocked intent, so a queued send cannot fall back to the provider's default.
     expect(r.session.options.has('serviceTier')).toBe(false)
-    expect(await r.speed()).toEqual({ selection: { state: 'unselected' } })
+    expect(await r.speed()).toEqual({
+      selection: { tierId: ULTRAFAST.id, state: 'unavailable' }
+    })
+    await expectBlockedBeforeAnyRequest(r, 'm1')
   })
 
   it('is applied on the next startCodexTurn only after the host stored it', async () => {

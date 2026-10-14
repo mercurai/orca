@@ -1,24 +1,24 @@
 import { toast } from 'sonner'
 import { useCallback, useMemo } from 'react'
-import type {
-  AgentSessionOptionResult,
-  AgentSessionOptionsResult
-} from '../../../../shared/agent-session-wire'
+import type { AgentSessionOptionResult } from '../../../../shared/agent-session-wire'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import { structuredAgentSessionSeedCatalog } from '../../../../shared/structured-agent-session-seed-catalog'
 import type { SpeedAwareSessionOptionsSurface } from '../../../../shared/codex-speed-facts-presentation'
 import {
-  applyStructuredAgentSessionOptions,
   canSetStructuredAgentSessionOption,
-  commitStructuredAgentSessionOptionValues,
   lockedStructuredAgentSessionOptionSnapshot,
   structuredAgentSessionOptionPicks,
   structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
 } from '../../../../shared/structured-agent-session-options'
 import { structuredAgentSessionOptionView } from '../../../../shared/structured-agent-session-option-view'
+import {
+  acknowledgeStructuredAgentSessionAction,
+  acknowledgedStructuredAgentSessionOptions,
+  requestStructuredAgentSessionSpeed,
+  structuredAgentSessionHeldWithRequested
+} from '../../../../shared/structured-agent-session-option-acknowledgement'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
-import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { structuredAgentSessionHostKey } from '@/runtime/structured-agent-session-host-capability'
 import { useStructuredAgentSessionSpeedGate } from './use-structured-agent-session-speed-gate'
 import { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
@@ -99,20 +99,30 @@ export function useStructuredAgentSessionOptions(args: {
     unloadedTurnRevisions: args.unloadedTurnRevisions
   })
 
+  // The person's own unanswered or refused speed shows over what the host stores; it is intent,
+  // kept in the state apart from the record, so a read or a model change never erases it.
+  const viewHeld = useMemo(
+    () => structuredAgentSessionHeldWithRequested(held, optionState),
+    [held, optionState]
+  )
   const optionSnapshot = useMemo(() => {
     const snapshot = structuredAgentSessionOptionSnapshot(
-      structuredAgentSessionOptionView(optionState, launchSeedOptions, held)
+      structuredAgentSessionOptionView(optionState, launchSeedOptions, viewHeld)
     )
     return acceptsPicks ? snapshot : lockedStructuredAgentSessionOptionSnapshot(snapshot)
-  }, [acceptsPicks, held, launchSeedOptions, optionState])
-  const { speedLines, admitPick, admitSend } = useStructuredAgentSessionSpeedGate({
-    target,
-    codexSpeedHost,
-    optionState,
-    optionStateRef,
-    pendingOptionRef,
-    optionSnapshot
-  })
+  }, [acceptsPicks, launchSeedOptions, optionState, viewHeld])
+  const { speedLines, admitPick, admitSend, refreshAfterWrite } =
+    useStructuredAgentSessionSpeedGate({
+      target,
+      sessionId,
+      optionCatalog,
+      codexSpeedHost,
+      optionState,
+      optionStateRef,
+      pendingOptionRef,
+      optionSnapshot,
+      updateOptionState
+    })
 
   // What a settled pick must remember so the next launch starts where the user left off.
   const rememberOptionPicks = useCallback(
@@ -126,6 +136,9 @@ export function useStructuredAgentSessionOptions(args: {
   )
   const sendStructuredOption = useCallback(
     async (id: string, encoded: string): Promise<boolean> => {
+      // Before the first await: a speed's request holds the chat's sends from this instant, and
+      // only an accepted replacement ends it, so a refusal or a lost answer keeps it.
+      updateOptionState((current) => requestStructuredAgentSessionSpeed(current, id, encoded))
       if (!(await admitSend(id))) {
         return false
       }
@@ -144,10 +157,14 @@ export function useStructuredAgentSessionOptions(args: {
           { key: id, value: encoded }
         )
         if (result && isCurrent()) {
-          const committed = result.options ?? { [id]: encoded }
+          // The action's own values: an older host's merged answer echoes the saved tier too.
+          const committed = acknowledgedStructuredAgentSessionOptions(
+            { id, value: encoded },
+            result.options
+          )
           updateOptionState((current) =>
             current.record === targetRecord
-              ? commitStructuredAgentSessionOptionValues(current, committed)
+              ? acknowledgeStructuredAgentSessionAction(current, id, committed)
               : current
           )
           // The launch seed names the model an effort-only pick was made under.
@@ -155,26 +172,7 @@ export function useStructuredAgentSessionOptions(args: {
             structuredAgentSessionOptionView(currentState, launchSeedOptions, NO_HELD_OPTIONS),
             committed
           )
-          void callStructuredAgentSession<AgentSessionOptionsResult>(
-            target,
-            'agentSession.options',
-            { sessionId }
-          )
-            .then((refreshed) => {
-              if (isCurrent()) {
-                updateOptionState((latest) =>
-                  latest.record === targetRecord && optionCatalog
-                    ? applyStructuredAgentSessionOptions(
-                        latest,
-                        optionCatalog,
-                        refreshed,
-                        codexSpeedHost
-                      )
-                    : latest
-                )
-              }
-            })
-            .catch(() => {})
+          refreshAfterWrite(targetRecord, isCurrent)
         }
         return Boolean(result)
       } finally {
@@ -191,16 +189,13 @@ export function useStructuredAgentSessionOptions(args: {
     [
       activeOptionRecordRef,
       admitSend,
-      codexSpeedHost,
       launchSeedOptions,
       mutate,
-      optionCatalog,
       optionMutationGeneration,
       optionStateRef,
       pendingOptionRef,
+      refreshAfterWrite,
       rememberOptionPicks,
-      sessionId,
-      target,
       updateOptionState
     ]
   )
@@ -226,7 +221,11 @@ export function useStructuredAgentSessionOptions(args: {
       if (!admitPick(id)) {
         return false
       }
-      const view = structuredAgentSessionOptionView(optionStateRef.current, launchSeedOptions, held)
+      const view = structuredAgentSessionOptionView(
+        optionStateRef.current,
+        launchSeedOptions,
+        structuredAgentSessionHeldWithRequested(held, optionStateRef.current)
+      )
       const encoded = encodeStructuredAgentSessionOptionValue(id, value)
       if (
         !optionCatalog ||
@@ -270,7 +269,10 @@ export function useStructuredAgentSessionOptions(args: {
           structuredAgentSessionOptionView(
             optionStateRef.current,
             launchSeedOptions,
-            currentHeld ?? NO_HELD_OPTIONS
+            structuredAgentSessionHeldWithRequested(
+              currentHeld ?? NO_HELD_OPTIONS,
+              optionStateRef.current
+            )
           )
         )
       }

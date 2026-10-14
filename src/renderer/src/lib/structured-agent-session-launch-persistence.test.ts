@@ -234,6 +234,46 @@ describe('structured agent launch persistence', () => {
       expect(localStorage.getItem('orca:structuredAgentLaunches:v1')).not.toContain('prompt')
     })
 
+    it('keeps what the host runs and a held legacy Fast value apart from the block', () => {
+      const speed = {
+        fence: 7,
+        accepted: { model: 'gpt-5.5', serviceTier: 'fast' },
+        heldFastMode: 'false',
+        block: { tierId: 'fast', reason: 'host-update-needed' }
+      } as const
+      writeStructuredAgentLaunchRecord({ ...base, speed })
+      reload()
+
+      expect(readStructuredAgentLaunchRecord('codex_speed')?.speed).toEqual(speed)
+    })
+
+    it('keeps one requested speed when a stored record names both spellings', () => {
+      const speed = { fence: 3, heldTierId: 'ultrafast', heldFastMode: 'true' }
+      localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([{ ...base, speed }]))
+
+      expect(readStructuredAgentLaunchRecord('codex_speed')?.speed).toEqual({
+        fence: 3,
+        heldTierId: 'ultrafast'
+      })
+    })
+
+    it('records the accepted options only beside a held speed or a block, and only seedable ids', () => {
+      const accepted = { model: 'gpt-5.5', serviceTier: 'fast', title: 'private chat title' }
+      expect(
+        structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined, { accepted })
+      ).toBeUndefined()
+      expect(
+        structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined, {
+          accepted,
+          heldFastMode: 'false'
+        })
+      ).toEqual({
+        fence: 7,
+        accepted: { model: 'gpt-5.5', serviceTier: 'fast' },
+        heldFastMode: 'false'
+      })
+    })
+
     it('records nothing for a launch with no chosen speed in play', () => {
       expect(structuredAgentLaunchSpeedRecord(undefined, 'ultrafast', undefined)).toBeUndefined()
       expect(structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined)).toBeUndefined()
@@ -251,7 +291,11 @@ describe('structured agent launch persistence', () => {
         'orca:structuredAgentLaunches:v1',
         JSON.stringify([
           { ...base, sessionId: 'no_fence', speed: { heldTierId: 'ultrafast' } },
-          { ...base, sessionId: 'bad_reason', speed: { fence: 3, block: { tierId: 'a', reason: 'x' } } },
+          {
+            ...base,
+            sessionId: 'bad_reason',
+            speed: { fence: 3, block: { tierId: 'a', reason: 'x' } }
+          },
           { ...base, sessionId: 'blank_tier', speed: { fence: 3, heldTierId: '  ' } },
           { ...base, sessionId: 'older_build' }
         ])

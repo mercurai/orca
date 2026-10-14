@@ -3,10 +3,7 @@ import type { TuiAgent } from '../../../shared/tui-agent'
 import type { StructuredLaunchFailure } from './structured-agent-session-launch-failure'
 import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
 import type { ExecutionHostId } from '../../../shared/execution-host'
-import type {
-  StructuredAgentLaunchReceipt,
-  StructuredLaunchRecoveryState
-} from './structured-agent-session-launch-recovery'
+import type { StructuredLaunchRecoveryState } from './structured-agent-session-launch-recovery'
 import type { StructuredLaunchSelection } from './structured-agent-session-launch-options'
 import type { StructuredLaunchSpeedBlock } from './structured-agent-session-launch-errors'
 import { structuredAgentLaunchSpeedRecord } from './structured-agent-session-launch-speed-record'
@@ -38,13 +35,17 @@ export type StructuredLaunchState = StructuredLaunchRecoveryState & {
    *  failure named none. */
   failure?: StructuredLaunchFailure
   selection: StructuredLaunchSelection
-  /** The chat the host created, noted before any held speed is applied so a block keeps it. */
-  receipt?: StructuredAgentLaunchReceipt
   /** Why the chosen speed holds this launch back; absent when nothing does. The launch stays
-   *  unpublished, and its first prompt unsent, until a replacement or a supporting host clears it. */
+   *  unpublished, and its first prompt unsent, until an accepted replacement or a supporting host
+   *  clears it: a wake or a restart alone never does. */
   speedBlock?: StructuredLaunchSpeedBlock
   /** Wakes the pass parked on `speedBlock`; set only while it is parked. */
   releaseSpeedBlock?: () => void
+  /** Set when the last look found nothing held: a pick after it goes through the session instead of
+   *  being held for a pass that has already ended. */
+  picksClosed?: true
+  /** A recheck that arrived while the host was being asked, which that answer does not cover. */
+  speedRecheckRequested?: true
 }
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
@@ -116,10 +117,12 @@ function persistStructuredLaunchState(state: StructuredLaunchState): void {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }
+  const { held, seed } = state.selection
   const speed = structuredAgentLaunchSpeedRecord(
     state.receipt,
-    state.selection.held.serviceTier,
-    state.speedBlock
+    held.serviceTier,
+    state.speedBlock,
+    { accepted: seed, heldFastMode: held.fastMode }
   )
   writeStructuredAgentLaunchRecord({
     ...structuredAgentLaunchRecordFor(state.intent, lifecycle),

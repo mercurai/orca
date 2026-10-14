@@ -44,6 +44,16 @@ function message(text: string): AgentJournalMessageItem {
   return { kind: 'message', role: 'user', blocks: [{ type: 'text', text }] }
 }
 
+// Orca's own refusal before any write: its truthful failure kind, with no provider words invented.
+function expectLocalRefusal(outcome: Awaited<ReturnType<typeof dispatchCodexTurn>>): void {
+  expect(outcome).toMatchObject({
+    state: 'rejected',
+    reason: expect.any(String),
+    rejection: { kind: 'writeFailed' }
+  })
+  expect(outcome).not.toHaveProperty('rejection.detail')
+}
+
 /** The account catalog as the real listing parser and store hold it. */
 async function listCatalog(
   store: AgentModelCatalogStore,
@@ -266,10 +276,7 @@ describe('a speed selection and a running turn', () => {
 
       rig.session.activeTurnIds?.clear()
       rig.session.dispatchEchoes.endTurn(THREAD_ID, 'turn-1', { status: 'completed' })
-      await expect(rig.dispatch('after')).resolves.toMatchObject({
-        state: 'rejected',
-        reason: expect.any(String)
-      })
+      expectLocalRefusal(await rig.dispatch('after'))
 
       // Still only the steer: no turn/start, so no silent Standard.
       expect(rig.methods()).toEqual(['turn/steer'])
@@ -326,10 +333,7 @@ describe('a tier the catalog cannot vouch for', () => {
       const options = { ...unrelatedOptions, ...selected }
       const rig = await turnRig({ options, catalog })
 
-      await expect(rig.dispatch('first')).resolves.toMatchObject({
-        state: 'rejected',
-        reason: expect.any(String)
-      })
+      expectLocalRefusal(await rig.dispatch('first'))
 
       // No turn/start at all, so no silent Standard.
       expect(rig.turnRequests()).toEqual([])
@@ -347,7 +351,7 @@ describe('a catalog or model change under a selected tier', () => {
     await rig.send('before-refresh')
 
     await rig.relist([modelRow(MODEL_A, [STANDARD, FAST])])
-    await expect(rig.dispatch('retried')).resolves.toMatchObject({ state: 'rejected' })
+    expectLocalRefusal(await rig.dispatch('retried'))
 
     expect(rig.turnStarts()).toHaveLength(1)
     expect(rig.session.options.get('serviceTier')).toBe(ULTRAFAST.id)
@@ -370,7 +374,7 @@ describe('a catalog or model change under a selected tier', () => {
     await expect(
       applyCodexStructuredSessionOption(rig.session, 'model', MODEL_B)
     ).resolves.toMatchObject({ model: MODEL_B, serviceTier: ULTRAFAST.id })
-    await expect(rig.dispatch('on-b')).resolves.toMatchObject({ state: 'rejected' })
+    expectLocalRefusal(await rig.dispatch('on-b'))
     expect(rig.turnRequests()).toEqual([])
 
     await applyCodexStructuredSessionOption(rig.session, 'model', MODEL_A)

@@ -7,6 +7,7 @@ import {
   codexSpeedDescriptorCaptions,
   type CodexSpeedCaptionKey
 } from '../../../src/shared/codex-service-tier-presentation'
+import type { CodexSpeedLine } from '../../../src/shared/codex-speed-facts-presentation'
 import type {
   SessionOptionDescriptor,
   SessionOptionDisabledReason,
@@ -57,6 +58,44 @@ const SPEED_CAPTIONS: Record<CodexSpeedCaptionKey, string> = {
 /** The speed select's captions, from its descriptor alone; empty for every other option. */
 export function mobileSpeedCaptions(descriptor: SessionOptionDescriptor): string[] {
   return codexSpeedDescriptorCaptions(descriptor).map((key) => SPEED_CAPTIONS[key])
+}
+
+/** Why a send or queue action did nothing: a speed the host has not accepted would go at the
+ *  prior speed, so every send stays out until one is chosen and accepted. */
+export const MOBILE_SPEED_SEND_BLOCKED_TEXT =
+  'Your speed choice has not been accepted by the host yet. Choose a speed, then send again.'
+
+function mobileSpeedRequestLine(line: Extract<CodexSpeedLine, { kind: 'last-request' }>): string {
+  switch (line.outcome) {
+    case 'sent':
+      return `Last turn requested ${line.label}; not yet accepted.`
+    case 'accepted':
+      return `Last turn requested ${line.label}; accepted.`
+    case 'rejected':
+      return line.detail
+        ? `Last request for ${line.label} was refused: ${line.detail}`
+        : `Last request for ${line.label} was refused.`
+  }
+}
+
+/** One claim about speed, worded as that claim and no stronger (the desktop picker's words). */
+export function mobileSpeedLine(line: CodexSpeedLine): string {
+  switch (line.kind) {
+    case 'pending':
+      return `Requested ${line.label}, waiting for the host to confirm.`
+    case 'stored':
+      return `Stored for the next turn: ${line.label}.`
+    case 'requested':
+      return line.state === 'unavailable'
+        ? `Requested ${line.label} is not available for this model. Sends are held until you choose another speed.`
+        : `Requested ${line.label} could not be confirmed for this model. Sends are held until you choose another speed.`
+    case 'last-request':
+      return mobileSpeedRequestLine(line)
+    case 'processing':
+      return line.label
+        ? `The server reported ${line.label} for the last turn.`
+        : 'The speed the server used is not reported.'
+  }
 }
 
 function selectedChoiceLabel(descriptor: SessionOptionDescriptor): string | null {

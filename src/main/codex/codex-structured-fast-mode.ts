@@ -6,15 +6,18 @@ import type {
   AgentSessionOptionChoice
 } from '../../shared/agent-session-wire'
 import {
-  admitCodexServiceTierForTurn,
   CodexServiceTierSelectionError,
   codexFastTierId,
   normalizeCodexServiceTierOptions,
   parseCodexModelServiceTiers
 } from '../../shared/codex-service-tier-selection'
-import { isCodexAppServerRequestError } from './codex-app-server-connection'
+import {
+  isCodexAppServerRequestError,
+  isCodexAppServerRequestNotSubmittedError
+} from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import { codexListingDefaultModel, codexSpeedCatalog } from './codex-structured-catalog-entry'
+import { admitCodexSpeedIntentForTurn } from './codex-structured-speed-intent'
 import type { CodexOpenedThread } from './codex-structured-thread-open'
 import type { CodexSession } from './codex-structured-session-state'
 
@@ -144,7 +147,7 @@ export function admitCodexTurnSpeed(
     host.reportedOptions?.model ??
     codexListingDefaultModel(catalog.models)
   try {
-    return admitCodexServiceTierForTurn({
+    return admitCodexSpeedIntentForTurn({
       options: Object.fromEntries(host.options),
       models: catalog.models,
       ...(currentModel ? { currentModel } : {}),
@@ -164,29 +167,42 @@ export function admitCodexTurnSpeed(
 }
 
 /** Runs the `turn/start` write carrying `tierId`, recording what became of that exact request.
- *  A transport failure leaves it `sent`: delivery is unknown, never accepted or rejected. */
+ *  `sent` is the transport's own report that the frame was handed over, and `accepted` needs that
+ *  report as well as the matching answer. A refusal before the write is `rejected`, never sent; a
+ *  transport failure after it leaves the request `sent`: delivery unknown, neither accepted nor
+ *  rejected. */
 export async function trackCodexSpeedRequest<TAnswer>(
   host: Pick<CodexSession, 'speedEvidence'>,
   request: { clientMessageId: string; tierId: string | undefined },
-  write: () => Promise<TAnswer>,
+  write: (onSubmitted: () => void) => Promise<TAnswer>,
   turnIdOf: (answer: TAnswer) => string | null
 ): Promise<TAnswer> {
   const { clientMessageId, tierId } = request
   if (tierId === undefined) {
-    return write()
+    return write(() => {})
   }
-  recordCodexSpeedRequest(host, { clientMessageId, tierId, state: 'sent' })
+  let submitted = false
+  const onSubmitted = (): void => {
+    if (!submitted) {
+      submitted = true
+      recordCodexSpeedRequest(host, { clientMessageId, tierId, state: 'sent' })
+    }
+  }
   try {
-    const answer = await write()
-    recordCodexSpeedRequest(host, {
-      clientMessageId,
-      tierId,
-      state: 'accepted',
-      turnId: turnIdOf(answer) ?? undefined
-    })
+    const answer = await write(onSubmitted)
+    if (submitted) {
+      recordCodexSpeedRequest(host, {
+        clientMessageId,
+        tierId,
+        state: 'accepted',
+        turnId: turnIdOf(answer) ?? undefined
+      })
+    }
     return answer
   } catch (error) {
-    if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
+    if (isCodexAppServerRequestNotSubmittedError(error)) {
+      recordCodexSpeedRequest(host, { clientMessageId, tierId, state: 'rejected' })
+    } else if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       const diagnostic = providerDiagnosticOf(error)
       recordCodexSpeedRequest(host, {
         clientMessageId,

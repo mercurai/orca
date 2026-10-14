@@ -35,10 +35,7 @@ import {
   codexAcquireCatalogAccess,
   codexAcquireFastModeCatalog
 } from './codex-structured-acquire-catalog'
-import {
-  migrateCodexSessionSpeed,
-  reportedCodexThreadOptions
-} from './codex-structured-fast-mode'
+import { migrateCodexSessionSpeed, reportedCodexThreadOptions } from './codex-structured-fast-mode'
 import {
   assertCodexConnectionOpen,
   codexSessionLifecycle,

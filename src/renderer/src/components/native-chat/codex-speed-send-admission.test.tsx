@@ -467,7 +467,10 @@ describe('Codex speed pick and the chat sends', () => {
         mocks.compatible.mockReturnValue(compatibility.promise)
       }
       const chat = await mountChat({ paired })
-      const reserved = reserveStructuredAgentSessionSend({ sessionId: SESSION, text: RESERVED_TEXT })
+      const reserved = reserveStructuredAgentSessionSend({
+        sessionId: SESSION,
+        text: RESERVED_TEXT
+      })
       expect(reserved).not.toBeNull()
       let sent = sendFirst ? (reserved?.send(target) ?? null) : null
 
@@ -505,32 +508,29 @@ describe('Codex speed pick and the chat sends', () => {
       }
     },
     { name: 'refused', reply: null }
-  ])(
-    'does not let the previous host $name write clear the new host block',
-    async ({ reply }) => {
-      const chat = await mountChat()
-      const previousPick = pick(chat, ULTRAFAST.value)
-      await waitFor(() => expect(writes).toHaveLength(1))
+  ])('does not let the previous host $name write clear the new host block', async ({ reply }) => {
+    const chat = await mountChat()
+    const previousPick = pick(chat, ULTRAFAST.value)
+    await waitFor(() => expect(writes).toHaveLength(1))
 
-      chat.rerender({ paired: true })
-      await waitFor(() => expect(tierDescriptor(chat)).toBeDefined())
-      const newPick = pick(chat, ULTRAFAST.value)
-      await refuseWrite(1, newPick)
-      expectChatBlocked('after the host moved', PAIRED_TARGET)
+    chat.rerender({ paired: true })
+    await waitFor(() => expect(tierDescriptor(chat)).toBeDefined())
+    const newPick = pick(chat, ULTRAFAST.value)
+    await refuseWrite(1, newPick)
+    expectChatBlocked('after the host moved', PAIRED_TARGET)
 
-      await act(async () => {
-        writeAt(0).reply.resolve(reply)
-        await previousPick
-      })
+    await act(async () => {
+      writeAt(0).reply.resolve(reply)
+      await previousPick
+    })
 
-      expectChatBlocked('after the old host answered', PAIRED_TARGET)
-      expect(speedLines(chat)).toContainEqual(PENDING_ULTRAFAST)
+    expectChatBlocked('after the old host answered', PAIRED_TARGET)
+    expect(speedLines(chat)).toContainEqual(PENDING_ULTRAFAST)
 
-      const replacement = pick(chat, STANDARD.value)
-      await acceptWrite(2, replacement)
-      await expectChatTakesSend('after the replacement', PAIRED_TARGET)
-    }
-  )
+    const replacement = pick(chat, STANDARD.value)
+    await acceptWrite(2, replacement)
+    await expectChatTakesSend('after the replacement', PAIRED_TARGET)
+  })
 
   // The queue's Send now and Resume start a turn at the stored speed, so neither goes while a pick
   // is unanswered or refused. Delete and Edit send nothing and are never held back.

@@ -25,6 +25,9 @@ export function useMobileHostModelCatalogUpgrade(args: {
   agent: string | null
   client: RpcClient | null
   sessionId: string | null
+  /** Host and workspace of the session: the same client and ids may stand for another source,
+   *  whose list is read again. */
+  sourceIdentity?: string
   enabled: boolean
   /** This phone created the chat, so it launches the listed default; a reopened one may not. */
   newLaunch: boolean
@@ -49,6 +52,7 @@ export function useMobileHostModelCatalogUpgrade(args: {
     newLaunch,
     optionCatalog,
     sessionId,
+    sourceIdentity,
     updateOptionState,
     worktree
   } = args
@@ -115,6 +119,7 @@ export function useMobileHostModelCatalogUpgrade(args: {
     newLaunch,
     optionCatalog,
     sessionId,
+    sourceIdentity,
     updateOptionState,
     worktree
   ])

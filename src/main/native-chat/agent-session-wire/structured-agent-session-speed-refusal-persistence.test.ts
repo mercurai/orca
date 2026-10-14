@@ -56,10 +56,7 @@ function refusalCarryingMap(
   options: Readonly<Record<string, string>>,
   reason: 'optionRejected' | 'providerStarting' = 'optionRejected'
 ): AgentSessionOptionRejectedError {
-  return Object.assign(
-    new AgentSessionOptionRejectedError(new Error('tier is not offered'), reason),
-    { refusalOptions: options }
-  )
+  return new AgentSessionOptionRejectedError(new Error('tier is not offered'), reason, options)
 }
 
 /** The record's options as the durable store holds them, and the order effects reach it. */

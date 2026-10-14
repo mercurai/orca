@@ -2,7 +2,6 @@
 // holds a launch back.
 
 import type { TuiAgent } from '../../../shared/tui-agent'
-import { codexServiceTierState } from '../../../shared/codex-service-tier-selection'
 import { readAgentSessionRefusalReference } from '../../../shared/agent-session-wire-refusals'
 import {
   agentSessionRefusalFailure,
@@ -19,16 +18,14 @@ import {
 
 export type StructuredLaunchFailure = AgentSessionWriteRefusal & { authStartupMessage?: string }
 
-/** The speed a launch seed asks of Codex's host. Protocol Standard needs no catalog and so no
- *  capability; another provider's launch never carries one. */
+/** The canonical speed a launch seed asks of Codex's host. Every one, Standard included, needs the
+ *  executing host's affirmative capability: a host that cannot say does not take it by default. The
+ *  legacy Fast boolean never asks, and another provider's launch never carries a tier. */
 export function codexSeedSpeedTier(
   agent: TuiAgent,
   seed: Readonly<Record<string, string>> | undefined
 ): string | undefined {
-  const tierId = agent === 'codex' ? seed?.serviceTier : undefined
-  return tierId !== undefined && codexServiceTierState(tierId, { known: false }) !== 'ready'
-    ? tierId
-    : undefined
+  return agent === 'codex' ? seed?.serviceTier : undefined
 }
 
 async function readSpeedSupport(target: RuntimeClientTarget) {

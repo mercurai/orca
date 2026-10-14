@@ -54,10 +54,14 @@ export function restorePersistedStructuredLaunchState(
     cancelled: false,
     onVisibilityChanged: undefined,
     callers,
-    // The speed held and the chat created survive, so the restart applies the same pick to the same chat.
+    // The chat created, what it runs and the speed held survive, so the restart applies the same
+    // pick to the same chat and never reads the settings of now in place of what it runs.
     selection: {
-      seed: intent.seedOptions,
-      held: speed?.heldTierId === undefined ? {} : { serviceTier: speed.heldTierId }
+      seed: speed?.accepted ?? intent.seedOptions,
+      held: {
+        ...(speed?.heldTierId === undefined ? {} : { serviceTier: speed.heldTierId }),
+        ...(speed?.heldFastMode === undefined ? {} : { fastMode: speed.heldFastMode })
+      }
     },
     ...(speed ? { receipt: { sessionId: record.sessionId, fence: speed.fence } } : {}),
     ...(speed?.block ? { speedBlock: speed.block } : {})

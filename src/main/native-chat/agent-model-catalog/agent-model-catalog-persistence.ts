@@ -63,7 +63,9 @@ function parseModel(value: unknown): AgentSessionModelOption | null {
     isDefault: row.isDefault === true,
     ...(defaultEffort ? { defaultEffort } : {}),
     efforts: efforts.filter((effort): effort is AgentSessionOptionChoice => effort !== null),
-    ...(typeof row.supportsFastMode === 'boolean' ? { supportsFastMode: row.supportsFastMode } : {}),
+    ...(typeof row.supportsFastMode === 'boolean'
+      ? { supportsFastMode: row.supportsFastMode }
+      : {}),
     ...(serviceTiers ? { serviceTiers } : {})
   }
 }

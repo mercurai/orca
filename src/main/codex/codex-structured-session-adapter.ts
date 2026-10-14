@@ -11,6 +11,7 @@ import type {
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
 import { dispatchCodexTurn, isCodexTurnOptionKey } from './codex-structured-turn-start'
+import { isCodexRefusedTierKey } from './codex-structured-speed-intent'
 import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import { supportsCodexStructuredLocation } from './codex-structured-location-support'
 import { CodexStructuredSessionTeardown } from './codex-structured-session-teardown'
@@ -298,9 +299,12 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     priorOptions?: Readonly<Record<string, string>>
   }) => {
     const session = this.session(input.sessionId)
+    // Speed state comes only from the session: a prior map must not resurrect a cleared refusal.
     const options = {
       ...Object.fromEntries(
-        Object.entries(input.priorOptions ?? {}).filter(([key]) => !isCodexTurnOptionKey(key))
+        Object.entries(input.priorOptions ?? {}).filter(
+          ([key]) => !isCodexTurnOptionKey(key) && !isCodexRefusedTierKey(key)
+        )
       ),
       ...Object.fromEntries(session.options)
     }

@@ -94,17 +94,25 @@ export function useMobileStructuredAgentSession(args: {
     onSendError
   })
 
+  const turnId = runningStructuredAgentSessionTurnId(state)
   const options = useMobileStructuredAgentOptions({
     agent,
     client,
     sessionId,
+    sourceIdentity,
     enabled,
     fence: state.fence,
+    turnId,
     mutate,
     codexSpeedHost: mobileCodexSpeedHostSupport(hostSupport)
   })
-  const { conversationCommands, invokeStructuredOption, optionSnapshot, setStructuredOption } =
-    options
+  const {
+    conversationCommands,
+    invokeStructuredOption,
+    isSpeedSendBlocked,
+    optionSnapshot,
+    setStructuredOption
+  } = options
   // Stable across renders, or the send callback is rebuilt on every streamed frame.
   const sendController = useMemo(
     () => ({
@@ -126,6 +134,7 @@ export function useMobileStructuredAgentSession(args: {
     stateRef,
     commandPending: commandPendingRef,
     controller: sendController,
+    speedSendBlocked: isSpeedSendBlocked,
     onSendError
   })
   const { groupedDraft, respondPermission, respondQuestion } = useMobileStructuredPromptResponses({
@@ -153,7 +162,6 @@ export function useMobileStructuredAgentSession(args: {
       }),
     [transcriptItems, state.submissions]
   )
-  const turnId = runningStructuredAgentSessionTurnId(state)
   const turnTiming = useMobileStructuredAgentTurnTiming(
     { ...state, items: transcriptItems },
     turnId
@@ -227,6 +235,7 @@ export function useMobileStructuredAgentSession(args: {
     agentWorking: isStructuredAgentSessionMainAgentWorking(turnId, state.submissions, state.fence),
     mutate,
     appendComposerText,
+    sendsBlocked: isSpeedSendBlocked,
     onSendError,
     ...(onActionResolved ? { onActionResolved } : {})
   })

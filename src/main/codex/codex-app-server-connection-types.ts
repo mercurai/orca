@@ -17,13 +17,21 @@ export type CodexAppServerConnectionHandlers = {
   onOutput?: () => void
 }
 
+export type CodexAppServerRequestOptions = {
+  timeoutMs?: number
+  /** Called once, right after the frame was handed to the child's stdin, whether or not the pipe
+   *  reported backpressure. Never called for a refusal before the write. Supplying it also makes
+   *  such a refusal a `CodexAppServerRequestNotSubmittedError`. */
+  onSubmitted?: () => void
+}
+
 export type CodexAppServerConnection = {
   readonly pid: number | undefined
   readonly closed: boolean
   request: (
     method: string,
     params?: Record<string, unknown>,
-    options?: { timeoutMs?: number }
+    options?: CodexAppServerRequestOptions
   ) => Promise<unknown>
   notify: (method: string, params?: Record<string, unknown>) => void
   respond: (id: number | string, result: unknown) => void

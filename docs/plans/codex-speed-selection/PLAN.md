@@ -28,7 +28,8 @@ That revision also passed static/type checks, Windows/main packaging and wire co
 explicit-default tests produced the expected red result: 11 tests, nine failed, two passed.
 The completed run failed with 54 cases: 51 expected feature regressions, two Windows registration
 baseline failures and one new SQLite test registration omission. The five disk cases ran under Bun;
-register them in the required Node project and rerun before claiming accepted persistence coverage.
+registration was corrected at 691b3b5cc3; CI38612855910 reran and passed five disk cases in Node.
+That evidence does not establish real provider restart/resume; focused continuity regressions are in progress.
 Review identified a live-refusal gap: preserving the
 previous accepted tier alone permits autonomous queued sends to fall back after a refused new selection.
 Retain refused requested intent separately, block next-turn admission until explicit accepted replacement,
@@ -217,12 +218,23 @@ Use synthetic models and custom tier IDs; test catalog refresh, server refusal a
 Writable production paths under `src/main/native-chat/agent-session-wire/`:
 `structured-agent-session-options-read.ts`,
 `structured-agent-session-option-restoration.ts`, `structured-agent-session-turns-options.ts` only if required.
+Also own `structured-agent-session-adapter.ts` and `structured-agent-session-adapter-router.ts` with
+matching tests for the reviewed optional internal `recoverFailedOptionPersistence` hook. Its input is
+`{ sessionId, fence, key, value, priorOptions }`; copy prior options before mutation and call only
+after a durable options write rejects, before serialization releases. Recovery is atomic in memory,
+fence-scoped and fail-closed; no transport or storage work. Preserve the original persistence error
+and publish no success. Route to the registered provider without provider-name branches. Codex
+restores prior canonical options while retaining blocked requested intent; failed replacement never
+clears an earlier block. If recovery cannot establish safe admission, quarantine admission rather
+than declaring the child exited. This is additive internal behavior, not a wire/API/schema change.
 Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
 provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
 Own focused `structured-agent-session-speed-refusal-persistence.test.ts` for the real generic live
 mutation boundary, including refused-state persistence failure and unchanged other-provider errors.
-Register that real journal fixture in the Node project too. Refusal-state maps apply only to
+Also own focused `codex-speed-live-persistence.test.ts` and `codex-speed-resume-continuity.test.ts`
+for real Codex adapter/generic-boundary coverage of persistence failure and released-lease resume.
+Register real journal/store fixtures in the Node project. Refusal-state maps apply only to
 `optionRejected`; `providerStarting` must not persist them even if an error supplies one.
 B supplies Codex's definition implementation through A's frozen interface; C never edits either definition file.
 Preserve complete option maps through at-rest writes, live writes, record reload and same-conversation resume.
@@ -263,6 +275,10 @@ and `use-mobile-native-chat-controller.ts`, with matching tests. Preserve explic
 action provenance for older-host at-rest acknowledgements that echo canonical and boolean values
 together; generic restored batches still prefer canonical. Show persisted blocked requested intent
 from `speed.selection` separately from `current.serviceTier`, including a fresh client after restart.
+D extracted `mobile/src/session/use-mobile-structured-agent-option-write.ts` for the 300-line hook
+cap before its exact path was authorized. Root inspected and retains that focused extraction,
+records it here before further edits, and does not treat the earlier write as compliant.
+No further unassigned extraction is permitted; report the required path before touching it.
 Focused mobile parent-forwarding coverage may use `mobile-codex-speed-parent-forwarding.test.ts`;
 the existing parent controller test is already large. Never make a fixture-only mapping stand in for
 the production forwarding path. D may extract `structured-agent-session-option-acknowledgement.ts`
@@ -273,6 +289,8 @@ Use existing UI primitives and style tokens. Old-host controls remain selectable
 
 ### L: root-owned launch boundary, separate from D
 
+Own focused `codex-speed-launch-draft-recovery.test.ts` for final-probe persistence and idempotent
+parked-draft handoff regressions; keep existing large admission suite within its file cap.
 Writable production paths under `src/renderer/src/lib/`:
 `launch-structured-agent-session.ts`, `structured-agent-session-launch-options.ts`,
 `structured-agent-session-launch.ts`, `structured-agent-session-launch-prompt.ts`,
@@ -334,18 +352,51 @@ Reviews are independent and read-only on slice diffs, not immutable final-head a
 B, C, F and L regression corrections passed independent red-test readiness review. L now uses fresh-module
 reload and teardown isolation; its production findings remain open. D completed actual mobile parent
 forwarding, stable-client source-cutover, old-host action provenance and persisted-refusal regressions;
-independent review is pending. No model change was required: actual Sonnet implementation resumed.
+independent readiness review accepted those fixtures. No model change was required: actual Sonnet implementation resumed.
 Revision 691b3b5cc3 is pushed for red CI; static/type, Windows/main packaging, relay and wire checks passed.
-Its test shards are still running. A reviewed temporary auxiliary CI workflow formats only task paths,
+The full run completed with 63 failures across three shards: 60 expected feature regressions, two
+Windows registration baseline cases and one unmodified SSH launch-file-mode test failure requiring
+baseline verification. Static/type, Windows/main packaging,
+relay and wire passed. The Node disk suite passed five cases in job 116023854357.
+Auxiliary snapshot 73bffa7d6ca9be7fffb68331d3afe20541364653 ran CI 38615954521: 18 core files,
+404 tests (317 passed, 87 failed), and five mobile files, 63 tests (45 passed, 18 failed). The observed
+failures reproduce reviewed production defects; no import/collection failure was reported. Formatting
+and repository English catalog generation succeeded; root checked and applied the scoped generated
+patch before restarting writers. This is red-test evidence, not final candidate acceptance.
+A read-only integration trace identified an additional live persistence boundary: serialization prevents
+interleaving, but a failed durable write leaves the provider map changed after the mutation releases.
+The real-adapter live regression file passed independent readiness review after tightening failed
+speed actions to block every next turn until explicitly saved replacement. It also proves unrelated
+complete-map preservation and honest current-versus-requested facts. Run red CI before source recovery.
+Independent C review recommends an optional internal recovery hook with a copied prior map, an atomic
+fence-scoped in-memory restore/block, no transport or storage work, and quarantine if recovery cannot
+establish safety. Test successful and failed replacement recovery. No new recovery source is written yet.
+Released-lease/reacquire and pinned-account continuity also need real adapter coverage; synthetic record
+round-trip identity is insufficient. Do not treat inability to persist new intent as durable protection.
+Independent GPT-6.1/medium source review accepted C refusal-map persistence and F original-order/
+malformed-choice corrections on October 14; committed as c9f164ad92 (not yet pushed). B wrappers and combined green CI remain separate gates.
+Independent B review closed original host findings but found live complete-map settlement drops
+unrelated durable non-turn keys; add real-adapter regression and preserve the complete map without
+resurrecting speed/marker values or forwarding private keys. Independent L correction review found
+one HIGH accepted-speed/receipt persistence window and two MED stale-recheck/draft-duplication issues.
+Continuity fixture review requires closing the original database/journal before reopening and
+asserting released/new-fence transitions. Failed-expensive-choice regression must reject all next
+starts until explicit persisted replacement; prior Fast fallback is not accepted behavior.
+Add focused regressions before the narrow fixes. These are open gates, not accepted candidate behavior.
+D correction review found one HIGH pre-pick read/capability-await release race and three MED issues:
+acknowledgements erase last-turn evidence, canonical B/C reads omit D-assumed confirmed flags, and
+refresh can retain an explicitly revoked legacy Fast control. Add bounded regressions, retain
+requested/host/processing distinctions, and use actual authoritative host response shapes.
+The reviewed temporary auxiliary CI workflow formats only task paths,
 generates English catalogs with repository tools and runs sequential bounded core/mobile targets. It
 returns explicit failure for red tests and uploads only a scoped patch and source/outcome metadata.
 The workflow is not a release gate and will be excluded from the final product patch.
 
 | Criterion | Required proof | State |
 | --- | --- | --- |
-| Modern and legacy catalogs | Exact custom IDs, modern-empty precedence, snake/camel formats, unknown/malformed metadata | Not run |
-| Missing Ultrafast | No enabled invented choice, no subscription inference | Not run |
-| Migration and persistence | Restore vs toggle origin, explicit precedence, unavailable IDs, model switch, disk | Not run |
+| Modern and legacy catalogs | Exact custom IDs, modern-empty precedence, snake/camel formats, unknown/malformed metadata | Pure parser 80 and host parser 17 passed auxiliary CI; stale-cache corrections pending |
+| Missing Ultrafast | No enabled invented choice, no subscription inference | Shared presentation 10 passed auxiliary CI; refresh/capability regressions red |
+| Migration and persistence | Restore vs toggle origin, explicit precedence, unavailable IDs, model switch, disk | Node disk 5 and restoration 26 passed; refusal/default regressions red |
 | Conversation continuity | Same provider thread/account on resume; no duplicate conversation | Not run |
 | Next outgoing request | Picker -> stored option -> exact turn/start serviceTier, mid-turn turn/steer unchanged | Not run |
 | Launch refusal | Keep staged prompt/conversation; no first send after tier/capability refusal or invalidation | Not run |
@@ -401,5 +452,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: finish the saved regression corrections, then run red CI
-before the focused production fixes. Final review, exact-candidate CI and owner rollout remain open.
+Next action: complete the non-overlapping B, C/F, D and L production correction wave, then independently
+review each slice and run focused CI. Final review, exact-candidate CI and owner rollout remain open.

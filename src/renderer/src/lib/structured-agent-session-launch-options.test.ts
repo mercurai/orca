@@ -495,7 +495,11 @@ describe('picks made while a chat launches', () => {
         }
       )
 
-      const speedPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'ultrafast')
+      const speedPick = holdStructuredAgentSessionLaunchOption(
+        SESSION_ID,
+        'serviceTier',
+        'ultrafast'
+      )
       // Attached before the refusal arrives so the picker's outcome is never left unobserved.
       const reported = expect(speedPick).resolves.toMatchObject({
         kind: 'refused',

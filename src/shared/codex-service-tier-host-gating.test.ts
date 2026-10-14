@@ -119,7 +119,8 @@ function offered(descriptor: SessionOptionDescriptor | undefined): string[] {
 function unverifiedLabels(descriptor: SessionOptionDescriptor | undefined): string[] {
   return choicesOf(descriptor)
     .filter(
-      (choice) => choice.disabled === true && codexSpeedChoiceStatus(descriptor!, choice) === 'unverified'
+      (choice) =>
+        choice.disabled === true && codexSpeedChoiceStatus(descriptor!, choice) === 'unverified'
     )
     .map((choice) => choice.label)
     .filter((label) => label === 'Fast' || label === 'Ultrafast')
@@ -170,7 +171,10 @@ describe('Codex speed selector gated by the execution host', () => {
   })
 
   it('offers the Standard selector with unverified paid rows, not the toggle, when a capable host lists no tiers for a Fast-capable model', () => {
-    const state = liveState(liveResult(tieredModel(undefined, true), { fastMode: true }), 'supported')
+    const state = liveState(
+      liveResult(tieredModel(undefined, true), { fastMode: true }),
+      'supported'
+    )
     const tier = descriptorFor(state, 'serviceTier')
 
     expect(idsOf(state)).toContain('serviceTier')
@@ -200,10 +204,7 @@ describe('Codex speed selector gated by the execution host', () => {
   it.each<CodexSpeedHostSupport>(['unsupported', 'unknown'])(
     'keeps the Fast toggle for a Fast-capable model without tiers only while the host is %s',
     (host) => {
-      const state = liveState(
-        liveResult(tieredModel(undefined, true), { fastMode: false }),
-        host
-      )
+      const state = liveState(liveResult(tieredModel(undefined, true), { fastMode: false }), host)
 
       expect(idsOf(state)).toContain('fastMode')
       expect(idsOf(state)).not.toContain('serviceTier')
@@ -255,7 +256,11 @@ describe('Codex speed selection defaults and legacy intent', () => {
 
   it('shows an explicit held pick as dispatched, not as host-confirmed', () => {
     const state = hostState(tieredModel([STANDARD, FAST]), 'supported')
-    const view = structuredAgentSessionOptionView(state, { model: MODEL_ID }, { serviceTier: FAST.value })
+    const view = structuredAgentSessionOptionView(
+      state,
+      { model: MODEL_ID },
+      { serviceTier: FAST.value }
+    )
 
     expect(descriptorFor(view, 'serviceTier')).toMatchObject({ valueSource: 'dispatched' })
     expect(currentOf(descriptorFor(view, 'serviceTier'))).toBe(FAST.value)
@@ -358,7 +363,9 @@ describe('Codex speed metadata refresh', () => {
     const tier = descriptorFor(refreshed, 'serviceTier')
     expect(currentOf(tier)).toBe(ULTRAFAST.value)
     expect(offered(tier)).toEqual(['default', FAST.value])
-    expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', ULTRAFAST.value)).toBe(false)
+    expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', ULTRAFAST.value)).toBe(
+      false
+    )
   })
 
   it('leaves speed metadata alone when the host has no listing', () => {
@@ -415,7 +422,9 @@ describe('Codex speed metadata refresh', () => {
       expect(idsOf(refreshed)).not.toContain('serviceTier')
       expect(canSetStructuredAgentSessionOption(refreshed, 'fastMode', true)).toBe(true)
       expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', FAST.value)).toBe(false)
-      expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', ULTRAFAST.value)).toBe(false)
+      expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', ULTRAFAST.value)).toBe(
+        false
+      )
       // The paid request stays recorded for when the host affirms the capability again.
       expect(refreshed.record.valuesByModel[MODEL_ID]?.serviceTier?.value).toBe(FAST.value)
     }

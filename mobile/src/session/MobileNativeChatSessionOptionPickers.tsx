@@ -8,13 +8,18 @@ import {
   type SessionOptionDescriptor,
   type SessionOptionValue
 } from '../../../src/shared/native-chat-session-options'
-import { isCodexSpeedSelectorSettable } from '../../../src/shared/codex-service-tier-presentation'
+import {
+  CODEX_SERVICE_TIER_OPTION_ID,
+  isCodexSpeedSelectorSettable
+} from '../../../src/shared/codex-service-tier-presentation'
+import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
 import {
   mobileModelPillLabel,
   mobileOptionsPillLabel,
   mobileSessionOptionSummaryValue,
   mobileSessionOptionDisabledReason,
-  mobileSpeedCaptions
+  mobileSpeedCaptions,
+  mobileSpeedLine
 } from './mobile-native-chat-session-option-labels'
 import {
   DescriptorRows,
@@ -52,6 +57,8 @@ export function MobileNativeChatSessionOptionPickers({
   const { snapshot, pendingId } = controller
   const model = snapshot.find((descriptor) => descriptor.category === 'model')
   const options = sortNativeChatSessionOptions(snapshot)
+  // The controller carries the session's speed facts; only the speed sheet words them.
+  const speedLines = codexSpeedLinesOfSurface(controller)
   if (!model) {
     return null
   }
@@ -75,9 +82,14 @@ export function MobileNativeChatSessionOptionPickers({
     setOpenDescriptorId(model.id)
   }
 
+  // A speed the host has not accepted may be asked for again, whatever the sheet already shows.
+  const speedUnanswered = speedLines.some(
+    (line) => line.kind === 'pending' || line.kind === 'requested'
+  )
   const applyOption = (descriptor: SessionOptionDescriptor, value: SessionOptionValue): void => {
     // Re-picking the tracked value is a no-op — never re-dispatch it.
     if (
+      !(descriptor.id === CODEX_SERVICE_TIER_OPTION_ID && speedUnanswered) &&
       descriptor.valueSource !== 'unknown' &&
       descriptor.kind.type === 'select' &&
       descriptor.kind.currentValue === value
@@ -140,6 +152,13 @@ export function MobileNativeChatSessionOptionPickers({
             {mobileSpeedCaptions(activeDescriptor).map((caption) => (
               <SessionOptionCaption key={caption}>{caption}</SessionOptionCaption>
             ))}
+            {activeDescriptor.id === CODEX_SERVICE_TIER_OPTION_ID
+              ? speedLines.map((line) => (
+                  <SessionOptionCaption key={line.kind}>
+                    {mobileSpeedLine(line)}
+                  </SessionOptionCaption>
+                ))
+              : null}
             <View style={styles.choiceGroup}>
               <DescriptorRows
                 descriptor={activeDescriptor}

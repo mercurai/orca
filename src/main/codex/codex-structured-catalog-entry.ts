@@ -1,33 +1,13 @@
 import type { AgentSessionModelOption } from '../../shared/agent-session-wire'
-import { codexStandardTierId } from '../../shared/codex-service-tier-selection'
 import type { AgentModelCatalogEntry } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 import type { CodexModelCatalogListing } from './codex-structured-model-catalog'
 
-// An entry saved before tier metadata existed names only the Fast id, so that one row keeps working;
-// every other tier stays unadvertised until a listing says otherwise.
-function withLegacyFastTier(
-  model: AgentSessionModelOption,
-  fastModeTierByModel: Readonly<Record<string, string>>
-): AgentSessionModelOption {
-  const fastTierId = Object.hasOwn(fastModeTierByModel, model.id)
-    ? fastModeTierByModel[model.id]
-    : undefined
-  if (model.serviceTiers || !fastTierId) {
-    return { ...model }
-  }
-  return {
-    ...model,
-    serviceTiers: [
-      { value: codexStandardTierId(undefined), label: 'Standard' },
-      { value: fastTierId, label: 'Fast' }
-    ]
-  }
-}
-
+// Tier support is only what a row's own `serviceTiers` advertise. The legacy Fast map beside them is
+// a projection, never a catalog: a row without tiers stays unknown, even when the map names an id.
 export function listingFromEntry(entry: AgentModelCatalogEntry): CodexModelCatalogListing {
   return {
-    models: entry.models.map((model) => withLegacyFastTier(model, entry.fastModeTierByModel)),
+    models: entry.models.map((model) => ({ ...model })),
     fastModeTierByModel: new Map(Object.entries(entry.fastModeTierByModel))
   }
 }

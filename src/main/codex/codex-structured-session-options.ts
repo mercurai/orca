@@ -2,12 +2,17 @@ import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import type { CodexSession } from './codex-structured-session-state'
 import { isCodexTurnOptionKey } from './codex-structured-turn-start'
-import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
-import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured-agent-session-option-codec'
 import {
-  normalizeCodexServiceTierOptions,
-  readCodexServiceTierOptions
-} from '../../shared/codex-service-tier-selection'
+  AgentSessionOptionRejectedError,
+  isAgentSessionOptionRejectedError
+} from '../native-chat/agent-session-wire/structured-agent-session-option-error'
+import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured-agent-session-option-codec'
+import { normalizeCodexServiceTierOptions } from '../../shared/codex-service-tier-selection'
+import {
+  isCodexRefusedTierKey,
+  normalizeCodexSpeedIntent,
+  readCodexSpeedIntent
+} from './codex-structured-speed-intent'
 import {
   codexSpeedFacts,
   migrateCodexSessionSpeed,
@@ -28,15 +33,16 @@ import {
 } from './codex-structured-catalog-entry'
 export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 
-/** Recognized options of a saved record. Legacy Fast resolves as far as no catalog allows: false is
- *  Standard, and an unresolved true stays as intent for the first catalog that can name its tier. */
+/** Recognized options of a saved record, including the private record of a refused speed pick.
+ *  Legacy Fast resolves as far as no catalog allows: false is Standard, and an unresolved true
+ *  stays as intent for the first catalog that can name its tier. */
 export function restoredCodexSessionOptions(
   options: Readonly<Record<string, string>> | undefined
 ): Map<string, string> {
   const recognized = Object.fromEntries(
     Object.entries(options ?? {}).filter(([key, value]) => {
       return (
-        isCodexTurnOptionKey(key) &&
+        (isCodexTurnOptionKey(key) || isCodexRefusedTierKey(key)) &&
         (key !== 'fastMode' ||
           typeof decodeStructuredAgentSessionOptionValue('fastMode', value) === 'boolean')
       )
@@ -125,7 +131,7 @@ function applyLiveCodexCatalog(
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const currentModel = model ?? codexListingDefaultModel(listing.models)
   migrateCodexSessionSpeed(session, { models: listing.models, currentModel })
-  const stored = readCodexServiceTierOptions({
+  const stored = readCodexSpeedIntent({
     options: Object.fromEntries(session.options),
     models: listing.models,
     ...(currentModel ? { currentModel } : {}),
@@ -172,6 +178,13 @@ export async function applyCodexStructuredSessionOption(
   try {
     return applyValidatedCodexStructuredSessionOption(session, key, value)
   } catch (error) {
+    if (isAgentSessionOptionRejectedError(error)) {
+      // A refused speed pick is kept as this session's blocked intent; the host persists the same map.
+      if (error.refusalOptions) {
+        replaceCodexSessionOptions(session.options, error.refusalOptions)
+      }
+      throw error
+    }
     throw new AgentSessionOptionRejectedError(error)
   }
 }
@@ -196,8 +209,9 @@ function applyUnlistedCodexSessionOption(
   return Object.fromEntries(session.options)
 }
 
-// A speed write is judged against the catalog this session's account holds. The same shared rules
-// run for a chat at rest, so both paths accept and refuse the same writes.
+// A speed write is judged against the catalog this session's account holds. The same rules run for
+// a chat at rest, so both paths accept and refuse the same writes: a legacy Fast toggle the catalog
+// cannot resolve is stored as intent and blocks the next turn, never refused here.
 function applyCodexSpeedOption(
   session: CodexSession,
   key: 'serviceTier' | 'fastMode',
@@ -205,22 +219,17 @@ function applyCodexSpeedOption(
 ): Readonly<Record<string, string>> {
   const catalog = codexSpeedCatalog(session.catalogAccess)
   const currentModel = session.reportedOptions.model ?? codexListingDefaultModel(catalog.models)
-  const next = normalizeCodexServiceTierOptions({
-    priorOptions: Object.fromEntries(session.options),
-    changes: { [key]: value },
-    origin: 'set-option',
-    models: catalog.models,
-    ...(currentModel ? { currentModel } : {}),
-    catalogKnown: catalog.known
-  })
-  // A listed account that cannot name Fast for the model refuses the toggle instead of acking intent.
-  if (catalog.known && next.fastMode === 'true') {
-    const model = next.model ?? currentModel
-    throw new Error(
-      `codex app-server ${model ? `model ${model}` : 'model'} does not support Fast mode`
-    )
-  }
-  replaceCodexSessionOptions(session.options, next)
+  replaceCodexSessionOptions(
+    session.options,
+    normalizeCodexSpeedIntent({
+      priorOptions: Object.fromEntries(session.options),
+      changes: { [key]: value },
+      origin: 'set-option',
+      models: catalog.models,
+      ...(currentModel ? { currentModel } : {}),
+      catalogKnown: catalog.known
+    })
+  )
   return Object.fromEntries(session.options)
 }
 

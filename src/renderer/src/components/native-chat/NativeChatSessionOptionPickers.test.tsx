@@ -748,7 +748,9 @@ describe('NativeChatSessionOptionPickers speed select', () => {
     expect(options.parentElement?.getAttribute('data-disabled')).toBeNull()
     // The model still changes the running turn, so it stays locked.
     expect(
-      screen.getByRole('button', { name: 'Model Synthetic' }).parentElement?.getAttribute('data-disabled')
+      screen
+        .getByRole('button', { name: 'Model Synthetic' })
+        .parentElement?.getAttribute('data-disabled')
     ).toBe('true')
   })
 
@@ -764,11 +766,13 @@ describe('NativeChatSessionOptionPickers speed select', () => {
 
     expect(radiosOf('Reasoning effort').every((radio) => radio.hasAttribute('disabled'))).toBe(true)
     const speed = radiosOf('Speed')
-    expect(speed.find((radio) => radio.dataset.value === FAST.value)?.hasAttribute('disabled')).toBe(
-      false
-    )
+    expect(
+      speed.find((radio) => radio.dataset.value === FAST.value)?.hasAttribute('disabled')
+    ).toBe(false)
     speed.find((radio) => radio.dataset.value === FAST.value)?.click()
-    await waitFor(() => expect(setOption).toHaveBeenCalledExactlyOnceWith('serviceTier', FAST.value))
+    await waitFor(() =>
+      expect(setOption).toHaveBeenCalledExactlyOnceWith('serviceTier', FAST.value)
+    )
   })
 
   it('keeps the whole pill locked while the agent works when no speed select is settable', () => {
@@ -777,7 +781,9 @@ describe('NativeChatSessionOptionPickers speed select', () => {
     )
 
     expect(
-      screen.getByRole('button', { name: 'Effort High' }).parentElement?.getAttribute('data-disabled')
+      screen
+        .getByRole('button', { name: 'Effort High' })
+        .parentElement?.getAttribute('data-disabled')
     ).toBe('true')
   })
 
@@ -813,9 +819,9 @@ describe('NativeChatSessionOptionPickers speed select', () => {
     const fastRow = radiosOf('Speed').find((radio) => radio.dataset.value === FAST.value)
     expect(fastRow?.textContent).toContain('Quicker replies.')
     expect(fastRow?.textContent).toContain('Uses more of your usage allowance than Standard.')
-    expect(radiosOf('Speed').find((radio) => radio.dataset.value === 'default')?.textContent).not.toContain(
-      'usage allowance'
-    )
+    expect(
+      radiosOf('Speed').find((radio) => radio.dataset.value === 'default')?.textContent
+    ).not.toContain('usage allowance')
   })
 
   it('keeps a retired selection visible, disabled and explained', () => {
@@ -827,7 +833,9 @@ describe('NativeChatSessionOptionPickers speed select', () => {
       />
     )
 
-    const retired = radiosOf('Speed').filter((radio) => radio.dataset.value === 'synthetic-retired-lane')
+    const retired = radiosOf('Speed').filter(
+      (radio) => radio.dataset.value === 'synthetic-retired-lane'
+    )
     expect(retired).toHaveLength(1)
     expect(retired[0]?.hasAttribute('disabled')).toBe(true)
     expect(retired[0]?.getAttribute('aria-checked')).toBe('true')

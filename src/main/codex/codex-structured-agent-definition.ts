@@ -1,9 +1,6 @@
 import type { DirectoryAccountAgentDefinition } from '../native-chat/agent-session-wire/structured-agent-definition'
 import { CODEX_STRUCTURED_HANDLE_NAMESPACE } from '../../shared/agent-session-provider-handle-encoding'
-import {
-  normalizeCodexServiceTierOptions,
-  readCodexServiceTierOptions
-} from '../../shared/codex-service-tier-selection'
+import { normalizeCodexSpeedIntent, readCodexSpeedIntent } from './codex-structured-speed-intent'
 import { isCodexTurnOptionKey } from './codex-structured-turn-start'
 
 export const CODEX_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {
@@ -28,8 +25,9 @@ export const CODEX_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {
     fallbackModels: () => null,
     // A running child answers only the effort its thread reported, never the model's default.
     effortDefaultsToModel: false,
-    // A chat at rest applies the same speed rules as a live child, against the host catalog.
-    normalizeOptions: normalizeCodexServiceTierOptions,
-    readOptions: readCodexServiceTierOptions
+    // A chat at rest applies the same speed rules as a live child, against the host catalog,
+    // including the private record of a refused pick.
+    normalizeOptions: normalizeCodexSpeedIntent,
+    readOptions: readCodexSpeedIntent
   }
 }

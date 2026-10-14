@@ -140,17 +140,24 @@ function resetStructuredLaunchCallers(state: StructuredLaunchState): void {
 
 function restartStructuredLaunchState(state: StructuredLaunchState): void {
   const wasVisibilityUnknown = state.visibilityUnknown
-  if (!wasVisibilityUnknown) {
+  // A chat the host already created is adopted as it is: no new operation, the options it runs kept
+  // over the settings of now, and its block standing until an accepted replacement ends it.
+  const adopting = state.receipt !== undefined
+  if (!wasVisibilityUnknown && !adopting) {
     state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
   }
   resetStructuredLaunchCallers(state)
   delete state.failure
-  // The speed is judged again by this attempt, so an earlier attempt's block no longer stands.
-  delete state.speedBlock
+  delete state.picksClosed
+  delete state.speedRecheckRequested
   state.callers.outcome = 'pending'
-  // A new create seeds from the settings of now (a paired server's arrive with its probe); picks
-  // held through the failure still apply.
-  state.selection = { ...state.selection, seed: state.intent.seedOptions }
+  if (!adopting) {
+    // The speed is judged again by this attempt, so an earlier attempt's block no longer stands.
+    delete state.speedBlock
+    // A new create seeds from the settings of now (a paired server's arrive with its probe); picks
+    // held through the failure still apply.
+    state.selection = { ...state.selection, seed: state.intent.seedOptions }
+  }
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
   state.promise = publishWithHeldOptions(
     state,

@@ -66,9 +66,10 @@ export function codexServiceTierChoices(
   ]
 }
 
-/** The model's speed control, or null when the legacy Fast toggle (or nothing) stands.
- *  Advertised tiers make the select; on a host that affirms the capability, a model with no
- *  tier metadata still offers protocol Standard. A host that does not affirm it never does. */
+/** The model's speed select, or null when the legacy Fast toggle (or nothing) stands. Advertised
+ *  tiers make the select; on a host that affirms the capability, a model with no tier metadata
+ *  still offers protocol Standard beside unverified paid rows, whatever its Fast compatibility
+ *  flag says. A host that does not affirm the capability never gets the select. */
 export function codexServiceTierCatalogOption(
   model: AgentSessionModelOption,
   host: CodexSpeedHostSupport | undefined
@@ -77,7 +78,7 @@ export function codexServiceTierCatalogOption(
     return null
   }
   const tiers = model.serviceTiers
-  if (tiers === undefined && (host !== 'supported' || model.supportsFastMode === true)) {
+  if (tiers === undefined && host !== 'supported') {
     return null
   }
   return {
@@ -93,38 +94,69 @@ export function codexServiceTierCatalogOption(
   }
 }
 
-/** The catalog with each model's speed control rebuilt from a fresher listing, so a refreshed
- *  tier list reaches a session whose own list is newer in source but older in time. Only a
- *  listed model that states tier metadata is touched, and no session value is: a requested id the
- *  new list no longer offers stays selected, shown disabled. Null when nothing changed. */
+function legacyFastModeOption(): CatalogOption {
+  return {
+    id: 'fastMode',
+    label: 'Fast mode',
+    category: 'mode',
+    kind: { type: 'boolean', defaultValue: false },
+    apply: {}
+  }
+}
+
+/** Every speed control a model shows: the tier select where the host and listing allow it, else
+ *  the older Fast toggle where the session and the model both claim support. Another agent passes
+ *  `unsupported`, which keeps its toggle however much tier metadata a listing carries. */
+export function codexSpeedCatalogOptions(
+  model: AgentSessionModelOption,
+  host: CodexSpeedHostSupport | undefined,
+  sessionSupportsFastMode: boolean
+): CatalogOption[] {
+  const tier = codexServiceTierCatalogOption(model, host)
+  if (tier) {
+    return [tier]
+  }
+  return sessionSupportsFastMode && model.supportsFastMode === true ? [legacyFastModeOption()] : []
+}
+
+/** The catalog with each listed model's speed control rebuilt from a fresher listing, so a refreshed
+ *  list, a lost tier list or a changed host capability reaches a session whose own list is newer in
+ *  source but older in time. No session value is touched: a requested id the new list no longer
+ *  offers stays selected, shown disabled. A toggle the listing makes no claim about stays as it was.
+ *  Null when no listed model matched. */
 export function refreshCodexServiceTierCatalog(
   catalog: AgentSessionOptionCatalog,
   listed: readonly AgentSessionModelOption[],
-  host: CodexSpeedHostSupport | undefined
+  host: CodexSpeedHostSupport | undefined,
+  sessionSupportsFastMode: boolean
 ): AgentSessionOptionCatalog | null {
   const byId = new Map(listed.map((model) => [model.id, model]))
   let changed = false
   const models = catalog.models.map((model) => {
     const listing = byId.get(model.id)
-    const option = listing?.serviceTiers ? codexServiceTierCatalogOption(listing, host) : null
-    if (!option) {
+    if (!listing) {
       return model
     }
     changed = true
+    const speed = codexSpeedCatalogOptions(listing, host, sessionSupportsFastMode)
     return {
       ...model,
       options: [
         ...model.options.filter(
-          (existing) => existing.id !== CODEX_SERVICE_TIER_OPTION_ID && existing.id !== 'fastMode'
+          (existing) =>
+            (existing.id !== CODEX_SERVICE_TIER_OPTION_ID && existing.id !== 'fastMode') ||
+            (speed.length === 0 && existing.id === 'fastMode')
         ),
-        option
+        ...speed
       ]
     }
   })
   return changed ? { ...catalog, models } : null
 }
 
-function enabledChoices(choices: readonly SessionOptionSelectChoice[]): SessionOptionSelectChoice[] {
+function enabledChoices(
+  choices: readonly SessionOptionSelectChoice[]
+): SessionOptionSelectChoice[] {
   return choices.filter((choice) => choice.disabled !== true)
 }
 

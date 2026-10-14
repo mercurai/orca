@@ -371,26 +371,29 @@ describe('Codex speed admission while a chat launches', () => {
     it.each([
       ['without a speed picked meanwhile', false],
       ['with a speed picked meanwhile', true]
-    ])('ends a launch cancelled during the probe, %s, with no write and no turn', async (_name, picked) => {
-      mocks.createIntent.mockReturnValue(launchIntent(SEEDED_FAST))
-      mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
-      const probe = deferred<Support>()
-      mocks.speedSupport.mockReturnValueOnce(probe.promise)
-      const launch = startLaunch('request-2')
-      const seen = trackLaunch(launch)
-      await settle()
-      if (picked) {
-        void hold('serviceTier', 'ultrafast')
+    ])(
+      'ends a launch cancelled during the probe, %s, with no write and no turn',
+      async (_name, picked) => {
+        mocks.createIntent.mockReturnValue(launchIntent(SEEDED_FAST))
+        mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
+        const probe = deferred<Support>()
+        mocks.speedSupport.mockReturnValueOnce(probe.promise)
+        const launch = startLaunch('request-2')
+        const seen = trackLaunch(launch)
+        await settle()
+        if (picked) {
+          void hold('serviceTier', 'ultrafast')
+        }
+
+        cancelStructuredAgentLaunch(WORKTREE_ID, SESSION_ID)
+        probe.resolve('supported')
+        await settle()
+
+        expect(seen.launch).toBe('rejected')
+        expect(seen.error).toBeInstanceOf(StructuredAgentSessionLaunchCancelledError)
+        expect(mutations()).toEqual([])
       }
-
-      cancelStructuredAgentLaunch(WORKTREE_ID, SESSION_ID)
-      probe.resolve('supported')
-      await settle()
-
-      expect(seen.launch).toBe('rejected')
-      expect(seen.error).toBeInstanceOf(StructuredAgentSessionLaunchCancelledError)
-      expect(mutations()).toEqual([])
-    })
+    )
 
     it('blocks a speed picked meanwhile when the final probe says the host cannot take it', async () => {
       mocks.createIntent.mockReturnValue(launchIntent(SEEDED_FAST))
@@ -570,7 +573,10 @@ describe('Codex speed admission while a chat launches', () => {
         for (const [support, reason, RefusalError] of REFUSALS) {
           it(`refuses a ${tier} seed on ${hostName} that is ${support}, before any create`, async () => {
             hostSupport = support
-            const { intent, outcome } = await createOn(host, { model: 'gpt-5.5', serviceTier: tier })
+            const { intent, outcome } = await createOn(host, {
+              model: 'gpt-5.5',
+              serviceTier: tier
+            })
             const error = await outcome.catch((caught: unknown) => caught)
 
             expect(error).toBeInstanceOf(RefusalError)
@@ -753,7 +759,8 @@ describe('Codex speed admission while a chat launches', () => {
       await store.hydrateNativeChatComposerDrafts()
       const registry = await import('./structured-agent-session-launch-registry')
       const prompts = await import('./structured-agent-session-launch-prompt')
-      const senders = await import('@/components/native-chat/structured-agent-session-message-sender')
+      const senders =
+        await import('@/components/native-chat/structured-agent-session-message-sender')
       const persistence = await import('./structured-agent-session-launch-persistence')
       releaseReloadedModules.push(() => {
         prompts.discardStructuredLaunchPrompts(SESSION_ID)
@@ -784,7 +791,9 @@ describe('Codex speed admission while a chat launches', () => {
         const blocked = { tierId: 'fast', reason: 'host-update-needed' }
 
         expect(renderer.speedBlock()).toEqual(blocked)
-        expect(renderer.launch.retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
+        expect(renderer.launch.retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(
+          true
+        )
         await settle(100)
 
         // The host still cannot affirm it: the previous seed must not stand in and publish.

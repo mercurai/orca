@@ -9,6 +9,11 @@ import {
 import { noteStructuredAgentSessionFence } from '@/components/native-chat/structured-agent-session-send-attempt'
 import { publishStructuredAgentSessionSends } from '@/components/native-chat/structured-agent-session-pending-sends'
 import { agentSessionWriteNoticeText } from '@/components/native-chat/agent-session-write-notice-text'
+import { structuredAgentSessionDraftScopeKey } from '@/components/native-chat/native-chat-composer-draft-store'
+import {
+  readNativeChatDraftCache,
+  writeNativeChatDraftCache
+} from '@/components/native-chat/native-chat-draft-cache'
 import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
 
 export type StructuredPromptDeliveryResult = {
@@ -44,6 +49,9 @@ export type StagedStructuredLaunchPrompt = {
   /** Its sender keeps the text if it comes back (notes), instead of the chat's composer. */
   callerKeepsText?: true
   delivery?: Promise<StagedDelivery>
+  /** A parked launch also saved the text in the chat's composer: the draft as it was and as the copy
+   *  left it, so a first turn the host recorded takes back exactly the copy and nothing typed since. */
+  composerCopy?: { before: string; after: string }
   /** Its launch was cancelled: never sent, never given back. */
   discarded?: true
   /** Settles once it is discarded, so its callers need not wait on a create that may never end. */
@@ -145,6 +153,37 @@ function handBackStagedPrompt(prompt: StagedStructuredLaunchPrompt): boolean {
   }
 }
 
+/**
+ * A launch parked on its speed keeps its text staged, and saves it in the chat's composer as well,
+ * so a reload or quit while it waits gives the text back. The staged send still holds the chat's one
+ * slot, so the composer's copy cannot be sent meanwhile; it leaves only with a recorded first turn.
+ */
+export function saveStagedStructuredLaunchPromptsInComposer(sessionId: string): void {
+  const scopeKey = structuredAgentSessionDraftScopeKey(sessionId)
+  for (const prompt of staged.get(sessionId) ?? []) {
+    if (prompt.delivery || prompt.composerCopy || prompt.callerKeepsText) {
+      continue
+    }
+    const before = readNativeChatDraftCache(scopeKey)
+    if (handBackStagedPrompt(prompt)) {
+      prompt.composerCopy = { before, after: readNativeChatDraftCache(scopeKey) }
+    }
+  }
+}
+
+/** The first turn was recorded: the copy goes, unless the person has changed the draft since. */
+function removeComposerCopy(prompt: StagedStructuredLaunchPrompt): void {
+  const { composerCopy } = prompt
+  delete prompt.composerCopy
+  if (!composerCopy) {
+    return
+  }
+  const scopeKey = structuredAgentSessionDraftScopeKey(prompt.sessionId)
+  if (readNativeChatDraftCache(scopeKey) === composerCopy.after) {
+    writeNativeChatDraftCache(scopeKey, composerCopy.before)
+  }
+}
+
 function sendStagedPrompt(
   prompt: StagedStructuredLaunchPrompt,
   receipt: LaunchReceipt,
@@ -158,10 +197,17 @@ function sendStagedPrompt(
     if (!sent) {
       // Another send of the chat holds its slot: the launch text waits in the composer instead.
       unstage(prompt)
+      delete prompt.composerCopy
       return { delivered: false, inComposer: handBackStagedPrompt(prompt), busy: true }
     }
     try {
       const outcome = await sent.outcome
+      // Back in the composer, refused or unconfirmed: the copy is the person's text now.
+      if (outcome === 'recorded') {
+        removeComposerCopy(prompt)
+      } else {
+        delete prompt.composerCopy
+      }
       return {
         delivered: outcome === 'recorded',
         inComposer:

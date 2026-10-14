@@ -119,6 +119,18 @@ export function nativeChatSpeedLine(line: CodexSpeedLine): string {
         'Stored for the next turn: {{value0}}.',
         { value0: line.label }
       )
+    case 'requested':
+      return line.state === 'unavailable'
+        ? translate(
+            'components.native-chat.composer.speedRequestedUnavailable',
+            'Requested {{value0}} is not available for this model. Sends are held until you choose another speed.',
+            { value0: line.label }
+          )
+        : translate(
+            'components.native-chat.composer.speedRequestedUnknown',
+            'Requested {{value0}} could not be confirmed for this model. Sends are held until you choose another speed.',
+            { value0: line.label }
+          )
     case 'last-request':
       return nativeChatSpeedRequestLine(line)
     case 'processing':

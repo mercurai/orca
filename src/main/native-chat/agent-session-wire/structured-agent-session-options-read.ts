@@ -21,6 +21,7 @@ import type { StructuredAgentDefinition } from './structured-agent-definition'
 import type { StructuredAgentRegistry } from './structured-agent-registry'
 import type { StructuredAgentSessionLiveOptions } from './structured-agent-session-adapter'
 import type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
+import { recordedRefusalOptions } from './structured-agent-session-option-error'
 import { structuredAgentSessionOptionModels } from './structured-agent-session-option-models'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
 import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
@@ -184,7 +185,13 @@ export async function recordStructuredAgentSessionOptionIntent(
   try {
     options = await restingOptionsAfterPick(deps, record, ctx.sessionId, rules, input)
   } catch (error) {
-    // The normalizer's contract: a throw is a refusal of this pick, before anything is written.
+    // The normalizer's contract: a throw is a refusal of this pick, before anything is written —
+    // except the complete map a typed refusal carries, which records the refusal itself.
+    const refusalOptions = recordedRefusalOptions(error)
+    if (refusalOptions) {
+      await ctx.persistOptions(refusalOptions)
+      ctx.publish()
+    }
     return optionRejection(error instanceof Error ? error.message : String(error))
   }
   await ctx.persistOptions(options)

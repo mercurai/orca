@@ -12,10 +12,12 @@ import {
   type StructuredAgentSessionOptionState
 } from '../../../../shared/structured-agent-session-options'
 import type { CodexSpeedHostSupport } from '../../../../shared/codex-service-tier-presentation'
+import { structuredAgentSessionSpeedBlocked } from '../../../../shared/structured-agent-session-option-acknowledgement'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { useStructuredAgentSessionHostCodexSpeedState } from '@/runtime/structured-agent-session-host-capability'
 import { readHostModelCatalogSnapshot } from '@/runtime/host-model-catalog-snapshots'
+import { holdStructuredAgentSessionSpeedSends } from './structured-agent-session-pending-sends'
 import { useHostModelCatalogUpgrade } from './use-host-model-catalog-upgrade'
 import {
   createCoalescedPollRunner,
@@ -111,13 +113,37 @@ export function useStructuredAgentSessionOptionState(args: {
   const activeOptionRecordRef = useRef(optionState.record)
   const pendingOptionRef = useRef<string | null>(null)
   const optionMutationGeneration = useRef(0)
+  // The chat's sends stay out while a speed the host has not accepted is requested, refused or
+  // unanswered, or the host's own facts name a requested tier it cannot send. Taken and released
+  // where the state changes, so a send in the same tick as a pick already finds it.
+  const speedHoldRef = useRef<(() => void) | null>(null)
+  const syncSpeedHold = useCallback(
+    (state: StructuredAgentSessionOptionState) => {
+      const blocked = structuredAgentSessionSpeedBlocked(state)
+      if (blocked && speedHoldRef.current === null) {
+        speedHoldRef.current = holdStructuredAgentSessionSpeedSends(sessionId)
+      } else if (!blocked && speedHoldRef.current !== null) {
+        speedHoldRef.current()
+        speedHoldRef.current = null
+      }
+    },
+    [sessionId]
+  )
+  useEffect(
+    () => () => {
+      speedHoldRef.current?.()
+      speedHoldRef.current = null
+    },
+    []
+  )
   const updateOptionState = useCallback(
     (update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState) => {
       const next = update(optionStateRef.current)
       optionStateRef.current = next
+      syncSpeedHold(next)
       setOptionState(next)
     },
-    []
+    [syncSpeedHold]
   )
   const optionIdentityRef = useRef(identity)
   useEffect(() => {
@@ -132,16 +158,25 @@ export function useStructuredAgentSessionOptionState(args: {
       ...(launch.worktree ? { worktree: launch.worktree } : {})
     })
     // A host answer is the account's, not the fence's: keep it rather than blank the default.
-    const next =
+    // So is a speed the person asked for and what the host said of it; another host or session
+    // never inherits either.
+    const keepsHostCatalog =
       sameSession && (previous.catalogSource === 'host' || previous.catalogSource === 'builtin')
+    const next: StructuredAgentSessionOptionState = {
+      ...(keepsHostCatalog
         ? { ...seeded, catalog: previous.catalog, catalogSource: previous.catalogSource }
-        : seeded
+        : seeded),
+      ...(sameSession && previous.requested ? { requested: previous.requested } : {}),
+      ...(sameSession && previous.speed ? { speed: previous.speed } : {})
+    }
     optionMutationGeneration.current += 1
     pendingOptionRef.current = null
     optionStateRef.current = next
     activeOptionRecordRef.current = next.record
+    syncSpeedHold(next)
     setOptionState(next)
-  }, [agent, fence, identity])
+    // `syncSpeedHold` changes only with the session id, which is part of `identity`.
+  }, [agent, fence, identity, syncSpeedHold])
 
   const optionsReadRef = useRef<CoalescedPollRunner | null>(null)
   // Refresh options each turn to confirm which model the provider actually selected, and once
