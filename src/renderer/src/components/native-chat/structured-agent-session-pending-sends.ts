@@ -3,6 +3,11 @@
 
 import type { AgentJournalMessageItem } from '../../../../shared/agent-session-journal-types'
 
+/** Who keeps a send's text if it comes back. `true`: a sender outside the chat, so nothing goes to
+ *  the chat's composer or its line. `'composer'`: this chat's composer already holds the text, so it
+ *  is not added again, but the line still says why the send did not go. Memory only. */
+export type StructuredAgentSessionCallerKeepsText = true | 'composer'
+
 export type StructuredAgentSessionPendingSend = {
   clientMessageId: string
   sessionId: string
@@ -17,8 +22,7 @@ export type StructuredAgentSessionPendingSend = {
   phase: 'sending' | 'recorded'
   /** Its request went out, so it may have reached the host. */
   issued: boolean
-  /** A sender outside the chat keeps its own copy, so nothing goes to the chat's composer. */
-  callerKeepsText?: true
+  callerKeepsText?: StructuredAgentSessionCallerKeepsText
   /** Made while the chat read Stopping: drawn after that turn until the host records it. */
   sentWhileStopping?: true
   /** Each image's SSH connection, in body order, so a returned image still opens remotely. */

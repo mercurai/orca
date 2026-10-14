@@ -266,6 +266,22 @@ describe('useMobileStructuredAgentOptions speed facts', () => {
     await harness.unmount()
   })
 
+  it('reports the accepted tier as stored beside a blocked request when the read lists no confirmed ids', async () => {
+    const CUSTOM = 'synthetic-custom-lane'
+    const { confirmed: _confirmed, ...current } = FAST_SELECTED.current
+    const harness = await mountWith(
+      { ...FAST_SELECTED, current, speed: { selection: { tierId: CUSTOM, state: 'unknown' } } },
+      'supported'
+    )
+
+    const lines = speedLines(harness.current())
+    expect(lines[0]).toEqual({ kind: 'stored', label: 'Fast' })
+    expect(lines.filter((line) => JSON.stringify(line).includes(CUSTOM))).toHaveLength(1)
+    // The blocked request is a separate claim: a fresh phone's sends stay out.
+    expect(harness.current().isSpeedSendBlocked()).toBe(true)
+    await harness.unmount()
+  })
+
   it('restores the Fast toggle and refuses a tier write when the same client now reads an older host', async () => {
     const { calls, mutate } = recordingMutate(async () => accepted({ key: 'x', value: 'y' }, true))
     const harness = await mountOptions({
@@ -494,7 +510,7 @@ describe('useMobileStructuredAgentOptions client cutover', () => {
 
   it('does not hold the new host behind a write the previous client has not answered', async () => {
     const inFlight = deferred<WriteResult>()
-    const { nextHost, calls, harness } = await mountOnPrevious(async (call) =>
+    const { previousHost, nextHost, calls, harness } = await mountOnPrevious(async (call) =>
       call === 0
         ? inFlight.promise
         : accepted({ key: 'serviceTier', value: ULTRAFAST_TIER.value }, false)
@@ -510,18 +526,37 @@ describe('useMobileStructuredAgentOptions client cutover', () => {
     await act(async () => {
       outcome = await harness.current().setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
     })
-    expect(outcome).toBe(true)
+    // The host's answer names another fence than this view's snapshot: no success is reported.
+    expect(outcome).toBe(false)
     expect(calls[1]).toEqual({
       method: 'agentSession.setOption',
       fields: { key: 'serviceTier', value: ULTRAFAST_TIER.value }
     })
 
+    // The new host's own Ultra request is unanswered at this view's fence: it stays held.
+    const before = {
+      tier: tierValue(harness.current().optionSnapshot),
+      lines: speedLines(harness.current()),
+      blocked: harness.current().isSpeedSendBlocked(),
+      pendingOptionId: harness.current().pendingOptionId,
+      previousReads: previousHost.optionReads(),
+      nextReads: nextHost.optionReads()
+    }
+    expect(before.blocked).toBe(true)
+
     await act(async () => {
       inFlight.resolve(tierWrite())
     })
     await settle()
-    expect(tierValue(harness.current().optionSnapshot)).toBe('default')
-    expect(harness.current().pendingOptionId).toBeNull()
+
+    // The previous client's late answer changes nothing of the new host's pending intent.
+    expect(tierValue(harness.current().optionSnapshot)).toBe(before.tier)
+    expect(speedLines(harness.current())).toEqual(before.lines)
+    expect(harness.current().isSpeedSendBlocked()).toBe(true)
+    expect(harness.current().pendingOptionId).toBe(before.pendingOptionId)
+    nothingWritten(previousHost, nextHost)
+    expect(previousHost.optionReads()).toBe(before.previousReads)
+    expect(nextHost.optionReads()).toBe(before.nextReads)
     await harness.unmount()
   })
 
@@ -550,6 +585,86 @@ describe('useMobileStructuredAgentOptions client cutover', () => {
       { kind: 'stored', label: 'Standard' },
       { kind: 'processing' }
     ])
+    await harness.unmount()
+  })
+})
+
+// `sameFence: false` compares only the transcript's fence with the one the write was sent at: it is
+// not proof that the host or session changed. An accepted answer at another fence says the host
+// stored the pick somewhere this view cannot attribute, so the pick stays held until this view's
+// own read, or an explicit accepted replacement, answers it.
+describe('useMobileStructuredAgentOptions answer at another fence', () => {
+  const answeredAtAnotherFence = () =>
+    accepted(
+      {
+        key: 'serviceTier',
+        value: ULTRAFAST_TIER.value,
+        options: { serviceTier: ULTRAFAST_TIER.value }
+      },
+      false
+    )
+
+  const standardWrite = () =>
+    accepted(
+      {
+        key: 'serviceTier',
+        value: STANDARD_TIER.value,
+        options: { serviceTier: STANDARD_TIER.value }
+      },
+      true
+    )
+
+  it('keeps the pick held and commits, remembers and reads nothing', async () => {
+    const host = optionsClient(answeringOptions(TIERED_OPTIONS))
+    const { calls, mutate } = recordingMutate(async () => answeredAtAnotherFence())
+    const harness = await mountOptions({
+      client: host.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+    const readsBefore = host.optionReads()
+
+    let outcome: boolean | null = null
+    await act(async () => {
+      outcome = await harness.current().setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
+    })
+    await settle()
+
+    expect(outcome).toBe(false)
+    expect(calls).toHaveLength(1)
+    // Held, not dropped: a send goes back to the composer rather than out at the prior speed.
+    expect(harness.current().isSpeedSendBlocked()).toBe(true)
+    expect(speedLines(harness.current())[0]).toEqual({ kind: 'pending', label: 'Ultrafast' })
+    expect(harness.current().pendingOptionId).toBeNull()
+    expect(host.methods(SETTINGS_WRITE)).toEqual([])
+    expect(host.optionReads()).toBe(readsBefore)
+    await harness.unmount()
+  })
+
+  it('is released by an explicit replacement the host accepted at this fence', async () => {
+    const host = optionsClient(answeringOptions(TIERED_OPTIONS))
+    const { mutate } = recordingMutate(async (call) =>
+      call === 0 ? answeredAtAnotherFence() : standardWrite()
+    )
+    const harness = await mountOptions({
+      client: host.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+    await act(async () => {
+      await harness.current().setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
+    })
+    await settle()
+    expect(harness.current().isSpeedSendBlocked()).toBe(true)
+
+    let outcome: boolean | null = null
+    await act(async () => {
+      outcome = await harness.current().setStructuredOption('serviceTier', STANDARD_TIER.value)
+    })
+    await settle()
+
+    expect(outcome).toBe(true)
+    expect(harness.current().isSpeedSendBlocked()).toBe(false)
     await harness.unmount()
   })
 })

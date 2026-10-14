@@ -20,6 +20,7 @@ import {
   structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
 } from '../../../src/shared/structured-agent-session-options'
+import type { NativeChatSessionOptionRecord } from '../../../src/shared/native-chat-session-option-state'
 import type { RpcClient } from '../transport/rpc-client'
 import {
   callAgentSession,
@@ -50,6 +51,24 @@ type StructuredOptionsController = {
   /** Read when a send or a queue action runs, never from a render: whether a speed the host has
    *  not accepted keeps every turn out. */
   isSpeedSendBlocked: () => boolean
+}
+
+/** The record without any pick the host never reported back. */
+function reportedOptionRecord(
+  record: NativeChatSessionOptionRecord
+): NativeChatSessionOptionRecord {
+  return {
+    agent: record.agent,
+    ...(record.model?.source === 'reported' ? { model: record.model } : {}),
+    valuesByModel: Object.fromEntries(
+      Object.entries(record.valuesByModel).map(([modelId, values]) => [
+        modelId,
+        Object.fromEntries(
+          Object.entries(values).filter(([, entry]) => entry.source === 'reported')
+        )
+      ])
+    )
+  }
 }
 
 export function useMobileStructuredAgentOptions(args: {
@@ -128,20 +147,29 @@ export function useMobileStructuredAgentOptions(args: {
   }, [agent, enabled, fence, identity, optionCatalog])
 
   // Another connection is another generation: what the previous one has in flight (a write, an
-  // unknown outcome, a settings write) is no longer this view's, and its request holds nothing here.
+  // unknown outcome, a settings write) is no longer this view's. Its request holds nothing here,
+  // its speed facts describe another conversation, and a pick it dispatched but never had
+  // reported is no stored value; only what the host reported stays until the new read lands.
   const clientRef = useRef(client)
   useEffect(() => {
     if (clientRef.current === client) {
       return
     }
     clientRef.current = client
+    const { speed: _speed, ...rest } = withoutStructuredAgentSessionSpeedRequest(
+      optionStateRef.current
+    )
+    const next: StructuredAgentSessionOptionState = {
+      ...rest,
+      pendingId: null,
+      record: reportedOptionRecord(rest.record)
+    }
     optionMutationGeneration.current += 1
     pendingOptionRef.current = null
-    updateOptionState((current) => ({
-      ...withoutStructuredAgentSessionSpeedRequest(current),
-      pendingId: null
-    }))
-  }, [client, updateOptionState])
+    optionStateRef.current = next
+    activeOptionRecordRef.current = next.record
+    setOptionState(next)
+  }, [client])
 
   // A chat this phone created runs the listed default, as a desktop chat its own view launched does.
   const createdHere = useMemo(

@@ -408,8 +408,8 @@ describe('the same failed durable write through the adapter router', () => {
       }
     )
 
-    async function liveWithUnsavedUltra() {
-      const session = await openLiveSession([STANDARD, FAST, ULTRA])
+    async function liveWithUnsavedUltra(alternatives = false) {
+      const session = await openLiveSession([STANDARD, FAST, ULTRA], ACKNOWLEDGED, alternatives)
       await session.router.setOption({
         sessionId: SESSION,
         key: 'serviceTier',
@@ -503,6 +503,87 @@ describe('the same failed durable write through the adapter router', () => {
       const report = await adapter.readOptions({ sessionId: SESSION, fence: FENCE })
       expect(report.current.serviceTier).toBe(FAST.value)
       expect(report.speed?.selection).toMatchObject({ tierId: STANDARD.value })
+    })
+
+    /** What a read and the next send must say while the live Ultrafast has no readable record behind
+     *  it: it is the person's blocked request, never stored, never ready, never claimed as applied.
+     *  `stored` is the tier the record verifiably holds; with an unreadable record none can be named. */
+    async function expectUltraRequestedNotStored(
+      session: LiveSession,
+      stored: string | undefined
+    ): Promise<void> {
+      const report = await session.adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+      const selection = report.speed?.selection
+      expect(report.current.serviceTier).toBe(stored)
+      expect(report.current.model).toBe(MODEL)
+      expect(report.current.effort).not.toBe('high')
+      expect(selection).toMatchObject({ tierId: ULTRA.value })
+      expect(['unknown', 'unavailable']).toContain(selection?.state)
+      expect(report.speed?.applied).toBeUndefined()
+      expect(report.speed?.processing).toBeUndefined()
+      expectRefusedBeforeWire(session.codex, await dispatchNext(session.adapter))
+    }
+
+    it('reads the unsaved tier as a blocked request, not as the stored or ready speed', async () => {
+      const session = await liveWithUnsavedUltra()
+
+      await expectUltraRequestedNotStored(session, undefined)
+    })
+
+    /** The unsaved tier, then a valid model or effort write the store also refuses, with the record
+     *  readable this time and still holding the saved map the failed picks started from. */
+    async function laterWriteFailsToSave(pick: { key: string; value: string }) {
+      // Alternatives, so the adapter accepts the pick and only the store refuses it.
+      const session = await liveWithUnsavedUltra(true)
+      const durable = durableStore(session.recorded)
+      const later = new Error('disk full again')
+      durable.persistOptions.mockRejectedValueOnce(later)
+
+      await expect(
+        performSetOption(await contextFor(session.router, durable), pick)
+      ).rejects.toBe(later)
+
+      expect(durable.persistOptions).toHaveBeenCalledOnce()
+      expect(durable.publish).not.toHaveBeenCalled()
+      expect(durable.current()).toEqual(session.recorded)
+      return session
+    }
+
+    it('keeps the unsaved tier as the request when a later effort write fails to save', async () => {
+      const session = await laterWriteFailsToSave({ key: 'effort', value: 'high' })
+
+      // The restore now succeeds, so the record's own tier is current beside the kept request.
+      await expectUltraRequestedNotStored(session, FAST.value)
+    })
+
+    it('does not save the unsaved tier when a later effort write succeeds, even after reacquire', async () => {
+      const { adapter, codex, router, recorded } = await liveWithUnsavedUltra(true)
+      const durable = durableStore(recorded)
+
+      const saved = await performSetOption(await contextFor(router, durable), {
+        key: 'effort',
+        value: 'high'
+      })
+
+      expect(saved).toMatchObject({ ok: true })
+      expect(durable.current()).toMatchObject({ model: MODEL, serviceTier: FAST.value, effort: 'high' })
+      const report = await adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+      expect(report.current.serviceTier).toBe(FAST.value)
+      expect(report.speed?.selection).toMatchObject({ tierId: ULTRA.value })
+      expect(report.speed?.selection.state).not.toBe('ready')
+      expectRefusedBeforeWire(codex, await dispatchNext(adapter))
+      const again = await openLiveSession([STANDARD, FAST, ULTRA], durable.current(), true)
+      const reread = await again.adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+      expect(reread.current.serviceTier).toBe(FAST.value)
+      expect(reread.speed?.selection).toMatchObject({ tierId: ULTRA.value })
+      expect(reread.speed?.selection.state).not.toBe('ready')
+      expectRefusedBeforeWire(again.codex, await dispatchNext(again.adapter))
+    })
+
+    it('keeps the unsaved tier as the request when a later model write fails to save', async () => {
+      const session = await laterWriteFailsToSave({ key: 'model', value: OTHER_MODEL })
+
+      await expectUltraRequestedNotStored(session, FAST.value)
     })
   })
 })

@@ -145,6 +145,33 @@ jobs:
           src/session/MobileNativeChatSessionOptionPickers.test.ts
           src/session/use-mobile-structured-agent-options.test.ts
 
+      - name: Checkout pinned upstream baseline
+        uses: actions/checkout@v6
+        with:
+          ref: 2bb20586ebc39d605e16d95f57420e20a16e7485
+          path: .codex-speed-baseline
+          fetch-depth: 1
+          persist-credentials: false
+
+      # Prove the existing registration and SSH permissions failures separately.
+      # Dependencies and lockfile are unchanged; this checkout gets no new install.
+      - name: Prove upstream baseline gates
+        id: baseline
+        continue-on-error: true
+        timeout-minutes: 5
+        working-directory: .codex-speed-baseline
+        env:
+          ORCA_BACKGROUND_LAUNCH: '1'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 2bb20586ebc39d605e16d95f57420e20a16e7485
+          test ! -e node_modules
+          ln -s "$GITHUB_WORKSPACE/node_modules" node_modules
+          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 \
+            config/scripts/win32-test-lane-registration.test.mjs \
+            src/main/ssh/orcad-remote-launch-file-modes.test.ts
+
       # Plain JSON only: SHA and step outcomes, never logs or transcripts.
       - name: Write patch and source metadata
         shell: bash
@@ -152,6 +179,7 @@ jobs:
           CORE_OUTCOME: ${{ steps.core.outcome }}
           MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
           MOBILE_OUTCOME: ${{ steps.mobile.outcome }}
+          BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/codex-speed-generated-files"
@@ -172,7 +200,8 @@ jobs:
               outcomes: {
                 core: e.CORE_OUTCOME,
                 mobileInstall: e.MOBILE_INSTALL_OUTCOME,
-                mobile: e.MOBILE_OUTCOME
+                mobile: e.MOBILE_OUTCOME,
+                baseline: e.BASELINE_OUTCOME
               }
             }
             process.stdout.write(JSON.stringify(metadata, null, 2) + "\n")
@@ -197,9 +226,10 @@ jobs:
           CORE_OUTCOME: ${{ steps.core.outcome }}
           MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
           MOBILE_OUTCOME: ${{ steps.mobile.outcome }}
+          BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
         run: |
-          echo "core=$CORE_OUTCOME mobile-install=$MOBILE_INSTALL_OUTCOME mobile=$MOBILE_OUTCOME"
-          if [ "$CORE_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ]; then
-            echo '::error::Codex speed target tests are not green; the patch artifact is not release evidence.'
+          echo "core=$CORE_OUTCOME mobile-install=$MOBILE_INSTALL_OUTCOME mobile=$MOBILE_OUTCOME baseline=$BASELINE_OUTCOME"
+          if [ "$CORE_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ] || [ "$BASELINE_OUTCOME" != success ]; then
+            echo '::error::Speed targets or pinned baseline gates failed; inspect source metadata. This is not release evidence.'
             exit 1
           fi

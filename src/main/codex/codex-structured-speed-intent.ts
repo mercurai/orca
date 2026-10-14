@@ -130,6 +130,29 @@ export function readCodexSpeedIntent(
   }
 }
 
+/** `stored` with legacy Fast that was requested and never saved as the blocked selection, beside the
+ *  acknowledged tier. A refused exact tier already in the map is the one reported instead. */
+export function withBlockedLegacyFastSelection(
+  stored: CodexRestingOptionsReadResult,
+  input: RestingOptionsReadInput
+): CodexRestingOptionsReadResult {
+  if (refusedCodexServiceTier(input.options)) {
+    return stored
+  }
+  const support = codexServiceTierSupport({
+    models: input.models,
+    modelId: input.options.model ?? input.currentModel,
+    catalogKnown: input.catalogKnown
+  })
+  return {
+    ...stored,
+    speed: {
+      ...stored.speed,
+      selection: { legacyFastMode: true, state: support.known ? 'unavailable' : 'unknown' }
+    }
+  }
+}
+
 /** The exact tier the next `turn/start` carries; throws before any write when the selection is
  *  refused, unavailable or unverifiable. */
 export function admitCodexSpeedIntentForTurn(input: RestingOptionsReadInput): string | undefined {

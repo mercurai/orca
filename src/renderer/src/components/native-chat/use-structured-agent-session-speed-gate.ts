@@ -1,5 +1,5 @@
 import { toast } from 'sonner'
-import { useCallback, useMemo, type MutableRefObject } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { AgentSessionOptionsResult } from '../../../../shared/agent-session-wire'
 import type { AgentSessionOptionCatalog } from '../../../../shared/agent-session-option-catalog'
 import { CODEX_SERVICE_TIER_OPTION_ID } from '../../../../shared/codex-service-tier-presentation'
@@ -31,8 +31,6 @@ export function useStructuredAgentSessionSpeedGate(args: {
   optionCatalog: AgentSessionOptionCatalog | null
   codexSpeedHost: StructuredAgentSessionHostCapabilityState
   optionState: StructuredAgentSessionOptionState
-  optionStateRef: MutableRefObject<StructuredAgentSessionOptionState>
-  pendingOptionRef: MutableRefObject<string | null>
   optionSnapshot: readonly SessionOptionDescriptor[]
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
@@ -43,8 +41,6 @@ export function useStructuredAgentSessionSpeedGate(args: {
     optionCatalog,
     optionSnapshot,
     optionState,
-    optionStateRef,
-    pendingOptionRef,
     sessionId,
     target,
     updateOptionState
@@ -69,27 +65,25 @@ export function useStructuredAgentSessionSpeedGate(args: {
     [codexSpeedHost]
   )
   /** Immediately before the write: the host may have changed since the pick was admitted, and an
-   *  older one drops a canonical tier. Holds the pending slot while it asks; false when the session
-   *  moved on meanwhile or the host does not affirm the capability. */
+   *  older one drops a canonical tier. The caller already owns the pending slot and generation, so
+   *  `isCurrent` says whether the session, host or generation moved on while it asked; false then,
+   *  or when the host does not affirm the capability (the caller releases the slot). */
   const admitSend = useCallback(
-    async (id: string): Promise<boolean> => {
+    async (id: string, isCurrent: () => boolean): Promise<boolean> => {
       if (id !== CODEX_SERVICE_TIER_OPTION_ID) {
         return true
       }
-      const admittedRecord = optionStateRef.current.record
-      pendingOptionRef.current = id
       const support = await readStructuredAgentSessionCodexSpeedSupport(target)
-      if (optionStateRef.current.record !== admittedRecord) {
+      if (!isCurrent()) {
         return false
       }
       if (support !== 'supported') {
-        pendingOptionRef.current = null
         refuseSpeedWrite(support)
         return false
       }
       return true
     },
-    [optionStateRef, pendingOptionRef, target]
+    [target]
   )
   /** After an accepted write: the host's own read replaces the committed guess, and its speed
    *  facts (the request it saw, what it applied) follow the write. Ignored once the session, host

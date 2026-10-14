@@ -121,6 +121,13 @@ export type CodexStructuredSessionAdapterDeps = {
   modelCatalog?: AgentModelCatalogStore
 }
 
+/** A speed request held back in memory: an exact tier id, or legacy Fast no tier id names. */
+export type CodexSpeedBlock = {
+  refusedTier?: string
+  legacyFastMode?: true
+  quarantined?: true
+}
+
 export type CodexSession = {
   account?: AgentSessionAccountKind
   connection: CodexAppServerConnection
@@ -155,6 +162,13 @@ export type CodexSession = {
    *  new `turn/start` is refused until an accepted speed pick. In memory only, so a restart forgets
    *  it; a steer into the running turn is unaffected. */
   speedQuarantined?: true
+  /** Legacy Fast that no catalog tier names, requested and never saved. No option map can hold it
+   *  beside the acknowledged tier, so it is kept here and read back as the blocked selection;
+   *  always with `speedQuarantined`. In memory only. */
+  blockedLegacyFastMode?: true
+  /** The speed block this session held when the option write in flight began, which an accepted
+   *  speed pick clears before its save settles; a failed save puts it back. Never persisted. */
+  speedBlockBeforeWrite?: CodexSpeedBlock
   /** Absent when the adapter runs without a host catalog store (tests). */
   catalogAccess?: CodexSessionCatalogAccess
   /** What this child's `turn/start` speed requests came to; lost with the child, never persisted. */

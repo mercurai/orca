@@ -26,6 +26,7 @@ import {
   type CodexSpeedHostSupport
 } from './codex-service-tier-presentation'
 import {
+  structuredAgentSessionReadyTier,
   structuredAgentSessionRequestConfirmed,
   type StructuredAgentSessionRequestedSpeed
 } from './structured-agent-session-option-acknowledgement'
@@ -159,7 +160,7 @@ export function applyStructuredAgentSessionModelCatalog(
             state.catalog,
             catalog.models,
             context.codexSpeedHost,
-            catalog.fastModeSupport?.supported === true
+            catalog.fastModeSupport?.supported
           )
         : null
     return refreshed ? { ...state, catalog: refreshed } : state
@@ -202,6 +203,12 @@ export function applyStructuredAgentSessionOptions(
     clearTrackedSessionOption(state.record, result.current.model ?? null, 'fastMode')
   }
   // A read that names no tier does not erase one the user requested: revalidation keeps intent.
+  const hostSpeed = isCodex ? result.speed : undefined
+  // The canonical read lists no `confirmed` tier: its own ready selection naming the stored tier
+  // is the report. A blocked or other-tier selection proves nothing of it.
+  const tierReported =
+    result.current.serviceTier !== undefined &&
+    structuredAgentSessionReadyTier(hostSpeed) === result.current.serviceTier
   applyNativeChatReportedSessionOptions(
     state.record,
     {
@@ -212,13 +219,16 @@ export function applyStructuredAgentSessionOptions(
         ? { [CODEX_SERVICE_TIER_OPTION_ID]: result.current.serviceTier }
         : {})
     },
-    result.current.confirmed ?? []
+    [...(result.current.confirmed ?? []), ...(tierReported ? [CODEX_SERVICE_TIER_OPTION_ID] : [])]
   )
   const { speed: _previousSpeed, requested, ...rest } = state
   // The host's own read of exactly what was requested answers it; any other read leaves it held.
   const stillRequested =
     requested !== undefined &&
-    !(state.pendingId === null && structuredAgentSessionRequestConfirmed(requested, result.current))
+    !(
+      state.pendingId === null &&
+      structuredAgentSessionRequestConfirmed(requested, result.current, hostSpeed)
+    )
   return {
     ...rest,
     ...(stillRequested ? { requested } : {}),
@@ -227,7 +237,7 @@ export function applyStructuredAgentSessionOptions(
       ...(codexSpeedHost ? { codexSpeedHost } : {})
     }),
     catalogSource: 'live',
-    ...(isCodex && result.speed ? { speed: result.speed } : {})
+    ...(hostSpeed ? { speed: hostSpeed } : {})
   }
 }
 

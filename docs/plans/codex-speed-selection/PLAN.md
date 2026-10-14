@@ -9,14 +9,18 @@ status: review-corrections
 
 ## Purpose and current state
 
-Current checkpoint (2026-10-14): focused CI38624845738 at c2f29ccb6243 passed 585 tests
-and failed 24 across core/mobile. This is intermediate evidence, not final release verification.
-Generic live persistence recovery passed independent C review; B review requires preserving
-memory-only blocked exact/legacy intent across subsequent failed non-speed saves and projecting
-unresolved legacy quarantine accurately. Sequential real-adapter red coverage is in progress.
-Five final picker regression files passed independent red-readiness review; source corrections await
-CI red proof. L's receipt/recheck/draft changes passed source inspection, with line-cap simplification
-and a visible first-send refusal notice still needed. No source landing, installation or runtime proof.
+Current checkpoint (2026-10-14): CI38629779067 at4894245b9850 passed 841 tests and
+failed 34 across core/mobile. This is intermediate evidence, not final release verification.
+Generic C recovery passed review; B sequential recovery is corrected in ordinary paths. Remaining
+B review requires truthful quarantine reads, retained requested intent after restore failure and
+safe subsequent complete-map settlement, plus extracting bookkeeping to meet the 300-line cap.
+D's remaining corrections separate authoritative stored-current provenance from ready admission
+and retain unanswered intent across a same-conversation mobile fence change. Final regressions
+await red CI. L receipt, recheck, draft, file-cap and central-notice source passed independent review.
+All eight real closed-db resume cases and expanded launch suites passed the last focused run.
+Three unchanged upstream baseline failures need separate owner correction: stale Windows test
+argv paths and foreground SSH PID umask. Pinned baseline CI proof is being prepared.
+No source landing, assigned release version, installation or loaded-runtime proof is complete.
 
 Implement Standard, Fast and Ultrafast selection through Orca's existing model catalog and option picker.
 This is the authoritative specification, ownership map and execution plan for this change.

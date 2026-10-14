@@ -20,7 +20,8 @@ import {
   acknowledgeStructuredAgentSessionAction,
   acknowledgedStructuredAgentSessionOptions,
   requestStructuredAgentSessionSpeed,
-  structuredAgentSessionHeldWithRequested
+  structuredAgentSessionHeldWithRequested,
+  withoutStructuredAgentSessionSpeedRequest
 } from '../../../src/shared/structured-agent-session-option-acknowledgement'
 import { encodeStructuredAgentSessionOptionValue } from '../../../src/shared/structured-agent-session-option-codec'
 import { structuredAgentSessionOptionView } from '../../../src/shared/structured-agent-session-option-view'
@@ -117,17 +118,29 @@ export function useMobileStructuredAgentOptionWrite(args: {
           'agentSession.setOption',
           { key: id, value: encoded }
         )
+        // An answer after the generation moved is not this view's: it commits, remembers and
+        // reads back nothing, and never reports a success the current view did not get.
         if (!isCurrent()) {
-          return result.status !== 'rejected'
+          return false
         }
         if (result.status === 'accepted') {
+          if (!result.sameFence) {
+            // Stored against a snapshot this view has left: the request is answered, but nothing
+            // is committed or remembered here, and the next read says what the host holds.
+            updateOptionState((current) =>
+              current.record === targetRecord && current.requested?.id === id
+                ? withoutStructuredAgentSessionSpeedRequest(current)
+                : current
+            )
+            return false
+          }
           // The action's own values: an older host's merged answer echoes the saved tier too.
           const committed = acknowledgedStructuredAgentSessionOptions(
             { id, value: encoded },
             result.value.options
           )
           updateOptionState((current) =>
-            current.record === targetRecord && result.sameFence
+            current.record === targetRecord
               ? acknowledgeStructuredAgentSessionAction(current, id, committed)
               : current
           )
@@ -141,26 +154,24 @@ export function useMobileStructuredAgentOptionWrite(args: {
               picks: structuredAgentSessionOptionPicks(currentState, committed)
             })
           }
-          if (result.sameFence) {
-            void callAgentSession<AgentSessionOptionsResult>(client, 'agentSession.options', {
-              sessionId
+          void callAgentSession<AgentSessionOptionsResult>(client, 'agentSession.options', {
+            sessionId
+          })
+            .then((refreshed) => {
+              if (isCurrent()) {
+                updateOptionState((latest) =>
+                  latest.record === targetRecord
+                    ? applyStructuredAgentSessionOptions(
+                        latest,
+                        optionCatalog,
+                        refreshed,
+                        codexSpeedHost
+                      )
+                    : latest
+                )
+              }
             })
-              .then((refreshed) => {
-                if (isCurrent()) {
-                  updateOptionState((latest) =>
-                    latest.record === targetRecord
-                      ? applyStructuredAgentSessionOptions(
-                          latest,
-                          optionCatalog,
-                          refreshed,
-                          codexSpeedHost
-                        )
-                      : latest
-                  )
-                }
-              })
-              .catch(() => undefined)
-          }
+            .catch(() => undefined)
           return true
         }
         if (result.status === 'unknown') {

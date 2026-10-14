@@ -122,13 +122,14 @@ export function codexSpeedCatalogOptions(
 /** The catalog with each listed model's speed control rebuilt from a fresher listing, so a refreshed
  *  list, a lost tier list or a changed host capability reaches a session whose own list is newer in
  *  source but older in time. No session value is touched: a requested id the new list no longer
- *  offers stays selected, shown disabled. A toggle the listing makes no claim about stays as it was.
+ *  offers stays selected, shown disabled. A toggle the listing makes no claim about stays as it was;
+ *  one it explicitly denies (the model or the account lacks Fast mode) goes.
  *  Null when no listed model matched. */
 export function refreshCodexServiceTierCatalog(
   catalog: AgentSessionOptionCatalog,
   listed: readonly AgentSessionModelOption[],
   host: CodexSpeedHostSupport | undefined,
-  sessionSupportsFastMode: boolean
+  accountFastMode: boolean | undefined
 ): AgentSessionOptionCatalog | null {
   const byId = new Map(listed.map((model) => [model.id, model]))
   let changed = false
@@ -138,14 +139,16 @@ export function refreshCodexServiceTierCatalog(
       return model
     }
     changed = true
-    const speed = codexSpeedCatalogOptions(listing, host, sessionSupportsFastMode)
+    const speed = codexSpeedCatalogOptions(listing, host, accountFastMode === true)
+    const keepsToggle =
+      speed.length === 0 && accountFastMode !== false && listing.supportsFastMode !== false
     return {
       ...model,
       options: [
         ...model.options.filter(
           (existing) =>
             (existing.id !== CODEX_SERVICE_TIER_OPTION_ID && existing.id !== 'fastMode') ||
-            (speed.length === 0 && existing.id === 'fastMode')
+            (keepsToggle && existing.id === 'fastMode')
         ),
         ...speed
       ]

@@ -507,7 +507,6 @@ describe('Codex legacy Fast toggle on a host listing refresh', () => {
     expect(idsOf(modelOnly)).toContain('fastMode')
     expect(idsOf(accountOnly)).toContain('fastMode')
   })
-
 })
 
 describe('Codex speed facts in option state', () => {

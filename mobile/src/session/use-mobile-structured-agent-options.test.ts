@@ -329,13 +329,17 @@ describe('useMobileStructuredAgentOptions post-write refresh', () => {
     )
     const harness = await mountOptions({ ...BASE, client: client.client, mutate })
 
+    let outcome: boolean | null = null
     await act(async () => {
-      await harness.current().setStructuredOption('fastMode', true)
+      outcome = await harness.current().setStructuredOption('fastMode', true)
     })
     await settle()
 
+    // Another fence's answer: no success, no read back, and the pick is not shown as stored.
+    expect(outcome).toBe(false)
     expect(client.optionReads()).toBe(1)
     expect(currentValueOf(harness.current().optionSnapshot, 'fastMode')).toBe(false)
+    expect(client.methods('settings.mutateNativeChatSessionOptions')).toEqual([])
     await harness.unmount()
   })
 })
@@ -401,7 +405,8 @@ describe('useMobileStructuredAgentOptions pending guard', () => {
       await firstWrite
     })
     await settle()
-    expect(await firstWrite).toBe(true)
+    // Answered against another fence: released, but no success is reported for this view.
+    expect(await firstWrite).toBe(false)
     expect(harness.current().pendingOptionId).toBeNull()
 
     // The guard is a ref, so a write that never clears it wedges every later pick.
@@ -410,7 +415,7 @@ describe('useMobileStructuredAgentOptions pending guard', () => {
       later = await harness.current().setStructuredOption('fastMode', true)
     })
     await settle()
-    expect(later).toBe(true)
+    expect(later).toBe(false)
     expect(calls).toHaveLength(2)
     await harness.unmount()
   })

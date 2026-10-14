@@ -4,6 +4,7 @@
 // acknowledgement is not the action, and a stored selection is never the request.
 
 import type { AgentSessionOptionsResult } from './agent-session-wire'
+import type { AgentSessionSpeedFacts } from './agent-session-speed-facts'
 import { CODEX_SERVICE_TIER_OPTION_ID } from './codex-service-tier-presentation'
 import { STRUCTURED_LAUNCH_SEED_OPTION_IDS } from './native-chat-session-option-defaults'
 import { resolveEffectiveNativeChatModelId } from './native-chat-session-option-snapshot'
@@ -93,13 +94,41 @@ export function withoutStructuredAgentSessionSpeedRequest(
   return rest
 }
 
-/** An accepted replacement answers the request, and the facts of the earlier answer (a refusal it
- *  named included) no longer describe the host until the next read says so. */
+/** The next-turn selection an accepted action stores. A canonical tier names itself; an accepted
+ *  Fast-off is Standard without naming its id; Fast-on names no id the host resolved. */
+function acceptedSpeedSelection(
+  accepted: Readonly<Record<string, string>>
+): AgentSessionSpeedFacts['selection'] | null {
+  const tierId = accepted[CODEX_SERVICE_TIER_OPTION_ID]
+  if (tierId !== undefined) {
+    return { tierId, state: 'ready' }
+  }
+  const fastMode = accepted[LEGACY_FAST_MODE_OPTION_ID]
+  if (fastMode === 'false') {
+    return { state: 'unselected' }
+  }
+  return fastMode === 'true' ? { legacyFastMode: true, state: 'unknown' } : null
+}
+
+/** An accepted replacement answers the request. Only the next-turn selection (the request it
+ *  replaced, a refusal it named included) is restated; what the host observed of earlier turns is
+ *  evidence about those turns and stays until a read replaces it. Absent facts stay absent. */
 export function settleStructuredAgentSessionSpeedRequest(
-  state: StructuredAgentSessionOptionState
+  state: StructuredAgentSessionOptionState,
+  accepted?: Readonly<Record<string, string>>
 ): StructuredAgentSessionOptionState {
-  const { speed: _speed, ...rest } = withoutStructuredAgentSessionSpeedRequest(state)
-  return rest
+  const { requested, ...rest } = state
+  if (!rest.speed) {
+    return rest
+  }
+  const selection = acceptedSpeedSelection(
+    accepted ?? (requested ? { [requested.id]: requested.value } : {})
+  )
+  const { selection: previous, ...evidence } = rest.speed
+  // Nothing accepted names a selection: a blocked claim goes, any other stays.
+  const blocked = previous.state === 'unavailable' || previous.state === 'unknown'
+  const next = selection ?? (blocked ? { state: 'unselected' as const } : previous)
+  return { ...rest, speed: { selection: next, ...evidence } }
 }
 
 /** An accepted explicit action: its values are committed, and an accepted speed replaces the
@@ -111,7 +140,7 @@ export function acknowledgeStructuredAgentSessionAction(
 ): StructuredAgentSessionOptionState {
   const next = commitStructuredAgentSessionOptionValues(state, committed)
   return isStructuredAgentSessionSpeedOption(state.record.agent, id)
-    ? settleStructuredAgentSessionSpeedRequest(next)
+    ? settleStructuredAgentSessionSpeedRequest(next, committed)
     : next
 }
 
@@ -137,17 +166,32 @@ export function structuredAgentSessionHeldWithRequested(
   return state.requested ? { ...held, [state.requested.id]: state.requested.value } : held
 }
 
-/** The host's own read stores exactly what was requested, so nothing is left to accept. */
+/** The tier a read's own ready selection says the host stores: the proof a canonical read gives
+ *  without naming it in `current.confirmed`, which describes the compatibility fields alone. */
+export function structuredAgentSessionReadyTier(
+  speed: AgentSessionSpeedFacts | undefined
+): string | undefined {
+  return speed?.selection.state === 'ready' ? speed.selection.tierId : undefined
+}
+
+/** The host's own read stores exactly what was requested, so nothing is left to accept. A read
+ *  whose facts call the selection blocked, unverifiable or another tier never answers it. */
 export function structuredAgentSessionRequestConfirmed(
   requested: StructuredAgentSessionRequestedSpeed,
-  current: AgentSessionOptionsResult['current']
+  current: AgentSessionOptionsResult['current'],
+  speed?: AgentSessionSpeedFacts
 ): boolean {
-  if (!(current.confirmed ?? []).includes(requested.id)) {
+  const confirmed = (current.confirmed ?? []).includes(requested.id)
+  if (requested.id === CODEX_SERVICE_TIER_OPTION_ID) {
+    if (current.serviceTier !== requested.value) {
+      return false
+    }
+    return speed ? structuredAgentSessionReadyTier(speed) === requested.value : confirmed
+  }
+  if (current.fastMode === undefined || String(current.fastMode) !== requested.value) {
     return false
   }
-  return requested.id === CODEX_SERVICE_TIER_OPTION_ID
-    ? current.serviceTier === requested.value
-    : current.fastMode !== undefined && String(current.fastMode) === requested.value
+  return speed ? speed.selection.state === 'ready' : confirmed
 }
 
 /** The values an accepted explicit action settles. Hosts before the catalog tiers merge the prior

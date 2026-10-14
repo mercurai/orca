@@ -173,12 +173,13 @@ export function saveStagedStructuredLaunchPromptsInComposer(sessionId: string): 
     const before = readNativeChatDraftCache(scopeKey)
     if (handBackStagedPrompt(prompt)) {
       prompt.composerCopy = { before, after: readNativeChatDraftCache(scopeKey) }
-      // The copy is the composer's text now: the sender is told to keep it, never to hand it back too.
+      // The copy is the composer's text now: the sender never adds it again, but still says why a
+      // send did not go.
       prompt.slot?.release()
       prompt.slot = reserveStructuredAgentSessionSend({
         sessionId,
         text: prompt.text,
-        callerKeepsText: true
+        callerKeepsText: 'composer'
       })
     }
   }
@@ -210,7 +211,7 @@ function sendStagedPrompt(
         sessionId: prompt.sessionId,
         target,
         text: prompt.text,
-        ...(prompt.composerCopy ? { callerKeepsText: true as const } : {})
+        ...(prompt.composerCopy ? { callerKeepsText: 'composer' as const } : {})
       })
     if (!sent) {
       // Another send of the chat holds its slot: the launch text waits in the composer instead.

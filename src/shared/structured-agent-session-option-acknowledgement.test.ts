@@ -421,10 +421,7 @@ describe('a read that stores the request but omits the confirmed list', () => {
       pendingId: 'serviceTier'
     }
 
-    const applied = applyRead(
-      inFlight,
-      hostRead({ model: MODEL_ID, serviceTier: ULTRAFAST.value })
-    )
+    const applied = applyRead(inFlight, hostRead({ model: MODEL_ID, serviceTier: ULTRAFAST.value }))
 
     expect(applied.requested).toEqual(inFlight.requested)
   })
@@ -441,5 +438,139 @@ describe('a read that stores the request but omits the confirmed list', () => {
     )
 
     expect(applied.requested).toBeUndefined()
+  })
+})
+
+// B's refusal read and C's resting read keep the accepted canonical tier as `current` and report
+// the refused pick only as the blocked selection beside it, still with no `confirmed` list. The
+// accepted tier is then the host's stored one; the blocked request is a separate claim and stays
+// held. Provenance and admission differ: only a ready selection naming the request releases it.
+describe('a refusal read that keeps the accepted tier beside a blocked request', () => {
+  const CUSTOM = 'synthetic-custom-lane'
+  const MODELS = [
+    {
+      id: MODEL_ID,
+      label: 'Synthetic Speed Model',
+      isDefault: true,
+      efforts: [],
+      serviceTiers: [{ value: 'default', label: 'Standard' }, FAST, ULTRAFAST]
+    }
+  ]
+  const HOST_EVIDENCE = {
+    lastRequest: {
+      clientMessageId: 'turn-1-message',
+      tierId: FAST.value,
+      turnId: 'turn-1',
+      state: 'accepted' as const
+    },
+    applied: { clientMessageId: 'turn-1-message', tierId: FAST.value, turnId: 'turn-1' },
+    processing: { turnId: 'turn-1', tierId: FAST.value }
+  }
+
+  /** The reader's own `current` for a stored tier, then the additive selection of what it refused. */
+  function refusalRead(
+    storedTier: string,
+    selection?: AgentSessionSpeedFacts['selection']
+  ): {
+    models: typeof MODELS
+    current: ReturnType<typeof readCodexServiceTierOptions>['current'] & { model: string }
+    speed: AgentSessionSpeedFacts
+  } {
+    const stored = readCodexServiceTierOptions({
+      options: { model: MODEL_ID, serviceTier: storedTier },
+      models: MODELS,
+      currentModel: MODEL_ID,
+      catalogKnown: true
+    })
+    return {
+      models: MODELS,
+      current: { model: MODEL_ID, ...stored.current },
+      speed: { ...stored.speed, ...HOST_EVIDENCE, ...(selection ? { selection } : {}) }
+    }
+  }
+
+  const applyRead = (
+    state: StructuredAgentSessionOptionState,
+    read: ReturnType<typeof refusalRead>
+  ) => applyStructuredAgentSessionOptions(state, CODEX_SESSION_OPTION_CATALOG, read, 'supported')
+
+  const storedTierOf = (state: StructuredAgentSessionOptionState) =>
+    state.record.valuesByModel[MODEL_ID]?.serviceTier
+
+  const BLOCKED: {
+    name: string
+    selection: AgentSessionSpeedFacts['selection']
+    request: { id: string; value: string }
+  }[] = [
+    {
+      name: 'an unavailable requested tier',
+      selection: { tierId: CUSTOM, state: 'unavailable' },
+      request: { id: 'serviceTier', value: CUSTOM }
+    },
+    {
+      name: 'a requested tier it cannot verify',
+      selection: { tierId: CUSTOM, state: 'unknown' },
+      request: { id: 'serviceTier', value: CUSTOM }
+    },
+    {
+      name: 'unresolved legacy Fast',
+      selection: { legacyFastMode: true, state: 'unknown' },
+      request: { id: 'fastMode', value: 'true' }
+    }
+  ]
+
+  it.each(BLOCKED)(
+    'records the accepted tier as stored beside $name and keeps the request blocked',
+    ({ selection, request }) => {
+      const held = requestStructuredAgentSessionSpeed(liveState(), request.id, request.value)
+      const read = refusalRead(FAST.value, selection)
+      expect('confirmed' in read.current).toBe(false)
+
+      const applied = applyRead(held, read)
+
+      expect(storedTierOf(applied)).toEqual({ value: FAST.value, source: 'reported' })
+      const tier = structuredAgentSessionOptionSnapshot(applied).find(
+        (entry) => entry.id === 'serviceTier'
+      )
+      expect(tier?.valueSource).toBe('reported')
+      const lines = codexSpeedLines(tier, applied.speed)
+      expect(lines[0]).toEqual({ kind: 'stored', label: 'Fast' })
+      expect(lines.filter((line) => line.kind === 'requested')).toHaveLength(1)
+      expect(applied.requested).toEqual(held.requested)
+      expect(structuredAgentSessionSpeedBlocked(applied)).toBe(true)
+      // What the host observed of earlier turns is the read's own and stays whole.
+      expect(applied.speed).toEqual(read.speed)
+      expect(applied.speed?.lastRequest).toEqual(HOST_EVIDENCE.lastRequest)
+      expect(applied.speed?.applied).toEqual(HOST_EVIDENCE.applied)
+      expect(applied.speed?.processing).toEqual(HOST_EVIDENCE.processing)
+    }
+  )
+
+  it('keeps the blocked request through a later read that stores another tier', () => {
+    const held = requestStructuredAgentSessionSpeed(liveState(), 'serviceTier', CUSTOM)
+    const refused = applyRead(
+      held,
+      refusalRead(FAST.value, { tierId: CUSTOM, state: 'unavailable' })
+    )
+
+    const later = applyRead(refused, refusalRead(ULTRAFAST.value))
+
+    expect(storedTierOf(later)).toEqual({ value: ULTRAFAST.value, source: 'reported' })
+    expect(later.requested).toEqual(held.requested)
+    expect(structuredAgentSessionSpeedBlocked(later)).toBe(true)
+  })
+
+  it('still releases a request only on a ready selection that names exactly it', () => {
+    const held = requestStructuredAgentSessionSpeed(liveState(), 'serviceTier', ULTRAFAST.value)
+
+    const blocked = applyRead(
+      held,
+      refusalRead(FAST.value, { tierId: ULTRAFAST.value, state: 'unavailable' })
+    )
+    expect(blocked.requested).toEqual(held.requested)
+
+    const released = applyRead(blocked, refusalRead(ULTRAFAST.value))
+    expect(released.requested).toBeUndefined()
+    expect(structuredAgentSessionSpeedBlocked(released)).toBe(false)
   })
 })

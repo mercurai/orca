@@ -118,8 +118,6 @@ export function useStructuredAgentSessionOptions(args: {
       optionCatalog,
       codexSpeedHost,
       optionState,
-      optionStateRef,
-      pendingOptionRef,
       optionSnapshot,
       updateOptionState
     })
@@ -137,11 +135,10 @@ export function useStructuredAgentSessionOptions(args: {
   const sendStructuredOption = useCallback(
     async (id: string, encoded: string): Promise<boolean> => {
       // Before the first await: a speed's request holds the chat's sends from this instant, and
-      // only an accepted replacement ends it, so a refusal or a lost answer keeps it.
+      // only an accepted replacement ends it, so a refusal or a lost answer keeps it. The pick also
+      // owns the pending slot and a new generation now, so a read begun earlier lands as stale and
+      // can neither commit nor answer it while the capability probe is still out.
       updateOptionState((current) => requestStructuredAgentSessionSpeed(current, id, encoded))
-      if (!(await admitSend(id))) {
-        return false
-      }
       const currentState = optionStateRef.current
       const targetRecord = currentState.record
       const mutationGeneration = ++optionMutationGeneration.current
@@ -151,6 +148,9 @@ export function useStructuredAgentSessionOptions(args: {
       pendingOptionRef.current = id
       updateOptionState((current) => ({ ...current, pendingId: id }))
       try {
+        if (!(await admitSend(id, isCurrent))) {
+          return false
+        }
         const result = await mutate<AgentSessionOptionResult>(
           'agentSession.setOption',
           'agentSession.setOption',

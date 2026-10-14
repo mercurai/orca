@@ -3,16 +3,24 @@
 // acknowledged, and one it refused, keep every send and queue send out so none goes at the prior
 // speed; deleting or editing a draft sends nothing and is never held back.
 
-import { createElement } from 'react'
+import { createElement, useMemo, useRef } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentSessionOptionsResult } from '../../../src/shared/agent-session-wire'
 import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
+import {
+  EMPTY_STRUCTURED_AGENT_SESSION,
+  type StructuredAgentSessionState
+} from '../../../src/shared/structured-agent-session-reducer'
 import type { RpcClient } from '../transport/rpc-client'
 import type { RpcResponse } from '../transport/types'
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
 import type { StructuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
+import { useMobileStructuredAgentMutate } from './use-mobile-structured-agent-mutation'
+import { useMobileStructuredAgentOptions } from './use-mobile-structured-agent-options'
 import { useMobileStructuredAgentSession } from './use-mobile-structured-agent-session'
+import { useMobileStructuredQueuedMessageControls } from './use-mobile-structured-queued-message-controls'
+import { useMobileStructuredSendWithOutcome } from './use-mobile-structured-send-with-outcome'
 import {
   CAPABLE,
   SESSION_ID,
@@ -41,15 +49,31 @@ const SOURCE_A = 'host-a\0workspace-a'
 const SOURCE_B = 'host-b\0workspace-b'
 const SETTINGS_WRITE = 'settings.mutateNativeChatSessionOptions'
 
-/** `refused` is a tier the host refused earlier: only its facts say so, current stays accepted. */
+/** `refused` is a tier the host refused earlier: only its facts say so, current stays accepted.
+ *  A `read` number is the host in the shape the live catalog and the resting read report: no
+ *  `confirmed` list, the ready selection beside the stored tier, and a last request naming the read
+ *  so a test can tell which answer its view applied. */
 function optionsReply(
   serviceTier: string,
-  refused: string | null = null
+  refused: string | null = null,
+  read: number | null = null
 ): AgentSessionOptionsResult {
+  const selection = refused
+    ? { tierId: refused, state: 'unavailable' as const }
+    : read !== null
+      ? { tierId: serviceTier, state: 'ready' as const }
+      : null
+  const lastRequest =
+    read !== null
+      ? {
+          clientMessageId: `read-${read}`,
+          tierId: serviceTier,
+          state: 'accepted' as const,
+          detail: `read ${read}`
+        }
+      : null
   return {
-    ...(refused
-      ? { speed: { selection: { tierId: refused, state: 'unavailable' as const } } }
-      : {}),
+    ...(selection ? { speed: { selection, ...(lastRequest ? { lastRequest } : {}) } } : {}),
     models: [
       {
         id: 'synthetic-speed-model',
@@ -61,7 +85,11 @@ function optionsReply(
       }
     ],
     fastModeSupport: { supported: true },
-    current: { model: 'synthetic-speed-model', serviceTier, confirmed: ['model', 'serviceTier'] }
+    current: {
+      model: 'synthetic-speed-model',
+      serviceTier,
+      ...(read === null ? { confirmed: ['model', 'serviceTier'] } : {})
+    }
   }
 }
 
@@ -69,16 +97,25 @@ type Write = { value: string; reply: (response: RpcResponse) => void }
 
 /** One host as the phone's client sees it: records every request, stores the tier a write it
  *  accepted names, and holds each `agentSession.setOption` until the test answers it. */
-function makeHost(start: { tier?: string; refused?: string } = {}) {
+function makeHost(start: { tier?: string; refused?: string; canonical?: boolean } = {}) {
   const sent: { method: string; params: unknown }[] = []
   const writes: Write[] = []
   let listener: ((value: unknown) => void) | null = null
   let tier = start.tier ?? STANDARD_TIER.value
   let refused = start.refused ?? null
+  let readMode: 'answer' | 'hold' | 'fail' = 'answer'
+  let answered = 0
   const respond = (method: string, params: unknown): Promise<RpcResponse> | RpcResponse => {
     switch (method) {
       case 'agentSession.options':
-        return ok(optionsReply(tier, refused))
+        if (readMode === 'fail') {
+          return Promise.reject(new Error('options_read_failed'))
+        }
+        if (readMode === 'hold') {
+          return new Promise<RpcResponse>(() => {})
+        }
+        answered += 1
+        return ok(optionsReply(tier, refused, start.canonical ? answered : null))
       case 'agentSession.setOption':
         return new Promise((reply) => writes.push({ value: String(fieldsOf(params).value), reply }))
       case 'agentSession.send':
@@ -118,6 +155,15 @@ function makeHost(start: { tier?: string; refused?: string } = {}) {
     writes,
     calls: (method: string) => sent.filter((entry) => entry.method === method),
     listener: () => listener,
+    /** What a later `agentSession.options` read does: answer, never answer, or fail. */
+    readsAre(mode: 'answer' | 'hold' | 'fail') {
+      readMode = mode
+    },
+    /** The tier, and the refusal beside it, the host's own store holds from now on. */
+    stores(next: string, blocked: string | null = null) {
+      tier = next
+      refused = blocked
+    },
     /** `stores: false` answers as a host whose own tier this one never reads. */
     accept(index: number, stores = true) {
       const write = writes.at(index)
@@ -237,7 +283,12 @@ describe('Codex speed pick and the phone sends', () => {
   }
 
   /** An ordinary send, a queue Send now and a Resume, each tried once. */
-  async function tryEverySend(): Promise<{
+  async function tryEverySend(
+    target: Pick<
+      ReturnType<typeof useMobileStructuredAgentSession>,
+      'sendWithOutcome' | 'queued'
+    > = chat()
+  ): Promise<{
     send: MobileNativeChatSendOutcome
     steer: boolean
     resume: boolean
@@ -245,9 +296,9 @@ describe('Codex speed pick and the phone sends', () => {
     let result = { send: 'accepted' as MobileNativeChatSendOutcome, steer: true, resume: true }
     await act(async () => {
       result = {
-        send: await chat().sendWithOutcome('typed meanwhile'),
-        steer: await chat().queued.send('draft-1'),
-        resume: await chat().queued.resume()
+        send: await target.sendWithOutcome('typed meanwhile'),
+        steer: await target.queued.send('draft-1'),
+        resume: await target.queued.resume()
       }
     })
     return result
@@ -337,14 +388,16 @@ describe('Codex speed pick and the phone sends', () => {
     expect(next.calls('agentSession.send')).toHaveLength(1)
     expect(previous.calls('agentSession.send')).toEqual([])
 
-    await settle(() => previous.accept(0), late)
+    // Mounting legitimately read the previous host twice (before and after its fence arrived).
+    const previousReads = previous.calls('agentSession.options').length
+    expect(await settle(() => previous.accept(0), late)).toBe(false)
 
     // That answer was the previous host's: the new host's stored tier stays its own read, and
-    // nothing was written back to either host.
+    // nothing was written back to, or read from, either host because of it.
     expect(tierValue()).toBe('default')
     expect(previous.calls(SETTINGS_WRITE)).toEqual([])
     expect(next.calls(SETTINGS_WRITE)).toEqual([])
-    expect(previous.calls('agentSession.options')).toHaveLength(1)
+    expect(previous.calls('agentSession.options')).toHaveLength(previousReads)
   })
 
   it('does not let a pick answered after only the source identity changed commit or persist', async () => {
@@ -424,5 +477,229 @@ describe('Codex speed pick and the phone sends', () => {
     expect(released).toMatchObject({ steer: true, resume: true })
     await vi.waitFor(() => expect(host.calls(SETTINGS_WRITE)).toHaveLength(1))
     expect(JSON.stringify(host.calls(SETTINGS_WRITE))).not.toContain(ULTRAFAST_TIER.value)
+  })
+
+  // The transcript state's fence moves before this view's options reset for it (the parent updates
+  // its fence first), so an answer can be accepted at "another fence" with the view still current.
+  // That fence is not host or session identity: the pick stays held through every send until this
+  // view's own read of the new fence names exactly it. Real options, send and queued hooks; only
+  // the client's wire is replaced and the fence is moved as the parent's layout effect moves it.
+  describe('a pick answered at another fence of the same session', () => {
+    const FENCE = 3
+    const NEXT_FENCE = 4
+    const DRAFTS = [queuedDraft({ messageId: 'draft-1' })]
+    const reportSendError = vi.fn()
+    const stateRef: { current: StructuredAgentSessionState } = {
+      current: { ...EMPTY_STRUCTURED_AGENT_SESSION, fence: FENCE }
+    }
+    type Wired = {
+      options: ReturnType<typeof useMobileStructuredAgentOptions>
+      send: ReturnType<typeof useMobileStructuredSendWithOutcome>
+      queued: ReturnType<typeof useMobileStructuredQueuedMessageControls>
+    }
+    let wired: Wired | null = null
+
+    function FencedSession({ host, fence }: { host: Host; fence: number }): null {
+      const mutate = useMobileStructuredAgentMutate({
+        client: host.client,
+        sessionId: SESSION_ID,
+        enabled: true,
+        stateRef,
+        onSendError: reportSendError
+      })
+      const options = useMobileStructuredAgentOptions({
+        agent: 'codex',
+        client: host.client,
+        sessionId: SESSION_ID,
+        sourceIdentity: SOURCE_A,
+        enabled: true,
+        fence,
+        mutate,
+        codexSpeedHost: 'supported'
+      })
+      const commandPending = useRef(false)
+      const controller = useMemo(
+        () => ({
+          snapshot: options.optionSnapshot,
+          setOption: options.setStructuredOption,
+          invokeAction: options.invokeStructuredOption,
+          conversationCommands: options.conversationCommands
+        }),
+        [
+          options.conversationCommands,
+          options.invokeStructuredOption,
+          options.optionSnapshot,
+          options.setStructuredOption
+        ]
+      )
+      const send = useMobileStructuredSendWithOutcome({
+        agent: 'codex',
+        client: host.client,
+        sessionId: SESSION_ID,
+        enabled: true,
+        queueCapable: true,
+        commandsWait: false,
+        stateRef,
+        commandPending,
+        controller,
+        speedSendBlocked: options.isSpeedSendBlocked,
+        onSendError: reportSendError
+      })
+      const queued = useMobileStructuredQueuedMessageControls({
+        sessionKey: 'fenced-session',
+        queuedMessages: DRAFTS,
+        queuePause: null,
+        submissions: [],
+        pendingPrompt: false,
+        mutate,
+        appendComposerText: undefined,
+        sendsBlocked: options.isSpeedSendBlocked,
+        onSendError: reportSendError
+      })
+      wired = { options, send, queued }
+      return null
+    }
+
+    const session = (): Wired => {
+      if (!wired) {
+        throw new Error('harness never rendered')
+      }
+      return wired
+    }
+
+    const storedTier = () => {
+      const kind = session().options.optionSnapshot.find((entry) => entry.id === 'serviceTier')?.kind
+      return kind && 'currentValue' in kind ? kind.currentValue : undefined
+    }
+
+    /** Names the host read whose answer this view last applied. */
+    const appliedRead = () => {
+      const line = codexSpeedLinesOfSurface(session().options.optionSurface).find(
+        (entry) => entry.kind === 'last-request'
+      )
+      return line?.kind === 'last-request' ? line.detail : undefined
+    }
+
+    async function moveTo(host: Host, fence: number): Promise<void> {
+      // The parent's layout effect: the shared state's fence is current before options reset.
+      stateRef.current = { ...stateRef.current, fence }
+      await act(async () => {
+        renderer?.update(createElement(FencedSession, { host, fence }))
+      })
+    }
+
+    /** Moves to `fence`, whose own read the host answers, and waits until this view applied it. */
+    async function moveAndApplyRead(host: Host, fence: number): Promise<void> {
+      const before = appliedRead()
+      await moveTo(host, fence)
+      await vi.waitFor(() => expect(appliedRead()).not.toBe(before))
+    }
+
+    async function expectEverySendHeldOut(host: Host): Promise<void> {
+      expect(session().options.isSpeedSendBlocked()).toBe(true)
+      const outcome = await tryEverySend({
+        sendWithOutcome: session().send,
+        queued: session().queued
+      })
+      expect(outcome).toEqual({ send: 'rejected', steer: false, resume: false })
+      expect(wireSends(host)).toEqual([])
+    }
+
+    beforeEach(() => {
+      wired = null
+      stateRef.current = { ...EMPTY_STRUCTURED_AGENT_SESSION, fence: FENCE }
+      reportSendError.mockClear()
+    })
+
+    it.each(['unanswered', 'failed'] as const)(
+      'holds every send while the new fence read is %s and releases only on a read naming the pick',
+      async (firstRead) => {
+        const host = makeHost({ canonical: true })
+        act(() => {
+          renderer = create(createElement(FencedSession, { host, fence: FENCE }))
+        })
+        await vi.waitFor(() => expect(storedTier()).toBe(STANDARD_TIER.value))
+        // Every read the mount issued has been applied before the race starts.
+        await vi.waitFor(() =>
+          expect(appliedRead()).toBe(`read ${host.calls('agentSession.options').length}`)
+        )
+        let late: Promise<boolean> = Promise.resolve(false)
+        act(() => {
+          late = session().options.setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
+        })
+        await vi.waitFor(() => expect(host.writes).toHaveLength(1))
+        const readsBefore = host.calls('agentSession.options').length
+
+        // The host accepts it after the shared state moved to the next fence, before this view's
+        // options have reset for that fence.
+        host.readsAre(firstRead === 'unanswered' ? 'hold' : 'fail')
+        stateRef.current = { ...stateRef.current, fence: NEXT_FENCE }
+        expect(await settle(() => host.accept(0), late)).toBe(false)
+
+        // Not released: the fence moved, which proves nothing about which host or session stored it.
+        await expectEverySendHeldOut(host)
+        expect(codexSpeedLinesOfSurface(session().options.optionSurface)[0]).toEqual({
+          kind: 'pending',
+          label: 'Ultrafast'
+        })
+        // And nothing committed, remembered or read back on the strength of that answer.
+        expect(host.calls(SETTINGS_WRITE)).toEqual([])
+        expect(host.calls('agentSession.options')).toHaveLength(readsBefore)
+
+        // The new fence arrives and its read is pending or failed: still no send.
+        await moveTo(host, NEXT_FENCE)
+        await vi.waitFor(() =>
+          expect(host.calls('agentSession.options').length).toBeGreaterThan(readsBefore)
+        )
+        await expectEverySendHeldOut(host)
+
+        // A read that stores another tier, and one that still calls the pick blocked, answer nothing.
+        host.readsAre('answer')
+        host.stores(STANDARD_TIER.value)
+        await moveAndApplyRead(host, NEXT_FENCE + 1)
+        await expectEverySendHeldOut(host)
+        host.stores(ULTRAFAST_TIER.value, CUSTOM_TIER.value)
+        await moveAndApplyRead(host, NEXT_FENCE + 2)
+        await expectEverySendHeldOut(host)
+
+        // The new fence's own read of exactly the picked tier answers it.
+        host.stores(ULTRAFAST_TIER.value)
+        await moveAndApplyRead(host, NEXT_FENCE + 3)
+        await vi.waitFor(() => expect(session().options.isSpeedSendBlocked()).toBe(false))
+        const released = await tryEverySend({
+          sendWithOutcome: session().send,
+          queued: session().queued
+        })
+        expect(released.send).not.toBe('rejected')
+        expect(released).toMatchObject({ steer: true, resume: true })
+      }
+    )
+
+    it('is released by an explicit replacement the host accepted at the current fence', async () => {
+      const host = makeHost({ canonical: true })
+      act(() => {
+        renderer = create(createElement(FencedSession, { host, fence: FENCE }))
+      })
+      await vi.waitFor(() => expect(storedTier()).toBe(STANDARD_TIER.value))
+      let late: Promise<boolean> = Promise.resolve(false)
+      act(() => {
+        late = session().options.setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
+      })
+      await vi.waitFor(() => expect(host.writes).toHaveLength(1))
+      host.readsAre('hold')
+      stateRef.current = { ...stateRef.current, fence: NEXT_FENCE }
+      expect(await settle(() => host.accept(0), late)).toBe(false)
+      await expectEverySendHeldOut(host)
+
+      await moveTo(host, NEXT_FENCE)
+      let replacement: Promise<boolean> = Promise.resolve(false)
+      act(() => {
+        replacement = session().options.setStructuredOption('serviceTier', STANDARD_TIER.value)
+      })
+      await vi.waitFor(() => expect(host.writes).toHaveLength(2))
+      expect(await settle(() => host.accept(1), replacement)).toBe(true)
+
+      await vi.waitFor(() => expect(session().options.isSpeedSendBlocked()).toBe(false))
+    })
   })
 })
