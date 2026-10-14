@@ -58,11 +58,15 @@ export {
   subscribeStructuredAgentLaunchStatus,
   useStructuredAgentSessionLaunchFailure,
   useStructuredAgentSessionLaunchLifecycle,
+  useStructuredAgentSessionLaunchSpeedBlock,
   type StructuredAgentLaunchStatus,
   type StructuredAgentSessionLaunchLifecycle
 } from './structured-agent-session-launch-registry'
 export * from './structured-agent-session-launch-status'
-export { useStructuredAgentSessionLaunchSelection } from './structured-agent-session-launch-options'
+export {
+  recheckStructuredAgentSessionLaunchSpeed,
+  useStructuredAgentSessionLaunchSelection
+} from './structured-agent-session-launch-options'
 
 type StructuredLaunchStateResult = {
   state: StructuredLaunchState
@@ -141,6 +145,8 @@ function restartStructuredLaunchState(state: StructuredLaunchState): void {
   }
   resetStructuredLaunchCallers(state)
   delete state.failure
+  // The speed is judged again by this attempt, so an earlier attempt's block no longer stands.
+  delete state.speedBlock
   state.callers.outcome = 'pending'
   // A new create seeds from the settings of now (a paired server's arrive with its probe); picks
   // held through the failure still apply.

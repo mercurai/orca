@@ -1,41 +1,33 @@
+import { providerDiagnostic, providerDiagnosticOf } from '../../shared/agent-session-failure'
+import type { AgentSessionSpeedFacts } from '../../shared/agent-session-speed-facts'
 import type {
   AgentSessionFastModeSupport,
-  AgentSessionModelOption
+  AgentSessionModelOption,
+  AgentSessionOptionChoice
 } from '../../shared/agent-session-wire'
-import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured-agent-session-option-codec'
+import {
+  admitCodexServiceTierForTurn,
+  CodexServiceTierSelectionError,
+  codexFastTierId,
+  normalizeCodexServiceTierOptions,
+  parseCodexModelServiceTiers
+} from '../../shared/codex-service-tier-selection'
+import { isCodexAppServerRequestError } from './codex-app-server-connection'
+import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
+import { codexListingDefaultModel, codexSpeedCatalog } from './codex-structured-catalog-entry'
 import type { CodexOpenedThread } from './codex-structured-thread-open'
 import type { CodexSession } from './codex-structured-session-state'
 
-function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : null
-}
-
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value : null
-}
-
-export function readCodexFastModeTier(row: Record<string, unknown>): {
-  id?: string
-  supportKnown: boolean
+/** A model row's advertised request tiers, with the legacy Fast projection derived from the same rows. */
+export function readCodexModelTiers(row: Record<string, unknown>): {
+  serviceTiers?: AgentSessionOptionChoice[]
+  fastModeTierId?: string
 } {
-  const modern = Array.isArray(row.serviceTiers) ? row.serviceTiers : null
-  const advertised = modern?.flatMap((value) => {
-    const tier = record(value)
-    const id = text(tier?.id)
-    const name = text(tier?.name)
-    return id && name ? [{ id, name }] : []
-  })
-  const exactModern = advertised?.find(
-    (tier) => tier.name.toLowerCase() === 'fast' || tier.id.toLowerCase() === 'fast'
-  )
-  if (exactModern) {
-    return { id: exactModern.id, supportKnown: true }
-  }
-  const legacy = Array.isArray(row.additionalSpeedTiers) ? row.additionalSpeedTiers : null
-  const exactLegacy = legacy?.map(text).find((tier) => tier?.toLowerCase() === 'fast')
+  const serviceTiers = parseCodexModelServiceTiers(row)
+  const fastModeTierId = codexFastTierId(serviceTiers)
   return {
-    ...(exactLegacy ? { id: exactLegacy } : {}),
-    supportKnown: modern !== null || legacy !== null
+    ...(serviceTiers ? { serviceTiers } : {}),
+    ...(fastModeTierId ? { fastModeTierId } : {})
   }
 }
 
@@ -50,15 +42,6 @@ export function codexFastModeSupport(
     : undefined
 }
 
-export function decodeCodexFastMode(options: ReadonlyMap<string, string>): boolean | undefined {
-  const encoded = options.get('fastMode')
-  if (encoded === undefined) {
-    return undefined
-  }
-  const decoded = decodeStructuredAgentSessionOptionValue('fastMode', encoded)
-  return typeof decoded === 'boolean' ? decoded : undefined
-}
-
 export function reportedCodexThreadOptions(
   opened: CodexOpenedThread
 ): CodexSession['reportedOptions'] {
@@ -71,35 +54,147 @@ export function reportedCodexThreadOptions(
   }
 }
 
-export function reconcileCodexFastModeOption(
-  session: CodexSession,
-  input: {
-    fastModeTierByModel: Map<string, string>
-    currentFastMode: boolean | undefined
-    model: string
-    modelFastModeSupport: boolean | undefined
-  }
+/** Replaces a session's stored options in place; the Map's identity is shared with its turns. */
+export function replaceCodexSessionOptions(
+  options: Map<string, string>,
+  next: Readonly<Record<string, string>>
 ): void {
-  const encoded = session.options.get('fastMode')
-  if (encoded !== undefined && decodeCodexFastMode(session.options) === undefined) {
-    session.options.delete('fastMode')
+  options.clear()
+  for (const [key, value] of Object.entries(next)) {
+    options.set(key, value)
   }
-  const legacyTier = session.options.get('serviceTier')
-  session.options.delete('serviceTier')
-  if (session.options.has('fastMode')) {
-    if (session.options.get('fastMode') === 'true' && input.modelFastModeSupport === false) {
-      session.options.set('fastMode', 'false')
+}
+
+/** Resolves legacy speed intent against a catalog the host now holds. Nothing is dropped: an
+ *  unresolved Fast stays as intent, and an advertised tier is never rewritten. */
+export function migrateCodexSessionSpeed(
+  session: Pick<CodexSession, 'options'>,
+  input: { models: readonly AgentSessionModelOption[]; currentModel: string | undefined }
+): void {
+  replaceCodexSessionOptions(
+    session.options,
+    normalizeCodexServiceTierOptions({
+      priorOptions: Object.fromEntries(session.options),
+      changes: {},
+      origin: 'restore',
+      models: input.models,
+      ...(input.currentModel ? { currentModel: input.currentModel } : {}),
+      catalogKnown: true
+    })
+  )
+}
+
+// ─── Speed evidence ─────────────────────────────────────────────────────────
+
+/** What this session's host observed about its speed requests. Ephemeral and per child: it is
+ *  never persisted, and a new acquisition starts with none. */
+export type CodexSpeedEvidence = Pick<AgentSessionSpeedFacts, 'lastRequest' | 'applied'>
+
+type CodexSpeedRequest = NonNullable<AgentSessionSpeedFacts['lastRequest']>
+
+/** A new attempt replaces `lastRequest` only. `applied` moves on a positive answer to that request. */
+export function recordCodexSpeedRequest(
+  host: Pick<CodexSession, 'speedEvidence'>,
+  request: Omit<CodexSpeedRequest, 'detail'> & { detail?: string | undefined }
+): void {
+  const { clientMessageId, tierId, turnId, state } = request
+  const detail = request.detail ? providerDiagnostic(request.detail, 'person')?.text : undefined
+  host.speedEvidence = {
+    ...host.speedEvidence,
+    lastRequest: {
+      clientMessageId,
+      tierId,
+      state,
+      ...(turnId ? { turnId } : {}),
+      ...(detail ? { detail } : {})
+    },
+    ...(state === 'accepted'
+      ? { applied: { clientMessageId, tierId, ...(turnId ? { turnId } : {}) } }
+      : {})
+  }
+}
+
+/** The selection facts plus the session's request evidence. Processing stays absent: no per-turn
+ *  server report of the tier is read anywhere. */
+export function codexSpeedFacts(
+  selection: AgentSessionSpeedFacts,
+  evidence: CodexSpeedEvidence | undefined
+): AgentSessionSpeedFacts {
+  return {
+    ...selection,
+    ...(evidence?.lastRequest ? { lastRequest: evidence.lastRequest } : {}),
+    ...(evidence?.applied ? { applied: evidence.applied } : {})
+  }
+}
+
+type CodexSpeedHost = Pick<CodexSession, 'options' | 'catalogAccess' | 'speedEvidence'> & {
+  reportedOptions?: { model?: string }
+}
+
+/** The exact tier the next `turn/start` carries, validated against this session's own account
+ *  catalog; undefined when the session never chose a speed. Throws before any write when the
+ *  selection is unavailable or unverifiable, recording that refusal. */
+export function admitCodexTurnSpeed(
+  host: CodexSpeedHost,
+  clientMessageId: string
+): string | undefined {
+  const catalog = codexSpeedCatalog(host.catalogAccess)
+  const currentModel =
+    host.options.get('model') ??
+    host.reportedOptions?.model ??
+    codexListingDefaultModel(catalog.models)
+  try {
+    return admitCodexServiceTierForTurn({
+      options: Object.fromEntries(host.options),
+      models: catalog.models,
+      ...(currentModel ? { currentModel } : {}),
+      catalogKnown: catalog.known
+    })
+  } catch (error) {
+    if (error instanceof CodexServiceTierSelectionError && error.tierId) {
+      recordCodexSpeedRequest(host, {
+        clientMessageId,
+        tierId: error.tierId,
+        state: 'rejected',
+        detail: error.message
+      })
     }
-    return
+    throw error
   }
-  if (legacyTier === 'default') {
-    session.options.set('fastMode', 'false')
-  } else if (
-    legacyTier !== undefined &&
-    legacyTier === input.fastModeTierByModel.get(input.model)
-  ) {
-    session.options.set('fastMode', 'true')
-  } else if (legacyTier === undefined && input.currentFastMode !== undefined) {
-    session.options.set('fastMode', String(input.currentFastMode))
+}
+
+/** Runs the `turn/start` write carrying `tierId`, recording what became of that exact request.
+ *  A transport failure leaves it `sent`: delivery is unknown, never accepted or rejected. */
+export async function trackCodexSpeedRequest<TAnswer>(
+  host: Pick<CodexSession, 'speedEvidence'>,
+  request: { clientMessageId: string; tierId: string | undefined },
+  write: () => Promise<TAnswer>,
+  turnIdOf: (answer: TAnswer) => string | null
+): Promise<TAnswer> {
+  const { clientMessageId, tierId } = request
+  if (tierId === undefined) {
+    return write()
+  }
+  recordCodexSpeedRequest(host, { clientMessageId, tierId, state: 'sent' })
+  try {
+    const answer = await write()
+    recordCodexSpeedRequest(host, {
+      clientMessageId,
+      tierId,
+      state: 'accepted',
+      turnId: turnIdOf(answer) ?? undefined
+    })
+    return answer
+  } catch (error) {
+    if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
+      const diagnostic = providerDiagnosticOf(error)
+      recordCodexSpeedRequest(host, {
+        clientMessageId,
+        tierId,
+        state: 'rejected',
+        detail: diagnostic?.audience === 'person' ? diagnostic.text : undefined
+      })
+    }
+    throw error
   }
 }

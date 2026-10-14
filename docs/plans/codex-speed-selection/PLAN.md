@@ -1,6 +1,6 @@
 ---
 owner: codex-01a1273e
-last-reviewed: 2026-10-13
+last-reviewed: 2026-10-14
 stability: draft
 status: review-corrections
 ---
@@ -222,6 +222,8 @@ provider-neutral live/at-rest catches persist the block before returning a refus
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
 Own focused `structured-agent-session-speed-refusal-persistence.test.ts` for the real generic live
 mutation boundary, including refused-state persistence failure and unchanged other-provider errors.
+Register that real journal fixture in the Node project too. Refusal-state maps apply only to
+`optionRejected`; `providerStarting` must not persist them even if an error supplies one.
 B supplies Codex's definition implementation through A's frozen interface; C never edits either definition file.
 Preserve complete option maps through at-rest writes, live writes, record reload and same-conversation resume.
 Verify existing account-home and provider-handle identity survives. Test Claude with the optional validator absent.
@@ -256,6 +258,15 @@ and `use-mobile-structured-queued-message-controls.ts`, with matching tests.
 Focused tests may use `mobile-codex-speed-options-facts.test.ts` and
 `mobile-codex-speed-send-admission.test.ts`; extract the saved oversized mobile options additions
 before further corrections. Preserve actual controller forwarding and both clients' write assertions.
+Mobile facts and action provenance may update `use-mobile-native-chat-session-option-controller.ts`
+and `use-mobile-native-chat-controller.ts`, with matching tests. Preserve explicit accepted legacy
+action provenance for older-host at-rest acknowledgements that echo canonical and boolean values
+together; generic restored batches still prefer canonical. Show persisted blocked requested intent
+from `speed.selection` separately from `current.serviceTier`, including a fresh client after restart.
+Focused mobile parent-forwarding coverage may use `mobile-codex-speed-parent-forwarding.test.ts`;
+the existing parent controller test is already large. Never make a fixture-only mapping stand in for
+the production forwarding path. D may extract `structured-agent-session-option-acknowledgement.ts`
+under `src/shared/` if needed to keep explicit-action handling focused without a file-limit exception.
 Generated localization catalogs may change only for the new strings using repository localization tooling.
 If a launch boundary needs another file, update this ownership map before writing; do not broaden scope silently.
 Use existing UI primitives and style tokens. Old-host controls remain selectable; new speed controls require capability.
@@ -295,6 +306,12 @@ Execute this bounded correction after independent trace and red CI evidence, wit
 
 ### E: root-owned integration and delivery
 
+Temporary `.github/workflows/codex-speed-catalog-sync.yml` belongs to E. One narrowly scoped CI
+generation job may use existing localization/formatter tooling and upload an inspectable patch;
+it must not skip or replace required PR checks. Use only the lane's auxiliary generation branch,
+read-only GitHub permissions, no secrets and no deployment. Remove the helper from the final patch.
+Generated English catalogs under `src/renderer/src/i18n/` belong to E for these new strings only.
+
 Update `docs/site/content/docs/agents/codex.mdx` and `native-chat.mdx` in the same directory with selector,
 next-turn, older-host and unavailable-tier behavior. Keep this plan's acceptance evidence current.
 Inspect the combined diff for missed launch/resume consumers and simplify before independent review.
@@ -313,9 +330,16 @@ Do not independently bump upstream `package.json` or choose a released version; 
 | D | Rebuild controls on metadata/capability loss; capable unknown models show Standard recovery; fence mobile client/source changes; expose mobile facts; retain pending/refused intent and gate ordinary/reserved/queued sends. | Use real queue-controller wiring instead of test-only sessionId; attempt paired target after cutover; assert both clients receive no stale settings writes; add stable-client/source and late-unknown cases; test actual mobile forwarding; extract focused mobile additions. |
 | L | Recheck generations/cancellation after awaits and at delivery; capability-gate every canonical seed/write including Standard; explicit legacy replacement supersedes canonical; preserve both speed forms across model change; recover authoritative selection and existing receipt/draft. | Clear draft cache before setting storage; discard parked prompts and reset sends/fences in original/fresh module instances; replace fake reload; add host/catalog/model probe cutovers, delivery invalidation and held SSH picks; assert successful recovery publication and no persisted private diagnostic. |
 
-Reviews were independent and read-only on slice diffs, not immutable final-head acceptance. The saved L
-regression file is not ready until fixture isolation is corrected. Do not count a passing fake reload
-as proof of fresh-renderer recovery. Real Sonnet correction workers resumed on October 14.
+Reviews are independent and read-only on slice diffs, not immutable final-head acceptance. On October 14,
+B, C, F and L regression corrections passed independent red-test readiness review. L now uses fresh-module
+reload and teardown isolation; its production findings remain open. D completed actual mobile parent
+forwarding, stable-client source-cutover, old-host action provenance and persisted-refusal regressions;
+independent review is pending. No model change was required: actual Sonnet implementation resumed.
+Revision 691b3b5cc3 is pushed for red CI; static/type, Windows/main packaging, relay and wire checks passed.
+Its test shards are still running. A reviewed temporary auxiliary CI workflow formats only task paths,
+generates English catalogs with repository tools and runs sequential bounded core/mobile targets. It
+returns explicit failure for red tests and uploads only a scoped patch and source/outcome metadata.
+The workflow is not a release gate and will be excluded from the final product patch.
 
 | Criterion | Required proof | State |
 | --- | --- | --- |

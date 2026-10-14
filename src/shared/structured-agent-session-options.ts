@@ -21,10 +21,14 @@ import type {
   AgentSessionModelCatalogResult,
   AgentSessionOptionsResult
 } from './agent-session-wire'
+import type { AgentSessionSpeedFacts } from './agent-session-speed-facts'
 import {
-  decodeStructuredAgentSessionOptionValue,
-  encodeStructuredAgentSessionOptionValue
-} from './structured-agent-session-option-codec'
+  CODEX_SERVICE_TIER_OPTION_ID,
+  codexServiceTierCatalogOption,
+  refreshCodexServiceTierCatalog,
+  type CodexSpeedHostSupport
+} from './codex-service-tier-presentation'
+import { decodeStructuredAgentSessionOptionValue } from './structured-agent-session-option-codec'
 
 function effortOption(model: AgentSessionOptionsResult['models'][number]): CatalogOption | null {
   if (model.efforts.length <= 1) {
@@ -54,11 +58,25 @@ function fastModeOption(): CatalogOption {
   }
 }
 
+/** Who the catalog is for, stated by the caller from its session record. Speed tiers are Codex's
+ *  alone: another agent keeps its own controls however much tier metadata a listing carries. */
+export type StructuredAgentSessionCatalogContext = {
+  agent: string
+  /** The execution host's answer for the speed capability; absent leaves it to model metadata. */
+  codexSpeedHost?: CodexSpeedHostSupport
+}
+
+const CODEX_CATALOG_CONTEXT: StructuredAgentSessionCatalogContext = { agent: 'codex' }
+
 function discoveredModel(
   model: AgentSessionOptionsResult['models'][number],
-  sessionSupportsFastMode: boolean
+  sessionSupportsFastMode: boolean,
+  context: StructuredAgentSessionCatalogContext
 ): CatalogModel {
   const effort = effortOption(model)
+  // A model with a speed select drops the boolean: the select carries Standard and Fast too.
+  const speed =
+    context.agent === 'codex' ? codexServiceTierCatalogOption(model, context.codexSpeedHost) : null
   return {
     id: model.id,
     label: model.label,
@@ -66,17 +84,22 @@ function discoveredModel(
     ...(model.isDefault ? { isDefault: true } : {}),
     options: [
       ...(effort ? [effort] : []),
-      ...(sessionSupportsFastMode && model.supportsFastMode === true ? [fastModeOption()] : [])
+      ...(speed
+        ? [speed]
+        : sessionSupportsFastMode && model.supportsFastMode === true
+          ? [fastModeOption()]
+          : [])
     ]
   }
 }
 
 export function structuredAgentSessionOptionCatalog(
   seed: AgentSessionOptionCatalog,
-  result: AgentSessionOptionsResult
+  result: AgentSessionOptionsResult,
+  context: StructuredAgentSessionCatalogContext = CODEX_CATALOG_CONTEXT
 ): AgentSessionOptionCatalog {
   const models: CatalogModel[] = result.models.map((model) =>
-    discoveredModel(model, result.fastModeSupport?.supported === true)
+    discoveredModel(model, result.fastModeSupport?.supported === true, context)
   )
   if (result.current.model && !models.some((model) => model.id === result.current.model)) {
     models.push({
@@ -96,6 +119,9 @@ export type StructuredAgentSessionOptionState = {
   catalogSource: 'seed' | 'builtin' | 'host' | 'live' | null
   record: NativeChatSessionOptionRecord
   pendingId: string | null
+  /** The host's speed facts from the last live read: absent from an older host, another agent,
+   *  or before any read, which never means Standard. */
+  speed?: AgentSessionSpeedFacts
 }
 
 /** With `seedCatalog`, the state holds the static seed from the first frame, but the picker shows
@@ -130,16 +156,25 @@ export function applyStructuredAgentSessionModelCatalog(
   state: StructuredAgentSessionOptionState,
   seed: AgentSessionOptionCatalog,
   catalog: AgentSessionModelCatalogResult,
-  options: { newLaunch: boolean }
+  options: { newLaunch: boolean; codexSpeedHost?: CodexSpeedHostSupport }
 ): StructuredAgentSessionOptionState {
+  const context: StructuredAgentSessionCatalogContext = {
+    agent: state.record.agent,
+    ...(options.codexSpeedHost ? { codexSpeedHost: options.codexSpeedHost } : {})
+  }
   if (state.catalogSource === 'live') {
-    return state
+    // The session's list outranks the host's, but a refreshed tier list must still reach it.
+    const refreshed =
+      state.catalog && catalog.origin !== 'unknown' && context.agent === 'codex'
+        ? refreshCodexServiceTierCatalog(state.catalog, catalog.models, context.codexSpeedHost)
+        : null
+    return refreshed ? { ...state, catalog: refreshed } : state
   }
   const models =
     catalog.origin === 'unknown'
       ? []
       : catalog.models.map((model) =>
-          discoveredModel(model, catalog.fastModeSupport?.supported === true)
+          discoveredModel(model, catalog.fastModeSupport?.supported === true, context)
         )
   if (catalog.origin === 'unknown' || models.length === 0) {
     return settleStructuredAgentSessionBuiltinCatalog(state)
@@ -165,24 +200,35 @@ export function applyStructuredAgentSessionModelCatalog(
 export function applyStructuredAgentSessionOptions(
   state: StructuredAgentSessionOptionState,
   seed: AgentSessionOptionCatalog,
-  result: AgentSessionOptionsResult
+  result: AgentSessionOptionsResult,
+  codexSpeedHost?: CodexSpeedHostSupport
 ): StructuredAgentSessionOptionState {
+  const isCodex = state.record.agent === 'codex'
   if (result.current.fastMode === undefined) {
     clearTrackedSessionOption(state.record, result.current.model ?? null, 'fastMode')
   }
+  // A read that names no tier does not erase one the user requested: revalidation keeps intent.
   applyNativeChatReportedSessionOptions(
     state.record,
     {
       ...(result.current.model ? { model: result.current.model } : {}),
       ...(result.current.effort ? { effort: result.current.effort } : {}),
-      ...(result.current.fastMode !== undefined ? { fastMode: result.current.fastMode } : {})
+      ...(result.current.fastMode !== undefined ? { fastMode: result.current.fastMode } : {}),
+      ...(isCodex && result.current.serviceTier
+        ? { [CODEX_SERVICE_TIER_OPTION_ID]: result.current.serviceTier }
+        : {})
     },
     result.current.confirmed ?? []
   )
+  const { speed: _previousSpeed, ...rest } = state
   return {
-    ...state,
-    catalog: structuredAgentSessionOptionCatalog(seed, result),
-    catalogSource: 'live'
+    ...rest,
+    catalog: structuredAgentSessionOptionCatalog(seed, result, {
+      agent: state.record.agent,
+      ...(codexSpeedHost ? { codexSpeedHost } : {})
+    }),
+    catalogSource: 'live',
+    ...(isCodex && result.speed ? { speed: result.speed } : {})
   }
 }
 
@@ -245,7 +291,8 @@ export function canSetStructuredAgentSessionOption(
     state.pendingId === null &&
     ((typeof value === 'string' &&
       descriptor?.kind.type === 'select' &&
-      descriptor.kind.choices.some((choice) => choice.value === value)) ||
+      // A disabled row is presentation of an unavailable choice, never one that may be sent.
+      descriptor.kind.choices.some((choice) => choice.value === value && !choice.disabled)) ||
       (typeof value === 'boolean' && descriptor?.kind.type === 'boolean'))
   )
 }
@@ -267,6 +314,14 @@ export function commitStructuredAgentSessionOption(
   if (decoded === null) {
     return { ...state, pendingId: null }
   }
+  // An explicit pick of one speed control replaces the other's intent.
+  if (id === 'fastMode' || id === CODEX_SERVICE_TIER_OPTION_ID) {
+    clearTrackedSessionOption(
+      state.record,
+      effectiveModel,
+      id === 'fastMode' ? CODEX_SERVICE_TIER_OPTION_ID : 'fastMode'
+    )
+  }
   setTrackedSessionOption(state.record, id, decoded, 'dispatched', effectiveModel)
   return { ...state, pendingId: null }
 }
@@ -278,58 +333,16 @@ export function commitStructuredAgentSessionOptionValues(
   let next = state
   for (const id of STRUCTURED_LAUNCH_SEED_OPTION_IDS) {
     const value = values[id]
-    if (value !== undefined) {
+    // The host's boolean beside a canonical tier is its projection, not a second pick.
+    const projection = id === 'fastMode' && values[CODEX_SERVICE_TIER_OPTION_ID] !== undefined
+    if (value !== undefined && !projection) {
       next = commitStructuredAgentSessionOption(next, id, value)
     }
   }
   return next
 }
 
-export type StructuredSessionOptionPick = {
-  modelId: string
-  optionId: string
-  value: SessionOptionValue
-}
-
-/**
- * The picks a mutation must remember so the next launch starts where the user left off.
- * Keyed off the same ids the launch seed reads back, so a pick this surface cannot
- * re-seed is never written.
- *
- * Model and effort travel as a pair: a launch resolves a stored effort only under a
- * stored model, so an effort-only pick adopts the model it was chosen against. Values
- * come from what the provider committed, not what was requested — it reconciles an
- * effort the newly selected model cannot run before reporting back.
- *
- * `state` may still be pre-commit: a changed model arrives in `committed`, and an
- * unchanged one is already what the record tracks, so neither reading depends on the
- * commit having landed.
- */
-export function structuredAgentSessionOptionPicks(
-  state: StructuredAgentSessionOptionState,
-  committed: Readonly<Record<string, string>>
-): StructuredSessionOptionPick[] {
-  if (!state.catalog) {
-    return []
-  }
-  const committedModel = committed.model
-  const modelId =
-    typeof committedModel === 'string' && committedModel.trim()
-      ? committedModel
-      : resolveEffectiveNativeChatModelId(state.catalog, state.catalog.models, state.record)
-  if (!modelId) {
-    return []
-  }
-  return STRUCTURED_LAUNCH_SEED_OPTION_IDS.flatMap((optionId) => {
-    const value = committed[optionId]
-    if (value === undefined) {
-      return []
-    }
-    const decoded = decodeStructuredAgentSessionOptionValue(optionId, value)
-    return decoded === null ||
-      (typeof decoded === 'string' && !decoded.trim()) ||
-      encodeStructuredAgentSessionOptionValue(optionId, decoded) === null
-      ? []
-      : [{ modelId, optionId, value: decoded }]
-  })
-}
+export {
+  structuredAgentSessionOptionPicks,
+  type StructuredSessionOptionPick
+} from './structured-agent-session-option-picks'

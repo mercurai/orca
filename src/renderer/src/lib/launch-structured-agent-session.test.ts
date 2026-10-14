@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { structuredAgentSessionPayloadFingerprint } from '../../../shared/structured-agent-session-mutation'
-import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
+import {
+  callStructuredAgentSession,
+  readStructuredAgentSessionCodexSpeedSupport
+} from '@/runtime/structured-agent-session-client'
 import { useAppStore } from '@/store'
 import {
   createStructuredAgentSessionLaunchIntent,
@@ -11,15 +14,21 @@ import {
   StructuredAgentSessionCreateUnknownOutcomeError,
   StructuredAgentSessionOwnerUnresolvedError
 } from './launch-structured-agent-session'
+import {
+  StructuredAgentSessionSpeedHostUnknownError,
+  StructuredAgentSessionSpeedHostUnsupportedError
+} from './structured-agent-session-launch-errors'
 import { admitStructuredLaunchOnHost } from './structured-agent-session-host-admission'
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
-  callStructuredAgentSession: vi.fn()
+  callStructuredAgentSession: vi.fn(),
+  readStructuredAgentSessionCodexSpeedSupport: vi.fn()
 }))
 
 describe('structured agent session launch', () => {
   beforeEach(() => {
     vi.mocked(callStructuredAgentSession).mockReset()
+    vi.mocked(readStructuredAgentSessionCodexSpeedSupport).mockReset()
   })
 
   it('creates a native session with a host-verifiable launch intent', async () => {
@@ -540,5 +549,150 @@ describe('structured agent session launch', () => {
     ).catch((caught: unknown) => caught)
 
     expect(transportError).not.toBeInstanceOf(StructuredAgentSessionCreateRefusalError)
+  })
+
+  // Every canonical Codex speed in the seed, Standard included, needs the executing host's
+  // affirmative capability before create (codex-speed-launch-admission.test.ts); legacy Fast and
+  // every other provider's seed never ask.
+  describe('a Codex speed in the launch seed', () => {
+    const SPEED_DEFAULTS = {
+      codex: { model: 'gpt-5.5', valuesByModel: { 'gpt-5.5': { serviceTier: 'ultrafast' } } }
+    }
+    const probe = vi.mocked(readStructuredAgentSessionCodexSpeedSupport)
+
+    function createCalls() {
+      return vi
+        .mocked(callStructuredAgentSession)
+        .mock.calls.filter(([, method]) => method === 'agentSession.create')
+    }
+
+    /** A host that admits the chat and, when it is new enough to, reports the seed it will use. */
+    function mockHost(seedOptions?: Record<string, string>): void {
+      vi.mocked(callStructuredAgentSession).mockImplementation(async (_target, method) =>
+        method === 'agentSession.createSupport'
+          ? { supported: true, ...(seedOptions ? { seedOptions } : {}) }
+          : { ok: true, replayed: false, value: { sessionId: 'codex_1', fence: 1 } }
+      )
+    }
+
+    async function withSavedSpeedDefault(run: () => Promise<void>): Promise<void> {
+      const settings = useAppStore.getState().settings
+      useAppStore.setState({
+        settings: { ...settings!, nativeChatSessionOptions: SPEED_DEFAULTS }
+      })
+      try {
+        await run()
+      } finally {
+        useAppStore.setState({ settings })
+      }
+    }
+
+    it('creates on a local host that affirms it, after asking that host', async () => {
+      mockHost()
+      probe.mockResolvedValue('supported')
+      await withSavedSpeedDefault(async () => {
+        const intent = createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'local')
+        expect(intent.seedOptions).toEqual({ model: 'gpt-5.5', serviceTier: 'ultrafast' })
+
+        await expect(launchStructuredAgentSession(intent)).resolves.toMatchObject({
+          sessionId: 'codex_1'
+        })
+        expect(probe).toHaveBeenCalledWith({ kind: 'local' })
+        expect(createCalls()).toHaveLength(1)
+      })
+    })
+
+    it('refuses before create on a local host that says it cannot, keeping the speed as saved', async () => {
+      mockHost()
+      probe.mockResolvedValue('unsupported')
+      await withSavedSpeedDefault(async () => {
+        const intent = createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'local')
+        const error = await launchStructuredAgentSession(intent).catch((caught: unknown) => caught)
+
+        expect(error).toBeInstanceOf(StructuredAgentSessionSpeedHostUnsupportedError)
+        expect(error).toBeInstanceOf(StructuredAgentSessionCreateRefusalError)
+        expect(error).toMatchObject({ block: { tierId: 'ultrafast', reason: 'host-update-needed' } })
+        expect(createCalls()).toHaveLength(0)
+        expect(intent.seedOptions).toEqual({ model: 'gpt-5.5', serviceTier: 'ultrafast' })
+      })
+    })
+
+    it.each([
+      ['has not answered', () => probe.mockResolvedValue('unknown')],
+      ['fails to answer', () => probe.mockRejectedValue(new Error('runtime unreachable'))]
+    ])('does not create, or call it refused, while the local host %s', async (_name, stage) => {
+      mockHost()
+      stage()
+      await withSavedSpeedDefault(async () => {
+        const error = await launchStructuredAgentSession(
+          createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'local')
+        ).catch((caught: unknown) => caught)
+
+        expect(error).toBeInstanceOf(StructuredAgentSessionSpeedHostUnknownError)
+        expect(error).toBeInstanceOf(StructuredAgentSessionCreateUnknownOutcomeError)
+        expect(error).not.toBeInstanceOf(StructuredAgentSessionCreateRefusalError)
+        expect(error).toMatchObject({ block: { tierId: 'ultrafast', reason: 'host-unreachable' } })
+        expect(createCalls()).toHaveLength(0)
+      })
+    })
+
+    it("asks the paired server about the speed it reports, and tells the picker the seed either way", async () => {
+      const server = { kind: 'environment', environmentId: 'server-1' }
+      mockHost({ model: 'gpt-5.5', serviceTier: 'ultrafast' })
+      const reported = vi.fn()
+
+      probe.mockResolvedValueOnce('supported')
+      await launchStructuredAgentSession(
+        createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'runtime:server-1'),
+        reported
+      )
+      expect(probe).toHaveBeenLastCalledWith(server)
+      expect(createCalls()).toHaveLength(1)
+
+      probe.mockResolvedValueOnce('unsupported')
+      const refused = await launchStructuredAgentSession(
+        createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'runtime:server-1'),
+        reported
+      ).catch((caught: unknown) => caught)
+      expect(refused).toBeInstanceOf(StructuredAgentSessionSpeedHostUnsupportedError)
+      expect(createCalls()).toHaveLength(1)
+      expect(reported).toHaveBeenCalledTimes(2)
+      expect(reported).toHaveBeenLastCalledWith({ model: 'gpt-5.5', serviceTier: 'ultrafast' })
+    })
+
+    it.each([
+      ['a legacy Fast seed from an older server', { model: 'opus', fastMode: 'true' }],
+      ['a seed with no speed', { model: 'gpt-5.5' }]
+    ])('creates on a server that cannot take service tiers with %s, without asking', async (_name, seed) => {
+      mockHost(seed)
+      probe.mockResolvedValue('unsupported')
+
+      await launchStructuredAgentSession(
+        createStructuredAgentSessionLaunchIntent('workspace-1', 'codex', 'runtime:server-1')
+      )
+
+      expect(probe).not.toHaveBeenCalled()
+      expect(createCalls()).toHaveLength(1)
+    })
+
+    it("never seeds another provider's launch with Codex's speed", async () => {
+      mockHost({ model: 'opus', serviceTier: 'ultrafast' })
+      probe.mockResolvedValue('unsupported')
+      const reported = vi.fn()
+
+      const intent = createStructuredAgentSessionLaunchIntent(
+        'workspace-1',
+        'claude',
+        'runtime:server-1',
+        undefined,
+        { model: 'opus', serviceTier: 'ultrafast' }
+      )
+      await launchStructuredAgentSession(intent, reported)
+
+      expect(intent.seedOptions).toEqual({ model: 'opus' })
+      expect(reported).toHaveBeenCalledWith({ model: 'opus' })
+      expect(probe).not.toHaveBeenCalled()
+      expect(createCalls()).toHaveLength(1)
+    })
   })
 })

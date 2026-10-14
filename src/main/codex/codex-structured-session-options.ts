@@ -4,7 +4,15 @@ import type { CodexSession } from './codex-structured-session-state'
 import { isCodexTurnOptionKey } from './codex-structured-turn-start'
 import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
 import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured-agent-session-option-codec'
-import { decodeCodexFastMode, reconcileCodexFastModeOption } from './codex-structured-fast-mode'
+import {
+  normalizeCodexServiceTierOptions,
+  readCodexServiceTierOptions
+} from '../../shared/codex-service-tier-selection'
+import {
+  codexSpeedFacts,
+  migrateCodexSessionSpeed,
+  replaceCodexSessionOptions
+} from './codex-structured-fast-mode'
 import {
   composeCodexSessionOptionCatalog,
   fetchCodexModelCatalogListing,
@@ -12,13 +20,20 @@ import {
   type CodexModelCatalogListing,
   type CodexSessionOptionCatalog
 } from './codex-structured-model-catalog'
-import { codexAcquireCatalogListing, listingFromEntry } from './codex-structured-catalog-entry'
+import {
+  codexAcquireCatalogListing,
+  codexListingDefaultModel,
+  codexSpeedCatalog,
+  listingFromEntry
+} from './codex-structured-catalog-entry'
 export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 
+/** Recognized options of a saved record. Legacy Fast resolves as far as no catalog allows: false is
+ *  Standard, and an unresolved true stays as intent for the first catalog that can name its tier. */
 export function restoredCodexSessionOptions(
   options: Readonly<Record<string, string>> | undefined
 ): Map<string, string> {
-  const restored = new Map(
+  const recognized = Object.fromEntries(
     Object.entries(options ?? {}).filter(([key, value]) => {
       return (
         isCodexTurnOptionKey(key) &&
@@ -27,11 +42,17 @@ export function restoredCodexSessionOptions(
       )
     })
   )
-  if (!restored.has('fastMode') && restored.get('serviceTier') === 'default') {
-    restored.delete('serviceTier')
-    restored.set('fastMode', 'false')
-  }
-  return restored
+  return new Map(
+    Object.entries(
+      normalizeCodexServiceTierOptions({
+        priorOptions: recognized,
+        changes: {},
+        origin: 'restore',
+        models: [],
+        catalogKnown: false
+      })
+    )
+  )
 }
 
 export type { CodexSessionOptionCatalog } from './codex-structured-model-catalog'
@@ -94,19 +115,27 @@ export async function readCodexStructuredSessionOptions(input: {
   return (await readCodexStructuredSessionOptionCatalog(input)).result
 }
 
-function composeLiveCodexCatalog(
+// The stored speed is judged against the destination model of this very listing, so a legacy Fast
+// resolves here once the listing can name it and an unresolved one is reported as such.
+function applyLiveCodexCatalog(
   session: CodexSession,
   listing: CodexModelCatalogListing
-): CodexSessionOptionCatalog {
+): AgentSessionOptionsResult {
   const model = session.options.get('model') ?? session.reportedOptions.model
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
-  return composeCodexSessionOptionCatalog(listing, {
+  const currentModel = model ?? codexListingDefaultModel(listing.models)
+  migrateCodexSessionSpeed(session, { models: listing.models, currentModel })
+  const stored = readCodexServiceTierOptions({
+    options: Object.fromEntries(session.options),
+    models: listing.models,
+    ...(currentModel ? { currentModel } : {}),
+    catalogKnown: true
+  })
+  const catalog: CodexSessionOptionCatalog = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
-      ...(decodeCodexFastMode(session.options) !== undefined
-        ? { fastMode: decodeCodexFastMode(session.options) }
-        : {})
+      ...stored.current
     },
     ...(session.reportedOptions.serviceTierKnown
       ? {
@@ -115,25 +144,7 @@ function composeLiveCodexCatalog(
         }
       : {})
   })
-}
-
-function applyLiveCodexCatalog(
-  session: CodexSession,
-  listing: CodexModelCatalogListing
-): AgentSessionOptionsResult {
-  const catalog = composeLiveCodexCatalog(session, listing)
-  reconcileCodexFastModeOption(session, {
-    fastModeTierByModel: catalog.fastModeTierByModel,
-    currentFastMode: catalog.result.current.fastMode,
-    model: catalog.result.current.model,
-    modelFastModeSupport: catalog.result.models.find(
-      (entry) => entry.id === catalog.result.current.model
-    )?.supportsFastMode
-  })
-  const fastMode = decodeCodexFastMode(session.options)
-  return fastMode === undefined
-    ? catalog.result
-    : { ...catalog.result, current: { ...catalog.result.current, fastMode } }
+  return { ...catalog.result, speed: codexSpeedFacts(stored.speed, session.speedEvidence) }
 }
 
 export async function readLiveCodexSessionOptions(
@@ -167,17 +178,14 @@ export async function applyCodexStructuredSessionOption(
 
 /**
  * With no listing known, a pick is kept as the next turn's intent rather than refused: catalog
- * bookkeeping must not gate it. Codex judges the model on `turn/start`, and Fast without a
- * known exact tier sends Standard there.
+ * bookkeeping must not gate it. Codex judges the model on `turn/start`.
  */
 function applyUnlistedCodexSessionOption(
   session: CodexSession,
-  key: 'model' | 'effort' | 'fastMode',
+  key: 'model' | 'effort',
   value: string
 ): Readonly<Record<string, string>> {
-  if (key === 'fastMode') {
-    session.options.delete('serviceTier')
-  } else if (
+  if (
     key === 'model' &&
     value !== (session.options.get('model') ?? session.reportedOptions.model)
   ) {
@@ -188,35 +196,40 @@ function applyUnlistedCodexSessionOption(
   return Object.fromEntries(session.options)
 }
 
-function applyValidatedCodexStructuredSessionOption(
+// A speed write is judged against the catalog this session's account holds. The same shared rules
+// run for a chat at rest, so both paths accept and refuse the same writes.
+function applyCodexSpeedOption(
   session: CodexSession,
-  key: string,
+  key: 'serviceTier' | 'fastMode',
   value: string
 ): Readonly<Record<string, string>> {
-  // `serviceTier` still restores, so a session persisted before Fast existed migrates,
-  // but the turn now derives the tier from `fastMode`. Accepting a direct write would
-  // report success for a value the next turn discards.
-  if (key === 'serviceTier') {
-    throw new Error('codex service tier is derived from Fast mode and cannot be set directly')
+  const catalog = codexSpeedCatalog(session.catalogAccess)
+  const currentModel = session.reportedOptions.model ?? codexListingDefaultModel(catalog.models)
+  const next = normalizeCodexServiceTierOptions({
+    priorOptions: Object.fromEntries(session.options),
+    changes: { [key]: value },
+    origin: 'set-option',
+    models: catalog.models,
+    ...(currentModel ? { currentModel } : {}),
+    catalogKnown: catalog.known
+  })
+  // A listed account that cannot name Fast for the model refuses the toggle instead of acking intent.
+  if (catalog.known && next.fastMode === 'true') {
+    const model = next.model ?? currentModel
+    throw new Error(
+      `codex app-server ${model ? `model ${model}` : 'model'} does not support Fast mode`
+    )
   }
-  if (key !== 'model' && key !== 'effort' && key !== 'fastMode') {
-    session.options.set(key, value)
-    return Object.fromEntries(session.options)
-  }
-  const requestedFastMode =
-    key === 'fastMode' ? decodeStructuredAgentSessionOptionValue('fastMode', value) : undefined
-  if (key === 'fastMode' && typeof requestedFastMode !== 'boolean') {
-    throw new Error('codex fast mode must be encoded as true or false')
-  }
-  if (requestedFastMode === false) {
-    session.options.delete('serviceTier')
-    session.options.set('fastMode', 'false')
-    return Object.fromEntries(session.options)
-  }
-  const listing = codexAcquireCatalogListing(session.catalogAccess)
-  if (!listing) {
-    return applyUnlistedCodexSessionOption(session, key, value)
-  }
+  replaceCodexSessionOptions(session.options, next)
+  return Object.fromEntries(session.options)
+}
+
+function applyListedCodexModelOrEffort(
+  session: CodexSession,
+  listing: CodexModelCatalogListing,
+  key: 'model' | 'effort',
+  value: string
+): Readonly<Record<string, string>> {
   const priorModel = session.options.get('model') ?? session.reportedOptions.model
   const priorEffort = session.options.get('effort') ?? session.reportedOptions.effort
   const catalog = composeCodexSessionOptionCatalog(listing, {
@@ -225,29 +238,11 @@ function applyValidatedCodexStructuredSessionOption(
       ...(priorEffort ? { effort: priorEffort } : {})
     }
   })
-  reconcileCodexFastModeOption(session, {
-    fastModeTierByModel: catalog.fastModeTierByModel,
-    currentFastMode: catalog.result.current.fastMode,
-    model: priorModel ?? catalog.result.current.model,
-    modelFastModeSupport: catalog.result.models.find(
-      (entry) => entry.id === (priorModel ?? catalog.result.current.model)
-    )?.supportsFastMode
-  })
   if (key === 'model' && !catalog.result.models.some((entry) => entry.id === value)) {
     throw new Error(`codex app-server does not offer model ${value}`)
   }
   const modelId = key === 'model' ? value : catalog.result.current.model
   const model = catalog.result.models.find((entry) => entry.id === modelId)
-  if (key === 'fastMode') {
-    if (
-      requestedFastMode &&
-      (model?.supportsFastMode !== true || !catalog.fastModeTierByModel.has(modelId))
-    ) {
-      throw new Error(`codex app-server model ${modelId} does not support Fast mode`)
-    }
-    session.options.set('fastMode', value)
-    return Object.fromEntries(session.options)
-  }
   const requestedEffort = key === 'effort' ? value : priorEffort
   if (
     key === 'effort' &&
@@ -267,12 +262,26 @@ function applyValidatedCodexStructuredSessionOption(
   } else {
     session.options.delete('effort')
   }
-  if (
-    key === 'model' &&
-    session.options.get('fastMode') === 'true' &&
-    model?.supportsFastMode === false
-  ) {
-    session.options.set('fastMode', 'false')
-  }
+  // The stored speed is kept for the new model, whether or not it offers it; only legacy Fast
+  // intent that this model's tiers can now name is resolved.
+  migrateCodexSessionSpeed(session, { models: catalog.result.models, currentModel: modelId })
   return Object.fromEntries(session.options)
+}
+
+function applyValidatedCodexStructuredSessionOption(
+  session: CodexSession,
+  key: string,
+  value: string
+): Readonly<Record<string, string>> {
+  if (key === 'serviceTier' || key === 'fastMode') {
+    return applyCodexSpeedOption(session, key, value)
+  }
+  if (key !== 'model' && key !== 'effort') {
+    session.options.set(key, value)
+    return Object.fromEntries(session.options)
+  }
+  const listing = codexAcquireCatalogListing(session.catalogAccess)
+  return listing
+    ? applyListedCodexModelOrEffort(session, listing, key, value)
+    : applyUnlistedCodexSessionOption(session, key, value)
 }

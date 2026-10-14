@@ -13,6 +13,7 @@ import {
   structuredAgentLaunchRecordFor
 } from './structured-agent-session-launch-persistence'
 import type { StructuredAgentSessionLaunchIntent } from './launch-structured-agent-session'
+import { structuredAgentLaunchSpeedRecord } from './structured-agent-session-launch-speed-record'
 
 const SERVER = 'runtime:server-1'
 const TOMBSTONES_KEY = 'orca:structuredAgentLaunchCancelledSessions:v1'
@@ -201,6 +202,69 @@ describe('structured agent launch persistence', () => {
     expect(readStructuredAgentLaunchRecord('older_session')).toMatchObject({ lifecycle: 'failed' })
     expect(readStructuredAgentLaunchRecord('older_session')?.failedAt).toBeUndefined()
     expect(readStructuredAgentLaunchRecord('corrupt_session')).toBeUndefined()
+  })
+
+  describe('the speed bookkeeping of a launch whose chat exists', () => {
+    const base = {
+      sessionId: 'codex_speed',
+      executionHostId: 'local',
+      agent: 'codex',
+      lifecycle: 'pending',
+      clientOperationId: 'operation-5',
+      payloadFingerprint: 'fingerprint-5',
+      expectedRuntimeFence: null
+    } as const
+
+    it('keeps the receipt fence, the held tier and the block across a reload, and no prompt', () => {
+      writeStructuredAgentLaunchRecord({
+        ...base,
+        speed: {
+          fence: 7,
+          heldTierId: 'ultrafast',
+          block: { tierId: 'ultrafast', reason: 'refused' }
+        }
+      })
+      reload()
+
+      expect(readStructuredAgentLaunchRecord('codex_speed')?.speed).toEqual({
+        fence: 7,
+        heldTierId: 'ultrafast',
+        block: { tierId: 'ultrafast', reason: 'refused' }
+      })
+      expect(localStorage.getItem('orca:structuredAgentLaunches:v1')).not.toContain('prompt')
+    })
+
+    it('records nothing for a launch with no chosen speed in play', () => {
+      expect(structuredAgentLaunchSpeedRecord(undefined, 'ultrafast', undefined)).toBeUndefined()
+      expect(structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined)).toBeUndefined()
+      expect(
+        structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, {
+          tierId: 'ultrafast',
+          reason: 'unconfirmed',
+          failure: { kind: 'unconfirmed' }
+        })
+      ).toEqual({ fence: 7, block: { tierId: 'ultrafast', reason: 'unconfirmed' } })
+    })
+
+    it('still loads a launch whose stored speed record is not one this build wrote', () => {
+      localStorage.setItem(
+        'orca:structuredAgentLaunches:v1',
+        JSON.stringify([
+          { ...base, sessionId: 'no_fence', speed: { heldTierId: 'ultrafast' } },
+          { ...base, sessionId: 'bad_reason', speed: { fence: 3, block: { tierId: 'a', reason: 'x' } } },
+          { ...base, sessionId: 'blank_tier', speed: { fence: 3, heldTierId: '  ' } },
+          { ...base, sessionId: 'older_build' }
+        ])
+      )
+
+      for (const sessionId of ['no_fence', 'bad_reason', 'blank_tier', 'older_build']) {
+        expect(readStructuredAgentLaunchRecord(sessionId)).toBeDefined()
+      }
+      expect(readStructuredAgentLaunchRecord('no_fence')?.speed).toBeUndefined()
+      expect(readStructuredAgentLaunchRecord('bad_reason')?.speed).toEqual({ fence: 3 })
+      expect(readStructuredAgentLaunchRecord('blank_tier')?.speed).toEqual({ fence: 3 })
+      expect(readStructuredAgentLaunchRecord('older_build')?.speed).toBeUndefined()
+    })
   })
 
   it('persists cancellation tombstones by session id and retires them', () => {

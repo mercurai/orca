@@ -16,6 +16,14 @@ import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catal
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
 
+// Rows as a current listing stores them: exact advertised tiers. The legacy Fast map beside them is
+// only a projection, so a fixture that needs a known Fast tier must advertise it here.
+const STANDARD_TIER = { value: 'default', label: 'Standard' }
+
+function advertisedTiers(fastTierId: string) {
+  return [STANDARD_TIER, { value: fastTierId, label: 'Fast' }]
+}
+
 function listing(tier = 'priority-live-v2') {
   return {
     data: [
@@ -29,13 +37,21 @@ function listing(tier = 'priority-live-v2') {
   }
 }
 
-async function acquire(adapter: CodexStructuredSessionAdapter, sessionId = 'session-1') {
+async function acquire(
+  adapter: CodexStructuredSessionAdapter,
+  sessionId = 'session-1',
+  options: Record<string, string> = { fastMode: 'true' }
+) {
   return adapter.acquire({
     identity: identityFor(sessionId),
     fence: 7,
     spawnToken: `spawn-${sessionId}`,
-    options: { fastMode: 'true' }
+    options
   })
+}
+
+function turnStarts(codex: ReturnType<typeof fakeCodex>) {
+  return codex.connections[0].calls.filter((call) => call.method === 'turn/start')
 }
 
 async function send(adapter: CodexStructuredSessionAdapter, id: string, sessionId = 'session-1') {
@@ -50,7 +66,7 @@ function finishTurn(codex: ReturnType<typeof fakeCodex>, turnId: string) {
 }
 
 describe('Codex structured Fast mode without send-path catalog waits', () => {
-  it('starts the chat and sends Standard when its own listing rejects', async () => {
+  it('starts the chat, but refuses unresolved Fast before any write when its own listing rejects', async () => {
     const codex = fakeCodex({
       'model/list': () => {
         throw new Error('model listing unavailable')
@@ -63,15 +79,57 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
       fastMode: 'true'
     })
-    await send(adapter, 'first')
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ serviceTier: 'default' })
+    await expect(send(adapter, 'first')).resolves.toMatchObject({ state: 'rejected' })
+    // Never silently Standard: nothing is sent and the Fast intent is kept for the next catalog.
+    expect(turnStarts(codex)).toEqual([])
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
+      fastMode: 'true'
+    })
   })
 
   it('uses a stored exact tier immediately on the first turn', async () => {
     const codex = fakeCodex()
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-fast')
+    const modelCatalog = new AgentModelCatalogStore()
+    const access = agentModelCatalogSessionAccess(
+      modelCatalog,
+      CODEX_STRUCTURED_AGENT,
+      '/codex/home'
+    )!
+    modelCatalog.recordSuccess(
+      access.fingerprint,
+      'codex',
+      {
+        models: [
+          {
+            id: 'gpt-live',
+            label: 'GPT Live',
+            isDefault: true,
+            efforts: [],
+            serviceTiers: advertisedTiers('priority-live-v2')
+          }
+        ],
+        fastModeTierByModel: new Map([['gpt-live', 'priority-live-v2']]),
+        origin: 'live-session'
+      },
+      'discovery'
+    )
+    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
+    await acquire(adapter)
+    await send(adapter, 'first')
+    expect(
+      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
+    ).toMatchObject({ serviceTier: 'priority-live-v2' })
+    expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(false)
+  })
+
+  it('refuses Fast against an entry that holds only the legacy Fast map and advertises no tiers', async () => {
+    const codex = fakeCodex({
+      'model/list': () => {
+        throw new Error('model listing unavailable')
+      }
+    })
+    codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-unreached')
     const modelCatalog = new AgentModelCatalogStore()
     const access = agentModelCatalogSessionAccess(
       modelCatalog,
@@ -90,28 +148,27 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     )
     const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
     await acquire(adapter)
-    await send(adapter, 'first')
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ serviceTier: 'priority-live-v2' })
-    expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(false)
+
+    // The map alone is not an advertisement: no Fast tier is synthesized, so nothing is written.
+    await expect(send(adapter, 'first')).resolves.toMatchObject({ state: 'rejected' })
+    expect(turnStarts(codex)).toEqual([])
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
+      fastMode: 'true'
+    })
   })
 
-  it('sends Standard while its own bounded listing is pending, then uses Fast on a later turn', async () => {
+  it('refuses Fast while its own bounded listing is pending, then sends the named tier', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
-    codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'first-turn')
     const modelCatalog = new AgentModelCatalogStore()
     const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
     await acquire(adapter)
     await vi.waitFor(() =>
       expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(true)
     )
-    await send(adapter, 'first')
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ serviceTier: 'default' })
-    finishTurn(codex, 'first-turn')
+    await expect(send(adapter, 'first')).resolves.toMatchObject({ state: 'rejected' })
+    expect(turnStarts(codex)).toEqual([])
+
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'second-turn')
     pending.resolve(listing())
     const access = agentModelCatalogSessionAccess(
@@ -124,10 +181,8 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
         'priority-live-v2'
       )
     )
-    await send(adapter, 'second')
-    expect(
-      codex.connections[0].calls.filter((call) => call.method === 'turn/start')[1]?.params
-    ).toMatchObject({ serviceTier: 'priority-live-v2' })
+    await expect(send(adapter, 'second')).resolves.toEqual({ state: 'admitted' })
+    expect(turnStarts(codex)[0]?.params).toMatchObject({ serviceTier: 'priority-live-v2' })
   })
 
   it('steers an active turn while catalog discovery remains pending', async () => {
@@ -136,7 +191,7 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'running-turn')
     codex.routes['turn/steer'] = () => ({ turn: { id: 'running-turn' } })
     const adapter = adapterFor(codex)
-    await acquire(adapter)
+    await acquire(adapter, 'session-1', {})
     await send(adapter, 'first')
     await send(adapter, 'follow-up')
     expect(codex.connections[0].calls.some((call) => call.method === 'turn/steer')).toBe(true)
@@ -146,12 +201,12 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     pending.resolve(listing())
   })
 
-  it('stops a running turn and starts its replacement as Standard while listing stalls', async () => {
+  it('starts the replacement of a stopped turn with no speed override while listing stalls', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'running-turn')
     const adapter = adapterFor(codex)
-    await acquire(adapter)
+    await acquire(adapter, 'session-1', {})
     await send(adapter, 'first')
 
     await expect(adapter.cancelTurn({ sessionId: 'session-1', fence: 7 })).resolves.toMatchObject({
@@ -163,9 +218,9 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toHaveLength(
       2
     )
-    expect(
-      codex.connections[0].calls.filter((call) => call.method === 'turn/start')[1]?.params
-    ).toMatchObject({ serviceTier: 'default' })
+    // An untouched session adds no paid override; the provider's configured default stands.
+    expect(turnStarts(codex)[1]?.params).not.toHaveProperty('serviceTier')
+    expect(turnStarts(codex)[1]?.params).not.toHaveProperty('fastMode')
     pending.resolve(listing())
   })
 
@@ -188,12 +243,10 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
       '/codex/home'
     )!
     try {
-      await acquire(adapter)
+      await acquire(adapter, 'session-1', { fastMode: 'false' })
       await vi.waitFor(() => expect(modelCatalog.hasActiveFailure(access.fingerprint)).toBe(true))
       await send(adapter, 'first')
-      expect(
-        codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-      ).toMatchObject({ serviceTier: 'default' })
+      expect(turnStarts(codex)[0]?.params).toMatchObject({ serviceTier: 'default' })
       await acquire(adapter, 'session-2')
       expect(listModels).toHaveBeenCalledOnce()
       now += AGENT_MODEL_CATALOG_FAILURE_TTL_MS
@@ -302,35 +355,31 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     await probing
   })
 
-  it('migrates a legacy saved tier after its own listing arrives', async () => {
+  it('keeps a saved canonical tier unsent until its own listing vouches for it, then sends it', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
-    codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'first-turn')
     const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
       modelCatalog: new AgentModelCatalogStore()
     })
-    await adapter.acquire({
-      identity: identityFor('session-1'),
-      fence: 7,
-      spawnToken: 'spawn-legacy',
-      options: { serviceTier: 'priority-live-v2' }
+    await acquire(adapter, 'session-1', { serviceTier: 'priority-live-v2' })
+    await expect(send(adapter, 'first')).resolves.toMatchObject({ state: 'rejected' })
+    expect(turnStarts(codex)).toEqual([])
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
+      serviceTier: 'priority-live-v2'
     })
-    await send(adapter, 'first')
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ serviceTier: 'default' })
-    finishTurn(codex, 'first-turn')
+
+    codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'second-turn')
     pending.resolve(listing())
     await vi.waitFor(() =>
-      expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
-        fastMode: 'true'
+      expect(adapter.readOptions({ sessionId: 'session-1', fence: 7 })).resolves.toMatchObject({
+        speed: { selection: { tierId: 'priority-live-v2', state: 'ready' } }
       })
     )
-    codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'second-turn')
-    await send(adapter, 'second')
-    expect(
-      codex.connections[0].calls.filter((call) => call.method === 'turn/start')[1]?.params
-    ).toMatchObject({ serviceTier: 'priority-live-v2' })
+    await expect(send(adapter, 'second')).resolves.toEqual({ state: 'admitted' })
+    expect(turnStarts(codex)[0]?.params).toMatchObject({ serviceTier: 'priority-live-v2' })
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
+      serviceTier: 'priority-live-v2'
+    })
   })
 
   it('sends a tier another writer stored even when its own listing fails', async () => {
@@ -352,7 +401,15 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
       access.fingerprint,
       'codex',
       {
-        models: [{ id: 'gpt-live', label: 'GPT Live', isDefault: true, efforts: [] }],
+        models: [
+          {
+            id: 'gpt-live',
+            label: 'GPT Live',
+            isDefault: true,
+            efforts: [],
+            serviceTiers: advertisedTiers('priority-probe')
+          }
+        ],
         fastModeTierByModel: new Map([['gpt-live', 'priority-probe']]),
         origin: 'probe'
       },
@@ -390,14 +447,16 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
             label: 'Live',
             isDefault: true,
             efforts: medium,
-            supportsFastMode: false
+            supportsFastMode: false,
+            serviceTiers: [STANDARD_TIER]
           },
           {
             id: 'gpt-next',
             label: 'Next',
             isDefault: false,
             efforts: medium,
-            supportsFastMode: true
+            supportsFastMode: true,
+            serviceTiers: advertisedTiers('priority-next')
           }
         ],
         fastModeTierByModel: new Map([['gpt-next', 'priority-next']]),
@@ -416,9 +475,10 @@ describe('Codex structured Fast mode without send-path catalog waits', () => {
     })
 
     expect(codex.connections[0].calls.some((call) => call.method === 'thread/resume')).toBe(true)
+    // Legacy Fast intent migrates to the advertised tier of the saved model, on the same thread.
     expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toEqual({
       model: 'gpt-next',
-      fastMode: 'true'
+      serviceTier: 'priority-next'
     })
     await send(adapter, 'first')
     const turn = codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params

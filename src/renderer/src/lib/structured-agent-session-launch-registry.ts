@@ -3,8 +3,13 @@ import type { TuiAgent } from '../../../shared/tui-agent'
 import type { StructuredLaunchFailure } from './structured-agent-session-launch-failure'
 import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
 import type { ExecutionHostId } from '../../../shared/execution-host'
-import type { StructuredLaunchRecoveryState } from './structured-agent-session-launch-recovery'
+import type {
+  StructuredAgentLaunchReceipt,
+  StructuredLaunchRecoveryState
+} from './structured-agent-session-launch-recovery'
 import type { StructuredLaunchSelection } from './structured-agent-session-launch-options'
+import type { StructuredLaunchSpeedBlock } from './structured-agent-session-launch-errors'
+import { structuredAgentLaunchSpeedRecord } from './structured-agent-session-launch-speed-record'
 import type {
   StructuredAgentLaunchOptions,
   StructuredLaunchCallerGroup
@@ -33,6 +38,13 @@ export type StructuredLaunchState = StructuredLaunchRecoveryState & {
    *  failure named none. */
   failure?: StructuredLaunchFailure
   selection: StructuredLaunchSelection
+  /** The chat the host created, noted before any held speed is applied so a block keeps it. */
+  receipt?: StructuredAgentLaunchReceipt
+  /** Why the chosen speed holds this launch back; absent when nothing does. The launch stays
+   *  unpublished, and its first prompt unsent, until a replacement or a supporting host clears it. */
+  speedBlock?: StructuredLaunchSpeedBlock
+  /** Wakes the pass parked on `speedBlock`; set only while it is parked. */
+  releaseSpeedBlock?: () => void
 }
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
@@ -104,9 +116,15 @@ function persistStructuredLaunchState(state: StructuredLaunchState): void {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }
+  const speed = structuredAgentLaunchSpeedRecord(
+    state.receipt,
+    state.selection.held.serviceTier,
+    state.speedBlock
+  )
   writeStructuredAgentLaunchRecord({
     ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
-    ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {})
+    ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {}),
+    ...(speed ? { speed } : {})
   })
 }
 
@@ -187,6 +205,29 @@ export function getStructuredAgentSessionLaunchFailure(
     : null
 }
 
+/** Why the launch's chosen speed holds it back, in memory or as saved across a reload. */
+export function getStructuredAgentSessionLaunchSpeedBlock(
+  worktreeId: string,
+  sessionId: string
+): StructuredLaunchSpeedBlock | null {
+  const state = getStructuredLaunchStateBySessionId(sessionId)
+  if (state) {
+    return matchesLaunchWorktree(state, worktreeId) ? (state.speedBlock ?? null) : null
+  }
+  return getPersistedStructuredAgentLaunchRecord(sessionId)?.speed?.block ?? null
+}
+
+export function useStructuredAgentSessionLaunchSpeedBlock(
+  worktreeId: string,
+  sessionId: string
+): StructuredLaunchSpeedBlock | null {
+  return useSyncExternalStore(
+    subscribeStructuredAgentLaunchStatus,
+    () => getStructuredAgentSessionLaunchSpeedBlock(worktreeId, sessionId),
+    () => null
+  )
+}
+
 export function useStructuredAgentSessionLaunchFailure(
   worktreeId: string,
   sessionId: string
@@ -234,6 +275,8 @@ function markStructuredAgentSessionLaunchCancelledInternal(
       state.promise
     )
     state.cancelled = true
+    // A pass parked on a speed block ends with the launch instead of waiting for a pick.
+    state.releaseSpeedBlock?.()
     state.callers.outcome = 'cancelled'
     // The tombstone is the durable authority; drop the in-memory launch so bulk closes cannot
     // retain a dead promise for the lifetime of the renderer.

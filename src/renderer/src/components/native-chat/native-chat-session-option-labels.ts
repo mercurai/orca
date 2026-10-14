@@ -1,3 +1,9 @@
+import {
+  codexSpeedChoiceStatus,
+  type CodexSpeedCaptionKey,
+  type CodexSpeedHostSupport
+} from '../../../../shared/codex-service-tier-presentation'
+import type { CodexSpeedLine } from '../../../../shared/codex-speed-facts-presentation'
 import type {
   SessionOptionDescriptor,
   SessionOptionDisabledReason,
@@ -13,6 +19,8 @@ export function nativeChatSessionOptionLabel(descriptor: SessionOptionDescriptor
       return translate('components.native-chat.composer.effort', descriptor.label)
     case 'fastMode':
       return translate('components.native-chat.composer.fastMode', 'Fast mode')
+    case 'serviceTier':
+      return translate('components.native-chat.composer.serviceTier', 'Speed')
     case 'thinking':
       return translate('components.native-chat.composer.thinking', 'Thinking')
     default:
@@ -39,6 +47,137 @@ export function nativeChatSessionChoiceLabel(choice: SessionOptionSelectChoice):
     default:
       return choice.label
   }
+}
+
+/** A choice's second line. An unavailable speed row says why; an offered Fast or Ultrafast adds
+ *  the usage cost to the provider's own words, with no guessed rate. */
+export function nativeChatSessionChoiceDescription(
+  descriptor: SessionOptionDescriptor,
+  choice: SessionOptionSelectChoice
+): string | undefined {
+  switch (codexSpeedChoiceStatus(descriptor, choice)) {
+    case 'unavailable':
+      return translate(
+        'components.native-chat.composer.speedUnavailable',
+        'Not offered for this model.'
+      )
+    case 'unverified':
+      return translate(
+        'components.native-chat.composer.speedUnverified',
+        'Cannot be confirmed for this model yet.'
+      )
+    case 'higher-usage': {
+      const usage = translate(
+        'components.native-chat.composer.speedHigherUsage',
+        'Uses more of your usage allowance than Standard.'
+      )
+      return choice.description ? `${choice.description} ${usage}` : usage
+    }
+    case 'offered':
+      return choice.description
+  }
+}
+
+export function nativeChatSpeedCaption(key: CodexSpeedCaptionKey): string {
+  switch (key) {
+    case 'next-turn':
+      return translate(
+        'components.native-chat.composer.speedNextTurn',
+        'Changes apply to the next turn, including while a turn is running.'
+      )
+    case 'not-chosen':
+      return translate(
+        'components.native-chat.composer.speedNotChosen',
+        'No speed chosen. Codex uses its configured speed.'
+      )
+    case 'support-unverified':
+      return translate(
+        'components.native-chat.composer.speedSupportUnverified',
+        "This model's speed options could not be confirmed."
+      )
+    case 'selection-blocked':
+      return translate(
+        'components.native-chat.composer.speedSelectionBlocked',
+        'The selected speed cannot be sent for this model. Choose another.'
+      )
+  }
+}
+
+/** One claim about speed, worded as that claim and no stronger: a stored selection is intent for
+ *  the next turn, a request is what was submitted or refused, processing is what the server said. */
+export function nativeChatSpeedLine(line: CodexSpeedLine): string {
+  switch (line.kind) {
+    case 'pending':
+      return translate(
+        'components.native-chat.composer.speedPending',
+        'Requested {{value0}}, waiting for the host to confirm.',
+        { value0: line.label }
+      )
+    case 'stored':
+      return translate(
+        'components.native-chat.composer.speedStored',
+        'Stored for the next turn: {{value0}}.',
+        { value0: line.label }
+      )
+    case 'last-request':
+      return nativeChatSpeedRequestLine(line)
+    case 'processing':
+      return line.label
+        ? translate(
+            'components.native-chat.composer.speedProcessingReported',
+            'The server reported {{value0}} for the last turn.',
+            { value0: line.label }
+          )
+        : translate(
+            'components.native-chat.composer.speedProcessingUnknown',
+            'The speed the server used is not reported.'
+          )
+  }
+}
+
+function nativeChatSpeedRequestLine(
+  line: Extract<CodexSpeedLine, { kind: 'last-request' }>
+): string {
+  switch (line.outcome) {
+    case 'sent':
+      return translate(
+        'components.native-chat.composer.speedRequestSent',
+        'Last turn requested {{value0}}; not yet accepted.',
+        { value0: line.label }
+      )
+    case 'accepted':
+      return translate(
+        'components.native-chat.composer.speedRequestAccepted',
+        'Last turn requested {{value0}}; accepted.',
+        { value0: line.label }
+      )
+    case 'rejected':
+      return line.detail
+        ? translate(
+            'components.native-chat.composer.speedRequestRefusedDetail',
+            'Last request for {{value0}} was refused: {{value1}}',
+            { value0: line.label, value1: line.detail }
+          )
+        : translate(
+            'components.native-chat.composer.speedRequestRefused',
+            'Last request for {{value0}} was refused.',
+            { value0: line.label }
+          )
+  }
+}
+
+/** Why a canonical speed tier was refused before any write: an older host drops it, and an
+ *  unanswered host cannot yet be told apart from one. The Fast toggle stays as it was. */
+export function nativeChatSpeedHostRefusalText(support: CodexSpeedHostSupport): string {
+  return support === 'unsupported'
+    ? translate(
+        'components.native-chat.composer.speedHostUpdate',
+        'This host needs an update before it can store a speed choice. Update it and try again.'
+      )
+    : translate(
+        'components.native-chat.composer.speedHostUnconfirmed',
+        'Orca could not confirm this host supports speed choices. Try again in a moment.'
+      )
 }
 
 export function nativeChatSessionOptionDisabledReason(

@@ -8,11 +8,13 @@ import {
   type SessionOptionDescriptor,
   type SessionOptionValue
 } from '../../../src/shared/native-chat-session-options'
+import { isCodexSpeedSelectorSettable } from '../../../src/shared/codex-service-tier-presentation'
 import {
   mobileModelPillLabel,
   mobileOptionsPillLabel,
   mobileSessionOptionSummaryValue,
-  mobileSessionOptionDisabledReason
+  mobileSessionOptionDisabledReason,
+  mobileSpeedCaptions
 } from './mobile-native-chat-session-option-labels'
 import {
   DescriptorRows,
@@ -53,7 +55,13 @@ export function MobileNativeChatSessionOptionPickers({
   if (!model) {
     return null
   }
-  const disabled = isWorking || pendingId !== null || sendInFlight
+  // A running turn locks every control that changes it. The speed select alone stays open: its
+  // choice applies to the next turn.
+  const speedOpenWhileWorking = isWorking && options.some(isCodexSpeedSelectorSettable)
+  const busy = pendingId !== null || sendInFlight
+  const disabled = (isWorking && !speedOpenWhileWorking) || busy
+  const rowsDisabled = (descriptor: SessionOptionDescriptor): boolean =>
+    busy || (isWorking && !isCodexSpeedSelectorSettable(descriptor))
   const activeDescriptor = snapshot.find((descriptor) => descriptor.id === openDescriptorId)
   const modelView = activeDescriptor?.id === model.id
   const modelLabel = mobileModelPillLabel(model)
@@ -129,10 +137,13 @@ export function MobileNativeChatSessionOptionPickers({
               <SessionOptionCaption>Sent to the agent — not confirmed</SessionOptionCaption>
             ) : null}
             {reason ? <SessionOptionCaption>{reason}</SessionOptionCaption> : null}
+            {mobileSpeedCaptions(activeDescriptor).map((caption) => (
+              <SessionOptionCaption key={caption}>{caption}</SessionOptionCaption>
+            ))}
             <View style={styles.choiceGroup}>
               <DescriptorRows
                 descriptor={activeDescriptor}
-                disabled={disabled}
+                disabled={rowsDisabled(activeDescriptor)}
                 grouped
                 onSetOption={(value) => applyOption(activeDescriptor, value)}
                 onInvokeAction={() => invokeAction(activeDescriptor)}
@@ -145,7 +156,7 @@ export function MobileNativeChatSessionOptionPickers({
                     key={descriptor.id}
                     label={descriptor.label}
                     value={mobileSessionOptionSummaryValue(descriptor)}
-                    disabled={disabled}
+                    disabled={rowsDisabled(descriptor)}
                     divided={index < options.length - 1}
                     onPress={() => setOpenDescriptorId(descriptor.id)}
                   />

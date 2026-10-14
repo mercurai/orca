@@ -1,0 +1,189 @@
+name: Codex speed catalog generation
+
+# Temporary: regenerates the English localization catalogs for the Codex speed
+# selection work while local installs are frozen, then runs a bounded focused test set.
+# It only uploads a patch; it never commits, pushes, or deploys, and it is not a
+# substitute for the required PR checks.
+on:
+  push:
+    branches: ['codex/codex-speed-generation']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-speed-catalog-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate catalogs
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout pushed commit
+        uses: actions/checkout@v6
+        with:
+          # HEAD^..HEAD names the task paths to format.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Install Node dependencies
+        uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: config/.bun-version
+
+      # Paths stay NUL-delimited and are passed as argv, never through shell parsing.
+      - name: Format changed task files
+        shell: bash
+        run: |
+          set -euo pipefail
+          scope=(
+            src/shared
+            src/main/codex
+            src/main/native-chat/agent-model-catalog
+            src/main/native-chat/agent-session-wire
+            src/renderer/src/components/native-chat
+            src/renderer/src/lib
+            src/renderer/src/runtime
+            mobile/src/session
+            docs/site/content/docs/agents
+          )
+          changed="$RUNNER_TEMP/codex-speed-changed.zlist"
+          formattable="$RUNNER_TEMP/codex-speed-format-paths.zlist"
+          git diff -z --name-only --diff-filter=ACMR HEAD^ HEAD -- "${scope[@]}" > "$changed"
+          : > "$formattable"
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              *.ts|*.tsx|*.js|*.jsx|*.mjs|*.mts|*.cts|*.json|*.css)
+                printf '%s\0' "$path" >> "$formattable"
+                ;;
+            esac
+          done < "$changed"
+          mapfile -d '' -t paths < "$formattable"
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo 'No formattable task files changed in HEAD^..HEAD.'
+            exit 0
+          fi
+          pnpm exec oxfmt --write "${paths[@]}"
+
+      - name: Generate English catalogs
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm run sync:localization-catalog
+          pnpm run sync:localization-runtime-catalog
+
+      # Bounded focused verification of the speed work, run on the generated tree. These
+      # steps never fail the job themselves: the patch below must upload either way, and
+      # the final step turns a failed outcome into a red run.
+      - name: Test Codex speed core targets
+        id: core
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          ORCA_BACKGROUND_LAUNCH: '1'
+        run: >-
+          node config/scripts/run-vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/shared/codex-service-tier-selection.test.ts
+          src/shared/codex-service-tier-seed.test.ts
+          src/shared/codex-service-tier-default-actions.test.ts
+          src/shared/codex-service-tier-host-gating.test.ts
+          src/shared/codex-service-tier-presentation.test.ts
+          src/shared/codex-speed-facts-presentation.test.ts
+          src/main/codex/codex-service-tier-selection.test.ts
+          src/main/codex/codex-service-tier-turns.test.ts
+          src/main/codex/codex-service-tier-speed-facts.test.ts
+          src/main/codex/codex-structured-catalog-entry.test.ts
+          src/main/native-chat/agent-session-wire/codex-service-tier-at-rest.test.ts
+          src/main/native-chat/agent-session-wire/codex-service-tier-record-round-trip.test.ts
+          src/main/native-chat/agent-session-wire/codex-service-tier-restoration.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-speed-refusal-persistence.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-options.test.ts
+          src/renderer/src/lib/codex-speed-launch-admission.test.ts
+          src/renderer/src/components/native-chat/codex-speed-send-admission.test.tsx
+          src/renderer/src/components/native-chat/use-structured-agent-session-options.speed.test.tsx
+
+      - name: Install mobile dependencies
+        id: mobile-install
+        continue-on-error: true
+        uses: ./.github/actions/install-mobile-dependencies
+
+      - name: Test Codex speed mobile targets
+        id: mobile
+        if: steps.mobile-install.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 10
+        working-directory: mobile
+        env:
+          ORCA_BACKGROUND_LAUNCH: '1'
+        run: >-
+          pnpm exec vitest run --maxWorkers=2
+          src/session/mobile-codex-speed-options-facts.test.ts
+          src/session/mobile-codex-speed-send-admission.test.ts
+          src/session/mobile-codex-speed-parent-forwarding.test.ts
+          src/session/MobileNativeChatSessionOptionPickers.test.ts
+          src/session/use-mobile-structured-agent-options.test.ts
+
+      # Plain JSON only: SHA and step outcomes, never logs or transcripts.
+      - name: Write patch and source metadata
+        shell: bash
+        env:
+          CORE_OUTCOME: ${{ steps.core.outcome }}
+          MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
+          MOBILE_OUTCOME: ${{ steps.mobile.outcome }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/codex-speed-generated-files"
+          mkdir -p "$out"
+          mapfile -d '' -t paths < "$RUNNER_TEMP/codex-speed-format-paths.zlist"
+          git diff --binary HEAD -- \
+            "${paths[@]}" \
+            src/renderer/src/i18n/locales/en.json \
+            src/renderer/src/i18n/en-runtime-required.json \
+            > "$out/codex-speed-generated.patch"
+          git rev-parse HEAD > "$out/source-sha.txt"
+          node -e '
+            const e = process.env
+            const metadata = {
+              sourceSha: e.GITHUB_SHA,
+              runId: e.GITHUB_RUN_ID,
+              runAttempt: e.GITHUB_RUN_ATTEMPT,
+              outcomes: {
+                core: e.CORE_OUTCOME,
+                mobileInstall: e.MOBILE_INSTALL_OUTCOME,
+                mobile: e.MOBILE_OUTCOME
+              }
+            }
+            process.stdout.write(JSON.stringify(metadata, null, 2) + "\n")
+          ' > "$out/source-metadata.json"
+          cat "$out/source-metadata.json"
+          git diff --stat HEAD -- \
+            "${paths[@]}" \
+            src/renderer/src/i18n/locales/en.json \
+            src/renderer/src/i18n/en-runtime-required.json
+
+      - name: Upload generated patch
+        uses: actions/upload-artifact@v7
+        with:
+          name: codex-speed-generated-files
+          path: ${{ runner.temp }}/codex-speed-generated-files
+          if-no-files-found: error
+
+      # The artifact is already uploaded; a red target test must not read as a green run.
+      - name: Fail on red Codex speed targets
+        shell: bash
+        env:
+          CORE_OUTCOME: ${{ steps.core.outcome }}
+          MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
+          MOBILE_OUTCOME: ${{ steps.mobile.outcome }}
+        run: |
+          echo "core=$CORE_OUTCOME mobile-install=$MOBILE_INSTALL_OUTCOME mobile=$MOBILE_OUTCOME"
+          if [ "$CORE_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ]; then
+            echo '::error::Codex speed target tests are not green; the patch artifact is not release evidence.'
+            exit 1
+          fi

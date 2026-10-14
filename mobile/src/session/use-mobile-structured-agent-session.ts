@@ -23,7 +23,10 @@ import { useMobileStructuredAgentState } from './use-mobile-structured-agent-sta
 import { useMobileStructuredStopPress } from './use-mobile-structured-stop-press'
 import { useMobileStructuredSessionHostStopping } from './use-mobile-structured-session-host-stopping'
 import { useMobileStructuredPromptResponses } from './use-mobile-structured-prompt-responses'
-import type { StructuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
+import {
+  mobileCodexSpeedHostSupport,
+  type StructuredAgentSessionHostSupport
+} from './mobile-structured-agent-session-host-support'
 import { useMobileStructuredAgentOptions } from './use-mobile-structured-agent-options'
 import { useMobileStructuredAgentTurnTiming } from './use-mobile-structured-agent-turn-timing'
 import {
@@ -97,7 +100,8 @@ export function useMobileStructuredAgentSession(args: {
     sessionId,
     enabled,
     fence: state.fence,
-    mutate
+    mutate,
+    codexSpeedHost: mobileCodexSpeedHostSupport(hostSupport)
   })
   const { conversationCommands, invokeStructuredOption, optionSnapshot, setStructuredOption } =
     options

@@ -44,6 +44,7 @@ export function restorePersistedStructuredLaunchState(
   }
   // Only a Retry or re-check restarts a restored launch.
   const callers: StructuredLaunchCallerGroup = createStructuredLaunchCallerGroup({ kind: 'retry' })
+  const { speed } = record
   const state: StructuredLaunchState = {
     identity: structuredLaunchIdentity(worktreeId, record.agent, record.resumeFrom),
     intent,
@@ -53,7 +54,13 @@ export function restorePersistedStructuredLaunchState(
     cancelled: false,
     onVisibilityChanged: undefined,
     callers,
-    selection: { seed: intent.seedOptions, held: {} }
+    // The speed held and the chat created survive, so the restart applies the same pick to the same chat.
+    selection: {
+      seed: intent.seedOptions,
+      held: speed?.heldTierId === undefined ? {} : { serviceTier: speed.heldTierId }
+    },
+    ...(speed ? { receipt: { sessionId: record.sessionId, fence: speed.fence } } : {}),
+    ...(speed?.block ? { speedBlock: speed.block } : {})
   }
   callers.outcome = record.lifecycle === 'failed' ? 'failed' : 'unknown'
   callers.failedAt = record.failedAt

@@ -27,6 +27,8 @@ import {
   type AgentSessionWriteFailure
 } from '../../../shared/agent-session-write-failure'
 import type { RuntimeClientTarget } from '@/runtime/runtime-client-target'
+import type { StructuredLaunchSpeedBlock } from './structured-agent-session-launch-errors'
+import { codexSeedSpeedTier, readCodexSpeedBlock } from './structured-agent-session-launch-failure'
 
 /** The options a launch starts with, replaced whole so readers can compare by identity. */
 export type StructuredLaunchSelection = {
@@ -68,16 +70,22 @@ export function holdStructuredAgentSessionLaunchOption(
     return null
   }
   const replies = repliesFor(state)
-  const { held } = state.selection
-  // A model pick drops picks held under the model it replaces.
-  for (const key of id === 'model' ? Object.keys(held) : [id]) {
+  const { serviceTier, ...droppable } = state.selection.held
+  // A model pick drops picks held under the model it replaces, but not the speed: that is the
+  // person's own intent and outlives the model it was picked under.
+  for (const key of id === 'model' ? Object.keys(droppable) : [id]) {
     replies.get(key)?.({ kind: 'superseded' })
     replies.delete(key)
   }
   state.selection = {
     ...state.selection,
-    held: id === 'model' ? { model: encoded } : { ...held, [id]: encoded }
+    held:
+      id === 'model'
+        ? { model: encoded, ...(serviceTier === undefined ? {} : { serviceTier }) }
+        : { ...state.selection.held, [id]: encoded }
   }
+  // A launch parked on its speed tries again with whatever was just picked.
+  state.releaseSpeedBlock?.()
   notifyStructuredLaunchListeners()
   return new Promise((resolve) => replies.set(id, resolve))
 }
@@ -120,6 +128,16 @@ async function setLaunchOption(
   }
 }
 
+function replyToHeldOption(
+  state: StructuredLaunchState,
+  id: string,
+  outcome: StructuredLaunchOptionOutcome
+): void {
+  const replies = repliesFor(state)
+  replies.get(id)?.(outcome)
+  replies.delete(id)
+}
+
 function settleHeldOption(
   state: StructuredLaunchState,
   id: string,
@@ -137,22 +155,66 @@ function settleHeldOption(
     held: settled ? rest : state.selection.held
   }
   if (settled) {
-    const replies = repliesFor(state)
-    replies.get(id)?.(outcome)
-    replies.delete(id)
+    replyToHeldOption(state, id, outcome)
   }
   notifyStructuredLaunchListeners()
+}
+
+/** A speed write that did not land: the pick stays exactly as chosen. */
+function speedWriteBlock(
+  encoded: string,
+  outcome: StructuredLaunchOptionOutcome
+): StructuredLaunchSpeedBlock | undefined {
+  return outcome.kind === 'refused'
+    ? {
+        tierId: encoded,
+        reason: outcome.failure.kind === 'refused' ? 'refused' : 'unconfirmed',
+        failure: outcome.failure
+      }
+    : undefined
+}
+
+/** Holds the pass, with the chat and its fence kept, until a pick or a recheck wakes it. */
+async function parkOnSpeedBlock(
+  state: StructuredLaunchState,
+  block: StructuredLaunchSpeedBlock
+): Promise<void> {
+  state.speedBlock = block
+  notifyStructuredLaunchListeners()
+  await new Promise<void>((resolve) => {
+    state.releaseSpeedBlock = resolve
+  })
+  delete state.releaseSpeedBlock
+  delete state.speedBlock
+  notifyStructuredLaunchListeners()
+}
+
+/**
+ * Tries a launch parked on its chosen speed again, as a refreshed catalog or an updated host may
+ * now allow it. False when the launch is not parked.
+ */
+export function recheckStructuredAgentSessionLaunchSpeed(sessionId: string): boolean {
+  const release = getStructuredLaunchStateBySessionId(sessionId)?.releaseSpeedBlock
+  release?.()
+  return release !== undefined
 }
 
 /**
  * Applies the picks held during launch against the create receipt's fence, model first so an
  * effort lands under the model it was picked against, until none is left. A refused pick is
- * reported to its picker and never keeps the launch from publishing.
+ * reported to its picker and never keeps the launch from publishing, except the speed: a speed
+ * the host did not take, or a host that no longer affirms the one the chat runs, parks the launch
+ * with its chat, fence and staged text kept, until a pick or a recheck wakes it.
  */
 export async function applyStructuredLaunchHeldOptions(
   state: StructuredLaunchState,
   receipt: StructuredAgentLaunchReceipt
 ): Promise<StructuredAgentLaunchReceipt> {
+  // Stored before any held speed is applied, so a block keeps the chat it blocks.
+  state.receipt = receipt
+  if (state.selection.held.serviceTier !== undefined) {
+    notifyStructuredLaunchListeners()
+  }
   for (;;) {
     if (state.cancelled) {
       throw new StructuredAgentSessionLaunchCancelledError()
@@ -161,7 +223,15 @@ export async function applyStructuredLaunchHeldOptions(
     const id = STRUCTURED_LAUNCH_SEED_OPTION_IDS.find((key) => held[key] !== undefined)
     const encoded = id ? held[id] : undefined
     if (!id || encoded === undefined) {
-      return receipt
+      // The last look before publication: a speed the chat runs still needs a host that affirms it.
+      const tierId = codexSeedSpeedTier(state.intent.agent, state.selection.seed)
+      const unpublishable =
+        tierId === undefined ? undefined : await readCodexSpeedBlock(state.intent.target, tierId)
+      if (!unpublishable) {
+        return receipt
+      }
+      await parkOnSpeedBlock(state, unpublishable)
+      continue
     }
     const outcome = await setLaunchOption(
       state.intent.target,
@@ -170,6 +240,13 @@ export async function applyStructuredLaunchHeldOptions(
       id,
       encoded
     )
+    const speedBlock = id === 'serviceTier' ? speedWriteBlock(encoded, outcome) : undefined
+    // A speed picked again while this one was in flight is the one to send next, not to block on.
+    if (speedBlock && state.selection.held.serviceTier === encoded) {
+      replyToHeldOption(state, id, outcome)
+      await parkOnSpeedBlock(state, speedBlock)
+      continue
+    }
     settleHeldOption(state, id, encoded, outcome)
   }
 }

@@ -8,6 +8,10 @@ import {
   parseExecutionHostId,
   type ExecutionHostId
 } from '../../../shared/execution-host'
+import {
+  parseStructuredAgentLaunchSpeedRecord,
+  type StructuredAgentLaunchSpeedRecord
+} from './structured-agent-session-launch-speed-record'
 
 export type StructuredAgentLaunchPersistedLifecycle = 'pending' | 'visibility-unknown' | 'failed'
 
@@ -26,6 +30,8 @@ export type StructuredAgentLaunchPersistedRecord = {
   seedOptions?: Readonly<Record<string, string>>
   /** When a failed launch failed; records written by older builds lack it. */
   failedAt?: number
+  /** Present only while a chosen speed is held back or unconfirmed; older builds never wrote it. */
+  speed?: StructuredAgentLaunchSpeedRecord
 }
 
 /** What survives a reload of an unpublished launch. */
@@ -124,10 +130,14 @@ function load(): void {
           const seedOptions = parseStructuredLaunchSeedOptions(
             'seedOptions' in value ? value.seedOptions : undefined
           )
-          const { seedOptions: _stored, ...rest } = value
+          const speed = parseStructuredAgentLaunchSpeedRecord(
+            'speed' in value ? value.speed : undefined
+          )
+          const { seedOptions: _stored, speed: _storedSpeed, ...rest } = value
           records.set(value.sessionId, {
             ...rest,
             ...(seedOptions ? { seedOptions } : {}),
+            ...(speed ? { speed } : {}),
             executionHostId:
               parseExecutionHostId(value.executionHostId)?.id ?? LOCAL_EXECUTION_HOST_ID,
             // A renderer reload cannot prove a pending request was delivered.

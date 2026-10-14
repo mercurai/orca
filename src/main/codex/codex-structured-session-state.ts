@@ -18,6 +18,7 @@ import {
   type CodexTurnOpenWaits
 } from './codex-structured-turn-open-wait'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
+import type { CodexSpeedEvidence } from './codex-structured-fast-mode'
 import type { AgentChildWorkEvidence } from '../../shared/agent-status-child-work-evidence'
 import type { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
 import type { CodexJournalTranslator } from './codex-structured-journal-translation'
@@ -152,6 +153,8 @@ export type CodexSession = {
   }
   /** Absent when the adapter runs without a host catalog store (tests). */
   catalogAccess?: CodexSessionCatalogAccess
+  /** What this child's `turn/start` speed requests came to; lost with the child, never persisted. */
+  speedEvidence?: CodexSpeedEvidence
   /** Sends whose identity is still to be settled by the provider echo. */
   dispatchEchoes: CodexDispatchEchoes
   translator: CodexJournalTranslator | null

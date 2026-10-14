@@ -32,6 +32,15 @@ import {
   mobileCreatedStructuredSession
 } from './mobile-created-structured-sessions'
 import { encodeStructuredAgentSessionOptionValue } from '../../../src/shared/structured-agent-session-option-codec'
+import {
+  CODEX_SERVICE_TIER_OPTION_ID,
+  type CodexSpeedHostSupport
+} from '../../../src/shared/codex-service-tier-presentation'
+
+/** Only an affirmative capability admits a canonical tier; every other pick is not gated here. */
+function speedPickAdmitted(id: string, host: CodexSpeedHostSupport): boolean {
+  return id !== CODEX_SERVICE_TIER_OPTION_ID || host === 'supported'
+}
 
 type StructuredOptionsController = {
   optionPickerRequest: { id: string; sequence: number } | null
@@ -50,8 +59,14 @@ export function useMobileStructuredAgentOptions(args: {
   enabled: boolean
   fence: number | null
   mutate: StructuredAgentSessionMutate
+  /** The host's speed capability from the one status probe; only `supported` admits a canonical
+   *  tier. Absent reads as unknown. */
+  codexSpeedHost?: CodexSpeedHostSupport
 }): StructuredOptionsController {
   const { agent, client, enabled, fence, mutate, sessionId } = args
+  // Another agent has no speed control, so its reads never wait on the answer.
+  const codexSpeedHost: CodexSpeedHostSupport =
+    agent === 'codex' ? (args.codexSpeedHost ?? 'unknown') : 'unsupported'
   // Every agent's seed, as on the desktop: a built-in list or the provider-default pill.
   const optionCatalog = useMemo(
     () => (agent ? structuredAgentSessionSeedCatalog(agent) : null),
@@ -114,6 +129,7 @@ export function useMobileStructuredAgentOptions(args: {
     newLaunch: createdHere !== undefined,
     ...(createdHere ? { worktree: createdHere.worktree } : {}),
     optionCatalog,
+    codexSpeedHost,
     activeOptionRecordRef,
     updateOptionState
   })
@@ -132,7 +148,7 @@ export function useMobileStructuredAgentOptions(args: {
           setConversationSupport({ sessionId, commands: result.conversationCommands ?? [] })
           updateOptionState((current) =>
             current.record === activeOptionRecordRef.current
-              ? applyStructuredAgentSessionOptions(current, optionCatalog, result)
+              ? applyStructuredAgentSessionOptions(current, optionCatalog, result, codexSpeedHost)
               : current
           )
         }
@@ -141,7 +157,7 @@ export function useMobileStructuredAgentOptions(args: {
     return () => {
       stale = true
     }
-  }, [client, enabled, optionCatalog, sessionId, fence, updateOptionState])
+  }, [client, codexSpeedHost, enabled, optionCatalog, sessionId, fence, updateOptionState])
 
   const optionSnapshot = useMemo(
     () => structuredAgentSessionOptionSnapshot(optionState),
@@ -158,6 +174,7 @@ export function useMobileStructuredAgentOptions(args: {
         !sessionId ||
         !optionCatalog ||
         encoded === null ||
+        !speedPickAdmitted(id, codexSpeedHost) ||
         !canSetStructuredAgentSessionOption(currentState, id, value)
       ) {
         return false
@@ -206,7 +223,12 @@ export function useMobileStructuredAgentOptions(args: {
                 ) {
                   updateOptionState((latest) =>
                     latest.record === targetRecord
-                      ? applyStructuredAgentSessionOptions(latest, optionCatalog, refreshed)
+                      ? applyStructuredAgentSessionOptions(
+                          latest,
+                          optionCatalog,
+                          refreshed,
+                          codexSpeedHost
+                        )
                       : latest
                   )
                 }
@@ -238,7 +260,7 @@ export function useMobileStructuredAgentOptions(args: {
         }
       }
     },
-    [agent, client, mutate, optionCatalog, sessionId, updateOptionState]
+    [agent, client, codexSpeedHost, mutate, optionCatalog, sessionId, updateOptionState]
   )
 
   const invokeStructuredOption = useCallback(

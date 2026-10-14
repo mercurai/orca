@@ -2,6 +2,11 @@
 // (src/renderer/src/components/native-chat/native-chat-session-option-labels.ts),
 // minus i18n — mobile renders plain strings throughout.
 
+import {
+  codexSpeedChoiceStatus,
+  codexSpeedDescriptorCaptions,
+  type CodexSpeedCaptionKey
+} from '../../../src/shared/codex-service-tier-presentation'
 import type {
   SessionOptionDescriptor,
   SessionOptionDisabledReason,
@@ -20,6 +25,38 @@ export function mobileSessionOptionDisabledReason(
     case undefined:
       return null
   }
+}
+
+/** A choice's second line: why an unavailable speed row cannot be picked, and the usage cost of an
+ *  offered Fast or Ultrafast, with no guessed rate. Every other choice keeps the provider's words. */
+export function mobileSessionChoiceDescription(
+  descriptor: SessionOptionDescriptor,
+  choice: SessionOptionSelectChoice
+): string | undefined {
+  switch (codexSpeedChoiceStatus(descriptor, choice)) {
+    case 'unavailable':
+      return 'Not offered for this model.'
+    case 'unverified':
+      return 'Cannot be confirmed for this model yet.'
+    case 'higher-usage': {
+      const usage = 'Uses more of your usage allowance than Standard.'
+      return choice.description ? `${choice.description} ${usage}` : usage
+    }
+    case 'offered':
+      return choice.description
+  }
+}
+
+const SPEED_CAPTIONS: Record<CodexSpeedCaptionKey, string> = {
+  'next-turn': 'Changes apply to the next turn, including while a turn is running.',
+  'not-chosen': 'No speed chosen. Codex uses its configured speed.',
+  'support-unverified': "This model's speed options could not be confirmed.",
+  'selection-blocked': 'The selected speed cannot be sent for this model. Choose another.'
+}
+
+/** The speed select's captions, from its descriptor alone; empty for every other option. */
+export function mobileSpeedCaptions(descriptor: SessionOptionDescriptor): string[] {
+  return codexSpeedDescriptorCaptions(descriptor).map((key) => SPEED_CAPTIONS[key])
 }
 
 function selectedChoiceLabel(descriptor: SessionOptionDescriptor): string | null {

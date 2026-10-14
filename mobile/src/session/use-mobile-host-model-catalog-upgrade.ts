@@ -1,6 +1,7 @@
 import { useEffect, type MutableRefObject } from 'react'
 import type { AgentSessionModelCatalogResult } from '../../../src/shared/agent-session-wire'
 import type { AgentSessionOptionCatalog } from '../../../src/shared/agent-session-option-catalog'
+import type { CodexSpeedHostSupport } from '../../../src/shared/codex-service-tier-presentation'
 import type { NativeChatSessionOptionRecord } from '../../../src/shared/native-chat-session-option-state'
 import {
   applyStructuredAgentSessionModelCatalog,
@@ -31,6 +32,8 @@ export function useMobileHostModelCatalogUpgrade(args: {
   worktree?: string
   fence: number | null
   optionCatalog: AgentSessionOptionCatalog | null
+  /** The host's speed capability: shapes the speed control, and a change reads the list again. */
+  codexSpeedHost: CodexSpeedHostSupport
   activeOptionRecordRef: MutableRefObject<NativeChatSessionOptionRecord>
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
@@ -40,6 +43,7 @@ export function useMobileHostModelCatalogUpgrade(args: {
     activeOptionRecordRef,
     agent,
     client,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
@@ -70,7 +74,10 @@ export function useMobileHostModelCatalogUpgrade(args: {
       }
       updateOptionState((current) =>
         current.record === activeOptionRecordRef.current
-          ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, { newLaunch })
+          ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, {
+              newLaunch,
+              codexSpeedHost
+            })
           : current
       )
     }
@@ -102,6 +109,7 @@ export function useMobileHostModelCatalogUpgrade(args: {
     activeOptionRecordRef,
     agent,
     client,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
