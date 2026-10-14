@@ -69,7 +69,8 @@ series.
   through a reviewed PR, or dispatch the workflow from `mercurai` with `allow_guarded_merge_sha=<the
   full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
   commit lands even if upstream moved on (newer commits wait for the next run); any other value, a
-  short sha, or a sha not inside `upstream/main` allows nothing (the schedule never sets it).
+  short sha, or a sha not inside `upstream/main` allows nothing (the schedule never sets it). An exact
+  sha also releases a result-guard refusal, even when the range itself was clean.
   Upstream cuts release tags on release branches, so a new release is never inside `main` and is
   not mirrored on its own. Each such tag (and each tag whose guarded tree differs from the pin) gets
   a `fork-sync tag: <tag> needs owner review` issue, one per tag, matched by its exact title and
