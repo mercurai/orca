@@ -120,14 +120,18 @@ const CODEX_SPEED_COUNTERPART: Readonly<Record<string, string>> = {
   serviceTier: 'fastMode'
 }
 
+function isCodexSpeedOption(agent: AgentType, optionId: string): boolean {
+  return agent === 'codex' && (optionId === 'fastMode' || optionId === 'serviceTier')
+}
+
 /** A Codex speed value the seed boundary would accept: a boolean Fast toggle or a non-blank tier
- *  id that fits the durable record's bounded string. Anything else supersedes nothing. */
+ *  id that fits the durable record's bounded string. Anything else is not a speed choice. */
 function isExplicitCodexSpeedChoice(
   agent: AgentType,
   optionId: string,
   value: SessionOptionValue
 ): boolean {
-  if (agent !== 'codex' || (optionId !== 'fastMode' && optionId !== 'serviceTier')) {
+  if (!isCodexSpeedOption(agent, optionId)) {
     return false
   }
   const encoded = encodeStructuredAgentSessionOptionValue(optionId, value)
@@ -149,8 +153,6 @@ export function applyNativeChatSessionOptionPicks(args: {
   picks: Extract<NativeChatSessionOptionSettingsMutation, { type: 'apply-picks' }>['picks']
 }): PersistedNativeChatSessionOptions {
   let persisted = args.persisted ?? {}
-  // Why: a canonical snapshot batch carries a compatibility fastMode projection for the same
-  // model; applying it first lets the explicit tier win whatever the pick order.
   const tierModelIds = new Set(
     args.picks
       .filter(
@@ -160,14 +162,20 @@ export function applyNativeChatSessionOptionPicks(args: {
       )
       .map((pick) => pick.modelId)
   )
-  const isProjection = (pick: (typeof args.picks)[number]): boolean =>
-    pick.optionId === 'fastMode' && tierModelIds.has(pick.modelId)
-  const ordered = [
-    ...args.picks.filter(isProjection),
-    ...args.picks.filter((pick) => !isProjection(pick))
-  ]
-  for (const pick of ordered) {
-    persisted = updateNativeChatSessionOptionDefaults({ persisted, agent: args.agent, ...pick })
+  for (const pick of args.picks) {
+    // Why: a canonical snapshot batch carries a compatibility fastMode projection for the same
+    // model. In pick order it still adopts the model, but stores no Fast value, so the tier wins
+    // whatever the intra-model order and the batch's last-picked model is unchanged.
+    const isProjection =
+      pick.optionId === 'fastMode' &&
+      tierModelIds.has(pick.modelId) &&
+      isExplicitCodexSpeedChoice(args.agent, pick.optionId, pick.value)
+    persisted = updateNativeChatSessionOptionDefaults({
+      persisted,
+      agent: args.agent,
+      ...pick,
+      ...(isProjection ? { optionId: 'model', value: pick.modelId } : {})
+    })
   }
   return persisted
 }
@@ -219,12 +227,16 @@ export function updateNativeChatSessionOptionDefaults(args: {
    *  later launch, fatal on an account without that model. */
   adoptModelAsLaunchDefault?: boolean
 }): PersistedNativeChatSessionOptions {
+  const isSpeed = isCodexSpeedOption(args.agent, args.optionId)
+  // Why: a malformed speed value is no choice at all; it must not overwrite the same key or
+  // adopt its model as the launch default.
+  if (isSpeed && !isExplicitCodexSpeedChoice(args.agent, args.optionId, args.value)) {
+    return args.persisted ?? {}
+  }
   const currentAgent = args.persisted?.[args.agent]
   const currentModelValues = currentAgent?.valuesByModel?.[args.modelId] ?? {}
   // Why: an explicit speed action is a new user choice, so the other spelling of speed is stale.
-  const supersededId = isExplicitCodexSpeedChoice(args.agent, args.optionId, args.value)
-    ? CODEX_SPEED_COUNTERPART[args.optionId]
-    : undefined
+  const supersededId = isSpeed ? CODEX_SPEED_COUNTERPART[args.optionId] : undefined
   const keptModelValues = Object.fromEntries(
     Object.entries(currentModelValues).filter(([id]) => id !== supersededId)
   )
