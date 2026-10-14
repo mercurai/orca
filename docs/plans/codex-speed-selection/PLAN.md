@@ -9,58 +9,29 @@ status: review-corrections
 
 ## Purpose and current state
 
-Current checkpoint (2026-10-14): CI38629779067 at4894245b9850 passed 841 tests and
-failed 34 across core/mobile. This is intermediate evidence, not final release verification.
-Generic C recovery passed review; B sequential recovery is corrected in ordinary paths. Remaining
-B review requires truthful quarantine reads, retained requested intent after restore failure and
-safe subsequent complete-map settlement, plus extracting bookkeeping to meet the 300-line cap.
-D's remaining corrections separate authoritative stored-current provenance from ready admission
-and retain unanswered intent across a same-conversation mobile fence change. Final regressions
-await red CI. L receipt, recheck, draft, file-cap and central-notice source passed independent review.
-All eight real closed-db resume cases and expanded launch suites passed the last focused run.
-Three unchanged upstream baseline failures need separate owner correction: stale Windows test
-argv paths and foreground SSH PID umask. Pinned baseline CI proof is being prepared.
-No source landing, assigned release version, installation or loaded-runtime proof is complete.
-
-Implement Standard, Fast and Ultrafast selection through Orca's existing model catalog and option picker.
-This is the authoritative specification, ownership map and execution plan for this change.
-The user authorized core implementation and rollout; the fleet retains landing and release ordering.
-Independent local GPT-6 Astra/ultra plan review approved the revised contract. Regression tests are written;
-CI run 38468679286 established expected missing-tier/seed/migration behavior failures at dcd4aaf3ef.
-Static/type checks passed. Shard 1 also failed an unrelated filesystem-watcher test; shard 3 includes
-win32-test-lane-registration baseline failures. Shared contract commit 254d965abd passed independent GPT-6.1/medium slice review after malformed-toggle
-and storage-bound corrections; static/type checks passed in CI run 38482816065. Its shared parser/migration
-suite passed 80 tests and its seed suite passed 21 tests. Windows/main packaging, relay integration and
-cross-version wire compatibility passed. The full run failed on remaining host/restoration/launch/presentation
-red tests and two Windows registration baseline cases; this is not final candidate verification.
-Generic callbacks use provider-neutral shared types, optional speed facts, and a direct complete-map return.
-Real local Sonnet B/C/D/L writers now implement the non-overlapping host, at-rest, picker and launch slices.
-Slice C passed independent GPT-6.1/medium review after canonical model/effort ordering correction; its new
-tests passed in CI run 38485011107 at b0206bb095: 24 at-rest tests and five disk round-trip tests.
-That revision also passed static/type checks, Windows/main packaging and wire compatibility. F's new
-explicit-default tests produced the expected red result: 11 tests, nine failed, two passed.
-The completed run failed with 54 cases: 51 expected feature regressions, two Windows registration
-baseline failures and one new SQLite test registration omission. The five disk cases ran under Bun;
-registration was corrected at 691b3b5cc3; CI38612855910 reran and passed five disk cases in Node.
-That evidence does not establish real provider restart/resume; focused continuity regressions are in progress.
-Review identified a live-refusal gap: preserving the
-previous accepted tier alone permits autonomous queued sends to fall back after a refused new selection.
-Retain refused requested intent separately, block next-turn admission until explicit accepted replacement,
-and protect client pending picks and already-reserved sends with host/generation fencing.
-Independent B/D/L review found additional catalog provenance, transport submission, live/resting,
-launch admission/reload and mobile identity/facts issues. Sonnet hit its weekly limit on October 13;
-saved test edits required correction. On October 14 the real Sonnet writer completed F's saved-default
-fix and bounded B/C/D/L regression correction writers resumed. Keep the established implementation
-model and independent Codex review; no model switch was required. Tests remain CI-only.
-Owner override: "There's no reason to use server one for the implementation. Go ahead and execute everything here."
-Implementation and independent review run locally. Build freeze and CI-only test admission remain in force.
+Implement catalog-backed Standard, Fast and Ultrafast through the existing picker and catalog.
+This document is the authoritative specification, exact ownership map and acceptance checklist.
+The user authorized core implementation and rollout, including local implementation/review.
+The fleet still owns landing, assembly and release ordering. Local builds/tests remain CI-only.
 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
-- Branch: `codex/codex-speed-selection`.
-- Base: upstream `v1.4.224`, commit `2bb20586ebc39d605e16d95f57420e20a16e7485`.
-- Active harness identity: `CODEX_THREAD_ID=01a1273e-01d1-7e12-8f0f-99a926abdd95`.
-- Native plugin work stays in its separate worktrees; this change owns none of their files.
-- Draft CI/review PR: https://github.com/mercurai/orca/pull/42. Branch is pushed; nothing is landed or installed.
+- Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
+- Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
+- Committed main HEAD: `c9f164ad921173f48f145588654d442191410c15`; remote PR head remains `691b3b5cc3`.
+- Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
+
+Latest focused CI38634227375 at `dc046c2a11d202c3c39cc5a19dfe84d0881e93c4` passed
+876 feature tests and failed 14: four host quarantine/settlement, three shared provenance,
+seven mobile fence/admission regressions. Subsequent B/D corrections passed independent source
+review for those cases; one HIGH remains for unresolved legacy Fast after a successful non-speed
+save. Add its real-adapter regression and refuse non-speed settlement before persistence until an
+explicit accepted speed replacement. This is not final candidate verification.
+All eight closed-database resume cases and the expanded launch suites passed this focused run.
+The separate pinned upstream baseline passed 32 tests and failed two Windows registration checks.
+Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
+under owner investigation. Do not claim that race reproduced in the pinned run or was fixed here.
+No source landing, released version, package installation or loaded-runtime proof is complete.
+Native plugin work remains separate and this lane owns none of its files.
 
 ## Revalidated flow and failure boundaries
 
@@ -362,83 +333,37 @@ Do not independently bump upstream `package.json` or choose a released version; 
 
 ## Acceptance evidence
 
-### Pending review corrections
+### Current evidence and open gates
 
-| Slice | Production corrections | Regression corrections before red CI |
+Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
+can admit the release patch. Latest run: [CI38634227375](https://github.com/mercurai/orca/actions/runs/38634227375).
+Core: 812 passed, seven failed (819). Mobile: 64 passed, seven failed (71). Pinned upstream:
+32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
+Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
+B review accepted the four proven corrections; the unresolved legacy lifecycle regression and a
+fresh combined focused run remain next. A failed save cannot promise restart durability for intent
+never stored. While legacy intent has no existing durable encoding, non-speed writes must refuse
+before settlement rather than making the prior canonical tier look like an accepted replacement.
+
+| Criterion | Required proof | Current state |
 | --- | --- | --- |
-| B | Keep absent tier metadata unknown; remove stale legacy synthesis; record submission at actual write; align live/resting legacy intent; retain refused requested tier separately and block starts. | Add newer-unknown-after-old-Fast and real closed/terminal connection cases; legacy acknowledgement equivalence. |
-| C/F | Persist typed provider refusal-state maps before returning refusal; propagate persistence failures; register disk test in Node. Explicit defaults replace stale counterpart; canonical batch wins. | Assert refresh cannot unblock refused intent; refused-state and replacement persistence failure preserve durable state. F already has nine expected red failures. |
-| D | Rebuild controls on metadata/capability loss; capable unknown models show Standard recovery; fence mobile client/source changes; expose mobile facts; retain pending/refused intent and gate ordinary/reserved/queued sends. | Use real queue-controller wiring instead of test-only sessionId; attempt paired target after cutover; assert both clients receive no stale settings writes; add stable-client/source and late-unknown cases; test actual mobile forwarding; extract focused mobile additions. |
-| L | Recheck generations/cancellation after awaits and at delivery; capability-gate every canonical seed/write including Standard; explicit legacy replacement supersedes canonical; preserve both speed forms across model change; recover authoritative selection and existing receipt/draft. | Clear draft cache before setting storage; discard parked prompts and reset sends/fences in original/fresh module instances; replace fake reload; add host/catalog/model probe cutovers, delivery invalidation and held SSH picks; assert successful recovery publication and no persisted private diagnostic. |
+| Catalogs and missing Ultrafast | Modern/legacy exact IDs, empty precedence, unknown metadata; no invented choices | Deterministic focused CI passed |
+| Migration, defaults and persistence | Canonical/action precedence; unavailable intent; complete maps and disk | Focused CI passed except four final quarantine/settlement regressions |
+| Conversation continuity | Actual database close/reopen, same thread/account, released lease/new fence | Eight focused resume cases passed |
+| Next-turn request and evidence | Exact IDs, mid-turn steer unchanged, submitted/accepted provenance, no processing inference | Deterministic transport/host coverage passed; installed live proof not run |
+| Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
+| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Seven final mobile fence cases and three stored-provenance cases were red; source corrected, CI pending |
+| Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
+| Exact product candidate | All required CI, independent final review and Opus verifier | Not run |
+| Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
+| Installed acceptance | Actual loaded executable/version, native picker and redacted outgoing request | Not run; repository-required Electron skill unavailable |
+| Actual Ultrafast execution | Direct server-reported processing evidence | Not observable through current Codex bridge; upstream metadata separate |
 
-Reviews are independent and read-only on slice diffs, not immutable final-head acceptance. On October 14,
-B, C, F and L regression corrections passed independent red-test readiness review. L now uses fresh-module
-reload and teardown isolation; its production findings remain open. D completed actual mobile parent
-forwarding, stable-client source-cutover, old-host action provenance and persisted-refusal regressions;
-independent readiness review accepted those fixtures. No model change was required: actual Sonnet implementation resumed.
-Revision 691b3b5cc3 is pushed for red CI; static/type, Windows/main packaging, relay and wire checks passed.
-The full run completed with 63 failures across three shards: 60 expected feature regressions, two
-Windows registration baseline cases and one unmodified SSH launch-file-mode test failure requiring
-baseline verification. Static/type, Windows/main packaging,
-relay and wire passed. The Node disk suite passed five cases in job 116023854357.
-Auxiliary snapshot 73bffa7d6ca9be7fffb68331d3afe20541364653 ran CI 38615954521: 18 core files,
-404 tests (317 passed, 87 failed), and five mobile files, 63 tests (45 passed, 18 failed). The observed
-failures reproduce reviewed production defects; no import/collection failure was reported. Formatting
-and repository English catalog generation succeeded; root checked and applied the scoped generated
-patch before restarting writers. This is red-test evidence, not final candidate acceptance.
-A read-only integration trace identified an additional live persistence boundary: serialization prevents
-interleaving, but a failed durable write leaves the provider map changed after the mutation releases.
-The real-adapter live regression file passed independent readiness review after tightening failed
-speed actions to block every next turn until explicitly saved replacement. It also proves unrelated
-complete-map preservation and honest current-versus-requested facts. Run red CI before source recovery.
-Independent C review recommends an optional internal recovery hook with a copied prior map, an atomic
-fence-scoped in-memory restore/block, no transport or storage work, and quarantine if recovery cannot
-establish safety. Test successful and failed replacement recovery. No new recovery source is written yet.
-Released-lease/reacquire and pinned-account continuity also need real adapter coverage; synthetic record
-round-trip identity is insufficient. Do not treat inability to persist new intent as durable protection.
-Independent GPT-6.1/medium source review accepted C refusal-map persistence and F original-order/
-malformed-choice corrections on October 14; committed as c9f164ad92 (not yet pushed). B wrappers and combined green CI remain separate gates.
-Independent B review closed original host findings but found live complete-map settlement drops
-unrelated durable non-turn keys; add real-adapter regression and preserve the complete map without
-resurrecting speed/marker values or forwarding private keys. Independent L correction review found
-one HIGH accepted-speed/receipt persistence window and two MED stale-recheck/draft-duplication issues.
-Continuity fixture review requires closing the original database/journal before reopening and
-asserting released/new-fence transitions. Failed-expensive-choice regression must reject all next
-starts until explicit persisted replacement; prior Fast fallback is not accepted behavior.
-Add focused regressions before the narrow fixes. These are open gates, not accepted candidate behavior.
-D correction review found one HIGH pre-pick read/capability-await release race and three MED issues:
-acknowledgements erase last-turn evidence, canonical B/C reads omit D-assumed confirmed flags, and
-refresh can retain an explicitly revoked legacy Fast control. Add bounded regressions, retain
-requested/host/processing distinctions, and use actual authoritative host response shapes.
-The reviewed temporary auxiliary CI workflow formats only task paths,
-generates English catalogs with repository tools and runs sequential bounded core/mobile targets. It
-returns explicit failure for red tests and uploads only a scoped patch and source/outcome metadata.
-The workflow is not a release gate and will be excluded from the final product patch.
-Second auxiliary snapshot c2f29ccb6243cb0a4ce9818e7f7b49b565f3aa53 ran CI38624845738:
-26 core files/546 tests, 525 passed and21 failed; mobile63 tests,60 passed and3 failed.
-All parser/catalog, generic atrest/refusal/disk, defaults, originaldesktop options/send, andoriginal
-launchoptions suites passed. Remaining failures are live failed-persistence/unrelated-map cases,
-L final admission/draft cases, three mobile source/fence cases and one Bun backpressure fixture
-that synchronously drains its Writable instead of holding a genuine saturated write.
-Six closed-db continuity cases passed, including pinned account/thread and refused-tier restart.
-Root checked/applied the bounded generated patch before new writers: B/C integrates atomic
-failed-write recovery/full-map preservation, L fixes reviewed final boundaries, D authors four
-new picker regressions. These are independent tasks with non-overlapping write ownership.
-
-| Criterion | Required proof | State |
-| --- | --- | --- |
-| Modern and legacy catalogs | Exact custom IDs, modern-empty precedence, snake/camel formats, unknown/malformed metadata | Pure parser 80 and host parser 17 passed auxiliary CI; stale-cache corrections pending |
-| Missing Ultrafast | No enabled invented choice, no subscription inference | Shared presentation 10 passed auxiliary CI; refresh/capability regressions red |
-| Migration and persistence | Restore vs toggle origin, explicit precedence, unavailable IDs, model switch, disk | Node disk 5 and restoration 26 passed; refusal/default regressions red |
-| Conversation continuity | Same provider thread/account on resume; no duplicate conversation | Not run |
-| Next outgoing request | Picker -> stored option -> exact turn/start serviceTier, mid-turn turn/steer unchanged | Not run |
-| Launch refusal | Keep staged prompt/conversation; no first send after tier/capability refusal or invalidation | Not run |
-| Model/account/host changes | Generation fencing, pinned-account isolation, catalog refresh invalidation | Not run |
-| Old/new peers and SSH | New/old client-host matrix, no false at-rest acceptance, remote host owns catalog/defaults | Not run |
-| Other providers | Existing Claude/other selector and launch behavior stays covered | Not run |
-| Actionable failures | Definite pre-write rejection, provider rejection, preserved prompt and explicit recovery | Not run |
-| Live installed acceptance | Running build identity, installed picker, redacted outgoing tier evidence | Not run |
-| Actual Ultrafast execution | Direct per-turn server processing evidence; separately blocked if upstream omits metadata | Not run |
+The Windows baseline failures come from three stale package_windows test argv paths in
+`.github/workflows/pr.yml`, already present at the pinned upstream revision. Do not suppress the
+registration guards. The SSH launch AND-list runs in the background while foreground PID creation
+retains the parent umask; its best-effort chmod races that creation. Route both to their established
+owner without editing those unassigned paths or treating isolated SSH success as a race resolution.
 
 Run targeted Vitest suites, full node/CLI/web typechecks, mobile checks when touched, main/renderer/CLI build,
 changed-code quality, formatting and localization checks in the repository CI path on the exact candidate SHA.
@@ -485,5 +410,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: complete the non-overlapping B, C/F, D and L production correction wave, then independently
-review each slice and run focused CI. Final review, exact-candidate CI and owner rollout remain open.
+Next action: complete independent B review and run the stopped-writer combined focused CI snapshot.
+Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

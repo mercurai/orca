@@ -20,8 +20,7 @@ import {
   acknowledgeStructuredAgentSessionAction,
   acknowledgedStructuredAgentSessionOptions,
   requestStructuredAgentSessionSpeed,
-  structuredAgentSessionHeldWithRequested,
-  withoutStructuredAgentSessionSpeedRequest
+  structuredAgentSessionHeldWithRequested
 } from '../../../src/shared/structured-agent-session-option-acknowledgement'
 import { encodeStructuredAgentSessionOptionValue } from '../../../src/shared/structured-agent-session-option-codec'
 import { structuredAgentSessionOptionView } from '../../../src/shared/structured-agent-session-option-view'
@@ -125,13 +124,9 @@ export function useMobileStructuredAgentOptionWrite(args: {
         }
         if (result.status === 'accepted') {
           if (!result.sameFence) {
-            // Stored against a snapshot this view has left: the request is answered, but nothing
-            // is committed or remembered here, and the next read says what the host holds.
-            updateOptionState((current) =>
-              current.record === targetRecord && current.requested?.id === id
-                ? withoutStructuredAgentSessionSpeedRequest(current)
-                : current
-            )
+            // A fence number alone does not prove the host conversation changed, so the request
+            // stays held: nothing is committed or remembered, and only this view's own matching
+            // read or an accepted explicit replacement releases it.
             return false
           }
           // The action's own values: an older host's merged answer echoes the saved tier too.

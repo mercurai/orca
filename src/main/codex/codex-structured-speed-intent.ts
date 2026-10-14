@@ -17,9 +17,12 @@ import type {
   RestingOptionsReadInput
 } from '../../shared/structured-agent-session-resting-options'
 import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
+import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured-agent-session-option-codec'
+import type { CodexSession, CodexSpeedBlock } from './codex-structured-session-state'
 
 const REFUSED_TIER_KEY = 'refusedServiceTier'
 const MAX_DIAGNOSTIC_ID_LENGTH = 80
+const CANONICAL_SPEED_KEYS = ['serviceTier', 'fastMode'] as const
 
 export function isCodexRefusedTierKey(key: string): boolean {
   return key === REFUSED_TIER_KEY
@@ -161,4 +164,190 @@ export function admitCodexSpeedIntentForTurn(input: RestingOptionsReadInput): st
     throw new CodexRefusedTierBlockedError(refusedTierState(refused, input), refused)
   }
   return admitCodexServiceTierForTurn(input)
+}
+
+// ─── Recovery after a write that could not be saved ─────────────────────────
+
+/** The session state the speed block lives in; the option map is shared with the session's turns. */
+export type CodexSpeedProviderHost = Pick<
+  CodexSession,
+  | 'options'
+  | 'speedQuarantined'
+  | 'blockedLegacyFastMode'
+  | 'speedBlockBeforeWrite'
+  | 'speedCapture'
+>
+
+/** The saved options a record reads back as; throws for a record that cannot be read. */
+type RestoreCodexOptions = (
+  options: Readonly<Record<string, string>> | undefined
+) => Map<string, string>
+
+/** Replaces a session's stored options in place; the Map's identity is shared with its turns. */
+export function replaceCodexSessionOptions(
+  options: Map<string, string>,
+  next: Readonly<Record<string, string>>
+): void {
+  options.clear()
+  for (const [key, value] of Object.entries(next)) {
+    options.set(key, value)
+  }
+}
+
+/** What blocks the session's speed now: a refusal marker, legacy Fast, quarantine, or a capture's
+ *  request, flagged `attempted` while only the failed write that carried it ever held it. */
+export function speedBlockInForce(host: CodexSpeedProviderHost): CodexSpeedBlock {
+  const marker = refusedCodexServiceTier(Object.fromEntries(host.options))
+  const refusedTier = marker ?? host.speedCapture?.refusedTier
+  return {
+    ...(refusedTier ? { refusedTier } : {}),
+    ...(host.blockedLegacyFastMode ? { legacyFastMode: true as const } : {}),
+    ...(host.speedQuarantined ? { quarantined: true as const } : {}),
+    ...(!marker && host.speedCapture?.attempted ? { attempted: true as const } : {})
+  }
+}
+
+/** The speed request a failed write carried; read from the live map before it is restored. */
+function attemptedSpeedBlock(
+  host: CodexSpeedProviderHost,
+  failed: { key: string; value: string }
+): CodexSpeedBlock {
+  if (failed.key === 'serviceTier') {
+    return { refusedTier: failed.value }
+  }
+  if (failed.key !== 'fastMode') {
+    return {}
+  }
+  const resolved = host.options.get('serviceTier')
+  if (resolved !== undefined) {
+    return { refusedTier: resolved }
+  }
+  return decodeStructuredAgentSessionOptionValue('fastMode', failed.value) === true
+    ? { legacyFastMode: true }
+    : {}
+}
+
+function holdsSpeedRequest(block: CodexSpeedBlock): boolean {
+  return Boolean(block.refusedTier || block.legacyFastMode)
+}
+
+/**
+ * Puts a session's live options back on its record after the write that changed them could not be
+ * saved. The record's own options return; the speed the person asked for stays blocked beside the
+ * acknowledged tier, and a block the write found in force is never released by its failure: the
+ * earlier request outranks the attempted one, unless only an earlier failed write ever carried it.
+ * Admission is quarantined and the request captured first, with the live tier no longer taken for
+ * the record's, so a restore that throws leaves new turns refused and reads unverified rather than
+ * spending or reporting a map nobody saved; only an accepted speed pick lifts it. Synchronous and
+ * in memory, so it makes no promise past a restart.
+ */
+export function recoverCodexSpeedAfterFailedSave(
+  host: CodexSpeedProviderHost,
+  failed: { key: string; value: string; priorOptions: Readonly<Record<string, string>> },
+  restore: RestoreCodexOptions
+): void {
+  const earlier: CodexSpeedBlock = host.speedBlockBeforeWrite ?? {}
+  const attempted = attemptedSpeedBlock(host, failed)
+  let blocked = earlier
+  if (!holdsSpeedRequest(earlier) || earlier.attempted) {
+    blocked = holdsSpeedRequest(attempted) ? { ...attempted, attempted: true as const } : earlier
+  }
+  host.speedQuarantined = true
+  host.speedCapture = {
+    ...(blocked.refusedTier ? { refusedTier: blocked.refusedTier } : {}),
+    ...(blocked.attempted ? { attempted: true as const } : {})
+  }
+  if (blocked.legacyFastMode) {
+    host.blockedLegacyFastMode = true
+  }
+  for (const key of CANONICAL_SPEED_KEYS) {
+    host.options.delete(key)
+  }
+  const restored = Object.fromEntries(restore(failed.priorOptions))
+  replaceCodexSessionOptions(
+    host.options,
+    blocked.refusedTier ? withBlockedRequestedTier(restored, blocked.refusedTier) : restored
+  )
+  if (!blocked.legacyFastMode) {
+    delete host.blockedLegacyFastMode
+  }
+  delete host.speedCapture
+  // A speed write with no request to keep stays refused: nothing says the live map is the record.
+  const isSpeedWrite = failed.key === 'serviceTier' || failed.key === 'fastMode'
+  if (!blocked.legacyFastMode && !earlier.quarantined && !(isSpeedWrite && !blocked.refusedTier)) {
+    delete host.speedQuarantined
+  }
+}
+
+/**
+ * Takes the record's canonical speed back into a session whose live map a failed save left without
+ * one, and keeps the captured exact tier as the refusal marker every settled map then carries.
+ * With no readable saved record at hand the capture stays, and only an explicit speed pick, which
+ * replaces the tier, may go on; any other write throws before it settles anything from that map.
+ */
+export function reconcileCodexSpeedCapture(
+  host: CodexSpeedProviderHost,
+  key: string,
+  saved: Readonly<Record<string, string>> | undefined,
+  restore: RestoreCodexOptions
+): void {
+  const capture = host.speedCapture
+  if (!capture) {
+    return
+  }
+  let record: Map<string, string> | undefined
+  try {
+    record = saved && restore(saved)
+  } catch {
+    record = undefined
+  }
+  if (!record) {
+    if (key === 'serviceTier' || key === 'fastMode') {
+      return
+    }
+    throw new Error('codex speed cannot be verified against the saved options')
+  }
+  for (const speedKey of CANONICAL_SPEED_KEYS) {
+    const value = record.get(speedKey)
+    if (value === undefined) {
+      host.options.delete(speedKey)
+    } else {
+      host.options.set(speedKey, value)
+    }
+  }
+  const refused =
+    refusedCodexServiceTier(Object.fromEntries(host.options)) ??
+    capture.refusedTier ??
+    refusedCodexServiceTier(Object.fromEntries(record))
+  if (refused) {
+    host.options.set(REFUSED_TIER_KEY, refused)
+  }
+  delete host.speedCapture
+}
+
+/** An accepted explicit speed pick replaces whatever a failed save left guarding admission. */
+export function releaseCodexSpeedBlock(host: CodexSpeedProviderHost): void {
+  delete host.speedQuarantined
+  delete host.blockedLegacyFastMode
+  delete host.speedCapture
+}
+
+/** The session's speed as a live read reports it. A capture's exact tier is the blocked request,
+ *  and a speed no record has verified is never `ready`: the live map holds no canonical tier. */
+export function readCodexSessionSpeed(
+  host: CodexSpeedProviderHost,
+  input: Omit<RestingOptionsReadInput, 'options'>
+): CodexRestingOptionsReadResult {
+  const live = Object.fromEntries(host.options)
+  const captured = host.speedCapture?.refusedTier
+  const options = captured ? withBlockedRequestedTier(live, captured) : live
+  const readInput = { ...input, options }
+  const read = readCodexSpeedIntent(readInput)
+  if (host.blockedLegacyFastMode) {
+    return withBlockedLegacyFastSelection(read, readInput)
+  }
+  if (host.speedCapture && read.speed.selection.state === 'unselected') {
+    return { ...read, speed: { ...read.speed, selection: { state: 'unknown' } } }
+  }
+  return read
 }

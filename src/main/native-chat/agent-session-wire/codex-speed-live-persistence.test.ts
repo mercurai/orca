@@ -539,9 +539,9 @@ describe('the same failed durable write through the adapter router', () => {
       const later = new Error('disk full again')
       durable.persistOptions.mockRejectedValueOnce(later)
 
-      await expect(
-        performSetOption(await contextFor(session.router, durable), pick)
-      ).rejects.toBe(later)
+      await expect(performSetOption(await contextFor(session.router, durable), pick)).rejects.toBe(
+        later
+      )
 
       expect(durable.persistOptions).toHaveBeenCalledOnce()
       expect(durable.publish).not.toHaveBeenCalled()
@@ -566,7 +566,11 @@ describe('the same failed durable write through the adapter router', () => {
       })
 
       expect(saved).toMatchObject({ ok: true })
-      expect(durable.current()).toMatchObject({ model: MODEL, serviceTier: FAST.value, effort: 'high' })
+      expect(durable.current()).toMatchObject({
+        model: MODEL,
+        serviceTier: FAST.value,
+        effort: 'high'
+      })
       const report = await adapter.readOptions({ sessionId: SESSION, fence: FENCE })
       expect(report.current.serviceTier).toBe(FAST.value)
       expect(report.speed?.selection).toMatchObject({ tierId: ULTRA.value })
@@ -736,6 +740,28 @@ function expectNoPrivateSpeedState(options: Readonly<Record<string, string>> | u
   expect(Object.keys(options ?? {}).filter((key) => /refused|quarantine/i.test(key))).toEqual([])
 }
 
+/** A non-speed write the host refused before persistence: a definite refusal with a reason the person
+ *  can act on, after which the one failed save is still the only persistence call and nothing was
+ *  published or changed in the durable map. */
+async function expectNonSpeedWriteRefused(
+  session: Awaited<ReturnType<typeof blockedInMemory>>,
+  pick: { key: string; value: string }
+): Promise<void> {
+  const refused = await performSetOption(session.ctx, pick)
+
+  expect(refused).toMatchObject({
+    ok: false,
+    refusal: {
+      code: 'agent_session_operation_invalid',
+      details: { reason: 'optionRejected' },
+      message: expect.stringMatching(/speed|fast|standard/i)
+    }
+  })
+  expect(session.durable.persistOptions).toHaveBeenCalledOnce()
+  expect(session.durable.publish).not.toHaveBeenCalled()
+  expect(session.durable.current()).toEqual(session.recorded)
+}
+
 describe.each(MEMORY_ONLY_BLOCKS)('$name whose durable write failed', (block) => {
   describe.each(['adapter', 'router'] as const)('through the %s', (path) => {
     const replacement = { key: 'serviceTier', value: block.replacement }
@@ -750,6 +776,12 @@ describe.each(MEMORY_ONLY_BLOCKS)('$name whose durable write failed', (block) =>
       'stays blocked when a later $name also fails to save',
       async ({ pick }) => {
         const session = await blockedInMemory(block, path)
+        if (block.requested.legacyFastMode) {
+          // No durable form holds the legacy intent, so the write is refused before the store is asked.
+          await expectNonSpeedWriteRefused(session, pick)
+          await expectStillBlocked(session, block)
+          return
+        }
         const later = new Error('disk full again')
         session.durable.persistOptions.mockRejectedValueOnce(later)
 
@@ -798,3 +830,53 @@ describe.each(MEMORY_ONLY_BLOCKS)('$name whose durable write failed', (block) =>
     })
   })
 })
+
+// Legacy Fast has no durable form beside the acknowledged tier. A later non-speed save would persist
+// Standard with the block gone, and a reacquisition would lose the intent without a trace; only an
+// explicit accepted speed replacement may leave that state.
+describe.each(MEMORY_ONLY_BLOCKS.filter((block) => block.requested.legacyFastMode))(
+  '$name refuses non-speed saves',
+  (block) => {
+    describe.each(['adapter', 'router'] as const)('through the %s', (path) => {
+      it.each(LATER_WRITES)(
+        'refuses a $name, then sends Standard only after an explicit speed replacement',
+        async ({ pick }) => {
+          const session = await blockedInMemory(block, path)
+
+          await expectNonSpeedWriteRefused(session, pick)
+
+          // Read without a turn: the request is still the unresolved Fast, beside the old facts.
+          const report = await session.adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+          expect(report.speed?.selection).toMatchObject(block.requested)
+          expect(report.speed?.selection.state).not.toBe('ready')
+          expect(report.current.model).toBe(MODEL)
+          expect(report.current.effort).not.toBe('high')
+          expect(turnStarts(session.codex)).toEqual([])
+
+          const replaced = await performSetOption(session.ctx, {
+            key: 'serviceTier',
+            value: block.replacement
+          })
+
+          expect(replaced).toMatchObject({
+            ok: true,
+            value: { key: 'serviceTier', value: block.replacement }
+          })
+          expect(session.durable.persistOptions).toHaveBeenCalledTimes(2)
+          expect(session.durable.publish).toHaveBeenCalledOnce()
+          expect(session.durable.current()).toMatchObject({
+            model: MODEL,
+            serviceTier: block.replacement
+          })
+          expect(session.durable.current()).not.toHaveProperty('fastMode')
+          expectNoPrivateSpeedState(session.durable.current())
+          expect((await dispatchNext(session.adapter)).state).toBe('admitted')
+          const starts = turnStarts(session.codex)
+          expect(starts).toHaveLength(1)
+          expect(starts[0]?.params).toMatchObject({ serviceTier: block.replacement })
+          expectOnlyPublicTurnFields(starts[0]?.params)
+        }
+      )
+    })
+  }
+)

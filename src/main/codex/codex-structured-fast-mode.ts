@@ -19,7 +19,8 @@ import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import { codexListingDefaultModel, codexSpeedCatalog } from './codex-structured-catalog-entry'
 import {
   admitCodexSpeedIntentForTurn,
-  assertCodexSpeedAdmissionOpen
+  assertCodexSpeedAdmissionOpen,
+  replaceCodexSessionOptions
 } from './codex-structured-speed-intent'
 import type { CodexOpenedThread } from './codex-structured-thread-open'
 import type { CodexSession } from './codex-structured-session-state'
@@ -60,16 +61,7 @@ export function reportedCodexThreadOptions(
   }
 }
 
-/** Replaces a session's stored options in place; the Map's identity is shared with its turns. */
-export function replaceCodexSessionOptions(
-  options: Map<string, string>,
-  next: Readonly<Record<string, string>>
-): void {
-  options.clear()
-  for (const [key, value] of Object.entries(next)) {
-    options.set(key, value)
-  }
-}
+export { replaceCodexSessionOptions }
 
 /** Resolves legacy speed intent against a catalog the host now holds. Nothing is dropped: an
  *  unresolved Fast stays as intent, and an advertised tier is never rewritten. */

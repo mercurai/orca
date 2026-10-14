@@ -568,7 +568,9 @@ describe('Codex speed pick and the phone sends', () => {
     }
 
     const storedTier = () => {
-      const kind = session().options.optionSnapshot.find((entry) => entry.id === 'serviceTier')?.kind
+      const kind = session().options.optionSnapshot.find(
+        (entry) => entry.id === 'serviceTier'
+      )?.kind
       return kind && 'currentValue' in kind ? kind.currentValue : undefined
     }
 

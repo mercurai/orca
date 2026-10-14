@@ -26,7 +26,6 @@ import {
   type CodexSpeedHostSupport
 } from './codex-service-tier-presentation'
 import {
-  structuredAgentSessionReadyTier,
   structuredAgentSessionRequestConfirmed,
   type StructuredAgentSessionRequestedSpeed
 } from './structured-agent-session-option-acknowledgement'
@@ -204,11 +203,10 @@ export function applyStructuredAgentSessionOptions(
   }
   // A read that names no tier does not erase one the user requested: revalidation keeps intent.
   const hostSpeed = isCodex ? result.speed : undefined
-  // The canonical read lists no `confirmed` tier: its own ready selection naming the stored tier
-  // is the report. A blocked or other-tier selection proves nothing of it.
-  const tierReported =
-    result.current.serviceTier !== undefined &&
-    structuredAgentSessionReadyTier(hostSpeed) === result.current.serviceTier
+  // A canonical read (one carrying speed facts) lists no `confirmed` tier: its `current` tier is
+  // what the host stores, whatever its selection says of a different or blocked request. Only
+  // releasing a held request needs the ready selection naming exactly it.
+  const tierReported = hostSpeed !== undefined && result.current.serviceTier !== undefined
   applyNativeChatReportedSessionOptions(
     state.record,
     {

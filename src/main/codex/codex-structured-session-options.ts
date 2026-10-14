@@ -1,6 +1,6 @@
 import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
-import type { CodexSession, CodexSpeedBlock } from './codex-structured-session-state'
+import type { CodexSession } from './codex-structured-session-state'
 import { isCodexTurnOptionKey } from './codex-structured-turn-start'
 import {
   AgentSessionOptionRejectedError,
@@ -11,10 +11,11 @@ import { normalizeCodexServiceTierOptions } from '../../shared/codex-service-tie
 import {
   isCodexRefusedTierKey,
   normalizeCodexSpeedIntent,
-  readCodexSpeedIntent,
-  refusedCodexServiceTier,
-  withBlockedLegacyFastSelection,
-  withBlockedRequestedTier
+  readCodexSessionSpeed,
+  recoverCodexSpeedAfterFailedSave,
+  reconcileCodexSpeedCapture,
+  releaseCodexSpeedBlock,
+  speedBlockInForce
 } from './codex-structured-speed-intent'
 import {
   codexSpeedFacts,
@@ -134,23 +135,19 @@ function applyLiveCodexCatalog(
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const currentModel = model ?? codexListingDefaultModel(listing.models)
   migrateCodexSessionSpeed(session, { models: listing.models, currentModel })
-  const readInput = {
-    options: Object.fromEntries(session.options),
+  const stored = readCodexSessionSpeed(session, {
     models: listing.models,
     ...(currentModel ? { currentModel } : {}),
     catalogKnown: true
-  }
-  const read = readCodexSpeedIntent(readInput)
-  const stored = session.blockedLegacyFastMode
-    ? withBlockedLegacyFastSelection(read, readInput)
-    : read
+  })
   const catalog: CodexSessionOptionCatalog = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...stored.current
     },
-    ...(session.reportedOptions.serviceTierKnown
+    // A tier the thread reported never stands in for a speed no record has verified.
+    ...(session.reportedOptions.serviceTierKnown && !session.speedCapture
       ? {
           reportedServiceTier: session.reportedOptions.serviceTier ?? null,
           reportedServiceTierKnown: true
@@ -206,6 +203,9 @@ export async function applyCodexStructuredSessionOption(
   // Before anything changes: an accepted speed pick clears the block, and a failed save restores it.
   session.speedBlockBeforeWrite = speedBlockInForce(session)
   try {
+    // A live map a failed save left without a verified tier takes the record's before any complete
+    // map settles from it.
+    reconcileCodexSpeedCapture(session, key, savedOptions, restoredCodexSessionOptions)
     return withUnheldSavedOptions(
       applyValidatedCodexStructuredSessionOption(session, key, value),
       savedOptions
@@ -214,6 +214,10 @@ export async function applyCodexStructuredSessionOption(
     if (isAgentSessionOptionRejectedError(error)) {
       if (!error.refusalOptions) {
         throw error
+      }
+      if (session.speedCapture) {
+        // A refusal map built on an unverified live map would persist the unsaved tier.
+        throw new AgentSessionOptionRejectedError(error.cause ?? error)
       }
       // A refused speed pick is kept as this session's blocked intent; the host persists the
       // complete map that records it, with the saved options this session never held.
@@ -228,66 +232,13 @@ export async function applyCodexStructuredSessionOption(
   }
 }
 
-function speedBlockInForce(session: CodexSession): CodexSpeedBlock {
-  const refusedTier = refusedCodexServiceTier(Object.fromEntries(session.options))
-  return {
-    ...(refusedTier ? { refusedTier } : {}),
-    ...(session.blockedLegacyFastMode ? { legacyFastMode: true as const } : {}),
-    ...(session.speedQuarantined ? { quarantined: true as const } : {})
-  }
-}
-
-/** The speed request a failed write carried; read from the live map before it is restored. */
-function attemptedSpeedBlock(
-  session: CodexSession,
-  failed: { key: string; value: string }
-): CodexSpeedBlock {
-  if (failed.key === 'serviceTier') {
-    return { refusedTier: failed.value }
-  }
-  if (failed.key !== 'fastMode') {
-    return {}
-  }
-  const resolved = session.options.get('serviceTier')
-  if (resolved !== undefined) {
-    return { refusedTier: resolved }
-  }
-  return decodeStructuredAgentSessionOptionValue('fastMode', failed.value) === true
-    ? { legacyFastMode: true }
-    : {}
-}
-
-/**
- * Puts a session's live options back on its record after the write that changed them could not be
- * saved. The record's own options return; the speed the person asked for stays blocked beside the
- * acknowledged tier, and a block the write found in force is never released by its failure: the
- * earlier request outranks the attempted one. Admission is quarantined first, so a failure
- * part-way leaves new turns refused rather than spending a map nobody saved; only an accepted
- * speed pick lifts it. Synchronous and in memory, so it makes no promise past a restart.
- */
+/** Puts the live options back on the record after the write that changed them could not be saved;
+ *  the block, capture and quarantine rules are `recoverCodexSpeedAfterFailedSave`'s. */
 export function recoverCodexSessionOptionsAfterFailedSave(
   session: CodexSession,
   failed: { key: string; value: string; priorOptions: Readonly<Record<string, string>> }
 ): void {
-  const earlier: CodexSpeedBlock = session.speedBlockBeforeWrite ?? {}
-  const attempted = attemptedSpeedBlock(session, failed)
-  session.speedQuarantined = true
-  const restored = Object.fromEntries(restoredCodexSessionOptions(failed.priorOptions))
-  const blocked = earlier.refusedTier || earlier.legacyFastMode ? earlier : attempted
-  replaceCodexSessionOptions(
-    session.options,
-    blocked.refusedTier ? withBlockedRequestedTier(restored, blocked.refusedTier) : restored
-  )
-  if (blocked.legacyFastMode) {
-    session.blockedLegacyFastMode = true
-  } else {
-    delete session.blockedLegacyFastMode
-  }
-  // A speed write with no request to keep stays refused: nothing says the live map is the record.
-  const isSpeedWrite = failed.key === 'serviceTier' || failed.key === 'fastMode'
-  if (!blocked.legacyFastMode && !earlier.quarantined && !(isSpeedWrite && !blocked.refusedTier)) {
-    delete session.speedQuarantined
-  }
+  recoverCodexSpeedAfterFailedSave(session, failed, restoredCodexSessionOptions)
 }
 
 /**
@@ -332,8 +283,7 @@ function applyCodexSpeedOption(
     })
   )
   // An accepted pick replaces whatever the quarantine was guarding; a failed save restores it.
-  delete session.speedQuarantined
-  delete session.blockedLegacyFastMode
+  releaseCodexSpeedBlock(session)
   return Object.fromEntries(session.options)
 }
 

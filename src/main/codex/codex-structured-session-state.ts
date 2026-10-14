@@ -126,6 +126,8 @@ export type CodexSpeedBlock = {
   refusedTier?: string
   legacyFastMode?: true
   quarantined?: true
+  /** Carried only by a write that failed to save: no record or earlier refusal holds it yet. */
+  attempted?: true
 }
 
 export type CodexSession = {
@@ -169,6 +171,11 @@ export type CodexSession = {
   /** The speed block this session held when the option write in flight began, which an accepted
    *  speed pick clears before its save settles; a failed save puts it back. Never persisted. */
   speedBlockBeforeWrite?: CodexSpeedBlock
+  /** Set before a failed save's restore begins, until a record verifies the live canonical speed.
+   *  The live map then holds no serviceTier/fastMode; this is the request the failed write left
+   *  (the earlier block, else the attempted pick), and reads, admission and settlement answer from
+   *  it. Never an option key, never persisted; a restart forgets it. */
+  speedCapture?: CodexSpeedBlock
   /** Absent when the adapter runs without a host catalog store (tests). */
   catalogAccess?: CodexSessionCatalogAccess
   /** What this child's `turn/start` speed requests came to; lost with the child, never persisted. */
