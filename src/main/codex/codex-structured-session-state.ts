@@ -151,6 +151,10 @@ export type CodexSession = {
     serviceTier?: string | null
     serviceTierKnown?: true
   }
+  /** Set while this child's live options may differ from its record and could not be put back: a
+   *  new `turn/start` is refused until an accepted speed pick. In memory only, so a restart forgets
+   *  it; a steer into the running turn is unaffected. */
+  speedQuarantined?: true
   /** Absent when the adapter runs without a host catalog store (tests). */
   catalogAccess?: CodexSessionCatalogAccess
   /** What this child's `turn/start` speed requests came to; lost with the child, never persisted. */

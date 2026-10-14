@@ -109,9 +109,11 @@ jobs:
             src/main/native-chat/agent-session-wire/codex-service-tier-record-round-trip.test.ts \
             src/main/native-chat/agent-session-wire/codex-service-tier-restoration.test.ts \
             src/main/native-chat/agent-session-wire/structured-agent-session-speed-refusal-persistence.test.ts \
-            src/renderer/src/lib/structured-agent-session-launch-options.test.ts \
+            src/renderer/src/lib/structured-agent-session-launch \
+            src/renderer/src/lib/launch-structured-agent-session.test.ts \
             src/renderer/src/lib/codex-speed-launch-admission.test.ts \
             src/renderer/src/components/native-chat/codex-speed-send-admission.test.tsx \
+            src/renderer/src/components/native-chat/structured-agent-session-message-sender.test.ts \
             src/renderer/src/components/native-chat/use-structured-agent-session-options.speed.test.tsx \
             src/main/codex/codex-structured-speed-intent.test.ts \
             src/main/codex/codex-structured-session-options.test.ts \

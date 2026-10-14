@@ -36,6 +36,17 @@ function withoutRefusedTier(options: Readonly<Record<string, string>>): Record<s
   return Object.fromEntries(Object.entries(options).filter(([key]) => !isCodexRefusedTierKey(key)))
 }
 
+/** `options` with `tierId` as the blocked requested tier, unless an earlier refusal already is:
+ *  a failed replacement never clears the block it was meant to replace. */
+export function withBlockedRequestedTier(
+  options: Readonly<Record<string, string>>,
+  tierId: string
+): Record<string, string> {
+  return refusedCodexServiceTier(options)
+    ? { ...options }
+    : { ...options, [REFUSED_TIER_KEY]: tierId }
+}
+
 /** The refused id stays blocked even once a refresh offers it, so it is never `ready`. */
 function refusedTierState(
   refused: string,
@@ -54,6 +65,21 @@ class CodexRefusedTierBlockedError extends CodexServiceTierSelectionError {
     super(reason, { tierId })
     const id = JSON.stringify(tierId.slice(0, MAX_DIAGNOSTIC_ID_LENGTH))
     this.message = `Codex service tier ${id} was refused and stays blocked until another speed is chosen.`
+  }
+}
+
+class CodexSpeedQuarantinedError extends CodexServiceTierSelectionError {
+  constructor() {
+    super('unknown', {})
+    this.message =
+      'Codex speed selection is blocked until another speed is chosen: the last speed change was not saved.'
+  }
+}
+
+/** Refuses a new `turn/start` while the session's live speed is not known to match its record. */
+export function assertCodexSpeedAdmissionOpen(host: { speedQuarantined?: true }): void {
+  if (host.speedQuarantined) {
+    throw new CodexSpeedQuarantinedError()
   }
 }
 
@@ -87,7 +113,9 @@ export function normalizeCodexSpeedIntent(
 
 /** Canonical current values stay the accepted tier; a refused pick is reported as the blocked
  *  selection beside it. */
-export function readCodexSpeedIntent(input: RestingOptionsReadInput): CodexRestingOptionsReadResult {
+export function readCodexSpeedIntent(
+  input: RestingOptionsReadInput
+): CodexRestingOptionsReadResult {
   const stored = readCodexServiceTierOptions(input)
   const refused = refusedCodexServiceTier(input.options)
   if (!refused) {

@@ -129,10 +129,16 @@ export function hasStagedStructuredLaunchPrompt(sessionId: string): boolean {
 }
 
 /** Puts a launch's text in its chat's composer, unless its sender keeps it. True when it did; a
- *  draft write that throws is reported in the chat instead, and never stops its caller. */
+ *  draft write that throws is reported in the chat instead, and never stops its caller. A parked
+ *  launch already saved the text there, so that copy, and whatever was typed after it, is the
+ *  composer's own text and is not added again. */
 function handBackStagedPrompt(prompt: StagedStructuredLaunchPrompt): boolean {
   if (prompt.callerKeepsText) {
     return false
+  }
+  if (prompt.composerCopy) {
+    delete prompt.composerCopy
+    return true
   }
   try {
     handBackStructuredAgentSessionMessage(
@@ -167,6 +173,13 @@ export function saveStagedStructuredLaunchPromptsInComposer(sessionId: string): 
     const before = readNativeChatDraftCache(scopeKey)
     if (handBackStagedPrompt(prompt)) {
       prompt.composerCopy = { before, after: readNativeChatDraftCache(scopeKey) }
+      // The copy is the composer's text now: the sender is told to keep it, never to hand it back too.
+      prompt.slot?.release()
+      prompt.slot = reserveStructuredAgentSessionSend({
+        sessionId,
+        text: prompt.text,
+        callerKeepsText: true
+      })
     }
   }
 }
@@ -193,11 +206,15 @@ function sendStagedPrompt(
     noteStructuredAgentSessionFence(prompt.sessionId, receipt.fence)
     const sent =
       prompt.slot?.send(target) ??
-      sendStructuredAgentSessionMessage({ sessionId: prompt.sessionId, target, text: prompt.text })
+      sendStructuredAgentSessionMessage({
+        sessionId: prompt.sessionId,
+        target,
+        text: prompt.text,
+        ...(prompt.composerCopy ? { callerKeepsText: true as const } : {})
+      })
     if (!sent) {
       // Another send of the chat holds its slot: the launch text waits in the composer instead.
       unstage(prompt)
-      delete prompt.composerCopy
       return { delivered: false, inComposer: handBackStagedPrompt(prompt), busy: true }
     }
     try {

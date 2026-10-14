@@ -266,6 +266,13 @@ Focused presentation modules are also owned by D: `src/shared/codex-service-tier
 `codex-speed-facts-presentation.ts`, `structured-agent-session-option-picks.ts`, and desktop
 `use-structured-agent-session-speed-gate.ts`. Root records these extractions before further corrections.
 Live send admission additionally owns desktop `components/native-chat/structured-agent-session-send-attempt.ts`,
+`components/native-chat/structured-agent-session-message-sender.ts` and its existing test file for
+mirrored launch drafts: suppress duplicate composer append, preserve visible refusal/unconfirmed
+notices and terminal pending-send cleanup. This bounded ownership is recorded before writes.
+Own the existing `structured-agent-session-send-slot.ts` for any essential internal text-ownership
+discriminator; preserve external notes' no-notice behavior. D's notice integration may edit L's
+`codex-speed-launch-draft-recovery.test.ts` and `structured-agent-session-launch-prompt.ts` in an
+exclusive bounded task after L stops, using the real mirrored-launch boundary. No parallel L edits.
 `components/native-chat/use-structured-agent-session.ts` and
 `use-structured-agent-session-queued-messages.ts`, with matching tests. Reuse central send holds;
 retain refused requested intent until an explicit replacement is acknowledged for the same host generation.

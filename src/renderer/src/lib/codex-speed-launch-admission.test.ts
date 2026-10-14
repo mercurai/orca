@@ -63,6 +63,14 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
   readStructuredAgentSessionCodexSpeedSupport: mocks.speedSupport
 }))
 
+// A send to a paired server first checks that server's compatibility over the desktop bridge, which
+// this suite has none of; the real check fails the send before its request, as it does in the sibling
+// launch suites that mock it the same way.
+vi.mock('@/runtime/runtime-rpc-client', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  ensureRuntimeEnvironmentCompatible: vi.fn(async () => undefined)
+}))
+
 vi.mock('@/runtime/structured-agent-session-owner', () => ({
   resolveStructuredAgentSessionOwner: vi.fn(),
   structuredAgentSessionFocusOwner: vi.fn(),

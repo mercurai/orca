@@ -4,6 +4,7 @@ import type {
   AgentSessionOptionResult
 } from '../../../shared/agent-session-wire'
 import { STRUCTURED_LAUNCH_SEED_OPTION_IDS } from '../../../shared/native-chat-session-option-defaults'
+import { acknowledgedStructuredAgentSessionOptions } from '../../../shared/structured-agent-session-option-acknowledgement'
 import {
   createStructuredAgentSessionOperationId,
   structuredAgentSessionPayloadFingerprint
@@ -18,6 +19,7 @@ import {
 import {
   getStructuredLaunchStateBySessionId,
   notifyStructuredLaunchListeners,
+  structuredLaunchSpeedRecord,
   subscribeStructuredAgentLaunchStatus,
   type StructuredLaunchState
 } from './structured-agent-session-launch-registry'
@@ -52,12 +54,22 @@ type OptionReply = (outcome: StructuredLaunchOptionOutcome) => void
 const optionReplies = new WeakMap<StructuredLaunchState, Map<string, OptionReply>>()
 
 function repliesFor(state: StructuredLaunchState): Map<string, OptionReply> {
-  let replies = optionReplies.get(state)
-  if (!replies) {
-    replies = new Map()
-    optionReplies.set(state, replies)
-  }
+  const replies = optionReplies.get(state) ?? new Map<string, OptionReply>()
+  optionReplies.set(state, replies)
   return replies
+}
+
+/** Answers the pickers waiting on `ids`, or on every held pick when none is named. */
+function answerHeldOptions(
+  state: StructuredLaunchState,
+  outcome: StructuredLaunchOptionOutcome,
+  ids?: Iterable<string>
+): void {
+  const replies = repliesFor(state)
+  for (const key of ids ?? replies.keys()) {
+    replies.get(key)?.(outcome)
+    replies.delete(key)
+  }
 }
 
 /**
@@ -74,7 +86,6 @@ export function holdStructuredAgentSessionLaunchOption(
   if (!state || state.cancelled || state.picksClosed || state.callers.outcome === 'published') {
     return null
   }
-  const replies = repliesFor(state)
   const { held } = state.selection
   // A model pick drops picks held under the model it replaces, but not the speed: that is the
   // person's own intent, in either spelling, and outlives the model it was picked under. A speed
@@ -84,35 +95,19 @@ export function holdStructuredAgentSessionLaunchOption(
     : id === 'model'
       ? Object.keys(held).filter((key) => !SPEED_OPTION_IDS.includes(key))
       : [id]
-  for (const key of replaced) {
-    replies.get(key)?.({ kind: 'superseded' })
-    replies.delete(key)
-  }
-  state.selection = {
-    ...state.selection,
-    held: {
-      ...Object.fromEntries(Object.entries(held).filter(([key]) => !replaced.includes(key))),
-      [id]: encoded
-    }
-  }
+  answerHeldOptions(state, { kind: 'superseded' }, replaced)
+  const kept = Object.fromEntries(Object.entries(held).filter(([key]) => !replaced.includes(key)))
+  state.selection = { ...state.selection, held: { ...kept, [id]: encoded } }
   // A launch parked on its speed tries again with whatever was just picked.
   state.releaseSpeedBlock?.()
   notifyStructuredLaunchListeners()
-  return new Promise((resolve) => replies.set(id, resolve))
+  return new Promise((resolve) => repliesFor(state).set(id, resolve))
 }
 
-/** The launch ended before these picks could apply: their pickers hear that, and none stays open. */
-function supersedeHeldOptions(state: StructuredLaunchState): void {
-  const replies = optionReplies.get(state)
-  for (const reply of replies?.values() ?? []) {
-    reply({ kind: 'superseded' })
-  }
-  replies?.clear()
-}
-
+/** The launch ended before its held picks could apply: their pickers hear that, none stays open. */
 function throwIfLaunchCancelled(state: StructuredLaunchState): void {
   if (state.cancelled) {
-    supersedeHeldOptions(state)
+    answerHeldOptions(state, { kind: 'superseded' })
     throw new StructuredAgentSessionLaunchCancelledError()
   }
 }
@@ -145,43 +140,28 @@ async function setLaunchOption(
       ? { kind: 'accepted', options: result.value.options ?? { [key]: value } }
       : { kind: 'refused', failure: agentSessionRefusalFailure(result.refusal) }
   } catch (error) {
-    return {
-      kind: 'refused',
-      failure: agentSessionThrownFailure(
-        error,
-        error instanceof RuntimeRpcCallError ? error.code : undefined
-      )
-    }
+    const code = error instanceof RuntimeRpcCallError ? error.code : undefined
+    return { kind: 'refused', failure: agentSessionThrownFailure(error, code) }
   }
 }
 
-function replyToHeldOption(
-  state: StructuredLaunchState,
-  id: string,
-  outcome: StructuredLaunchOptionOutcome
-): void {
-  const replies = repliesFor(state)
-  replies.get(id)?.(outcome)
-  replies.delete(id)
-}
-
-/** What the host runs after it took `id`: the accepted options over the seed, with the other
- *  spelling of a speed gone unless the host still reports it. */
+/** What the host runs after it took the pick: the accepted options over the seed, with the other
+ *  spelling of a speed gone unless the host still reports it. An older host echoes the saved tier
+ *  beside a Fast toggle; that tier is not this pick and never outlives it. */
 function acceptedSeed(
   seed: StructuredLaunchSelection['seed'],
   id: string,
+  value: string,
   options: Readonly<Record<string, string>>
 ): Readonly<Record<string, string>> {
-  const { serviceTier, fastMode, ...rest } = { ...seed, ...options }
-  return {
-    ...rest,
-    ...(serviceTier !== undefined && !(id === 'fastMode' && options.serviceTier === undefined)
-      ? { serviceTier }
-      : {}),
-    ...(fastMode !== undefined && !(id === 'serviceTier' && options.fastMode === undefined)
-      ? { fastMode }
-      : {})
+  const acknowledged = acknowledgedStructuredAgentSessionOptions({ id, value }, options)
+  const merged = { ...seed, ...acknowledged }
+  for (const key of SPEED_OPTION_IDS) {
+    if (SPEED_OPTION_IDS.includes(id) && key !== id && acknowledged[key] === undefined) {
+      delete merged[key]
+    }
   }
+  return merged
 }
 
 function settleHeldOption(
@@ -190,22 +170,20 @@ function settleHeldOption(
   encoded: string,
   outcome: StructuredLaunchOptionOutcome
 ): void {
-  const {
-    held: { [id]: current, ...rest },
-    seed
-  } = state.selection
+  const { held, seed } = state.selection
+  const { [id]: current, ...rest } = held
   // A pick made while this one was in flight superseded it and stays held for the next pass.
   const settled = current === encoded
   state.selection = {
-    seed: outcome.kind === 'accepted' ? acceptedSeed(seed, id, outcome.options) : seed,
-    held: settled ? rest : state.selection.held
+    seed: outcome.kind === 'accepted' ? acceptedSeed(seed, id, encoded, outcome.options) : seed,
+    held: settled ? rest : held
   }
   // The block names the speed asked for: only an accepted replacement ends it.
   if (settled && outcome.kind === 'accepted' && SPEED_OPTION_IDS.includes(id)) {
     delete state.speedBlock
   }
   if (settled) {
-    replyToHeldOption(state, id, outcome)
+    answerHeldOptions(state, outcome, [id])
   }
   notifyStructuredLaunchListeners()
 }
@@ -263,10 +241,18 @@ export function recheckStructuredAgentSessionLaunchSpeed(sessionId: string): boo
   return true
 }
 
+/** A recheck that arrived during a question or a write is answered once, by asking again. */
+function consumeSpeedRecheck(state: StructuredLaunchState): boolean {
+  const requested = state.speedRecheckRequested === true
+  delete state.speedRecheckRequested
+  return requested
+}
+
 /**
- * Whether the host affirms `tierId` for this pass. A "no" stands for the canonical speed picked
- * while the question was in flight and parks the launch on it; a "yes" says nothing about what was
- * picked since, so that is asked again. False when the pass must look again or has parked.
+ * Whether the host affirmed `tierId` for this pass. A "no" stands for the canonical speed picked
+ * while the question was in flight and parks the launch on it. A "yes" says nothing about what was
+ * picked or rechecked since: the caller looks again at that, after this returns. False when the
+ * host did not affirm it, or the pass has parked.
  */
 async function hostAffirmsSpeed(
   state: StructuredLaunchState,
@@ -276,11 +262,10 @@ async function hostAffirmsSpeed(
   delete state.speedRecheckRequested
   const stopped = await readCodexSpeedBlock(state.intent.target, tierId)
   throwIfLaunchCancelled(state)
-  const moved = state.selection !== selection
   if (!stopped) {
-    return !moved
+    return true
   }
-  const blockedTierId = moved ? state.selection.held.serviceTier : tierId
+  const blockedTierId = state.selection === selection ? tierId : state.selection.held.serviceTier
   // A recheck that arrived during the question was not answered by it: ask again, never park on it.
   if (blockedTierId !== undefined && !state.speedRecheckRequested) {
     await parkOnSpeedBlock(state, { ...stopped, tierId: blockedTierId })
@@ -303,9 +288,10 @@ export async function applyStructuredLaunchHeldOptions(
   state: StructuredLaunchState,
   receipt: StructuredAgentLaunchReceipt
 ): Promise<StructuredAgentLaunchReceipt> {
-  // Stored before any held speed is applied, so a block keeps the chat it blocks.
+  // Stored before the host is asked anything, so a reload meanwhile finds the chat and the speed it
+  // runs, held or accepted, and a block keeps the chat it blocks.
   state.receipt = receipt
-  if (SPEED_OPTION_IDS.some((key) => state.selection.held[key] !== undefined)) {
+  if (structuredLaunchSpeedRecord(state)) {
     notifyStructuredLaunchListeners()
   }
   for (;;) {
@@ -321,8 +307,13 @@ export async function applyStructuredLaunchHeldOptions(
         : id === 'serviceTier' && state.intent.agent === 'codex'
           ? encoded
           : undefined
-    if (tierId !== undefined && !(await hostAffirmsSpeed(state, selection, tierId))) {
-      continue
+    if (tierId !== undefined) {
+      const affirmed = await hostAffirmsSpeed(state, selection, tierId)
+      // The answer may predate a close, a pick or a recheck that landed while it was returned.
+      throwIfLaunchCancelled(state)
+      if (!affirmed || state.selection !== selection || consumeSpeedRecheck(state)) {
+        continue
+      }
     }
     if (id === undefined || encoded === undefined) {
       delete state.speedBlock
@@ -337,10 +328,13 @@ export async function applyStructuredLaunchHeldOptions(
       encoded
     )
     const speedBlock = id === 'serviceTier' ? speedWriteBlock(encoded, outcome) : undefined
-    // A speed picked again while this one was in flight is the one to send next, not to block on.
+    // A speed picked again while this one was in flight is the one to send next, not to block on;
+    // so is a recheck that arrived during the write, which asks the host again instead of parking.
     if (speedBlock && !state.cancelled && state.selection.held.serviceTier === encoded) {
-      replyToHeldOption(state, id, outcome)
-      await parkOnSpeedBlock(state, speedBlock)
+      if (!consumeSpeedRecheck(state)) {
+        answerHeldOptions(state, outcome, [id])
+        await parkOnSpeedBlock(state, speedBlock)
+      }
       continue
     }
     settleHeldOption(state, id, encoded, outcome)

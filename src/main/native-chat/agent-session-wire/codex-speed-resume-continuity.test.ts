@@ -226,7 +226,15 @@ async function createConversation(input: {
     options: input.options,
     now: NOW
   })
-  return { root, store, modelCatalog, depsFor: input.depsFor, journal, fence: fenceOf(store), ...child }
+  return {
+    root,
+    store,
+    modelCatalog,
+    depsFor: input.depsFor,
+    journal,
+    fence: fenceOf(store),
+    ...child
+  }
 }
 
 /** The host process is gone: its journal and database close without a lease release, a new store
@@ -542,7 +550,10 @@ describe('a conversation pinned to the account that launched it', () => {
 
 describe('two hosts holding a conversation under one id and account path', () => {
   it('keep their durable options and catalog facts apart', async () => {
-    const hostA = await createConversation({ tiers: [STANDARD, FAST, ULTRA], options: ACKNOWLEDGED })
+    const hostA = await createConversation({
+      tiers: [STANDARD, FAST, ULTRA],
+      options: ACKNOWLEDGED
+    })
     const hostB = await createConversation({ tiers: [STANDARD, FAST], options: ACKNOWLEDGED })
 
     const pickedOnA = await pickTier(hostA, ULTRA.value)

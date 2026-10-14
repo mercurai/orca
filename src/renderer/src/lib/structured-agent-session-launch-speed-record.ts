@@ -17,7 +17,9 @@ export type StructuredAgentLaunchSpeedRecord = {
   block?: Pick<StructuredLaunchSpeedBlock, 'tierId' | 'reason'>
 }
 
-/** Nothing for a launch with no chosen speed in play, so other launches keep their record shape. */
+/** Nothing for a launch with no chosen speed in play, so other launches keep their record shape. A
+ *  Codex chat that runs a chosen speed (`acceptedSpeedRuns`) keeps its record until its last look
+ *  admits it, so a reload in between still finds the chat and the speed it runs. */
 export function structuredAgentLaunchSpeedRecord(
   receipt: { fence: number } | undefined,
   heldTierId: string | undefined,
@@ -25,14 +27,21 @@ export function structuredAgentLaunchSpeedRecord(
   selection: {
     accepted?: Readonly<Record<string, string>> | undefined
     heldFastMode?: string | undefined
+    acceptedSpeedRuns?: boolean
   } = {}
 ): StructuredAgentLaunchSpeedRecord | undefined {
   const { heldFastMode } = selection
-  if (!receipt || (heldTierId === undefined && heldFastMode === undefined && !block)) {
-    return undefined
-  }
   // Only the seedable ids survive, so what the host echoed beyond them is never kept.
   const accepted = parseStructuredLaunchSeedOptions(selection.accepted)
+  const runsSpeed =
+    selection.acceptedSpeedRuns === true &&
+    (accepted?.serviceTier !== undefined || accepted?.fastMode !== undefined)
+  if (
+    !receipt ||
+    (heldTierId === undefined && heldFastMode === undefined && !block && !runsSpeed)
+  ) {
+    return undefined
+  }
   return {
     fence: receipt.fence,
     ...(accepted ? { accepted } : {}),

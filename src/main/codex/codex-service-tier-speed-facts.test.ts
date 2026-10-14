@@ -342,8 +342,10 @@ function readFrame(line: string): Record<string, unknown> {
   return Object.fromEntries(Object.entries(parsed))
 }
 
-// A child whose stdin is a real Writable with a one-byte high-water mark, so every `write` reports
-// backpressure (false) exactly as a saturated pipe does, while still delivering each frame.
+// A child whose stdin is a real Writable with a one-byte high-water mark that delivers each frame
+// when it is written. Completion is immediate unless a test holds one write: only an incomplete
+// write is a genuine backlog, so `write` reports backpressure (false) the way a saturated pipe
+// does on every runtime, including one that completes a synchronous callback before returning.
 class StubChild extends EventEmitter {
   readonly stdout = new PassThrough()
   readonly stderr = new PassThrough()
@@ -351,6 +353,8 @@ class StubChild extends EventEmitter {
   // Outside any real process table so teardown never mistakes an unrelated process for it.
   readonly pid = 9_999_999
   readonly kill = vi.fn(() => true)
+  private holdsNextWrite = false
+  private heldCompletion: (() => void) | undefined
 
   constructor(onFrame: (frame: Record<string, unknown>) => void) {
     super()
@@ -362,10 +366,27 @@ class StubChild extends EventEmitter {
             onFrame(readFrame(line))
           }
         }
+        if (this.holdsNextWrite) {
+          this.holdsNextWrite = false
+          this.heldCompletion = done
+          return
+        }
         done()
       }
     })
     this.stdin.on('finish', () => this.emit('exit', 0, null))
+  }
+
+  /** Delivers the next frame written but withholds its completion until `releaseHeldWrite`. */
+  holdNextWrite(): void {
+    this.holdsNextWrite = true
+  }
+
+  /** Completes the held write; a held write must be released before the stream is ended. */
+  releaseHeldWrite(): void {
+    const complete = this.heldCompletion
+    this.heldCompletion = undefined
+    complete?.()
   }
 }
 
@@ -593,10 +614,13 @@ describe('the transport boundary where a frame counts as submitted', () => {
     }
     const framesBefore = written.length
 
+    // The handshake is complete; this one write stays incomplete, so the backlog is real.
+    child.holdNextWrite()
     const pending = connection.request('turn/start', { threadId: THREAD_ID }, options)
     await vi.waitFor(() => expect(framesAtCallback).toEqual([framesBefore + 1]))
 
     expect(write).toHaveLastReturnedWith(false)
+    child.releaseHeldWrite()
     child.stdout.write(`${JSON.stringify({ id: written.at(-1)?.id, result: {} })}\n`)
     await expect(pending).resolves.toEqual({})
     expect(framesAtCallback).toHaveLength(1)

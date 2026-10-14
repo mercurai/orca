@@ -5,7 +5,8 @@ import {
   getPersistedStructuredAgentLaunchRecord,
   getStructuredLaunchStateBySessionId,
   hasStructuredAgentSessionLaunchCancellationTombstone,
-  notifyStructuredLaunchListeners
+  notifyStructuredLaunchListeners,
+  structuredLaunchSpeedRecord
 } from './structured-agent-session-launch-registry'
 
 /**
@@ -43,7 +44,14 @@ export function markStructuredAgentSessionLaunchPublished(
     return true
   }
   const { held } = state.selection
-  if (state.speedBlock || held.serviceTier !== undefined || held.fastMode !== undefined) {
+  // The inventory settles nothing a last capability look has not admitted: not a held or blocked
+  // speed, nor the accepted one the chat runs.
+  if (
+    state.speedBlock ||
+    held.serviceTier !== undefined ||
+    held.fastMode !== undefined ||
+    structuredLaunchSpeedRecord(state)
+  ) {
     return false
   }
   state.callers.outcome = 'published'

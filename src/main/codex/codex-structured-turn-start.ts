@@ -29,7 +29,6 @@ import {
   trackCodexSpeedRequest,
   type CodexSpeedEvidence
 } from './codex-structured-fast-mode'
-import { isCodexRefusedTierKey } from './codex-structured-speed-intent'
 import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 
 // Writing a Codex turn and learning which message landed where, which are not
@@ -69,6 +68,8 @@ export type CodexTurnHost = {
   catalogAccess?: CodexSessionCatalogAccess
   /** What this send's `turn/start` speed request comes to; see `CodexSession.speedEvidence`. */
   speedEvidence?: CodexSpeedEvidence
+  /** See `CodexSession.speedQuarantined`; judged at `turn/start` only, never at a steer. */
+  speedQuarantined?: true
   dispatchEchoes: CodexDispatchEchoes
   activeTurnIds?: ReadonlySet<string>
   /** Running turns whose interrupt Codex already answered: aborted, so never steered. */
@@ -91,11 +92,12 @@ function turnInputFor(body: AgentJournalMessageItem): Record<string, unknown>[] 
 }
 
 // The stored speed rides as the one canonical `serviceTier`; a session that never chose sends none,
-// so the provider's configured default stands. The private refused-tier record is never a parameter.
+// so the provider's configured default stands. Only the turn-option allowlist is a parameter: the
+// private refused-tier record and any saved option Codex has no turn field for never are.
 function codexTurnOptions(host: CodexTurnHost, tierId: string | undefined): Record<string, string> {
   const options = Object.fromEntries(
     [...host.options].filter(
-      ([key]) => key !== 'fastMode' && key !== 'serviceTier' && !isCodexRefusedTierKey(key)
+      ([key]) => isCodexTurnOptionKey(key) && key !== 'fastMode' && key !== 'serviceTier'
     )
   )
   return tierId === undefined ? options : { ...options, serviceTier: tierId }

@@ -11,7 +11,8 @@ import { normalizeCodexServiceTierOptions } from '../../shared/codex-service-tie
 import {
   isCodexRefusedTierKey,
   normalizeCodexSpeedIntent,
-  readCodexSpeedIntent
+  readCodexSpeedIntent,
+  withBlockedRequestedTier
 } from './codex-structured-speed-intent'
 import {
   codexSpeedFacts,
@@ -170,22 +171,80 @@ export async function prepareLiveCodexSessionOptions(
   return () => applyLiveCodexCatalog(session, listing)
 }
 
+/** The saved options this session holds no state for: neither a turn option nor the private refusal
+ *  record. They ride in every complete map the session settles, so the record never loses them. */
+export function unheldSavedCodexOptions(
+  saved: Readonly<Record<string, string>> | undefined
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(saved ?? {}).filter(
+      ([key]) => !isCodexTurnOptionKey(key) && !isCodexRefusedTierKey(key)
+    )
+  )
+}
+
+/** `saved`'s unheld options beside the session's complete map, which wins on any key it names. */
+function withUnheldSavedOptions(
+  options: Readonly<Record<string, string>>,
+  saved: Readonly<Record<string, string>> | undefined
+): Readonly<Record<string, string>> {
+  return { ...unheldSavedCodexOptions(saved), ...options }
+}
+
 export async function applyCodexStructuredSessionOption(
   session: CodexSession,
   key: string,
-  value: string
+  value: string,
+  savedOptions?: Readonly<Record<string, string>>
 ): Promise<Readonly<Record<string, string>>> {
   try {
-    return applyValidatedCodexStructuredSessionOption(session, key, value)
+    return withUnheldSavedOptions(
+      applyValidatedCodexStructuredSessionOption(session, key, value),
+      savedOptions
+    )
   } catch (error) {
     if (isAgentSessionOptionRejectedError(error)) {
-      // A refused speed pick is kept as this session's blocked intent; the host persists the same map.
-      if (error.refusalOptions) {
-        replaceCodexSessionOptions(session.options, error.refusalOptions)
+      if (!error.refusalOptions) {
+        throw error
       }
-      throw error
+      // A refused speed pick is kept as this session's blocked intent; the host persists the
+      // complete map that records it, with the saved options this session never held.
+      replaceCodexSessionOptions(session.options, error.refusalOptions)
+      throw new AgentSessionOptionRejectedError(
+        error.cause ?? error,
+        error.refusalReason,
+        withUnheldSavedOptions(error.refusalOptions, savedOptions)
+      )
     }
     throw new AgentSessionOptionRejectedError(error)
+  }
+}
+
+/**
+ * Puts a session's live options back on its record after the write that changed them could not be
+ * saved, keeping the attempted speed as the blocked requested tier beside the prior canonical one.
+ * Admission is quarantined first, so a failure part-way leaves new turns refused rather than
+ * spending a map nobody saved; only an accepted speed pick lifts it. Synchronous and in memory.
+ */
+export function recoverCodexSessionOptionsAfterFailedSave(
+  session: CodexSession,
+  failed: { key: string; value: string; priorOptions: Readonly<Record<string, string>> }
+): void {
+  session.speedQuarantined = true
+  const attemptedTier =
+    failed.key === 'serviceTier'
+      ? failed.value
+      : failed.key === 'fastMode'
+        ? session.options.get('serviceTier')
+        : undefined
+  const restored = Object.fromEntries(restoredCodexSessionOptions(failed.priorOptions))
+  replaceCodexSessionOptions(
+    session.options,
+    attemptedTier === undefined ? restored : withBlockedRequestedTier(restored, attemptedTier)
+  )
+  // Legacy Fast that no tier id names cannot be kept as a blocked request, so it stays quarantined.
+  if ((failed.key !== 'serviceTier' && failed.key !== 'fastMode') || attemptedTier !== undefined) {
+    delete session.speedQuarantined
   }
 }
 
@@ -230,6 +289,8 @@ function applyCodexSpeedOption(
       catalogKnown: catalog.known
     })
   )
+  // An accepted pick replaces whatever the quarantine was guarding; a failed save restores it.
+  delete session.speedQuarantined
   return Object.fromEntries(session.options)
 }
 

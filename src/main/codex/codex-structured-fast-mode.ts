@@ -17,7 +17,10 @@ import {
 } from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import { codexListingDefaultModel, codexSpeedCatalog } from './codex-structured-catalog-entry'
-import { admitCodexSpeedIntentForTurn } from './codex-structured-speed-intent'
+import {
+  admitCodexSpeedIntentForTurn,
+  assertCodexSpeedAdmissionOpen
+} from './codex-structured-speed-intent'
 import type { CodexOpenedThread } from './codex-structured-thread-open'
 import type { CodexSession } from './codex-structured-session-state'
 
@@ -130,7 +133,10 @@ export function codexSpeedFacts(
   }
 }
 
-type CodexSpeedHost = Pick<CodexSession, 'options' | 'catalogAccess' | 'speedEvidence'> & {
+type CodexSpeedHost = Pick<
+  CodexSession,
+  'options' | 'catalogAccess' | 'speedEvidence' | 'speedQuarantined'
+> & {
   reportedOptions?: { model?: string }
 }
 
@@ -141,6 +147,8 @@ export function admitCodexTurnSpeed(
   host: CodexSpeedHost,
   clientMessageId: string
 ): string | undefined {
+  // Not a speed request of this send: nothing is recorded, and nothing is written.
+  assertCodexSpeedAdmissionOpen(host)
   const catalog = codexSpeedCatalog(host.catalogAccess)
   const currentModel =
     host.options.get('model') ??

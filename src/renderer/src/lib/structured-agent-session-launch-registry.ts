@@ -111,19 +111,25 @@ export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchStat
   return true
 }
 
+/** The speed bookkeeping this launch keeps while it is unpublished; undefined when none is in play. */
+export function structuredLaunchSpeedRecord(
+  state: StructuredLaunchState
+): ReturnType<typeof structuredAgentLaunchSpeedRecord> {
+  const { held, seed } = state.selection
+  return structuredAgentLaunchSpeedRecord(state.receipt, held.serviceTier, state.speedBlock, {
+    accepted: seed,
+    heldFastMode: held.fastMode,
+    acceptedSpeedRuns: state.intent.agent === 'codex'
+  })
+}
+
 function persistStructuredLaunchState(state: StructuredLaunchState): void {
   const lifecycle = launchStateLifecycle(state)
   if (lifecycle === 'published' || lifecycle === 'cancelled') {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }
-  const { held, seed } = state.selection
-  const speed = structuredAgentLaunchSpeedRecord(
-    state.receipt,
-    held.serviceTier,
-    state.speedBlock,
-    { accepted: seed, heldFastMode: held.fastMode }
-  )
+  const speed = structuredLaunchSpeedRecord(state)
   writeStructuredAgentLaunchRecord({
     ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
     ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {}),
@@ -156,13 +162,6 @@ export function launchStateLifecycle(
   return state.callers.outcome === 'failed' ? 'failed' : 'pending'
 }
 
-function matchesLaunchWorktree(
-  state: StructuredLaunchState | undefined,
-  worktreeId: string
-): boolean {
-  return state?.intent.worktreeId === worktreeId
-}
-
 export function getStructuredAgentSessionLaunchLifecycle(
   worktreeId: string,
   sessionId: string
@@ -171,7 +170,7 @@ export function getStructuredAgentSessionLaunchLifecycle(
     return 'cancelled'
   }
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (state && matchesLaunchWorktree(state, worktreeId)) {
+  if (state?.intent.worktreeId === worktreeId) {
     return launchStateLifecycle(state)
   }
   return getPersistedStructuredAgentLaunchRecord(sessionId)?.lifecycle ?? null
@@ -201,9 +200,7 @@ export function getStructuredAgentSessionLaunchFailure(
   sessionId: string
 ): StructuredLaunchFailure | null {
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  return state &&
-    matchesLaunchWorktree(state, worktreeId) &&
-    launchStateLifecycle(state) === 'failed'
+  return state?.intent.worktreeId === worktreeId && launchStateLifecycle(state) === 'failed'
     ? (state.failure ?? null)
     : null
 }
@@ -215,7 +212,7 @@ export function getStructuredAgentSessionLaunchSpeedBlock(
 ): StructuredLaunchSpeedBlock | null {
   const state = getStructuredLaunchStateBySessionId(sessionId)
   if (state) {
-    return matchesLaunchWorktree(state, worktreeId) ? (state.speedBlock ?? null) : null
+    return state.intent.worktreeId === worktreeId ? (state.speedBlock ?? null) : null
   }
   return getPersistedStructuredAgentLaunchRecord(sessionId)?.speed?.block ?? null
 }
@@ -261,7 +258,7 @@ export function shouldRetainStructuredAgentSessionLaunchTab(
   return lifecycle === 'pending' || lifecycle === 'visibility-unknown' || lifecycle === 'failed'
 }
 
-function markStructuredAgentSessionLaunchCancelledInternal(
+function markLaunchCancelled(
   worktreeId: string,
   sessionId: string,
   executionHostId: ExecutionHostId,
@@ -269,7 +266,7 @@ function markStructuredAgentSessionLaunchCancelledInternal(
 ): boolean {
   const alreadyCancelled = hasStructuredAgentLaunchCancellationTombstonePersisted(sessionId)
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (matchesLaunchWorktree(state, worktreeId) && state) {
+  if (state?.intent.worktreeId === worktreeId) {
     // The launch's own owner outranks the caller's: it is the host the create was sent to.
     markStructuredAgentLaunchCancellation(
       sessionId,
@@ -299,12 +296,7 @@ export function markStructuredAgentSessionLaunchCancelled(
   sessionId: string,
   executionHostId: ExecutionHostId
 ): boolean {
-  return markStructuredAgentSessionLaunchCancelledInternal(
-    worktreeId,
-    sessionId,
-    executionHostId,
-    true
-  )
+  return markLaunchCancelled(worktreeId, sessionId, executionHostId, true)
 }
 
 /** Bulk workspace purges run inside a store updater; persist cancellation without notifying React. */
@@ -313,12 +305,7 @@ export function markStructuredAgentSessionLaunchCancelledSilently(
   sessionId: string,
   executionHostId: ExecutionHostId
 ): boolean {
-  return markStructuredAgentSessionLaunchCancelledInternal(
-    worktreeId,
-    sessionId,
-    executionHostId,
-    false
-  )
+  return markLaunchCancelled(worktreeId, sessionId, executionHostId, false)
 }
 
 export function hasStructuredAgentSessionLaunchCancellationTombstone(

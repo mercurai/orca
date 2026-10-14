@@ -20,20 +20,35 @@ import {
 import { createTrackedJournalOpener } from '../agent-session-journal/journal-host-database-test-support'
 import { agentModelCatalogSessionAccess } from '../agent-model-catalog/agent-model-catalog-fingerprint'
 import { AgentModelCatalogStore } from '../agent-model-catalog/agent-model-catalog-store'
-import { claudeAndCodexAgents } from './structured-agent-session-adapter-router-test-support'
+import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
+import {
+  claudeAndCodexAgents,
+  claudeAndCodexRouter
+} from './structured-agent-session-adapter-router-test-support'
 import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
 import { performSetOption, type AgentSessionTurnContext } from './structured-agent-session-turns'
+import { codexFastTierId } from '../../../shared/codex-service-tier-selection'
 
 const SESSION = 'session-live-persistence'
 const FENCE = 7
 const ACCOUNT_HOME = '/codex/home'
 // The model the fake provider's thread reports, so the catalog row below is the one the session uses.
 const MODEL = 'gpt-live'
+const OTHER_MODEL = 'gpt-live-other'
+// The fake thread reports `medium`; `high` is the effort a test may switch to.
+const EFFORTS = [
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' }
+]
 // Synthetic ids: the catalog decides which tiers exist.
 const STANDARD = { value: 'default', label: 'Standard' }
 const FAST = { value: 'Tier.Fast-77a', label: 'Fast' }
 const ULTRA = { value: 'Tier.Ultra-9c1', label: 'Ultrafast' }
 const ACKNOWLEDGED: Readonly<Record<string, string>> = { model: MODEL, serviceTier: FAST.value }
+const ACKNOWLEDGED_STANDARD: Readonly<Record<string, string>> = {
+  model: MODEL,
+  serviceTier: STANDARD.value
+}
 // An option the adapter does not recognise: the record owns it and every rewrite must carry it.
 const UNRELATED: Readonly<Record<string, string>> = { unrelatedSavedOption: 'keep-this' }
 // What a `turn/start` may name: neither an unrecognised saved option nor a refusal record is among them.
@@ -60,29 +75,54 @@ afterEach(async () => {
 })
 
 /** A live Codex session whose account catalog advertises exactly `tiers`, holding `saved`. The
- *  record's options are what the host's own acquisition read returns for that saved map. */
+ *  record's options are what the host's own acquisition read returns for that saved map. It is
+ *  acquired through a router over the real adapter, so a test picks which of the two its
+ *  mutations go through; reads and sends always use the adapter itself. `alternatives` adds
+ *  efforts to the row and a second model, so an effort or model write is accepted by the adapter.
+ *  The legacy Fast map is derived from the same rows, so a row with no Fast tier never names one. */
 async function openLiveSession(
   tiers: readonly { value: string; label: string }[],
-  saved: Readonly<Record<string, string>> = ACKNOWLEDGED
+  saved: Readonly<Record<string, string>> = ACKNOWLEDGED,
+  alternatives = false
 ) {
   const codex = fakeCodex()
   codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-1')
   const modelCatalog = new AgentModelCatalogStore()
   const access = agentModelCatalogSessionAccess(modelCatalog, CODEX_STRUCTURED_AGENT, ACCOUNT_HOME)!
+  const fastTierId = codexFastTierId(tiers)
   modelCatalog.recordSuccess(
     access.fingerprint,
     'codex',
     {
       models: [
-        { id: MODEL, label: 'GPT Live', isDefault: true, efforts: [], serviceTiers: [...tiers] }
+        {
+          id: MODEL,
+          label: 'GPT Live',
+          isDefault: true,
+          efforts: alternatives ? EFFORTS : [],
+          ...(alternatives ? { defaultEffort: 'medium' } : {}),
+          serviceTiers: [...tiers]
+        },
+        ...(alternatives
+          ? [
+              {
+                id: OTHER_MODEL,
+                label: 'GPT Other',
+                isDefault: false,
+                efforts: [],
+                serviceTiers: [...tiers]
+              }
+            ]
+          : [])
       ],
-      fastModeTierByModel: new Map([[MODEL, FAST.value]]),
+      fastModeTierByModel: new Map<string, string>(fastTierId ? [[MODEL, fastTierId]] : []),
       origin: 'live-session'
     },
     'discovery'
   )
   const adapter = adapterFor(codex, { codexHome: ACCOUNT_HOME }, [], { modelCatalog })
-  await adapter.acquire({
+  const router = claudeAndCodexRouter({ claude: adapter, codex: adapter }, async () => {})
+  await router.acquire({
     identity: identityFor(SESSION),
     fence: FENCE,
     spawnToken: 'spawn-1',
@@ -91,7 +131,7 @@ async function openLiveSession(
   const recorded =
     adapter.readAcquisitionOptions({ sessionId: SESSION, fence: FENCE, priorOptions: saved }) ?? {}
   expect(recorded).toMatchObject(saved)
-  return { codex, adapter, recorded }
+  return { codex, adapter, router, recorded }
 }
 
 /** The record's options as the durable store holds them; only a write that resolves changes them. */
@@ -112,7 +152,7 @@ function durableStore(initial: Readonly<Record<string, string>>): {
 
 /** Every action reads the durable options as they stand then, as a mutation's own context does. */
 async function contextFor(
-  adapter: CodexStructuredSessionAdapter,
+  adapter: StructuredAgentSessionAdapter,
   durable: Pick<ReturnType<typeof durableStore>, 'current' | 'persistOptions' | 'publish'>
 ): Promise<AgentSessionTurnContext> {
   root ??= await mkdtemp(join(tmpdir(), 'orca-codex-speed-live-persistence-'))
@@ -296,6 +336,177 @@ describe('an accepted replacement of a recorded refusal whose durable write fail
   })
 })
 
+describe('the same failed durable write through the adapter router', () => {
+  const failure = new Error('disk full')
+
+  /** An explicit expensive tier accepted live whose write is then refused by the store. */
+  async function failedUltraThroughRouter() {
+    const session = await openLiveSession([STANDARD, FAST, ULTRA])
+    const durable = durableStore(session.recorded)
+    const ctx = await contextFor(session.router, durable)
+    durable.persistOptions.mockRejectedValueOnce(failure)
+
+    await expect(pickTier(ctx, ULTRA.value)).rejects.toBe(failure)
+
+    return { ...session, durable, ctx }
+  }
+
+  it('restores the acknowledged tier and blocks the request, as the adapter alone does', async () => {
+    const { adapter, codex, durable } = await failedUltraThroughRouter()
+
+    expect(durable.publish).not.toHaveBeenCalled()
+    expectRefusedBeforeWire(codex, await dispatchNext(adapter))
+    const report = await adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+    expect(report.current.serviceTier).toBe(FAST.value)
+    expect(report.speed?.selection).toMatchObject({ tierId: ULTRA.value })
+    expect(report.speed?.selection.state).not.toBe('ready')
+  })
+
+  it('leaves a replacement child alone when the failed write began under an earlier fence', async () => {
+    const { adapter, codex, router, recorded } = await openLiveSession([STANDARD, FAST, ULTRA])
+    const durable = durableStore(recorded)
+    expect(await pickTier(await contextFor(router, durable), ULTRA.value)).toMatchObject({
+      ok: true
+    })
+
+    router.recoverFailedOptionPersistence({
+      sessionId: SESSION,
+      fence: FENCE - 1,
+      key: 'serviceTier',
+      value: STANDARD.value,
+      priorOptions: recorded
+    })
+
+    const report = await adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+    expect(report.current.serviceTier).toBe(ULTRA.value)
+    expect((await dispatchNext(adapter)).state).toBe('admitted')
+    expect(turnStarts(codex).map((call) => call.params?.serviceTier)).toEqual([ULTRA.value])
+  })
+
+  it('answers for a session no live owner holds without throwing', async () => {
+    const { router } = await openLiveSession([STANDARD, FAST])
+
+    expect(() =>
+      router.recoverFailedOptionPersistence({
+        sessionId: 'session-never-routed',
+        fence: FENCE,
+        key: 'serviceTier',
+        value: FAST.value,
+        priorOptions: {}
+      })
+    ).not.toThrow()
+  })
+
+  describe('when the restore itself fails', () => {
+    // Reading the record throws, as a corrupt copy would, after the live map took the unsaved tier.
+    const unreadable = new Proxy<Record<string, string>>(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('record unreadable')
+        }
+      }
+    )
+
+    async function liveWithUnsavedUltra() {
+      const session = await openLiveSession([STANDARD, FAST, ULTRA])
+      await session.router.setOption({
+        sessionId: SESSION,
+        key: 'serviceTier',
+        value: ULTRA.value,
+        fence: FENCE
+      })
+      expect(() =>
+        session.router.recoverFailedOptionPersistence({
+          sessionId: SESSION,
+          fence: FENCE,
+          key: 'serviceTier',
+          value: ULTRA.value,
+          priorOptions: unreadable
+        })
+      ).toThrow('record unreadable')
+      return session
+    }
+
+    it('keeps new turns refused rather than spending the unsaved tier', async () => {
+      const { adapter, codex } = await liveWithUnsavedUltra()
+
+      expectRefusedBeforeWire(codex, await dispatchNext(adapter))
+    })
+
+    it('still sends into the running turn, which carries no speed', async () => {
+      const { adapter, codex, router } = await openLiveSession([STANDARD, FAST, ULTRA])
+      expect((await dispatchNext(adapter)).state).toBe('admitted')
+      await router.setOption({
+        sessionId: SESSION,
+        key: 'serviceTier',
+        value: ULTRA.value,
+        fence: FENCE
+      })
+      expect(() =>
+        router.recoverFailedOptionPersistence({
+          sessionId: SESSION,
+          fence: FENCE,
+          key: 'serviceTier',
+          value: ULTRA.value,
+          priorOptions: unreadable
+        })
+      ).toThrow('record unreadable')
+
+      const steered = await adapter.dispatch({
+        sessionId: SESSION,
+        clientMessageId: 'message-2',
+        body: USER_MESSAGE,
+        fence: FENCE
+      })
+
+      expect(steered.state).toBe('admitted')
+      expect(turnStarts(codex)).toHaveLength(1)
+    })
+
+    it('reports the storage failure, not the restore failure, from the mutation', async () => {
+      const { router, recorded } = await liveWithUnsavedUltra()
+      const durable = durableStore(recorded)
+      const ctx = await contextFor(router, durable)
+      durable.persistOptions.mockRejectedValueOnce(failure)
+      vi.spyOn(router, 'recoverFailedOptionPersistence').mockImplementationOnce(() => {
+        throw new Error('restore failed')
+      })
+
+      await expect(pickTier(ctx, STANDARD.value)).rejects.toBe(failure)
+
+      expect(durable.publish).not.toHaveBeenCalled()
+    })
+
+    it('lifts the quarantine only for an accepted speed pick that is durably saved', async () => {
+      const { adapter, codex, router, recorded } = await liveWithUnsavedUltra()
+      const durable = durableStore(recorded)
+
+      const replaced = await pickTier(await contextFor(router, durable), STANDARD.value)
+
+      expect(replaced).toMatchObject({ ok: true })
+      expect((await dispatchNext(adapter)).state).toBe('admitted')
+      expect(turnStarts(codex).map((call) => call.params?.serviceTier)).toEqual([STANDARD.value])
+    })
+
+    it('restores the record and blocks that pick when it is not saved either', async () => {
+      const { adapter, codex, router, recorded } = await liveWithUnsavedUltra()
+      const durable = durableStore(recorded)
+      durable.persistOptions.mockRejectedValueOnce(failure)
+
+      await expect(pickTier(await contextFor(router, durable), STANDARD.value)).rejects.toBe(
+        failure
+      )
+
+      // Restored to the record, with the unsaved Standard kept as the blocked request.
+      expectRefusedBeforeWire(codex, await dispatchNext(adapter))
+      const report = await adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+      expect(report.current.serviceTier).toBe(FAST.value)
+      expect(report.speed?.selection).toMatchObject({ tierId: STANDARD.value })
+    })
+  })
+})
+
 describe('a saved option the adapter does not recognise, across speed writes', () => {
   const SAVED = { ...ACKNOWLEDGED, ...UNRELATED }
 
@@ -306,7 +517,11 @@ describe('a saved option the adapter does not recognise, across speed writes', (
     const picked = await pickTier(await contextFor(adapter, durable), ULTRA.value)
 
     expect(picked).toMatchObject({ ok: true })
-    expect(durable.current()).toMatchObject({ model: MODEL, serviceTier: ULTRA.value, ...UNRELATED })
+    expect(durable.current()).toMatchObject({
+      model: MODEL,
+      serviceTier: ULTRA.value,
+      ...UNRELATED
+    })
     expect(refusedCodexServiceTier(durable.current())).toBeUndefined()
     expect(durable.current()).not.toHaveProperty('fastMode')
   })
@@ -350,5 +565,155 @@ describe('a saved option the adapter does not recognise, across speed writes', (
     expect(start?.params).not.toHaveProperty('unrelatedSavedOption')
     expect(Object.values(start?.params ?? {})).not.toContain(ULTRA.value)
     expectOnlyPublicTurnFields(start?.params)
+  })
+})
+
+// A pick the adapter accepts live and the store then refuses is blocked in memory only: the durable
+// record never learned of it. Nothing below claims it survives a restart. Each later write that also
+// fails to save must leave that block, and the acknowledged tier beside it, exactly as they were.
+type MemoryOnlyBlock = {
+  name: string
+  tiers: readonly { value: string; label: string }[]
+  saved: Readonly<Record<string, string>>
+  /** The pick whose durable write fails, and what the adapter then offers the store. */
+  pick: { key: string; value: string }
+  offered: Record<string, string>
+  /** What the next read reports as requested, beside `current` as the acknowledged tier. */
+  requested: { tierId?: string; legacyFastMode?: true }
+  current: string
+  /** An explicit canonical pick the catalog advertises. */
+  replacement: string
+}
+
+const MEMORY_ONLY_BLOCKS: readonly MemoryOnlyBlock[] = [
+  {
+    name: 'an advertised paid tier',
+    tiers: [STANDARD, FAST, ULTRA],
+    saved: ACKNOWLEDGED,
+    pick: { key: 'serviceTier', value: ULTRA.value },
+    offered: { serviceTier: ULTRA.value },
+    requested: { tierId: ULTRA.value },
+    current: FAST.value,
+    replacement: STANDARD.value
+  },
+  {
+    // The catalog has an explicit Standard-only row, so no tier id can resolve the legacy toggle.
+    name: 'an unresolved legacy Fast toggle over explicit Standard',
+    tiers: [STANDARD],
+    saved: ACKNOWLEDGED_STANDARD,
+    pick: { key: 'fastMode', value: 'true' },
+    offered: { fastMode: 'true' },
+    requested: { legacyFastMode: true },
+    current: STANDARD.value,
+    replacement: STANDARD.value
+  }
+]
+
+const LATER_WRITES = [
+  { name: 'effort change', pick: { key: 'effort', value: 'high' } },
+  { name: 'model change', pick: { key: 'model', value: OTHER_MODEL } }
+]
+
+type LiveSession = Awaited<ReturnType<typeof openLiveSession>>
+
+async function blockedInMemory(block: MemoryOnlyBlock, path: 'adapter' | 'router') {
+  const session = await openLiveSession(block.tiers, block.saved, true)
+  const durable = durableStore(session.recorded)
+  const ctx = await contextFor(path === 'router' ? session.router : session.adapter, durable)
+  const failure = new Error('disk full')
+  durable.persistOptions.mockRejectedValueOnce(failure)
+
+  await expect(performSetOption(ctx, block.pick)).rejects.toBe(failure)
+
+  // The adapter accepted the pick and offered it; only the store refused it.
+  expect(durable.persistOptions).toHaveBeenCalledWith(expect.objectContaining(block.offered))
+  expect(durable.publish).not.toHaveBeenCalled()
+  expect(durable.current()).toEqual(session.recorded)
+  return { ...session, durable, ctx }
+}
+
+/** The block is still in force: no write reaches the provider, the read reports the unsaved request
+ *  beside the acknowledged tier, and no claim of an applied or processed tier appears. */
+async function expectStillBlocked(
+  session: LiveSession & { durable: ReturnType<typeof durableStore> },
+  block: MemoryOnlyBlock
+): Promise<void> {
+  expectRefusedBeforeWire(session.codex, await dispatchNext(session.adapter))
+  const report = await session.adapter.readOptions({ sessionId: SESSION, fence: FENCE })
+  const selection = report.speed?.selection
+  expect(report.current.serviceTier).toBe(block.current)
+  expect(report.current.model).toBe(MODEL)
+  expect(selection).toMatchObject(block.requested)
+  expect(['unknown', 'unavailable']).toContain(selection?.state)
+  // Never the acknowledged Standard presented as ready.
+  expect(selection?.tierId).not.toBe(STANDARD.value)
+  expect(report.speed?.applied).toBeUndefined()
+  expect(report.speed?.processing).toBeUndefined()
+}
+
+function expectNoPrivateSpeedState(options: Readonly<Record<string, string>> | undefined): void {
+  expect(Object.keys(options ?? {}).filter((key) => /refused|quarantine/i.test(key))).toEqual([])
+}
+
+describe.each(MEMORY_ONLY_BLOCKS)('$name whose durable write failed', (block) => {
+  describe.each(['adapter', 'router'] as const)('through the %s', (path) => {
+    const replacement = { key: 'serviceTier', value: block.replacement }
+
+    it('stays blocked, reading the acknowledged tier beside the unsaved request', async () => {
+      const session = await blockedInMemory(block, path)
+
+      await expectStillBlocked(session, block)
+    })
+
+    it.each(LATER_WRITES)(
+      'stays blocked when a later $name also fails to save',
+      async ({ pick }) => {
+        const session = await blockedInMemory(block, path)
+        const later = new Error('disk full again')
+        session.durable.persistOptions.mockRejectedValueOnce(later)
+
+        await expect(performSetOption(session.ctx, pick)).rejects.toBe(later)
+
+        expect(session.durable.persistOptions).toHaveBeenCalledTimes(2)
+        expect(session.durable.publish).not.toHaveBeenCalled()
+        expect(session.durable.current()).toEqual(session.recorded)
+        await expectStillBlocked(session, block)
+      }
+    )
+
+    it('keeps the earlier request when an explicit replacement also fails to save', async () => {
+      const session = await blockedInMemory(block, path)
+      const later = new Error('disk full again')
+      session.durable.persistOptions.mockRejectedValueOnce(later)
+
+      await expect(performSetOption(session.ctx, replacement)).rejects.toBe(later)
+
+      expect(session.durable.publish).not.toHaveBeenCalled()
+      expect(session.durable.current()).toEqual(session.recorded)
+      await expectStillBlocked(session, block)
+    })
+
+    it('releases the block for a durably accepted replacement and sends exactly its id', async () => {
+      const session = await blockedInMemory(block, path)
+      session.durable.persistOptions.mockRejectedValueOnce(new Error('disk full again'))
+      await expect(performSetOption(session.ctx, replacement)).rejects.toThrow('disk full again')
+
+      const replaced = await performSetOption(session.ctx, replacement)
+
+      expect(replaced).toMatchObject({ ok: true, value: replacement })
+      expect(session.durable.publish).toHaveBeenCalledOnce()
+      expect(session.durable.current()).toMatchObject({
+        model: MODEL,
+        serviceTier: block.replacement
+      })
+      expect(session.durable.current()).not.toHaveProperty('fastMode')
+      expectNoPrivateSpeedState(session.durable.current())
+      expectNoPrivateSpeedState(replaced.ok ? replaced.value.options : undefined)
+      expect((await dispatchNext(session.adapter)).state).toBe('admitted')
+      const starts = turnStarts(session.codex)
+      expect(starts).toHaveLength(1)
+      expect(starts[0]?.params).toMatchObject({ serviceTier: block.replacement })
+      expectOnlyPublicTurnFields(starts[0]?.params)
+    })
   })
 })

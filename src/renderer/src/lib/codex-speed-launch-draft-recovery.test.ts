@@ -112,7 +112,10 @@ import {
   resetStructuredAgentSessionSendsForTests,
   stopStructuredAgentSessionSends
 } from '@/components/native-chat/structured-agent-session-message-sender'
-import { getStructuredAgentSessionPendingSends } from '@/components/native-chat/structured-agent-session-pending-sends'
+import {
+  getStructuredAgentSessionPendingSends,
+  getStructuredAgentSessionSendNotice
+} from '@/components/native-chat/structured-agent-session-pending-sends'
 import { structuredAgentSessionStopControl } from '@/components/native-chat/structured-agent-session-stop-control'
 import {
   cancelStructuredAgentLaunch,
@@ -149,6 +152,7 @@ const SEEDED_FAST = { ...SEED, serviceTier: 'fast' }
 const REPLACED_DEFAULTS = { ...SEED, serviceTier: 'turbo' }
 const DELIVERED = { delivered: true, failureNotified: false }
 const BLOCKED_FAST = { tierId: 'fast', reason: 'host-update-needed' }
+const IN_COMPOSER = { delivered: false, failureNotified: false, inComposer: true } as const
 
 const PUBLISHED: RuntimeMobileSessionTabsResult = {
   worktree: WORKTREE_ID,
@@ -409,74 +413,84 @@ describe('Codex speed at the launch boundary: review regressions', () => {
     it.each([
       ['a speed picked and accepted during the launch', 'picked'],
       ['a speed the create was seeded with', 'seeded']
-    ] as const)('recovers the same chat on %s, and settles it only once admitted', async (_name, how) => {
-      mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
-      const finalProbe = newProbe()
-      if (how === 'seeded') {
-        mocks.createIntent.mockReturnValue(launchIntent(SEEDED_FAST))
-        probeQueue.push(finalProbe)
-        startLaunch('request-reload')
-      } else {
-        // The look before the write affirms the pick; the held one is the last look after its acceptance.
-        startLaunch('request-reload')
-        const pick = hold('serviceTier', 'fast')
+    ] as const)(
+      'recovers the same chat on %s, and settles it only once admitted',
+      async (_name, how) => {
+        mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
+        const finalProbe = newProbe()
+        if (how === 'seeded') {
+          mocks.createIntent.mockReturnValue(launchIntent(SEEDED_FAST))
+          probeQueue.push(finalProbe)
+          startLaunch('request-reload')
+        } else {
+          // The look before the write affirms the pick; the held one is the last look after its acceptance.
+          startLaunch('request-reload')
+          const pick = hold('serviceTier', 'fast')
+          await settle()
+          expect(mutations()).toEqual([write('serviceTier', 'fast')])
+          probeQueue.push(finalProbe)
+          setOptionReply(0).resolve(
+            optionAccepted('serviceTier', 'fast', { ...SEED, serviceTier: 'fast' })
+          )
+          await expect(pick).resolves.toMatchObject({ kind: 'accepted' })
+        }
         await settle()
-        expect(mutations()).toEqual([write('serviceTier', 'fast')])
-        probeQueue.push(finalProbe)
-        setOptionReply(0).resolve(
-          optionAccepted('serviceTier', 'fast', { ...SEED, serviceTier: 'fast' })
+
+        // The last look is in flight: the chat and the speed it runs must already be durable.
+        expect(lifecycle()).toBe('pending')
+        expect(sentTurns()).toHaveLength(0)
+        expect(getPersistedStructuredAgentLaunchRecord(SESSION_ID)?.speed).toMatchObject({
+          fence: 7,
+          accepted: { serviceTier: 'fast' }
+        })
+
+        const renderer = await reloadRenderer(REPLACED_DEFAULTS)
+        const { publication, registry } = renderer
+        // Showing in the host's inventory does not admit a speed that was never confirmed after the reload.
+        publication.markStructuredAgentSessionLaunchesPublished(
+          'local',
+          publication.publishedStructuredSessions([PUBLISHED])
         )
-        await expect(pick).resolves.toMatchObject({ kind: 'accepted' })
-      }
-      await settle()
+        expect(registry.getStructuredAgentSessionLaunchLifecycle(WORKTREE_ID, SESSION_ID)).toBe(
+          'visibility-unknown'
+        )
+        expect(localStorage.getItem(LAUNCH_STORAGE_KEY)).not.toBeNull()
 
-      // The last look is in flight: the chat and the speed it runs must already be durable.
-      expect(lifecycle()).toBe('pending')
-      expect(sentTurns()).toHaveLength(0)
-      expect(getPersistedStructuredAgentLaunchRecord(SESSION_ID)?.speed).toMatchObject({
-        fence: 7,
-        accepted: { serviceTier: 'fast' }
-      })
+        hostSupport = 'unsupported'
+        expect(renderer.launch.retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(
+          true
+        )
+        await settle(100)
 
-      const renderer = await reloadRenderer(REPLACED_DEFAULTS)
-      const { publication, registry } = renderer
-      // Showing in the host's inventory does not admit a speed that was never confirmed after the reload.
-      publication.markStructuredAgentSessionLaunchesPublished(
-        'local',
-        publication.publishedStructuredSessions([PUBLISHED])
-      )
-      expect(registry.getStructuredAgentSessionLaunchLifecycle(WORKTREE_ID, SESSION_ID)).toBe(
-        'visibility-unknown'
-      )
-      expect(localStorage.getItem(LAUNCH_STORAGE_KEY)).not.toBeNull()
+        // The saved speed, not the settings now saved, is the one the host must affirm.
+        expect(registry.getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toEqual(
+          BLOCKED_FAST
+        )
+        expect(
+          requestedTier(renderer.options.getStructuredAgentSessionLaunchSelection(SESSION_ID))
+        ).toBe('fast')
+        expect(mocks.launch).toHaveBeenCalledTimes(1)
+        expect(mocks.createIntent).toHaveBeenCalledTimes(1)
+        expect(sentTurns()).toHaveLength(0)
 
-      hostSupport = 'unsupported'
-      expect(renderer.launch.retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
-      await settle(100)
+        hostSupport = 'supported'
+        expect(renderer.options.recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(true)
+        await settle(100)
 
-      // The saved speed, not the settings now saved, is the one the host must affirm.
-      expect(registry.getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toEqual(
-        BLOCKED_FAST
-      )
-      expect(
-        requestedTier(renderer.options.getStructuredAgentSessionLaunchSelection(SESSION_ID))
-      ).toBe('fast')
-      expect(mocks.launch).toHaveBeenCalledTimes(1)
-      expect(mocks.createIntent).toHaveBeenCalledTimes(1)
-      expect(sentTurns()).toHaveLength(0)
-
-      hostSupport = 'supported'
-      expect(renderer.options.recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(true)
-      await settle(100)
-
-      expect(registry.getStructuredAgentSessionLaunchLifecycle(WORKTREE_ID, SESSION_ID)).toBeNull()
-      expect(registry.getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toBeNull()
-      expect(localStorage.getItem(LAUNCH_STORAGE_KEY)).toBeNull()
-      expect(mocks.launch).toHaveBeenCalledTimes(1)
-      expect(mocks.createIntent).toHaveBeenCalledTimes(1)
-      // Only the tier that was accepted was ever requested of the host, and it was not written again.
-      expect(mutations()).toEqual(how === 'picked' ? [write('serviceTier', 'fast')] : [])
-    }, 60_000)
+        expect(
+          registry.getStructuredAgentSessionLaunchLifecycle(WORKTREE_ID, SESSION_ID)
+        ).toBeNull()
+        expect(
+          registry.getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)
+        ).toBeNull()
+        expect(localStorage.getItem(LAUNCH_STORAGE_KEY)).toBeNull()
+        expect(mocks.launch).toHaveBeenCalledTimes(1)
+        expect(mocks.createIntent).toHaveBeenCalledTimes(1)
+        // Only the tier that was accepted was ever requested of the host, and it was not written again.
+        expect(mutations()).toEqual(how === 'picked' ? [write('serviceTier', 'fast')] : [])
+      },
+      60_000
+    )
   })
 
   describe('a recheck that arrives while a "supported" answer is in flight', () => {
@@ -512,7 +526,10 @@ describe('Codex speed at the launch boundary: review regressions', () => {
       setOptionReply(0).resolve(optionAccepted('serviceTier', 'ultrafast', accepted))
       await expect(pick).resolves.toEqual({ kind: 'accepted', options: accepted })
       await expect(launch.promptDeliveryResult).resolves.toEqual(DELIVERED)
-      expect(mutations()).toEqual([write('serviceTier', 'ultrafast'), { method: 'agentSession.send' }])
+      expect(mutations()).toEqual([
+        write('serviceTier', 'ultrafast'),
+        { method: 'agentSession.send' }
+      ])
     })
 
     it('writes the held pick once, after a fresh "yes" to the recheck', async () => {
@@ -636,6 +653,17 @@ describe('Codex speed at the launch boundary: review regressions', () => {
       })
     }
 
+    /** The turn came back once, as the composer's own text, with the shared sender's words on the
+     *  chat's line: one request, no second try, nothing left pending. */
+    async function expectGivenBack(expected: string, says: string): Promise<void> {
+      expect(getStructuredAgentSessionSendNotice(SESSION_ID) ?? '').toContain(says)
+      await settle(100)
+      expect(composer()).toBe(expected)
+      expect(requestedMethods()).toEqual(['agentSession.send'])
+      expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(false)
+      expect(getStructuredAgentSessionPendingSends(SESSION_ID)).toEqual([])
+    }
+
     it.each(DRAFTS)(
       'a Stop gives the turn back once, %s, and the start publishes without sending it',
       async (_name, typed, expected) => {
@@ -689,14 +717,8 @@ describe('Codex speed at the launch boundary: review regressions', () => {
 
         await resumeOnSupportingHost()
 
-        await expect(launch.promptDeliveryResult).resolves.toEqual({
-          delivered: false,
-          failureNotified: false,
-          inComposer: true
-        })
-        expect(composer()).toBe(expected)
-        expect(requestedMethods()).toEqual(['agentSession.send'])
-        expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(false)
+        await expect(launch.promptDeliveryResult).resolves.toEqual(IN_COMPOSER)
+        await expectGivenBack(expected, 'Your message was not sent.')
       }
     )
 
@@ -709,14 +731,10 @@ describe('Codex speed at the launch boundary: review regressions', () => {
         await resumeOnSupportingHost()
 
         await expect(launch.promptDeliveryResult).resolves.toEqual({
-          delivered: false,
-          failureNotified: false,
-          inComposer: true,
+          ...IN_COMPOSER,
           unconfirmed: true
         })
-        expect(composer()).toBe(expected)
-        expect(requestedMethods()).toEqual(['agentSession.send'])
-        expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(false)
+        await expectGivenBack(expected, "Orca couldn't confirm your message reached the agent")
       }
     )
 
@@ -727,16 +745,44 @@ describe('Codex speed at the launch boundary: review regressions', () => {
 
         await resumeOnSupportingHost()
 
-        await expect(launch.promptDeliveryResult).resolves.toEqual({
-          delivered: false,
-          failureNotified: false,
-          inComposer: true,
-          busy: true
-        })
+        await expect(launch.promptDeliveryResult).resolves.toEqual({ ...IN_COMPOSER, busy: true })
         expect(composer()).toBe(expected)
         expect(requestedMethods()).toEqual([])
         expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(false)
       }
     )
+  })
+
+  describe('an accepted Fast-off pick whose acknowledgement carries a tier', () => {
+    /** The pick is written on a host that would refuse any tier, so a tier the launch still runs
+     *  afterwards shows as a last look that parks it. */
+    async function acceptFastOff(acknowledged: Record<string, string>) {
+      mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
+      hostSupport = 'unsupported'
+      const launch = startLaunch('request-fast-off')
+      const pick = hold('fastMode', 'false')
+      await settle()
+      expect(mutations()).toEqual([write('fastMode', 'false')])
+      setOptionReply(0).resolve(optionAccepted('fastMode', 'false', acknowledged))
+      await expect(pick).resolves.toMatchObject({ kind: 'accepted' })
+      await settle()
+      return launch
+    }
+
+    it('drops the saved tier an older host echoes beside the toggle, and delivers the turn', async () => {
+      const launch = await acceptFastOff({ ...SEED, serviceTier: 'ultrafast', fastMode: 'false' })
+
+      await expect(launch.promptDeliveryResult).resolves.toEqual(DELIVERED)
+      expect(speedBlock()).toBeNull()
+      expect(mocks.speedSupport).not.toHaveBeenCalled()
+      expect(sentTurns()).toHaveLength(1)
+    })
+
+    it('keeps the exact tier an updated host answers for the toggle alone', async () => {
+      await acceptFastOff({ ...SEED, serviceTier: 'standard-lane' })
+
+      expect(speedBlock()).toEqual({ tierId: 'standard-lane', reason: 'host-update-needed' })
+      expect(sentTurns()).toHaveLength(0)
+    })
   })
 })

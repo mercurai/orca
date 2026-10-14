@@ -18314,7 +18314,10 @@
         "speedRequestRefusedDetail": "Last request for {{value0}} was refused: {{value1}}",
         "speedRequestRefused": "Last request for {{value0}} was refused.",
         "speedHostUpdate": "This host needs an update before it can store a speed choice. Update it and try again.",
-        "speedHostUnconfirmed": "Orca could not confirm this host supports speed choices. Try again in a moment."
+        "speedHostUnconfirmed": "Orca could not confirm this host supports speed choices. Try again in a moment.",
+        "speedRequestedUnavailable": "Requested {{value0}} is not available for this model. Sends are held until you choose another speed.",
+        "speedRequestedUnknown": "Requested {{value0}} could not be confirmed for this model. Sends are held until you choose another speed.",
+        "speedSendHeld": "Your speed choice has not been accepted by the host yet. Choose a speed, then send again."
       },
       "tool": {
         "exitCode": "exit {{value0}}",

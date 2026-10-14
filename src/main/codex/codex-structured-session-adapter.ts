@@ -11,14 +11,15 @@ import type {
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { CodexJournalTranslationAdmission } from './codex-structured-journal-translation'
 import { dispatchCodexTurn, isCodexTurnOptionKey } from './codex-structured-turn-start'
-import { isCodexRefusedTierKey } from './codex-structured-speed-intent'
 import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import { supportsCodexStructuredLocation } from './codex-structured-location-support'
 import { CodexStructuredSessionTeardown } from './codex-structured-session-teardown'
 import {
   applyCodexStructuredSessionOption,
   prepareLiveCodexSessionOptions,
-  readLiveCodexSessionOptions
+  readLiveCodexSessionOptions,
+  recoverCodexSessionOptionsAfterFailedSave,
+  unheldSavedCodexOptions
 } from './codex-structured-session-options'
 import {
   CodexAcquisitionRegistry,
@@ -284,7 +285,23 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     if (!isCodexTurnOptionKey(input.key)) {
       throw new Error(`codex app-server has no thread option named ${input.key}`)
     }
-    return applyCodexStructuredSessionOption(this.session(input.sessionId), input.key, input.value)
+    return applyCodexStructuredSessionOption(
+      this.session(input.sessionId),
+      input.key,
+      input.value,
+      input.priorOptions
+    )
+  }
+
+  // Looked up, never required: a child that ended or was replaced since the write began is not
+  // this write's to restore, and the hook must not throw for it.
+  recoverFailedOptionPersistence: NonNullable<
+    StructuredAgentSessionAdapter['recoverFailedOptionPersistence']
+  > = (input) => {
+    const session = this.sessions.get(input.sessionId)
+    if (session && !session.ended && session.fence === input.fence) {
+      recoverCodexSessionOptionsAfterFailedSave(session, input)
+    }
   }
 
   readOptions = (input: { sessionId: string; fence: number }) =>
@@ -301,11 +318,7 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
     const session = this.session(input.sessionId)
     // Speed state comes only from the session: a prior map must not resurrect a cleared refusal.
     const options = {
-      ...Object.fromEntries(
-        Object.entries(input.priorOptions ?? {}).filter(
-          ([key]) => !isCodexTurnOptionKey(key) && !isCodexRefusedTierKey(key)
-        )
-      ),
+      ...unheldSavedCodexOptions(input.priorOptions),
       ...Object.fromEntries(session.options)
     }
     const reported = session.reportedOptions

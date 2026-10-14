@@ -274,6 +274,28 @@ describe('structured agent launch persistence', () => {
       })
     })
 
+    it('records the accepted speed a Codex chat runs alone, canonical or legacy, and nothing without one', () => {
+      const run = { acceptedSpeedRuns: true }
+      expect(
+        structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined, {
+          ...run,
+          accepted: { model: 'gpt-5.5', serviceTier: 'fast', title: 'private chat title' }
+        })
+      ).toEqual({ fence: 7, accepted: { model: 'gpt-5.5', serviceTier: 'fast' } })
+      expect(
+        structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined, {
+          ...run,
+          accepted: { model: 'gpt-5.5', fastMode: 'false' }
+        })
+      ).toEqual({ fence: 7, accepted: { model: 'gpt-5.5', fastMode: 'false' } })
+      expect(
+        structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined, {
+          ...run,
+          accepted: { model: 'gpt-5.5' }
+        })
+      ).toBeUndefined()
+    })
+
     it('records nothing for a launch with no chosen speed in play', () => {
       expect(structuredAgentLaunchSpeedRecord(undefined, 'ultrafast', undefined)).toBeUndefined()
       expect(structuredAgentLaunchSpeedRecord({ fence: 7 }, undefined, undefined)).toBeUndefined()
