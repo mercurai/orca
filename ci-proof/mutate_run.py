@@ -126,10 +126,12 @@ from mutants_1148e import DROP as DROP_1148E, MUTANTS as M1148E  # noqa: E402
 
 M1148 = {name: mutant for name, mutant in M1148.items() if name not in DROP_1148E}
 M1148.update(M1148E)
+from mutants_1172 import MUTANTS as M1172  # noqa: E402
 
 NEW.update(SEC201)
 NEW.update({f"1148-{name}": mutant for name, mutant in M1148.items()})
 NEW.update({f"pr40-{name}": mutant for name, mutant in PR40.items()})
+NEW.update({f"1172-{name}": mutant for name, mutant in M1172.items()})
 
 
 ANCHORS_ONLY = "--anchors-only" in sys.argv
