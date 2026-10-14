@@ -898,6 +898,52 @@ if [ "$rc" = 4 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard ste
 git update-ref -d refs/remotes/origin/main; rc=$(gs_run '')
 if [ "$rc" = 1 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: a guard that fails sets no refused output"; else fail "guard step: a guard that fails sets no refused output"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
 
+# 33n2. An exact owner sha also releases the result guard on a clean range (claude-code-config#1172).
+gs_clean() { gs_setup; git checkout -q up; commit docs/up.md up "upstream docs"; }
+gs_stub_run() {  # gs_stub_run <guard exit> <UPSTREAM_SHA> <ALLOWED_SHA>: guard-step beside a stub merge-guard.sh; prints the exit status
+  local rc=0; rm -rf "$root/gstub"; mkdir -p "$root/gstub"; cp "$here/guard-step.sh" "$root/gstub/"
+  printf '#!/usr/bin/env bash\nexit %s\n' "$1" > "$root/gstub/merge-guard.sh"
+  git checkout -q fork; : > "$root/gs.gho"
+  FORK_BRANCH=fork UPSTREAM_SHA=$2 ALLOWED_SHA=$3 GITHUB_OUTPUT="$root/gs.gho" bash "$root/gstub/guard-step.sh" > "$root/gs.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+gs_clean; sha=$(git rev-parse up); rc=$(gs_run "$sha")
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false allowed=true " ]; then pass "guard step: the owner's exact sha allows a clean range too"; else fail "guard step: the owner's exact sha allows a clean range too"; echo "rc=$rc $(gs_outputs)"; cat "$root/gs.out"; fi
+full_other=0123456789abcdef0123456789abcdef01234567
+for v in "$full_other" "${sha:0:12}" "$(printf 'z%.0s' $(seq 1 40))" true; do
+  gs_clean; rc=$(gs_run "$v")
+  if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false " ]; then pass "guard step: a clean range with owner value '${v:0:12}' is not allowed and not refused"; else fail "guard step: a clean range with owner value '${v:0:12}' is not allowed and not refused"; echo "rc=$rc $(gs_outputs)"; fi
+done
+# Integration: the range guard passes, the result guard would refuse. The exact sha lets the merge stay; nothing else does.
+mkdir -p "$root/mfstub"; cp "$here/merge-forward.sh" "$root/mfstub/"
+printf '#!/usr/bin/env bash\necho .github/workflows/ci.yml\nexit 3\n' > "$root/mfstub/merge-result-guard.sh"
+for mode in exact none; do
+  gs_clean; sha=$(git rev-parse up); git checkout -q fork; before=$(git rev-parse HEAD)
+  if [ "$mode" = exact ]; then rc=$(gs_run "$sha"); else rc=$(gs_run ''); fi
+  allowed=false; if grep -qx 'allowed=true' "$root/gs.gho"; then allowed=true; fi
+  mrc=0; git checkout -q fork; UPSTREAM_SHA=$sha GUARD_ALLOWED=$allowed bash "$root/mfstub/merge-forward.sh" > "$root/mf.out" 2>&1 || mrc=$?
+  if [ "$mode" = exact ]; then
+    if [ "$rc" = 0 ] && [ "$allowed" = true ] && [ "$mrc" = 0 ] && git merge-base --is-ancestor up fork && [ "$(git rev-parse HEAD)" != "$before" ]; then
+      pass "guard step + merge-forward: an exact sha keeps a merge the result guard would refuse"; else fail "guard step + merge-forward: an exact sha keeps a merge the result guard would refuse"; echo "rc=$rc allowed=$allowed mrc=$mrc"; cat "$root/mf.out"; fi
+  else
+    if [ "$rc" = 0 ] && [ "$allowed" = false ] && [ "$mrc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git merge-base --is-ancestor up fork; then
+      pass "guard step + merge-forward: without the sha a merge the result guard refuses is reset"; else fail "guard step + merge-forward: without the sha a merge the result guard refuses is reset"; echo "rc=$rc allowed=$allowed mrc=$mrc"; cat "$root/mf.out"; fi
+  fi
+done
+# A malformed value equal to the pin must not allow: a stub guard reaches the exit-0 arm with a pin that is not a sha.
+gs_clean; rc=$(gs_stub_run 0 not-a-sha not-a-sha)
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false " ]; then pass "guard step: a malformed owner value equal to the pin allows nothing on a clean range"; else fail "guard step: a malformed owner value equal to the pin allows nothing on a clean range"; echo "rc=$rc $(gs_outputs)"; fi
+# Fail-closed arms under an exact owner sha.
+gs_clean; sha=$(git rev-parse up)
+rc=$(gs_stub_run 3 "$sha" "$sha")
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=true " ]; then pass "guard step: an exact sha does not release a refused range (exit 3)"; else fail "guard step: an exact sha does not release a refused range (exit 3)"; echo "rc=$rc $(gs_outputs)"; fi
+rc=$(gs_stub_run 4 "$sha" "$sha")
+if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false allowed=true " ]; then pass "guard step: an exact sha still releases a guarded range (exit 4)"; else fail "guard step: an exact sha still releases a guarded range (exit 4)"; echo "rc=$rc $(gs_outputs)"; fi
+rc=$(gs_stub_run 4 "$sha" "$full_other")
+if [ "$rc" = 4 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: exit 4 with a mismatched full sha still fails the step"; else fail "guard step: exit 4 with a mismatched full sha still fails the step"; echo "rc=$rc $(gs_outputs)"; fi
+rc=$(gs_stub_run 1 "$sha" "$sha")
+if [ "$rc" = 1 ] && [ "$(gs_outputs)" = "allowed=false " ]; then pass "guard step: an unexpected guard failure under an exact sha fails the step"; else fail "guard step: an unexpected guard failure under an exact sha fails the step"; echo "rc=$rc $(gs_outputs)"; fi
+
 # 33o. merge-forward.sh: a CR in git's merge output never reaches the log; the conflict list is sanitised.
 guard_setup; commit $'docs/c\r::error::x' up "upstream adds it"; git checkout -q fork; mkdir -p docs; commit $'docs/c\r::error::x' fork "fork adds it too"
 rc=$(mf_run false)

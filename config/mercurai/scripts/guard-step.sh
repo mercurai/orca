@@ -17,7 +17,10 @@ bash "$here/merge-guard.sh" HEAD "$UPSTREAM_SHA" origin/main > "$state/guarded" 
 # Outputs first: nothing the script prints (upstream picks path names) can then set them.
 echo "allowed=false" >> "$out"
 case "$rc" in
-  0) echo "refused=false" >> "$out" ;;
+  # A clean range with the owner's exact sha also releases the result guard (claude-code-config#1172).
+  0)
+    echo "refused=false" >> "$out"
+    if [[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ && "$ALLOWED_SHA" = "$UPSTREAM_SHA" ]]; then echo "allowed=true" >> "$out"; fi ;;
   3) echo "refused=true" >> "$out" ;;
   # 4 is also what sed exits with on an I/O error: only a full sha equal to the pinned commit counts.
   4)
