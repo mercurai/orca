@@ -1070,30 +1070,44 @@ runner_clone() {  # a runner checkout: only the fork branch and the patch branch
   export BASE=$(git rev-parse v2) MANIFEST_WORK="$root/patches.yaml"
 }
 line_of() { awk -v b="$1" '$1 == b' "$FORK_STATE_DIR/rebased"; }
-rebase_with() { OVERRIDES="$1" bash "$here/rebase-series.sh" >"$root/rebase.out" 2>&1; }
+pin_head() {  # pin_head <branch> <sha>: the manifest names the sha as the branch's ported_head
+  BRANCH=$1 SHA=$2 yq -i '(.patches[] | select(.branch == strenv(BRANCH)) | .ported_head) = strenv(SHA)' "$root/patches.yaml"
+}
+# A real run leaves DRY_RUN unset; a second argument sets it ("true" is a dry run, anything else is not).
+rebase_with() {  # rebase_with <overrides> [DRY_RUN value]
+  local dry=(-u DRY_RUN); [ "$#" -lt 2 ] || dry=("DRY_RUN=$2")
+  env "${dry[@]}" OVERRIDES="$1" bash "$here/rebase-series.sh" >"$root/rebase.out" 2>&1
+}
 
 # 28. A ported head (on a ci-only/* branch) replaces the rebase, and is leased on the branch's old sha; the rest rebases.
-ported_setup; a0=$(remote_sha patch/a); runner_clone
+ported_setup; a0=$(remote_sha patch/a); pin_head patch/a "$pa"; runner_clone
 if rebase_with "patch/a=$pa" && [ "$(line_of patch/a)" = "patch/a $a0 $pa" ] &&
    [ "$(line_of patch/b | cut -d' ' -f3)" != "$(remote_sha patch/b)" ] && git merge-base --is-ancestor v2 "$(line_of patch/b | cut -d' ' -f3)"; then
   pass "a ported head is used instead of rebasing"; else fail "a ported head is used instead of rebasing"; fi
 
 # 29. The ported head goes out in the same atomic push as the rebased patches (case 28's setup, in its own state dir).
-ported_setup; a0=$(remote_sha patch/a); runner_clone; rebase_with "patch/a=$pa"
+ported_setup; a0=$(remote_sha patch/a); pin_head patch/a "$pa"; runner_clone; rebase_with "patch/a=$pa"
 if bash "$here/push-rebased-series.sh" "$FORK_STATE_DIR/rebased" mercurai "" >/dev/null && [ "$(remote_sha patch/a)" = "$pa" ] && remote_has v2 "$(remote_sha patch/b)"; then
   pass "a ported head is pushed with the series"; else fail "a ported head is pushed with the series"; fi
 
-# 30. A head that does not contain the base fails closed.
+# 30. A head that does not contain the base fails closed (a preview, so the pin guard cannot be what fails it).
 ported_setup; runner_clone
-if rebase_with "patch/a=$stale"; then fail "a head without the base fails"
+if rebase_with "patch/a=$stale" true; then fail "a head without the base fails"
 elif grep -q "does not contain" "$root/rebase.out"; then pass "a head without the base fails"; else fail "a head without the base fails"; fi
 
 # 31. Malformed, unlisted, duplicate and unfetchable overrides all fail before anything is pushed.
 ported_setup; runner_clone
 bad_ok=1
-for bad in "patch/a=${pa:0:12}" "patch/a=$pa;touch $root/pwned" "patch/c=$pa" "patch/a=$pa patch/a=$pb" "origin/a=$pa" "patch/a=$(printf '0%.0s' {1..40})"; do
-  if rebase_with "$bad"; then bad_ok=0; echo "accepted: $bad"; fi
-done
+bad_override() {  # bad_override <overrides> <the ::error:: reason the run must give>; a preview, so no pin guard can stand in for it
+  if rebase_with "$1" true; then bad_ok=0; echo "accepted: $1"
+  elif ! grep -qF "::error::$2" "$root/rebase.out"; then bad_ok=0; echo "wrong reason for: $1"; cat -v "$root/rebase.out"; fi
+}
+bad_override "patch/a=${pa:0:12}" "override #1 is not patch/<name>=<40-hex sha>"
+bad_override "patch/a=$pa;touch $root/pwned" "override #1 is not patch/<name>=<40-hex sha>"
+bad_override "patch/c=$pa" "override for patch/c, which is not an active patch in the manifest"
+bad_override "patch/a=$pa patch/a=$pb" "override for patch/a given twice"
+bad_override "origin/a=$pa" "override #1 is not patch/<name>=<40-hex sha>"
+bad_override "patch/a=$(printf '0%.0s' {1..40})" "patch/a: head $(printf '0%.0s' {1..40}) is not on an origin patch/* or ci-only/* branch"
 if [ "$bad_ok" = 1 ] && [ ! -e "$root/pwned" ]; then pass "bad overrides fail closed"; else fail "bad overrides fail closed"; fi
 
 # 32. No overrides: the series rebases as before.
@@ -1101,10 +1115,11 @@ ported_setup; runner_clone
 if rebase_with "" && [ "$(line_of patch/a | cut -d' ' -f3)" != "$pa" ] && [ "$(wc -l < "$FORK_STATE_DIR/rebased")" = 2 ]; then
   pass "without overrides every patch rebases"; else fail "without overrides every patch rebases"; fi
 
-assemble_with() {  # TAG v2 against a manifest still recorded on v1, as before the series is pushed
+assemble_with() {  # assemble_with <overrides> [DRY_RUN value]: TAG v2 against a manifest still recorded on v1, as before the series is pushed
   export GITHUB_OUTPUT="$root/out" MANIFEST="$root/patches.yaml" MANIFEST_WORK="$root/manifest-work.yaml" TAG=v2.0.0
   : > "$GITHUB_OUTPUT"
-  OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1 || { sed 's/^/  assemble: /' "$root/assemble.out"; return 1; }
+  local dry=(-u DRY_RUN); [ "$#" -lt 2 ] || dry=("DRY_RUN=$2")
+  env "${dry[@]}" OVERRIDES="$1" bash "$here/assemble-release.sh" >"$root/assemble.out" 2>&1 || { sed 's/^/  assemble: /' "$root/assemble.out"; return 1; }
 }
 
 # 33. Without overrides an unrebased series does not assemble.
@@ -1113,28 +1128,28 @@ if assemble_with ""; then fail "an unrebased series does not assemble"
 elif grep -q "manifest base is v1" "$root/assemble.out"; then pass "an unrebased series does not assemble"; else fail "an unrebased series does not assemble"; fi
 
 # 34. Ported heads for the whole series assemble on the tag before any patch/* ref moves.
-ported_setup
+ported_setup; pin_head patch/a "$pa"; pin_head patch/b "$pb"
 if assemble_with "patch/a=$pa,patch/b=$pb" && [ "$(git rev-list --count v2..release/test)" = 2 ] &&
    [ "$(git show release/test:a.txt)" = a ] && [ "$(git show release/test:b.txt)" = b ]; then
   pass "ported heads assemble before patch/* moves"; else fail "ported heads assemble before patch/* moves"; fi
 
-# 35. A patch without an override still has to be rebased.
-ported_setup
+# 35. A patch without an override still has to be rebased (the overridden one is pinned, so it reaches this rejection).
+ported_setup; pin_head patch/a "$pa"
 if assemble_with "patch/a=$pa"; then fail "an unrebased patch beside an override fails"
 elif grep -q "recorded on v1" "$root/assemble.out"; then pass "an unrebased patch beside an override fails"; else fail "an unrebased patch beside an override fails"; fi
 
 # 36. An overridden assembly head must contain the tag.
 ported_setup
-if assemble_with "patch/a=$stale,patch/b=$pb"; then fail "an assembly head without the tag fails"
+if assemble_with "patch/a=$stale,patch/b=$pb" true; then fail "an assembly head without the tag fails"
 elif grep -q "does not contain" "$root/assemble.out"; then pass "an assembly head without the tag fails"; else fail "an assembly head without the tag fails"; fi
 
 # 37. A head with no commits beyond the base would retire the patch as merged: rejected, by rebase and by assembly.
 ported_setup; runner_clone
-if rebase_with "patch/a=$(git rev-parse v2)"; then fail "a head equal to the base is rejected"
+if rebase_with "patch/a=$(git rev-parse v2)" true; then fail "a head equal to the base is rejected"
 elif ! grep -q "no commits beyond" "$root/rebase.out"; then fail "a head equal to the base is rejected"
 else
   cd "$root/work"
-  if assemble_with "patch/a=$(git rev-parse v2),patch/b=$pb"; then fail "a head equal to the base is rejected"
+  if assemble_with "patch/a=$(git rev-parse v2),patch/b=$pb" true; then fail "a head equal to the base is rejected"
   elif grep -q "no commits beyond" "$root/assemble.out"; then pass "a head equal to the base is rejected"; else fail "a head equal to the base is rejected"; fi
 fi
 
@@ -1142,26 +1157,187 @@ fi
 ported_setup
 git checkout -q -b stray v2; commit s.txt s "stray"; stray=$(git rev-parse HEAD); git push -q origin stray:refs/heads/other/x; git checkout -q fork
 runner_clone
-if rebase_with "patch/a=$stray"; then fail "a head outside patch/* and ci-only/* is rejected"
+if rebase_with "patch/a=$stray" true; then fail "a head outside patch/* and ci-only/* is rejected"
 elif ! grep -q "is not on an origin" "$root/rebase.out"; then fail "a head outside patch/* and ci-only/* is rejected"
 else
   cd "$root/work"
-  if assemble_with "patch/a=$stray,patch/b=$pb"; then fail "a head outside patch/* and ci-only/* is rejected"
+  if assemble_with "patch/a=$stray,patch/b=$pb" true; then fail "a head outside patch/* and ci-only/* is rejected"
   elif grep -q "is not on an origin" "$root/assemble.out"; then pass "a head outside patch/* and ci-only/* is rejected"; else fail "a head outside patch/* and ci-only/* is rejected"; fi
 fi
 
 # 39. A carriage return in an override never reaches the log, where the runner would read it as a command.
 ported_setup; runner_clone
-if rebase_with "patch/a=$pa"$'\r::add-mask::x'; then fail "an override's raw text stays out of the log"
-elif grep -q "::add-mask::" "$root/rebase.out"; then fail "an override's raw text stays out of the log"; else pass "an override's raw text stays out of the log"; fi
+if rebase_with "patch/a=$pa"$'\r::add-mask::x' true; then fail "an override's raw text stays out of the log"
+elif grep -q "::add-mask::" "$root/rebase.out" || ! grep -qF "::error::override #1 is not patch/<name>=<40-hex sha>" "$root/rebase.out"; then fail "an override's raw text stays out of the log"; else pass "an override's raw text stays out of the log"; fi
 
 # 40. A carriage return in a ported commit's subject never reaches the log.
 ported_setup
 git checkout -q -b crsub v2; echo c > c.txt; git add c.txt; git commit -q -m "port"$'\r::add-mask::x'; crsha=$(git rev-parse HEAD)
-git push -q origin crsub:refs/heads/ci-only/cr; git checkout -q fork; runner_clone
+git push -q origin crsub:refs/heads/ci-only/cr; git checkout -q fork; pin_head patch/a "$crsha"; runner_clone
 # (git's own rebase progress prints a CR, so the check is on the subject's line: joined, not split.)
 if rebase_with "patch/a=$crsha" && grep -q ' port::add-mask::x$' "$root/rebase.out"; then pass "a commit subject's carriage return stays out of the log"
 else fail "a commit subject's carriage return stays out of the log"; fi
+
+# --- record-series.sh and the real-run guards on an override (claude-code-config#1123) ----------------
+# p1-p13: each runs the real scripts against a local origin, in its own FORK_STATE_DIR.
+rs_manifest() {  # rs_manifest <file> <pin sha>: a and b are rebased, m is merged, u is untouched; a, m and u carry a pin
+  cat > "$1" <<EOF
+base: v1
+release_branch: release/test
+patches:
+  - branch: patch/a
+    base: v1
+    status: ours-only
+    ported_head: $2
+  - branch: patch/b
+    base: v1
+    status: ours-only
+  - branch: patch/m
+    base: v1
+    status: upstream-open
+    ported_head: $2
+  - branch: patch/u
+    base: v1
+    status: ours-only
+    tests: [x.test.ts]
+    ported_head: $2
+EOF
+}
+rs_field() { BRANCH=$2 yq -r ".patches[] | select(.branch == strenv(BRANCH)) | $3" "$1"; }
+rs_run() {  # rs_run <state dir> <manifest>: record the series onto base v2
+  FORK_STATE_DIR=$1 MANIFEST_WORK=$2 TARGET=v2 bash "$here/record-series.sh" >"$root/rs.out" 2>&1
+}
+rs_state() {  # rs_state <dir>: a, b rebased and m merged, as rebase-series would have written them
+  mkdir -p "$1"; printf 'patch/a x y\npatch/b x y\npatch/m x y\n' > "$1/rebased"; printf 'patch/m\n' > "$1/merged"
+}
+pin40=$(printf 'a%.0s' {1..40})
+
+# p1. record-series: the new base on the manifest and each rebased patch, merged-upstream on a merged one, an unlisted
+# entry untouched, and only its own FORK_STATE_DIR read (a decoy in the default /tmp lists patch/u as rebased).
+rs_state "$root/p1"; rs_manifest "$root/rs1.yaml" "$pin40"; u0=$(rs_field "$root/rs1.yaml" patch/u .)
+decoy=0
+if [ ! -e /tmp/rebased ] && [ ! -e /tmp/merged ]; then decoy=1; printf 'patch/u x y\n' > /tmp/rebased; : > /tmp/merged; fi
+rs_ok=0; rs_run "$root/p1" "$root/rs1.yaml" && rs_ok=1
+[ "$decoy" = 0 ] || rm -f /tmp/rebased /tmp/merged
+if [ "$rs_ok" = 1 ] && [ "$(yq -r .base "$root/rs1.yaml")" = v2 ] &&
+   [ "$(rs_field "$root/rs1.yaml" patch/a .base)" = v2 ] && [ "$(rs_field "$root/rs1.yaml" patch/b .base)" = v2 ] &&
+   [ "$(rs_field "$root/rs1.yaml" patch/m .status)" = merged-upstream ] && [ "$(rs_field "$root/rs1.yaml" patch/m .base)" = v1 ] &&
+   [ "$(rs_field "$root/rs1.yaml" patch/u .)" = "$u0" ]; then
+  pass "record-series records the base, the merged patches and nothing else"; else fail "record-series records the base, the merged patches and nothing else"; cat "$root/rs.out" "$root/rs1.yaml"; fi
+
+# p2. record-series deletes ported_head on the patches it records, merged or rebased, and on no other.
+rs_state "$root/p2"; rs_manifest "$root/rs2.yaml" "$pin40"
+rs_ok=0; rs_run "$root/p2" "$root/rs2.yaml" && rs_ok=1
+if [ "$rs_ok" = 1 ] && [ -z "$(rs_field "$root/rs2.yaml" patch/a '.ported_head // ""')" ] &&
+   [ -z "$(rs_field "$root/rs2.yaml" patch/m '.ported_head // ""')" ] &&
+   [ "$(rs_field "$root/rs2.yaml" patch/u '.ported_head // ""')" = "$pin40" ]; then
+  pass "record-series clears ported_head on recorded patches only"; else fail "record-series clears ported_head on recorded patches only"; cat "$root/rs.out" "$root/rs2.yaml"; fi
+
+not_pinned() { grep -qF "::error::patch/a: the manifest does not pin ported_head $1" "$root/$2.out"; }
+
+# p3. A real run (DRY_RUN unset) refuses a head the manifest does not pin, and one pinned to another sha.
+ported_setup; runner_clone; p3=1
+if rebase_with "patch/a=$pa"; then p3=0; elif ! not_pinned "$pa" rebase; then p3=0; fi
+pin_head patch/a "$pb"
+if rebase_with "patch/a=$pa"; then p3=0; elif ! not_pinned "$pa" rebase; then p3=0; fi
+if [ "$p3" = 1 ]; then pass "a real run refuses an override the manifest does not pin"; else fail "a real run refuses an override the manifest does not pin"; cat -v "$root/rebase.out"; fi
+
+# p4. A real run takes a head the manifest pins.
+ported_setup; pin_head patch/a "$pa"; runner_clone
+if rebase_with "patch/a=$pa" && grep -qF "patch/a: using the ported head $pa" "$root/rebase.out"; then
+  pass "a real run takes an override the manifest pins"; else fail "a real run takes an override the manifest pins"; cat -v "$root/rebase.out"; fi
+
+# p5. A dry run takes an unpinned head.
+ported_setup; runner_clone
+if rebase_with "patch/a=$pa" true && grep -qF "patch/a: using the ported head $pa" "$root/rebase.out"; then
+  pass "a dry run takes an unpinned override"; else fail "a dry run takes an unpinned override"; cat -v "$root/rebase.out"; fi
+
+# p11. Only DRY_RUN=true skips the pin: false, other words, another case, 1 and empty all enforce it.
+ported_setup; runner_clone; p11=1
+for dry in false yes TRUE 1 ''; do
+  if rebase_with "patch/a=$pa" "$dry"; then p11=0; echo "accepted with DRY_RUN='$dry'"
+  elif ! not_pinned "$pa" rebase; then p11=0; echo "wrong reason with DRY_RUN='$dry'"; cat -v "$root/rebase.out"; fi
+done
+if [ "$p11" = 1 ]; then pass "only DRY_RUN=true skips the pin"; else fail "only DRY_RUN=true skips the pin"; fi
+
+# p13. assemble-release, as a feature-branch preview: unpinned overrides with DRY_RUN=false fail on the pin; with DRY_RUN=true they assemble.
+ported_setup; p13=1
+if assemble_with "patch/a=$pa,patch/b=$pb" false; then p13=0; elif ! not_pinned "$pa" assemble; then p13=0; fi
+if ! assemble_with "patch/a=$pa,patch/b=$pb" true || [ "$(git rev-list --count v2..release/test)" != 2 ]; then p13=0; fi
+if [ "$p13" = 1 ]; then pass "an unpinned assembly preview needs DRY_RUN=true"; else fail "an unpinned assembly preview needs DRY_RUN=true"; fi
+
+# p8. The existing patch changes no protected path and neither does the head: the empty protected diff still passes.
+ported_setup; pin_head patch/a "$pa"; runner_clone
+if rebase_with "patch/a=$pa" && grep -qF "patch/a: using the ported head $pa" "$root/rebase.out"; then
+  pass "a head with no protected-path change passes beside a patch with none"; else fail "a head with no protected-path change passes beside a patch with none"; cat -v "$root/rebase.out"; fi
+
+# Protected paths. Upstream has .github/workflows/pr.yml; patch/a changes its second step. A head is v2 plus its content.
+pr_yml() {  # pr_yml <line one> <line two>
+  printf 'name: pr\njobs:\n  test:\n    steps:\n%s\n%s\n      - run: three\n' "$1" "$2"
+}
+prot_setup() {  # prot_setup [ws]: with ws, v2 changes the whitespace of the line above the one patch/a changes
+  export FORK_STATE_DIR="$root/ported-state"; rm -rf "$FORK_STATE_DIR"; mkdir -p "$FORK_STATE_DIR"
+  rm -rf "$root/origin.git" "$root/work"
+  git init -q --bare "$root/origin.git"; git init -q -b fork "$root/work"; cd "$root/work"
+  git remote add origin "$root/origin.git"
+  mkdir -p .github/workflows
+  pr_yml '      - run: one' '      - run: two' > .github/workflows/pr.yml
+  git add .github; git commit -qm "upstream v1"; git tag v1
+  if [ "${1:-}" = ws ]; then pr_yml '      - run:  one' '      - run: two' > .github/workflows/pr.yml; git commit -qam "upstream v2"
+  else commit base.txt v2 "upstream v2"; fi
+  git tag v2
+  git push -q origin fork:mercurai v1:refs/tags/v1 v2:refs/tags/v2
+  git checkout -q -b patch/a v1; pr_yml '      - run: one' '      - run: two-patched' > .github/workflows/pr.yml; git commit -qam "patch a"
+  git push -q origin patch/a; git checkout -q fork
+  git --git-dir="$root/origin.git" config uploadpack.allowAnySHA1InWant true
+  { echo "base: v1"; echo "release_branch: release/test"; echo "patches:"
+    printf '  - branch: patch/a\n    base: v1\n    status: ours-only\n'; } > "$root/patches.yaml"
+  printf 'patch/a\n' > "$FORK_STATE_DIR/active"
+}
+port_head() {  # port_head <name>: push the commit on HEAD as ci-only/<name>, remember it in head_sha, return to fork
+  git add -A; git commit -qm "port $1"; git push -q origin "HEAD:refs/heads/ci-only/$1"; head_sha=$(git rev-parse HEAD); git checkout -q fork
+}
+protected_refused() {  # protected_refused <path the run must list>: the run failed on the protected tree and names the path
+  grep -qF "::error::patch/a: head $head_sha changes .github or config/mercurai beyond the existing patch's change" "$root/rebase.out" &&
+    grep -qxF "  $1" "$root/rebase.out"
+}
+
+# p6. A head that adds a workflow the existing patch does not carry is refused, and the run names it.
+prot_setup; git checkout -q -b h v2
+pr_yml '      - run: one' '      - run: two-patched' > .github/workflows/pr.yml; printf 'name: x\n' > .github/workflows/x.yml; port_head p6
+pin_head patch/a "$head_sha"; runner_clone
+if rebase_with "patch/a=$head_sha"; then fail "a head adding a protected file is refused"
+elif protected_refused .github/workflows/x.yml; then pass "a head adding a protected file is refused"; else fail "a head adding a protected file is refused"; cat -v "$root/rebase.out"; fi
+
+# p7. A head that carries exactly the existing patch's .github change passes.
+prot_setup; git checkout -q -b h v2
+pr_yml '      - run: one' '      - run: two-patched' > .github/workflows/pr.yml; port_head p7
+pin_head patch/a "$head_sha"; runner_clone
+if rebase_with "patch/a=$head_sha" && grep -qF "patch/a: using the ported head $head_sha" "$root/rebase.out"; then
+  pass "a head carrying the existing protected change passes"; else fail "a head carrying the existing protected change passes"; cat -v "$root/rebase.out"; fi
+
+# p9. A carried hunk with a dedented line has the same patch-id and different bytes: refused.
+prot_setup; git checkout -q -b h v2
+pr_yml '      - run: one' '    - run: two-patched' > .github/workflows/pr.yml; port_head p9
+pin_head patch/a "$head_sha"; runner_clone
+if rebase_with "patch/a=$head_sha"; then fail "a carried hunk with changed whitespace is refused"
+elif protected_refused .github/workflows/pr.yml; then pass "a carried hunk with changed whitespace is refused"; else fail "a carried hunk with changed whitespace is refused"; cat -v "$root/rebase.out"; fi
+
+# p10. A head that carries the .github change and adds a file under config/mercurai is refused.
+prot_setup; git checkout -q -b h v2
+pr_yml '      - run: one' '      - run: two-patched' > .github/workflows/pr.yml; mkdir -p config/mercurai; echo x > config/mercurai/x; port_head p10
+pin_head patch/a "$head_sha"; runner_clone
+if rebase_with "patch/a=$head_sha"; then fail "a head adding a config/mercurai file is refused"
+elif protected_refused config/mercurai/x; then pass "a head adding a config/mercurai file is refused"; else fail "a head adding a config/mercurai file is refused"; cat -v "$root/rebase.out"; fi
+
+# p12. The new base changed whitespace in the context of the carried hunk, so the strict apply fails; a head equal to the
+# whitespace-tolerant result is still refused.
+prot_setup ws; git checkout -q -b h v2
+pr_yml '      - run:  one' '      - run: two-patched' > .github/workflows/pr.yml; port_head p12
+pin_head patch/a "$head_sha"; runner_clone
+if rebase_with "patch/a=$head_sha"; then fail "a strict apply that fails is not rescued by whitespace tolerance"
+elif grep -qF "::error::patch/a: the existing patch's .github and config/mercurai change does not apply as is on" "$root/rebase.out"; then
+  pass "a strict apply that fails is not rescued by whitespace tolerance"; else fail "a strict apply that fails is not rescued by whitespace tolerance"; cat -v "$root/rebase.out"; fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]
