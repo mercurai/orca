@@ -35,8 +35,14 @@ import {
   StructuredAgentSessionCreateError,
   StructuredAgentSessionCreateRefusalError,
   StructuredAgentSessionCreateUnknownOutcomeError,
-  StructuredAgentSessionOwnerUnresolvedError
+  StructuredAgentSessionOwnerUnresolvedError,
+  StructuredAgentSessionSpeedHostUnknownError,
+  StructuredAgentSessionSpeedHostUnsupportedError
 } from '@/lib/structured-agent-session-launch-errors'
+import {
+  codexSeedSpeedTier,
+  readCodexSpeedBlock
+} from '@/lib/structured-agent-session-launch-failure'
 
 export {
   StructuredAgentSessionCreateRefusalError,
@@ -60,6 +66,15 @@ export type StructuredAgentSessionLaunchIntent = {
 
 type LaunchSeed = Readonly<Record<string, string>> | undefined
 
+/** `serviceTier` is Codex's: a paired host's report never seeds another provider's launch with it. */
+function seedForAgent(agent: TuiAgent, seed: LaunchSeed): LaunchSeed {
+  if (agent === 'codex' || seed?.serviceTier === undefined) {
+    return seed
+  }
+  const { serviceTier: _codexOnly, ...others } = seed
+  return Object.keys(others).length > 0 ? others : undefined
+}
+
 /** What create will seed: this machine's saved selection for its own chats; for a paired server's,
  *  the server's own, which it reports when it admits the chat (absent from an older server). */
 function launchSeedOptions(
@@ -71,7 +86,7 @@ function launchSeedOptions(
   const seedOptions =
     owner.target.kind === 'local'
       ? resolveStructuredLaunchSeedOptions(state.settings?.nativeChatSessionOptions, agent)
-      : hostSeedOptions
+      : seedForAgent(agent, hostSeedOptions)
   return seedOptions ? { seedOptions } : {}
 }
 
@@ -256,7 +271,28 @@ async function requireHostCreateSupport(
       'structured_agent_session_unsupported'
     )
   }
-  return support.seedOptions
+  return seedForAgent(intent.agent, support.seedOptions)
+}
+
+/**
+ * A canonical Codex speed in the seed, Standard included, needs the executing host's affirmative
+ * capability before create, so an older or unreachable host never runs the chat at a speed it cannot
+ * honor. Nothing is swapped in: the person updates the host or retries. The legacy Fast boolean and
+ * a seed with no speed need no capability.
+ */
+async function requireHostSpeedSupport(
+  intent: StructuredAgentSessionLaunchIntent,
+  tierId: string
+): Promise<void> {
+  const block = await readCodexSpeedBlock(intent.target, tierId)
+  if (!block) {
+    return
+  }
+  if (block.reason === 'host-update-needed') {
+    abandonStructuredAgentSessionLaunchIntent(intent)
+    throw new StructuredAgentSessionSpeedHostUnsupportedError(block)
+  }
+  throw new StructuredAgentSessionSpeedHostUnknownError(block)
 }
 
 /** Told the seed a paired server says this create will use, which may differ from an earlier
@@ -270,6 +306,13 @@ export async function launchStructuredAgentSession(
   const hostSeed = await requireHostCreateSupport(intent)
   if (intent.target.kind !== 'local') {
     onHostSeed?.(hostSeed)
+  }
+  const speedTier = codexSeedSpeedTier(
+    intent.agent,
+    intent.target.kind === 'local' ? intent.seedOptions : hostSeed
+  )
+  if (speedTier !== undefined) {
+    await requireHostSpeedSupport(intent, speedTier)
   }
   let result: AgentSessionMutationResult<AgentSessionAttachResult>
   try {

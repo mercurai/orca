@@ -1,5 +1,6 @@
-import { useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useStructuredAgentSessionSends } from './use-structured-agent-session-sends'
+import { structuredAgentSessionSpeedSendsHeld } from './structured-agent-session-pending-sends'
 import { useStructuredAgentSessionCommandWrite } from './use-structured-agent-session-command-write'
 import { structuredAgentSessionNewSendsQueue } from './structured-agent-session-queue-request'
 import type { AgentType } from '../../../../shared/agent-status-types'
@@ -209,6 +210,11 @@ export function useStructuredAgentSession(args: {
     transcriptPending,
     transportState.submissions
   )
+  // The central send state, read when a card action runs: never a render's snapshot.
+  const speedSendsBlocked = useCallback(
+    () => structuredAgentSessionSpeedSendsHeld(sessionId),
+    [sessionId]
+  )
   const queuedController = useStructuredAgentSessionQueuedMessages({
     // Its published list, pause and submissions; the rest is named below.
     ...transportState,
@@ -218,7 +224,8 @@ export function useStructuredAgentSession(args: {
     // Hidden from the transcript, a queue send on its way reads as sending among the cards.
     sending: pending,
     composerScopeKey,
-    mutate
+    mutate,
+    sendsBlocked: speedSendsBlocked
   })
   return {
     epoch: state.epoch,

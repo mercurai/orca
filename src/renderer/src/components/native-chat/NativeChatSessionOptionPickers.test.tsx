@@ -1,14 +1,16 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import type * as ReactModule from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CODEX_SESSION_OPTION_CATALOG } from '../../../../shared/agent-session-option-catalog-claude-codex'
 import { OMP_SESSION_OPTION_CATALOG } from '../../../../shared/agent-session-option-catalog-omp'
 import {
   applyStructuredAgentSessionOptions,
   createStructuredAgentSessionOptionState,
   structuredAgentSessionOptionSnapshot
 } from '../../../../shared/structured-agent-session-options'
+import type { SpeedAwareSessionOptionsSurface } from '../../../../shared/codex-speed-facts-presentation'
 import type { SessionOptionDescriptor } from '../../../../shared/native-chat-session-options'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 
@@ -692,5 +694,175 @@ describe('NativeChatSessionOptionPickers', () => {
     )
     expect(screen.getAllByText('Thinking').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Sent to the agent — not confirmed').length).toBeGreaterThan(0)
+  })
+})
+
+describe('NativeChatSessionOptionPickers speed select', () => {
+  const STANDARD = { value: 'default', label: 'Standard', description: 'Normal speed.' }
+  const FAST = { value: 'synthetic-fast-lane', label: 'Fast', description: 'Quicker replies.' }
+
+  function speedSnapshot(
+    serviceTiers: readonly { value: string; label: string; description: string }[],
+    serviceTier: string
+  ): SessionOptionDescriptor[] {
+    return structuredAgentSessionOptionSnapshot(
+      applyStructuredAgentSessionOptions(
+        createStructuredAgentSessionOptionState('codex'),
+        CODEX_SESSION_OPTION_CATALOG,
+        {
+          models: [
+            {
+              id: 'synthetic',
+              label: 'Synthetic',
+              isDefault: true,
+              efforts: EFFORT_CHOICES,
+              serviceTiers: [...serviceTiers]
+            }
+          ],
+          current: {
+            model: 'synthetic',
+            effort: 'high',
+            serviceTier,
+            confirmed: ['model', 'effort', 'serviceTier']
+          }
+        },
+        'supported'
+      )
+    )
+  }
+
+  function radiosOf(label: string): HTMLElement[] {
+    return within(screen.getByRole('radiogroup', { name: label })).getAllByRole('radio')
+  }
+
+  it('keeps the options pill open for the speed select while the agent works', () => {
+    render(
+      <NativeChatSessionOptionPickers
+        surface={surface}
+        snapshot={speedSnapshot([STANDARD, FAST], FAST.value)}
+        isWorking
+      />
+    )
+
+    const options = screen.getByRole('button', { name: 'Effort High · Fast' })
+    expect(options.parentElement?.getAttribute('data-disabled')).toBeNull()
+    // The model still changes the running turn, so it stays locked.
+    expect(
+      screen
+        .getByRole('button', { name: 'Model Synthetic' })
+        .parentElement?.getAttribute('data-disabled')
+    ).toBe('true')
+  })
+
+  it('locks every other option row but not the speed rows during a running turn', async () => {
+    const setOption = vi.fn().mockResolvedValue({ snapshot: [] })
+    render(
+      <NativeChatSessionOptionPickers
+        surface={{ ...surface, setOption }}
+        snapshot={speedSnapshot([STANDARD, FAST], 'default')}
+        isWorking
+      />
+    )
+
+    expect(radiosOf('Reasoning effort').every((radio) => radio.hasAttribute('disabled'))).toBe(true)
+    const speed = radiosOf('Speed')
+    expect(
+      speed.find((radio) => radio.dataset.value === FAST.value)?.hasAttribute('disabled')
+    ).toBe(false)
+    speed.find((radio) => radio.dataset.value === FAST.value)?.click()
+    await waitFor(() =>
+      expect(setOption).toHaveBeenCalledExactlyOnceWith('serviceTier', FAST.value)
+    )
+  })
+
+  it('keeps the whole pill locked while the agent works when no speed select is settable', () => {
+    render(
+      <NativeChatSessionOptionPickers surface={surface} snapshot={[model(), effort]} isWorking />
+    )
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Effort High' })
+        .parentElement?.getAttribute('data-disabled')
+    ).toBe('true')
+  })
+
+  it('shows unavailable rows disabled with the reason and never selects them', async () => {
+    const setOption = vi.fn().mockResolvedValue({ snapshot: [] })
+    render(
+      <NativeChatSessionOptionPickers
+        surface={{ ...surface, setOption }}
+        snapshot={speedSnapshot([STANDARD, FAST], 'default')}
+        isWorking={false}
+      />
+    )
+
+    const ultrafast = radiosOf('Speed').find((radio) => radio.textContent?.includes('Ultrafast'))
+    expect(ultrafast?.hasAttribute('disabled')).toBe(true)
+    expect(ultrafast?.textContent).toContain('Not offered for this model.')
+    ultrafast?.click()
+    expect(setOption).not.toHaveBeenCalled()
+  })
+
+  it('states the next-turn rule and adds the usage cost to an offered Fast', () => {
+    render(
+      <NativeChatSessionOptionPickers
+        surface={surface}
+        snapshot={speedSnapshot([STANDARD, FAST], 'default')}
+        isWorking={false}
+      />
+    )
+
+    expect(
+      screen.getByText('Changes apply to the next turn, including while a turn is running.')
+    ).not.toBeNull()
+    const fastRow = radiosOf('Speed').find((radio) => radio.dataset.value === FAST.value)
+    expect(fastRow?.textContent).toContain('Quicker replies.')
+    expect(fastRow?.textContent).toContain('Uses more of your usage allowance than Standard.')
+    expect(
+      radiosOf('Speed').find((radio) => radio.dataset.value === 'default')?.textContent
+    ).not.toContain('usage allowance')
+  })
+
+  it('keeps a retired selection visible, disabled and explained', () => {
+    render(
+      <NativeChatSessionOptionPickers
+        surface={surface}
+        snapshot={speedSnapshot([STANDARD, FAST], 'synthetic-retired-lane')}
+        isWorking={false}
+      />
+    )
+
+    const retired = radiosOf('Speed').filter(
+      (radio) => radio.dataset.value === 'synthetic-retired-lane'
+    )
+    expect(retired).toHaveLength(1)
+    expect(retired[0]?.hasAttribute('disabled')).toBe(true)
+    expect(retired[0]?.getAttribute('aria-checked')).toBe('true')
+    expect(
+      screen.getByText('The selected speed cannot be sent for this model. Choose another.')
+    ).not.toBeNull()
+  })
+
+  it('captions the separate speed facts a speed-aware surface reports, processing unknown', () => {
+    const speedSurface: SpeedAwareSessionOptionsSurface = {
+      ...surface,
+      getSpeedLines: () => [
+        { kind: 'stored', label: 'Fast' },
+        { kind: 'last-request', outcome: 'rejected', label: 'Fast', detail: 'not on this plan' },
+        { kind: 'processing' }
+      ]
+    }
+    render(
+      <NativeChatSessionOptionPickers
+        surface={speedSurface}
+        snapshot={speedSnapshot([STANDARD, FAST], FAST.value)}
+        isWorking={false}
+      />
+    )
+
+    expect(screen.getByText('Stored for the next turn: Fast.')).not.toBeNull()
+    expect(screen.getByText('Last request for Fast was refused: not on this plan')).not.toBeNull()
+    expect(screen.getByText('The speed the server used is not reported.')).not.toBeNull()
   })
 })

@@ -94,12 +94,14 @@ function handBack(
   notice: readonly AgentSessionWriteNoticePart[] | null
 ): void {
   try {
-    if (entry.callerKeepsText) {
+    if (entry.callerKeepsText === true) {
       return
     }
-    const parts: readonly AgentSessionWriteNoticePart[] | null = returnToComposer(entry)
-      ? notice
-      : [...(notice ?? []), 'messageNotSaved']
+    // A copy already in this composer is not added again; the line still says why it did not go.
+    const parts: readonly AgentSessionWriteNoticePart[] | null =
+      entry.callerKeepsText === 'composer' || returnToComposer(entry)
+        ? notice
+        : [...(notice ?? []), 'messageNotSaved']
     if (parts) {
       publishStructuredAgentSessionSends(entry.sessionId, {
         notice: agentSessionWriteNoticeText([...parts])

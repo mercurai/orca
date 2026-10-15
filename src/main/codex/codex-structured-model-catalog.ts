@@ -5,7 +5,8 @@ import type {
 } from '../../shared/agent-session-wire'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { structuredAgentSessionOptionModels } from '../native-chat/agent-session-wire/structured-agent-session-option-models'
-import { codexFastModeSupport, readCodexFastModeTier } from './codex-structured-fast-mode'
+import { codexFastModeSupport, readCodexModelTiers } from './codex-structured-fast-mode'
+import { codexListingDefaultModel } from './codex-structured-catalog-entry'
 import {
   applyCodexConfiguredLaunchDefaults,
   readCodexConfiguredLaunchDefaults
@@ -66,7 +67,7 @@ function modelOption(value: unknown): ParsedCodexModelOption | null {
         .map(effortChoice)
         .filter((choice): choice is AgentSessionOptionChoice => choice !== null)
     : []
-  const fastMode = readCodexFastModeTier(row)
+  const tiers = readCodexModelTiers(row)
   return {
     option: {
       id,
@@ -75,9 +76,14 @@ function modelOption(value: unknown): ParsedCodexModelOption | null {
       isDefault: row.isDefault === true,
       ...(defaultEffort ? { defaultEffort } : {}),
       efforts,
-      ...(fastMode.supportKnown ? { supportsFastMode: Boolean(fastMode.id) } : {})
+      ...(tiers.serviceTiers
+        ? {
+            serviceTiers: tiers.serviceTiers,
+            supportsFastMode: Boolean(tiers.fastModeTierId)
+          }
+        : {})
     },
-    ...(fastMode.id ? { fastModeTierId: fastMode.id } : {})
+    ...(tiers.fastModeTierId ? { fastModeTierId: tiers.fastModeTierId } : {})
   }
 }
 
@@ -149,7 +155,7 @@ export async function fetchCodexModelCatalogListing(input: {
 export function composeCodexSessionOptionCatalog(
   listing: CodexModelCatalogListing,
   input: {
-    current: { model?: string; effort?: string; fastMode?: boolean }
+    current: { model?: string; effort?: string; fastMode?: boolean; serviceTier?: string }
     reportedServiceTier?: string | null
     reportedServiceTierKnown?: boolean
   }
@@ -159,18 +165,20 @@ export function composeCodexSessionOptionCatalog(
     input.current.model,
     (row) => row
   )
-  const model = input.current.model ?? models.find((entry) => entry.isDefault)?.id ?? models[0]?.id
+  const model = input.current.model ?? codexListingDefaultModel(models)
   if (!model) {
     throw new Error('codex app-server returned no available models')
   }
   const fastModeTierByModel = new Map(listing.fastModeTierByModel)
-  const reportedFastMode = input.reportedServiceTierKnown
-    ? input.reportedServiceTier === null || input.reportedServiceTier === 'default'
-      ? false
-      : input.reportedServiceTier === fastModeTierByModel.get(model)
-        ? true
-        : undefined
-    : undefined
+  // A stored canonical tier is the selection; a thread's reported tier only fills in when none is stored.
+  const reportedFastMode =
+    input.reportedServiceTierKnown && input.current.serviceTier === undefined
+      ? input.reportedServiceTier === null || input.reportedServiceTier === 'default'
+        ? false
+        : input.reportedServiceTier === fastModeTierByModel.get(model)
+          ? true
+          : undefined
+      : undefined
   const fastMode = input.current.fastMode ?? reportedFastMode
   const support = codexFastModeSupport(models)
   return {
@@ -180,8 +188,11 @@ export function composeCodexSessionOptionCatalog(
       current: {
         model,
         ...(input.current.effort ? { effort: input.current.effort } : {}),
+        ...(input.current.serviceTier ? { serviceTier: input.current.serviceTier } : {}),
         ...(fastMode !== undefined ? { fastMode } : {}),
-        ...(reportedFastMode !== undefined && input.current.fastMode === undefined
+        ...(reportedFastMode !== undefined &&
+        input.current.fastMode === undefined &&
+        input.current.serviceTier === undefined
           ? { confirmed: ['fastMode'] }
           : {})
       }

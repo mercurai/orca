@@ -18,6 +18,7 @@ import {
   type CodexTurnOpenWaits
 } from './codex-structured-turn-open-wait'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
+import type { CodexSpeedEvidence } from './codex-structured-fast-mode'
 import type { AgentChildWorkEvidence } from '../../shared/agent-status-child-work-evidence'
 import type { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
 import type { CodexJournalTranslator } from './codex-structured-journal-translation'
@@ -120,6 +121,15 @@ export type CodexStructuredSessionAdapterDeps = {
   modelCatalog?: AgentModelCatalogStore
 }
 
+/** A speed request held back in memory: an exact tier id, or legacy Fast no tier id names. */
+export type CodexSpeedBlock = {
+  refusedTier?: string
+  legacyFastMode?: true
+  quarantined?: true
+  /** Carried only by a write that failed to save: no record or earlier refusal holds it yet. */
+  attempted?: true
+}
+
 export type CodexSession = {
   account?: AgentSessionAccountKind
   connection: CodexAppServerConnection
@@ -150,8 +160,26 @@ export type CodexSession = {
     serviceTier?: string | null
     serviceTierKnown?: true
   }
+  /** Set while this child's live options may differ from its record and could not be put back: a
+   *  new `turn/start` is refused until an accepted speed pick. In memory only, so a restart forgets
+   *  it; a steer into the running turn is unaffected. */
+  speedQuarantined?: true
+  /** Legacy Fast that no catalog tier names, requested and never saved. No option map can hold it
+   *  beside the acknowledged tier, so it is kept here and read back as the blocked selection;
+   *  always with `speedQuarantined`. In memory only. */
+  blockedLegacyFastMode?: true
+  /** The speed block this session held when the option write in flight began, which an accepted
+   *  speed pick clears before its save settles; a failed save puts it back. Never persisted. */
+  speedBlockBeforeWrite?: CodexSpeedBlock
+  /** Set before a failed save's restore begins, until a record verifies the live canonical speed.
+   *  The live map then holds no serviceTier/fastMode; this is the request the failed write left
+   *  (the earlier block, else the attempted pick), and reads, admission and settlement answer from
+   *  it. Never an option key, never persisted; a restart forgets it. */
+  speedCapture?: CodexSpeedBlock
   /** Absent when the adapter runs without a host catalog store (tests). */
   catalogAccess?: CodexSessionCatalogAccess
+  /** What this child's `turn/start` speed requests came to; lost with the child, never persisted. */
+  speedEvidence?: CodexSpeedEvidence
   /** Sends whose identity is still to be settled by the provider echo. */
   dispatchEchoes: CodexDispatchEchoes
   translator: CodexJournalTranslator | null

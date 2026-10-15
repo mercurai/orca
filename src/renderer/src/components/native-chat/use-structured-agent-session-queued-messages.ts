@@ -85,9 +85,12 @@ export function useStructuredAgentSessionQueuedMessages(args: {
   sending?: readonly StructuredAgentSessionPendingSend[]
   composerScopeKey: string | undefined
   mutate: StructuredAgentSessionMutate
+  /** Read when an action runs, never from a render: a speed the host has not accepted keeps the
+   *  queue's Send now and Resume out, since either would start a turn at the prior speed. */
+  sendsBlocked?: () => boolean
 }): StructuredAgentSessionQueuedMessagesController {
   const { composerScopeKey, enabled, hasPendingPrompt, mutate, queuedMessages, submissions } = args
-  const { isWorking, queuePause } = args
+  const { isWorking, queuePause, sendsBlocked } = args
   const sending = args.sending ?? NO_SENDS
 
   const cards = useMemo(
@@ -131,16 +134,32 @@ export function useStructuredAgentSessionQueuedMessages(args: {
     []
   )
 
+  const refuseWhileSpeedUnaccepted = useCallback((): boolean => {
+    if (!sendsBlocked?.()) {
+      return false
+    }
+    toast.error(
+      translate(
+        'components.native-chat.composer.speedSendHeld',
+        'Your speed choice has not been accepted by the host yet. Choose a speed, then send again.'
+      )
+    )
+    return true
+  }, [sendsBlocked])
+
   const steer = useCallback(
     (messageId: string): Promise<void> =>
       actOnce(messageId, async () => {
+        if (refuseWhileSpeedUnaccepted()) {
+          return
+        }
         await mutate<AgentSessionSendResult>(
           'agentSession.queuedMessageSend',
           'agentSession.queuedMessageSend',
           { messageId }
         )
       }),
-    [actOnce, mutate]
+    [actOnce, mutate, refuseWhileSpeedUnaccepted]
   )
 
   /** True once the card has left the queue, deleted or already sent; a failure is a toast. */
@@ -217,7 +236,7 @@ export function useStructuredAgentSessionQueuedMessages(args: {
   const resumingRef = useRef(false)
   const [resuming, setResuming] = useState(false)
   const resume = useCallback(async (): Promise<boolean> => {
-    if (resumingRef.current) {
+    if (resumingRef.current || refuseWhileSpeedUnaccepted()) {
       return false
     }
     resumingRef.current = true
@@ -233,7 +252,7 @@ export function useStructuredAgentSessionQueuedMessages(args: {
       resumingRef.current = false
       setResuming(false)
     }
-  }, [mutate])
+  }, [mutate, refuseWhileSpeedUnaccepted])
   const pause = useMemo(() => queuedMessagesQueuePause(cards, queuePause), [cards, queuePause])
   // Resume and the "Send message?" choice only where the queue could send now: no turn runs (the
   // queue's coming send counts, as the host names it) and no prompt waits, which holds the queue

@@ -24,12 +24,23 @@ import {
   type SessionOptionValue
 } from '../../../../shared/native-chat-session-options'
 import {
+  codexSpeedDescriptorCaptions,
+  isCodexSpeedSelectorSettable
+} from '../../../../shared/codex-service-tier-presentation'
+import {
+  codexSpeedLinesOfSurface,
+  type CodexSpeedLine
+} from '../../../../shared/codex-speed-facts-presentation'
+import {
   nativeChatModelPillLabel,
   nativeChatOptionsPillLabel,
   nativeChatOptionsPillTitle,
+  nativeChatSessionChoiceDescription,
   nativeChatSessionChoiceLabel,
   nativeChatSessionOptionDisabledReason,
-  nativeChatSessionOptionLabel
+  nativeChatSessionOptionLabel,
+  nativeChatSpeedCaption,
+  nativeChatSpeedLine
 } from './native-chat-session-option-labels'
 import type { NativeChatOptionPickerRequest } from './native-chat-composer-types'
 import { agentSessionThrownFailure } from '../../../../shared/agent-session-write-failure'
@@ -117,6 +128,7 @@ function PickerTrigger(props: {
 
 function DescriptorMenuRows(props: {
   descriptor: SessionOptionDescriptor
+  /** A write is in flight, or the agent is working and this row applies to the current turn. */
   pending: boolean
   setValue: (value: SessionOptionValue) => void
   invokeAction: () => void
@@ -187,15 +199,41 @@ function DescriptorMenuRows(props: {
         <DropdownMenuRadioItem
           key={choice.value}
           value={choice.value}
-          disabled={!descriptor.settable || pending}
+          disabled={!descriptor.settable || pending || choice.disabled === true}
         >
           <NativeChatSessionOptionChoiceBody
             label={nativeChatSessionChoiceLabel(choice)}
-            description={choice.description}
+            description={nativeChatSessionChoiceDescription(descriptor, choice)}
           />
         </DropdownMenuRadioItem>
       ))}
     </DropdownMenuRadioGroup>
+  )
+}
+
+/** What the speed select may claim, line by line: the rule for the next turn, why a row is
+ *  unavailable, and the separate facts the host reported. */
+function SpeedCaptions(props: {
+  descriptor: SessionOptionDescriptor
+  lines: readonly CodexSpeedLine[]
+}): React.JSX.Element | null {
+  const captions = codexSpeedDescriptorCaptions(props.descriptor)
+  if (captions.length === 0) {
+    return null
+  }
+  return (
+    <>
+      {captions.map((key) => (
+        <DropdownMenuLabel key={key} className="font-normal">
+          {nativeChatSpeedCaption(key)}
+        </DropdownMenuLabel>
+      ))}
+      {props.lines.map((line) => (
+        <DropdownMenuLabel key={line.kind} className="font-normal">
+          {nativeChatSpeedLine(line)}
+        </DropdownMenuLabel>
+      ))}
+    </>
   )
 }
 
@@ -239,6 +277,10 @@ function NativeChatSessionOptionPickersInner({
   if (!surface || !model) {
     return null
   }
+  // A running turn locks every control that changes it. The speed select alone stays open: its
+  // choice applies to the next turn.
+  const speedOpenWhileWorking = isWorking && options.some(isCodexSpeedSelectorSettable)
+  const speedLines = codexSpeedLinesOfSurface(surface)
   const requestedModelSequence = pickerRequest?.id === model.id ? pickerRequest.sequence : null
   const requestedOptionsSequence = options.some((descriptor) => descriptor.id === pickerRequest?.id)
     ? (pickerRequest?.sequence ?? null)
@@ -316,7 +358,7 @@ function NativeChatSessionOptionPickersInner({
             Trigger={DropdownMenuTrigger}
             label={nativeChatOptionsPillLabel(options)}
             tooltipLabel={optionsTooltip}
-            disabled={isWorking || pendingId !== null}
+            disabled={(isWorking && !speedOpenWhileWorking) || pendingId !== null}
             disabledReason={optionsReason}
             dispatched={options.some(sessionOptionDispatchUnconfirmed)}
           />
@@ -340,9 +382,12 @@ function NativeChatSessionOptionPickersInner({
                   {reason && !descriptor.settable ? (
                     <DropdownMenuLabel className="font-normal">{reason}</DropdownMenuLabel>
                   ) : null}
+                  <SpeedCaptions descriptor={descriptor} lines={speedLines} />
                   <DescriptorMenuRows
                     descriptor={descriptor}
-                    pending={pendingId !== null}
+                    pending={
+                      pendingId !== null || (isWorking && !isCodexSpeedSelectorSettable(descriptor))
+                    }
                     setValue={(value) => setOption(descriptor, value)}
                     invokeAction={() => invokeAction(descriptor)}
                     notePick={optionsMenuFocus.notePick}

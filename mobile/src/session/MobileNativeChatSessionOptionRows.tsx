@@ -10,6 +10,7 @@ import {
   type SessionOptionValueMarker,
   type SessionOptionValue
 } from '../../../src/shared/native-chat-session-options'
+import { mobileSessionChoiceDescription } from './mobile-native-chat-session-option-labels'
 
 /** Muted one-liner above a group — dispatch state, or why a row is locked. */
 export function SessionOptionCaption({ children }: { children: string }): React.JSX.Element {
@@ -251,9 +252,9 @@ export function DescriptorRows({
         <ChoiceRow
           key={choice.value}
           label={choice.label}
-          description={choice.description}
+          description={mobileSessionChoiceDescription(descriptor, choice)}
           selected={choice.value === currentValue}
-          disabled={locked}
+          disabled={locked || choice.disabled === true}
           grouped={grouped}
           divided={grouped && index < choices.length - 1}
           onPress={() => onSetOption(choice.value)}

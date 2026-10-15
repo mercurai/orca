@@ -11,20 +11,27 @@ import {
 } from './codex-app-server-session'
 import { createCodexAppServerRecordDispatcher } from './codex-app-server-record-dispatch'
 import { createProviderRecordReader } from '../provider-process/provider-record-reader'
+import { CodexAppServerRequestNotSubmittedError } from './codex-app-server-request-not-submitted-error'
 import type {
   CodexAppServerConnection,
-  CodexAppServerConnectionHandlers
+  CodexAppServerConnectionHandlers,
+  CodexAppServerRequestOptions
 } from './codex-app-server-connection-types'
 
 export type {
   CodexAppServerConnection,
   CodexAppServerConnectionHandlers,
+  CodexAppServerRequestOptions,
   CodexAppServerServerRequest
 } from './codex-app-server-connection-types'
 export {
   CodexAppServerRequestError,
   isCodexAppServerRequestError
 } from './codex-app-server-request-error'
+export {
+  CodexAppServerRequestNotSubmittedError,
+  isCodexAppServerRequestNotSubmittedError
+} from './codex-app-server-request-not-submitted-error'
 export { CodexAppServerFrameSizeError } from './codex-app-server-frame-size-error'
 export { ROOT_ONLY_GRACEFUL_EXIT_MS as GRACEFUL_EXIT_MS } from '../provider-process/provider-process-close'
 
@@ -34,6 +41,10 @@ export { ROOT_ONLY_GRACEFUL_EXIT_MS as GRACEFUL_EXIT_MS } from '../provider-proc
 export type CodexAppServerLaunch = ProviderProcessLaunch
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
+}
 
 /**
  * Spawns `codex app-server`, completes the initialize handshake, and returns a
@@ -132,8 +143,12 @@ export async function openCodexAppServerConnection(
     }
   })
 
+  function frameLine(payload: Record<string, unknown>): string {
+    return `${JSON.stringify(payload)}\n`
+  }
+
   function sendLine(payload: Record<string, unknown>): void {
-    child.stdin.write(`${JSON.stringify(payload)}\n`)
+    child.stdin.write(frameLine(payload))
   }
 
   function notify(method: string, params?: Record<string, unknown>): void {
@@ -150,19 +165,33 @@ export async function openCodexAppServerConnection(
   function request(
     method: string,
     params?: Record<string, unknown>,
-    options: { timeoutMs?: number } = {}
+    options: CodexAppServerRequestOptions = {}
   ): Promise<unknown> {
+    const { onSubmitted } = options
+    // A caller that tracks submission also gets typed proof of a refusal made before any byte was
+    // serialized; every other caller keeps the raw error.
+    const refusedBeforeWrite = (cause: unknown): Promise<never> =>
+      Promise.reject(
+        onSubmitted ? new CodexAppServerRequestNotSubmittedError(method, cause) : toError(cause)
+      )
     if (closing) {
-      return Promise.reject(new Error(`codex app-server connection is closed (${method})`))
+      return refusedBeforeWrite(new Error(`codex app-server connection is closed (${method})`))
     }
     if (terminalError) {
-      return Promise.reject(terminalError)
+      return refusedBeforeWrite(terminalError)
     }
     if (managed.rootVerdict === 'exited') {
-      return Promise.reject(buildExitError())
+      return refusedBeforeWrite(buildExitError())
     }
     const id = nextRequestId++
     const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    // Serialized before anything is registered, so a frame that cannot be built leaves no waiter.
+    let line: string
+    try {
+      line = frameLine(params === undefined ? { method, id } : { method, id, params })
+    } catch (error) {
+      return refusedBeforeWrite(error)
+    }
     return new Promise<unknown>((resolve, reject) => {
       // Why: per request, not per session — a chat session outlives every call,
       // so only the individual call can carry a deadline.
@@ -171,12 +200,23 @@ export async function openCodexAppServerConnection(
         reject(new CodexAppServerTimeoutError(`codex app-server ${method} exceeded ${timeoutMs}ms`))
       }, timeoutMs)
       dispatcher.addPending(id, { method, resolve, reject, timer })
-      try {
-        sendLine(params === undefined ? { method, id } : { method, id, params })
-      } catch (error) {
+      const failAfterWriteBegan = (error: unknown): void => {
         dispatcher.deletePending(id)
         clearTimeout(timer)
-        reject(error instanceof Error ? error : new Error(String(error)))
+        reject(toError(error))
+      }
+      try {
+        child.stdin.write(line)
+      } catch (error) {
+        // A synchronous throw proves nothing about delivery, so it is not a NotSubmitted refusal.
+        failAfterWriteBegan(error)
+        return
+      }
+      try {
+        // Backpressure (a false return) still means the frame was handed over; nothing waits on drain.
+        onSubmitted?.()
+      } catch (error) {
+        failAfterWriteBegan(error)
       }
     })
   }

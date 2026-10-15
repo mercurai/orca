@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY,
   AGENT_SESSION_CONVERSATION_STOP_RUNTIME_CAPABILITY,
   AGENT_SESSION_QUEUED_COMMANDS_RUNTIME_CAPABILITY,
   AGENT_SESSION_QUEUED_MESSAGES_RUNTIME_CAPABILITY,
@@ -116,6 +117,17 @@ export function useStructuredAgentSessionHostQueuesMessagesState(
   return useStructuredAgentSessionHostCapabilityState(
     target,
     AGENT_SESSION_QUEUED_MESSAGES_RUNTIME_CAPABILITY
+  )
+}
+
+/** Three-state: only `supported` lets a client offer, hold or send a catalog speed tier; every
+ *  other answer keeps the older Fast control. */
+export function useStructuredAgentSessionHostCodexSpeedState(
+  target: RuntimeClientTarget
+): StructuredAgentSessionHostCapabilityState {
+  return useStructuredAgentSessionHostCapabilityState(
+    target,
+    AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY
   )
 }
 

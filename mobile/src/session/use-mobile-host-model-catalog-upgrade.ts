@@ -1,6 +1,7 @@
 import { useEffect, type MutableRefObject } from 'react'
 import type { AgentSessionModelCatalogResult } from '../../../src/shared/agent-session-wire'
 import type { AgentSessionOptionCatalog } from '../../../src/shared/agent-session-option-catalog'
+import type { CodexSpeedHostSupport } from '../../../src/shared/codex-service-tier-presentation'
 import type { NativeChatSessionOptionRecord } from '../../../src/shared/native-chat-session-option-state'
 import {
   applyStructuredAgentSessionModelCatalog,
@@ -24,6 +25,9 @@ export function useMobileHostModelCatalogUpgrade(args: {
   agent: string | null
   client: RpcClient | null
   sessionId: string | null
+  /** Host and workspace of the session: the same client and ids may stand for another source,
+   *  whose list is read again. */
+  sourceIdentity?: string
   enabled: boolean
   /** This phone created the chat, so it launches the listed default; a reopened one may not. */
   newLaunch: boolean
@@ -31,6 +35,8 @@ export function useMobileHostModelCatalogUpgrade(args: {
   worktree?: string
   fence: number | null
   optionCatalog: AgentSessionOptionCatalog | null
+  /** The host's speed capability: shapes the speed control, and a change reads the list again. */
+  codexSpeedHost: CodexSpeedHostSupport
   activeOptionRecordRef: MutableRefObject<NativeChatSessionOptionRecord>
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
@@ -40,11 +46,13 @@ export function useMobileHostModelCatalogUpgrade(args: {
     activeOptionRecordRef,
     agent,
     client,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
     optionCatalog,
     sessionId,
+    sourceIdentity,
     updateOptionState,
     worktree
   } = args
@@ -70,7 +78,10 @@ export function useMobileHostModelCatalogUpgrade(args: {
       }
       updateOptionState((current) =>
         current.record === activeOptionRecordRef.current
-          ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, { newLaunch })
+          ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, {
+              newLaunch,
+              codexSpeedHost
+            })
           : current
       )
     }
@@ -102,11 +113,13 @@ export function useMobileHostModelCatalogUpgrade(args: {
     activeOptionRecordRef,
     agent,
     client,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
     optionCatalog,
     sessionId,
+    sourceIdentity,
     updateOptionState,
     worktree
   ])

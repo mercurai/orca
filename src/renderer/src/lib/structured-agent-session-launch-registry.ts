@@ -5,6 +5,8 @@ import type { StructuredAgentSessionResumeSource } from '../../../shared/structu
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import type { StructuredLaunchRecoveryState } from './structured-agent-session-launch-recovery'
 import type { StructuredLaunchSelection } from './structured-agent-session-launch-options'
+import type { StructuredLaunchSpeedBlock } from './structured-agent-session-launch-errors'
+import { structuredAgentLaunchSpeedRecord } from './structured-agent-session-launch-speed-record'
 import type {
   StructuredAgentLaunchOptions,
   StructuredLaunchCallerGroup
@@ -33,6 +35,17 @@ export type StructuredLaunchState = StructuredLaunchRecoveryState & {
    *  failure named none. */
   failure?: StructuredLaunchFailure
   selection: StructuredLaunchSelection
+  /** Why the chosen speed holds this launch back; absent when nothing does. The launch stays
+   *  unpublished, and its first prompt unsent, until an accepted replacement or a supporting host
+   *  clears it: a wake or a restart alone never does. */
+  speedBlock?: StructuredLaunchSpeedBlock
+  /** Wakes the pass parked on `speedBlock`; set only while it is parked. */
+  releaseSpeedBlock?: () => void
+  /** Set when the last look found nothing held: a pick after it goes through the session instead of
+   *  being held for a pass that has already ended. */
+  picksClosed?: true
+  /** A recheck that arrived while the host was being asked, which that answer does not cover. */
+  speedRecheckRequested?: true
 }
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'
@@ -98,15 +111,29 @@ export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchStat
   return true
 }
 
+/** The speed bookkeeping this launch keeps while it is unpublished; undefined when none is in play. */
+export function structuredLaunchSpeedRecord(
+  state: StructuredLaunchState
+): ReturnType<typeof structuredAgentLaunchSpeedRecord> {
+  const { held, seed } = state.selection
+  return structuredAgentLaunchSpeedRecord(state.receipt, held.serviceTier, state.speedBlock, {
+    accepted: seed,
+    heldFastMode: held.fastMode,
+    acceptedSpeedRuns: state.intent.agent === 'codex'
+  })
+}
+
 function persistStructuredLaunchState(state: StructuredLaunchState): void {
   const lifecycle = launchStateLifecycle(state)
   if (lifecycle === 'published' || lifecycle === 'cancelled') {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }
+  const speed = structuredLaunchSpeedRecord(state)
   writeStructuredAgentLaunchRecord({
     ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
-    ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {})
+    ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {}),
+    ...(speed ? { speed } : {})
   })
 }
 
@@ -135,13 +162,6 @@ export function launchStateLifecycle(
   return state.callers.outcome === 'failed' ? 'failed' : 'pending'
 }
 
-function matchesLaunchWorktree(
-  state: StructuredLaunchState | undefined,
-  worktreeId: string
-): boolean {
-  return state?.intent.worktreeId === worktreeId
-}
-
 export function getStructuredAgentSessionLaunchLifecycle(
   worktreeId: string,
   sessionId: string
@@ -150,7 +170,7 @@ export function getStructuredAgentSessionLaunchLifecycle(
     return 'cancelled'
   }
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (state && matchesLaunchWorktree(state, worktreeId)) {
+  if (state?.intent.worktreeId === worktreeId) {
     return launchStateLifecycle(state)
   }
   return getPersistedStructuredAgentLaunchRecord(sessionId)?.lifecycle ?? null
@@ -180,11 +200,32 @@ export function getStructuredAgentSessionLaunchFailure(
   sessionId: string
 ): StructuredLaunchFailure | null {
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  return state &&
-    matchesLaunchWorktree(state, worktreeId) &&
-    launchStateLifecycle(state) === 'failed'
+  return state?.intent.worktreeId === worktreeId && launchStateLifecycle(state) === 'failed'
     ? (state.failure ?? null)
     : null
+}
+
+/** Why the launch's chosen speed holds it back, in memory or as saved across a reload. */
+export function getStructuredAgentSessionLaunchSpeedBlock(
+  worktreeId: string,
+  sessionId: string
+): StructuredLaunchSpeedBlock | null {
+  const state = getStructuredLaunchStateBySessionId(sessionId)
+  if (state) {
+    return state.intent.worktreeId === worktreeId ? (state.speedBlock ?? null) : null
+  }
+  return getPersistedStructuredAgentLaunchRecord(sessionId)?.speed?.block ?? null
+}
+
+export function useStructuredAgentSessionLaunchSpeedBlock(
+  worktreeId: string,
+  sessionId: string
+): StructuredLaunchSpeedBlock | null {
+  return useSyncExternalStore(
+    subscribeStructuredAgentLaunchStatus,
+    () => getStructuredAgentSessionLaunchSpeedBlock(worktreeId, sessionId),
+    () => null
+  )
 }
 
 export function useStructuredAgentSessionLaunchFailure(
@@ -217,7 +258,7 @@ export function shouldRetainStructuredAgentSessionLaunchTab(
   return lifecycle === 'pending' || lifecycle === 'visibility-unknown' || lifecycle === 'failed'
 }
 
-function markStructuredAgentSessionLaunchCancelledInternal(
+function markLaunchCancelled(
   worktreeId: string,
   sessionId: string,
   executionHostId: ExecutionHostId,
@@ -225,7 +266,7 @@ function markStructuredAgentSessionLaunchCancelledInternal(
 ): boolean {
   const alreadyCancelled = hasStructuredAgentLaunchCancellationTombstonePersisted(sessionId)
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (matchesLaunchWorktree(state, worktreeId) && state) {
+  if (state?.intent.worktreeId === worktreeId) {
     // The launch's own owner outranks the caller's: it is the host the create was sent to.
     markStructuredAgentLaunchCancellation(
       sessionId,
@@ -234,6 +275,8 @@ function markStructuredAgentSessionLaunchCancelledInternal(
       state.promise
     )
     state.cancelled = true
+    // A pass parked on a speed block ends with the launch instead of waiting for a pick.
+    state.releaseSpeedBlock?.()
     state.callers.outcome = 'cancelled'
     // The tombstone is the durable authority; drop the in-memory launch so bulk closes cannot
     // retain a dead promise for the lifetime of the renderer.
@@ -253,12 +296,7 @@ export function markStructuredAgentSessionLaunchCancelled(
   sessionId: string,
   executionHostId: ExecutionHostId
 ): boolean {
-  return markStructuredAgentSessionLaunchCancelledInternal(
-    worktreeId,
-    sessionId,
-    executionHostId,
-    true
-  )
+  return markLaunchCancelled(worktreeId, sessionId, executionHostId, true)
 }
 
 /** Bulk workspace purges run inside a store updater; persist cancellation without notifying React. */
@@ -267,12 +305,7 @@ export function markStructuredAgentSessionLaunchCancelledSilently(
   sessionId: string,
   executionHostId: ExecutionHostId
 ): boolean {
-  return markStructuredAgentSessionLaunchCancelledInternal(
-    worktreeId,
-    sessionId,
-    executionHostId,
-    false
-  )
+  return markLaunchCancelled(worktreeId, sessionId, executionHostId, false)
 }
 
 export function hasStructuredAgentSessionLaunchCancellationTombstone(

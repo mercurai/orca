@@ -35,10 +35,7 @@ import {
   codexAcquireCatalogAccess,
   codexAcquireFastModeCatalog
 } from './codex-structured-acquire-catalog'
-import {
-  reconcileCodexFastModeOption,
-  reportedCodexThreadOptions
-} from './codex-structured-fast-mode'
+import { migrateCodexSessionSpeed, reportedCodexThreadOptions } from './codex-structured-fast-mode'
 import {
   assertCodexConnectionOpen,
   codexSessionLifecycle,
@@ -222,10 +219,12 @@ export async function acquireCodexStructuredSession(input: {
     acquisitions.assertCurrent(sessionId, attempt)
     const options = restoredCodexSessionOptions(acquireInput.options)
     const catalogAccess = codexAcquireCatalogAccess(deps, launch)
+    // Only legacy Fast intent the restore could not resolve needs the catalog; a canonical tier is
+    // kept as saved and judged against the account's catalog when a turn is sent.
     const fastModeCatalog = codexAcquireFastModeCatalog({
       catalogAccess,
       opened,
-      restoreNeedsCatalog: options.get('fastMode') === 'true' || options.has('serviceTier')
+      restoreNeedsCatalog: options.has('fastMode')
     })
     acquisitions.assertCurrent(sessionId, attempt)
     assertCodexConnectionOpen(connection, sessionId)
@@ -258,14 +257,9 @@ export async function acquireCodexStructuredSession(input: {
     }
     if (fastModeCatalog) {
       // The model the next turn sends, as turn/start and the background refresh resolve it.
-      const model = options.get('model') ?? opened.model ?? fastModeCatalog.result.current.model
-      reconcileCodexFastModeOption(session, {
-        fastModeTierByModel: fastModeCatalog.fastModeTierByModel,
-        currentFastMode: true,
-        model,
-        modelFastModeSupport: fastModeCatalog.result.models.find((entry) => entry.id === model)
-          ?.supportsFastMode
-      })
+      const currentModel =
+        options.get('model') ?? opened.model ?? fastModeCatalog.result.current.model
+      migrateCodexSessionSpeed(session, { models: fastModeCatalog.result.models, currentModel })
     }
     sessions.set(sessionId, session)
     for (const event of acquisition.drain()) {

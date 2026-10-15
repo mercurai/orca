@@ -60,8 +60,10 @@ export function fakeCodex(routes: Record<string, Route> = {}): {
       closeCount: 0,
       pid: 4321,
       closed: false,
-      request: async (method, params) => {
+      request: async (method, params, options) => {
         connection.calls.push({ method, params })
+        // The simulated write: a transport that submitted the frame says so before any answer.
+        options?.onSubmitted?.()
         const route = routes[method]
         return route ? route(params) : {}
       },

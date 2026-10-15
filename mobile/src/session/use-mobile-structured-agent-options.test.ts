@@ -6,6 +6,7 @@ import type {
   AgentSessionOptionResult,
   AgentSessionOptionsResult
 } from '../../../src/shared/agent-session-wire'
+import type { CodexSpeedHostSupport } from '../../../src/shared/codex-service-tier-presentation'
 import type { SessionOptionDescriptor } from '../../../src/shared/native-chat-session-options'
 import type { RpcClient } from '../transport/rpc-client'
 import type {
@@ -146,6 +147,7 @@ type ProbeProps = {
   sessionId: string | null
   fence: number | null
   mutate: StructuredAgentSessionMutate
+  codexSpeedHost?: CodexSpeedHostSupport
   onRender: (controller: Controller) => void
 }
 
@@ -157,7 +159,8 @@ function Probe(props: ProbeProps): null {
       sessionId: props.sessionId,
       enabled: true,
       fence: props.fence,
-      mutate: props.mutate
+      mutate: props.mutate,
+      ...(props.codexSpeedHost ? { codexSpeedHost: props.codexSpeedHost } : {})
     })
   )
   return null
@@ -326,13 +329,22 @@ describe('useMobileStructuredAgentOptions post-write refresh', () => {
     )
     const harness = await mountOptions({ ...BASE, client: client.client, mutate })
 
+    let outcome: boolean | null = null
     await act(async () => {
-      await harness.current().setStructuredOption('fastMode', true)
+      outcome = await harness.current().setStructuredOption('fastMode', true)
     })
     await settle()
 
+    // Another fence's answer: no success, no read back and nothing persisted. The request stays
+    // unresolved, so it overlays the stored value as dispatched, never accepted, and holds sends.
+    expect(outcome).toBe(false)
     expect(client.optionReads()).toBe(1)
-    expect(currentValueOf(harness.current().optionSnapshot, 'fastMode')).toBe(false)
+    expect(currentValueOf(harness.current().optionSnapshot, 'fastMode')).toBe(true)
+    expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')?.valueSource).toBe(
+      'dispatched'
+    )
+    expect(harness.current().isSpeedSendBlocked()).toBe(true)
+    expect(client.methods('settings.mutateNativeChatSessionOptions')).toEqual([])
     await harness.unmount()
   })
 })
@@ -398,7 +410,8 @@ describe('useMobileStructuredAgentOptions pending guard', () => {
       await firstWrite
     })
     await settle()
-    expect(await firstWrite).toBe(true)
+    // Answered against another fence: released, but no success is reported for this view.
+    expect(await firstWrite).toBe(false)
     expect(harness.current().pendingOptionId).toBeNull()
 
     // The guard is a ref, so a write that never clears it wedges every later pick.
@@ -407,7 +420,7 @@ describe('useMobileStructuredAgentOptions pending guard', () => {
       later = await harness.current().setStructuredOption('fastMode', true)
     })
     await settle()
-    expect(later).toBe(true)
+    expect(later).toBe(false)
     expect(calls).toHaveLength(2)
     await harness.unmount()
   })
@@ -434,6 +447,246 @@ describe('useMobileStructuredAgentOptions for every agent', () => {
       agent: 'grok'
     })
     await harness.unmount()
+  })
+})
+
+const STANDARD_TIER = { value: 'default', label: 'Standard' }
+const FAST_TIER = { value: 'synthetic-fast-lane', label: 'Fast' }
+const ULTRAFAST_TIER = { value: 'synthetic-ultra-lane', label: 'Ultrafast' }
+
+const TIERED_OPTIONS: AgentSessionOptionsResult = {
+  ...OPTIONS,
+  models: OPTIONS.models.map((model) => ({
+    ...model,
+    supportsFastMode: true,
+    serviceTiers: [STANDARD_TIER, FAST_TIER, ULTRAFAST_TIER]
+  })),
+  fastModeSupport: { supported: true },
+  current: { ...OPTIONS.current, serviceTier: 'default', confirmed: ['serviceTier'] }
+}
+
+describe('useMobileStructuredAgentOptions speed select', () => {
+  it('offers the tier select and sends the exact tier id only on a host that advertises it', async () => {
+    const client = optionsClient(queuedReads(TIERED_OPTIONS))
+    const { calls, mutate } = recordingMutate(async () =>
+      accepted(
+        { key: 'serviceTier', value: FAST_TIER.value, options: { serviceTier: FAST_TIER.value } },
+        true
+      )
+    )
+    const harness = await mountOptions({
+      ...BASE,
+      client: client.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+
+    expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeDefined()
+    expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')).toBeUndefined()
+    let outcome: boolean | null = null
+    await act(async () => {
+      outcome = await harness.current().setStructuredOption('serviceTier', FAST_TIER.value)
+    })
+    await settle()
+
+    expect(outcome).toBe(true)
+    expect(calls).toEqual([
+      { method: 'agentSession.setOption', fields: { key: 'serviceTier', value: FAST_TIER.value } }
+    ])
+    await harness.unmount()
+  })
+
+  it.each(['unsupported', 'unknown'] as const)(
+    'keeps the Fast toggle and refuses a tier write when the host is %s',
+    async (codexSpeedHost) => {
+      const client = optionsClient(queuedReads(TIERED_OPTIONS))
+      const { calls, mutate } = recordingMutate(async () =>
+        accepted({ key: 'x', value: 'y' }, true)
+      )
+      const harness = await mountOptions({ ...BASE, client: client.client, mutate, codexSpeedHost })
+
+      expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')).toBeDefined()
+      expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
+      let outcome: boolean | null = null
+      await act(async () => {
+        outcome = await harness.current().setStructuredOption('serviceTier', FAST_TIER.value)
+      })
+
+      expect(outcome).toBe(false)
+      expect(calls).toHaveLength(0)
+      await harness.unmount()
+    }
+  )
+
+  it('reads again and offers the select once the status probe affirms the capability', async () => {
+    const client = optionsClient(queuedReads(TIERED_OPTIONS))
+    const { mutate } = recordingMutate(async () => accepted({ key: 'x', value: 'y' }, true))
+    const harness = await mountOptions({
+      ...BASE,
+      client: client.client,
+      mutate,
+      codexSpeedHost: 'unknown'
+    })
+    expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
+    const readsBefore = client.optionReads()
+
+    await harness.rerender({ codexSpeedHost: 'supported' })
+
+    expect(client.optionReads()).toBe(readsBefore + 1)
+    expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeDefined()
+    await harness.unmount()
+  })
+
+  it('never sends a disabled presentation row', async () => {
+    const client = optionsClient(
+      queuedReads({
+        ...TIERED_OPTIONS,
+        models: TIERED_OPTIONS.models.map((model) => ({ ...model, serviceTiers: [STANDARD_TIER] }))
+      })
+    )
+    const { calls, mutate } = recordingMutate(async () => accepted({ key: 'x', value: 'y' }, true))
+    const harness = await mountOptions({
+      ...BASE,
+      client: client.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+    const tier = descriptorFor(harness.current().optionSnapshot, 'serviceTier')
+    const row =
+      tier?.kind.type === 'select'
+        ? tier.kind.choices.find((choice) => choice.label === 'Ultrafast')
+        : undefined
+    expect(row?.disabled).toBe(true)
+
+    let outcome: boolean | null = null
+    await act(async () => {
+      outcome = await harness.current().setStructuredOption('serviceTier', row?.value ?? '')
+    })
+
+    expect(outcome).toBe(false)
+    expect(calls).toHaveLength(0)
+    await harness.unmount()
+  })
+
+  it('gives another agent no tier select however much tier metadata it reports', async () => {
+    const client = optionsClient(queuedReads(TIERED_OPTIONS))
+    const { mutate } = recordingMutate(async () => accepted({ key: 'x', value: 'y' }, true))
+    const harness = await mountOptions({
+      ...BASE,
+      agent: 'claude',
+      client: client.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+
+    expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
+    expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')).toBeDefined()
+    await harness.unmount()
+  })
+})
+
+describe('useMobileStructuredAgentOptions canonical read model provenance', () => {
+  const MODEL_A = 'canonical-default'
+  const MODEL_B = 'canonical-nondefault'
+  const B_STANDARD = { value: 'synthetic-b-standard', label: 'Standard' }
+  const B_FAST = { value: 'synthetic-b-fast', label: 'Fast' }
+  const B_ULTRA = { value: 'synthetic-b-ultra', label: 'Ultrafast' }
+  // The real canonical read shape: speed facts name the stored tier and `confirmed` is absent.
+  const CANONICAL: AgentSessionOptionsResult = {
+    models: [
+      {
+        id: MODEL_A,
+        label: 'Canonical default',
+        isDefault: true,
+        efforts: [],
+        supportsFastMode: true,
+        serviceTiers: [STANDARD_TIER, FAST_TIER, ULTRAFAST_TIER]
+      },
+      {
+        id: MODEL_B,
+        label: 'Canonical other',
+        isDefault: false,
+        efforts: [],
+        supportsFastMode: true,
+        serviceTiers: [B_STANDARD, B_FAST, B_ULTRA]
+      }
+    ],
+    fastModeSupport: { supported: true },
+    current: { model: MODEL_B, serviceTier: B_FAST.value },
+    speed: { selection: { tierId: B_FAST.value, state: 'ready' } }
+  }
+
+  function enabledTierValues(snapshot: readonly SessionOptionDescriptor[]): string[] {
+    const kind = descriptorFor(snapshot, 'serviceTier')?.kind
+    return kind?.type === 'select'
+      ? kind.choices.filter((choice) => !choice.disabled).map((choice) => choice.value)
+      : []
+  }
+
+  it('keeps the host-read nondefault model and its tiers across a fence reset, then persists a replacement against it', async () => {
+    const reread = deferred<AgentSessionOptionsResult>()
+    let reads = 0
+    // The catalog method is refused as on an older host, so the options read is the only model source.
+    const client = optionsClient(() =>
+      reads++ === 0 ? Promise.resolve(CANONICAL) : reread.promise
+    )
+    const { calls, mutate } = recordingMutate(async (call) => {
+      const tier = call === 0 ? B_ULTRA.value : B_STANDARD.value
+      return accepted(
+        { key: 'serviceTier', value: tier, options: { serviceTier: tier } },
+        call !== 0
+      )
+    })
+    const harness = await mountOptions({
+      ...BASE,
+      client: client.client,
+      mutate,
+      codexSpeedHost: 'supported'
+    })
+
+    try {
+      expect(currentValueOf(harness.current().optionSnapshot, 'model')).toBe(MODEL_B)
+
+      let refused: boolean | null = null
+      await act(async () => {
+        refused = await harness.current().setStructuredOption('serviceTier', B_ULTRA.value)
+      })
+      expect(refused).toBe(false)
+      expect(harness.current().isSpeedSendBlocked()).toBe(true)
+
+      await harness.rerender({ fence: 2 })
+      // The fresh read is still pending: only what survived the reset can answer the picker.
+      expect(client.optionReads()).toBe(2)
+      const held = harness.current().optionSnapshot
+      expect(currentValueOf(held, 'model')).toBe(MODEL_B)
+      expect(enabledTierValues(held)).toEqual([B_STANDARD.value, B_FAST.value, B_ULTRA.value])
+
+      let replaced: boolean | null = null
+      await act(async () => {
+        replaced = await harness.current().setStructuredOption('serviceTier', B_STANDARD.value)
+      })
+      await settle()
+
+      expect(replaced).toBe(true)
+      expect(calls.map((call) => call.fields)).toEqual([
+        { key: 'serviceTier', value: B_ULTRA.value },
+        { key: 'serviceTier', value: B_STANDARD.value }
+      ])
+      expect(harness.current().isSpeedSendBlocked()).toBe(false)
+      const settings = () => client.methods('settings.mutateNativeChatSessionOptions')
+      await vi.waitFor(() => expect(settings()).toHaveLength(1))
+      expect(settings()[0]?.params).toMatchObject({
+        type: 'apply-picks',
+        agent: 'codex',
+        picks: expect.arrayContaining([
+          { modelId: MODEL_B, optionId: 'serviceTier', value: B_STANDARD.value }
+        ])
+      })
+      expect(JSON.stringify(settings()[0]?.params)).not.toContain(MODEL_A)
+    } finally {
+      reread.resolve(CANONICAL)
+      await harness.unmount()
+    }
   })
 })
 
@@ -617,6 +870,39 @@ describe('useMobileStructuredAgentOptions host catalog', () => {
       settable: false,
       valueSource: 'unknown'
     })
+    await harness.unmount()
+  })
+})
+
+describe('useMobileStructuredAgentOptions client cutover', () => {
+  it('drops a model listing the previous client answers after the swap', async () => {
+    const late = deferred<AgentSessionModelCatalogResult>()
+    const previousHost = optionsClient(
+      () => deferred<AgentSessionOptionsResult>().promise,
+      () => late.promise
+    )
+    // The new host predates the catalog method, so only the built-in list can stand.
+    const nextHost = optionsClient(() => deferred<AgentSessionOptionsResult>().promise)
+    const { mutate } = recordingMutate(async () => ({ status: 'unknown' }))
+    const harness = await mountOptions({
+      ...BASE,
+      agent: 'grok',
+      client: previousHost.client,
+      mutate
+    })
+
+    await harness.rerender({ client: nextHost.client })
+    await act(async () => {
+      late.resolve({
+        origin: 'probe',
+        fetchedAt: 1,
+        models: [{ id: 'previous-host-model', label: 'Previous', isDefault: true, efforts: [] }]
+      })
+    })
+    await settle()
+
+    const model = descriptorFor(harness.current().optionSnapshot, 'model')
+    expect(model?.kind.type === 'select' ? model.kind.choices : []).toEqual([])
     await harness.unmount()
   })
 })

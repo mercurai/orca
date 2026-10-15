@@ -1,4 +1,5 @@
 import { mkdtempSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -446,6 +447,114 @@ describe('agent model catalog store', () => {
     // The failure died with the process: doubt is never a durable fact.
     expect(restarted.hasActiveFailure('fp-2')).toBe(false)
     expect(restarted.get('fp-2')).toBeNull()
+  })
+
+  it('round-trips advertised service tiers exactly and leaves unknown support unknown', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agent-model-catalog-'))
+    const store = new AgentModelCatalogStore()
+    await store.attachPersistence(createAgentModelCatalogFilePersistence(directory))
+    const standard = { value: 'default', label: 'Standard', description: 'Regular speed' }
+    const fast = { value: 'tier-fast-7f3', label: 'Fast' }
+    const ultra = { value: 'tier-ultra-9c1', label: 'Ultrafast', description: 'Highest usage' }
+    const row = (id: string, tiers?: AgentSessionModelOption['serviceTiers']) => ({
+      id,
+      label: id.toUpperCase(),
+      isDefault: id === 'model-a',
+      efforts: [{ value: 'high', label: 'High' }],
+      ...(tiers
+        ? { serviceTiers: tiers, supportsFastMode: tiers.some((tier) => tier.label === 'Fast') }
+        : {})
+    })
+    store.recordSuccess(
+      'fp',
+      'codex',
+      {
+        models: [
+          row('model-a', [standard, fast, ultra]),
+          row('model-b', [standard]),
+          row('model-c')
+        ],
+        fastModeTierByModel: new Map([['model-a', fast.value]]),
+        origin: 'live-session'
+      },
+      'discovery'
+    )
+    await store.flushPersistence()
+
+    const restarted = new AgentModelCatalogStore()
+    await restarted.attachPersistence(createAgentModelCatalogFilePersistence(directory))
+    const [a, b, c] = restarted.get('fp')!.models
+    expect(a?.serviceTiers).toEqual([standard, fast, ultra])
+    expect(a?.supportsFastMode).toBe(true)
+    // Known Standard-only is a list; unknown is absence, and the two never swap on reload.
+    expect(b?.serviceTiers).toEqual([standard])
+    expect(b?.supportsFastMode).toBe(false)
+    expect(c).not.toHaveProperty('serviceTiers')
+    expect(restarted.get('fp')!.fastModeTierByModel).toEqual({ 'model-a': fast.value })
+  })
+
+  it('follows the newer listing for tiers while discovery keeps owning the default', async () => {
+    const store = new AgentModelCatalogStore()
+    const standard = { value: 'default', label: 'Standard' }
+    const ultra = { value: 'tier-ultra-9c1', label: 'Ultrafast' }
+    const listing = (
+      tiers: AgentSessionModelOption['serviceTiers'],
+      isDefault: boolean
+    ): AgentModelCatalogSuccess => ({
+      models: [
+        {
+          id: 'model-a',
+          label: 'A',
+          isDefault,
+          efforts: [{ value: 'high', label: 'High' }],
+          ...(tiers ? { serviceTiers: tiers } : {})
+        }
+      ],
+      fastModeTierByModel: new Map(),
+      origin: 'live-session'
+    })
+    store.recordSuccess('fp', 'codex', listing([standard, ultra], true), 'discovery')
+    store.recordSuccess('fp', 'codex', listing([standard], false), 'live')
+
+    const merged = store.get('fp')!.models[0]!
+    expect(merged.serviceTiers).toEqual([standard])
+    expect(merged.isDefault).toBe(true)
+  })
+
+  it('drops an unreadable tier list to unknown rather than a partial claim', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'agent-model-catalog-'))
+    await writeFile(
+      join(directory, 'agent-model-catalog.json'),
+      JSON.stringify({
+        version: 2,
+        entries: [
+          {
+            agent: 'codex',
+            fingerprint: 'fp',
+            discovered: {
+              models: [
+                {
+                  id: 'model-a',
+                  label: 'A',
+                  isDefault: true,
+                  efforts: [],
+                  serviceTiers: [{ value: 'default', label: 'Standard' }, { value: 7 }]
+                }
+              ],
+              fastModeTierByModel: {},
+              origin: 'live-session',
+              at: 1
+            },
+            live: null
+          }
+        ]
+      }),
+      'utf8'
+    )
+    const store = new AgentModelCatalogStore()
+    await store.attachPersistence(createAgentModelCatalogFilePersistence(directory))
+
+    expect(store.get('fp')!.models[0]).not.toHaveProperty('serviceTiers')
   })
 
   it('writes a coalesced save at once when flushed', async () => {

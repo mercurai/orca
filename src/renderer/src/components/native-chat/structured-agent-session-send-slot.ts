@@ -11,6 +11,7 @@ import {
   getStructuredAgentSessionPendingSends,
   publishStructuredAgentSessionSends,
   structuredAgentSessionSendOut,
+  type StructuredAgentSessionCallerKeepsText,
   type StructuredAgentSessionPendingSend
 } from './structured-agent-session-pending-sends'
 
@@ -20,8 +21,8 @@ export type StructuredAgentSessionSendInput = {
   attachments?: readonly StructuredAgentSessionAttachment[]
   /** Asks the host to hold it as a card while the agent works; decided once, at the send. */
   delivery?: 'queue-if-active'
-  /** The caller keeps the text if it comes back, instead of the chat's composer. */
-  callerKeepsText?: true
+  /** The caller, or the chat's composer already holding it, keeps the text if it comes back. */
+  callerKeepsText?: StructuredAgentSessionCallerKeepsText
   /** Made while the chat read Stopping: drawn after that turn until the host records it. */
   sentWhileStopping?: true
   now?: number
@@ -42,7 +43,7 @@ export function takeStructuredAgentSessionSendSlot(
     previewUris: attachments.map((attachment) => attachment.previewUri),
     queuedAt: input.now ?? Date.now(),
     ...(input.delivery ? { delivery: input.delivery } : {}),
-    ...(input.callerKeepsText ? { callerKeepsText: true as const } : {}),
+    ...(input.callerKeepsText ? { callerKeepsText: input.callerKeepsText } : {}),
     ...(input.sentWhileStopping ? { sentWhileStopping: true as const } : {}),
     ...(attachments.some((attachment) => attachment.connectionId)
       ? { imageConnectionIds: attachments.map((attachment) => attachment.connectionId ?? null) }

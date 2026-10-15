@@ -1,6 +1,6 @@
 ---
 owner: codex-01a1273e
-last-reviewed: 2026-10-13
+last-reviewed: 2026-10-14
 stability: draft
 status: review-corrections
 ---
@@ -9,44 +9,29 @@ status: review-corrections
 
 ## Purpose and current state
 
-Implement Standard, Fast and Ultrafast selection through Orca's existing model catalog and option picker.
-This is the authoritative specification, ownership map and execution plan for this change.
-The user authorized core implementation and rollout; the fleet retains landing and release ordering.
-Independent local GPT-6 Astra/ultra plan review approved the revised contract. Regression tests are written;
-CI run 38468679286 established expected missing-tier/seed/migration behavior failures at dcd4aaf3ef.
-Static/type checks passed. Shard 1 also failed an unrelated filesystem-watcher test; shard 3 includes
-win32-test-lane-registration baseline failures. Shared contract commit 254d965abd passed independent GPT-6.1/medium slice review after malformed-toggle
-and storage-bound corrections; static/type checks passed in CI run 38482816065. Its shared parser/migration
-suite passed 80 tests and its seed suite passed 21 tests. Windows/main packaging, relay integration and
-cross-version wire compatibility passed. The full run failed on remaining host/restoration/launch/presentation
-red tests and two Windows registration baseline cases; this is not final candidate verification.
-Generic callbacks use provider-neutral shared types, optional speed facts, and a direct complete-map return.
-Real local Sonnet B/C/D/L writers now implement the non-overlapping host, at-rest, picker and launch slices.
-Slice C passed independent GPT-6.1/medium review after canonical model/effort ordering correction; its new
-tests passed in CI run 38485011107 at b0206bb095: 24 at-rest tests and five disk round-trip tests.
-That revision also passed static/type checks, Windows/main packaging and wire compatibility. F's new
-explicit-default tests produced the expected red result: 11 tests, nine failed, two passed.
-The completed run failed with 54 cases: 51 expected feature regressions, two Windows registration
-baseline failures and one new SQLite test registration omission. The five disk cases ran under Bun;
-register them in the required Node project and rerun before claiming accepted persistence coverage.
-Review identified a live-refusal gap: preserving the
-previous accepted tier alone permits autonomous queued sends to fall back after a refused new selection.
-Retain refused requested intent separately, block next-turn admission until explicit accepted replacement,
-and protect client pending picks and already-reserved sends with host/generation fencing.
-Independent B/D/L review found additional catalog provenance, transport submission, live/resting,
-launch admission/reload and mobile identity/facts issues. Sonnet hit its weekly limit on October 13;
-saved test edits required correction. On October 14 the real Sonnet writer completed F's saved-default
-fix and bounded B/C/D/L regression correction writers resumed. Keep the established implementation
-model and independent Codex review; no model switch was required. Tests remain CI-only.
-Owner override: "There's no reason to use server one for the implementation. Go ahead and execute everything here."
-Implementation and independent review run locally. Build freeze and CI-only test admission remain in force.
+Implement catalog-backed Standard, Fast and Ultrafast through the existing picker and catalog.
+This document is the authoritative specification, exact ownership map and acceptance checklist.
+The user authorized core implementation and rollout, including local implementation/review.
+The fleet still owns landing, assembly and release ordering. Local builds/tests remain CI-only.
 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
-- Branch: `codex/codex-speed-selection`.
-- Base: upstream `v1.4.224`, commit `2bb20586ebc39d605e16d95f57420e20a16e7485`.
-- Active harness identity: `CODEX_THREAD_ID=01a1273e-01d1-7e12-8f0f-99a926abdd95`.
-- Native plugin work stays in its separate worktrees; this change owns none of their files.
-- Draft CI/review PR: https://github.com/mercurai/orca/pull/42. Branch is pushed; nothing is landed or installed.
+- Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
+- Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
+- Integration parent: `c9f164ad921173f48f145588654d442191410c15`; immutable product candidate pending.
+- Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
+
+Latest focused CI38657670112 at `9a7b286ce4b45dd05c36e43eccefe319120880a0` passed all
+895 feature tests: 823 core and 72 mobile. Canonical model provenance now survives pending fence
+recovery, alongside legacy failed-save protection and the earlier host/picker corrections.
+B/D and the other slices passed independent source review. No generated patch remained.
+The job is red only because the separate pinned upstream baseline reproduces two Windows
+registration failures. Full immutable product-candidate CI and final verification remain required.
+All eight closed-database resume cases and the expanded launch suites passed this focused run.
+The separate pinned upstream baseline passed 32 tests and failed two Windows registration checks.
+Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
+under owner investigation. Do not claim that race reproduced in the pinned run or was fixed here.
+No source landing, released version, package installation or loaded-runtime proof is complete.
+Native plugin work remains separate and this lane owns none of its files.
 
 ## Revalidated flow and failure boundaries
 
@@ -217,11 +202,27 @@ Use synthetic models and custom tier IDs; test catalog refresh, server refusal a
 Writable production paths under `src/main/native-chat/agent-session-wire/`:
 `structured-agent-session-options-read.ts`,
 `structured-agent-session-option-restoration.ts`, `structured-agent-session-turns-options.ts` only if required.
+Also own `structured-agent-session-adapter.ts` and `structured-agent-session-adapter-router.ts` with
+matching tests for the reviewed optional internal `recoverFailedOptionPersistence` hook. Its input is
+`{ sessionId, fence, key, value, priorOptions }`; copy prior options before mutation and call only
+after a durable options write rejects, before serialization releases. Recovery is atomic in memory,
+fence-scoped and fail-closed; no transport or storage work. Preserve the original persistence error
+and publish no success. Route to the registered provider without provider-name branches. Codex
+restores prior canonical options while retaining blocked requested intent; failed replacement never
+clears an earlier block. If recovery cannot establish safe admission, quarantine admission rather
+than declaring the child exited. `StructuredAgentSessionSetOptionInput.priorOptions?` may carry the copied durable map to the
+provider for complete-map settlement, preserving unrelated saved options without restoring stale
+speed/private fields. It is optional internal input; other adapters ignore it. This adds no
+public wire field or database schema. Verify provider forwarding cannot leak it into requests.
 Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
 provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
 Own focused `structured-agent-session-speed-refusal-persistence.test.ts` for the real generic live
 mutation boundary, including refused-state persistence failure and unchanged other-provider errors.
+Also own focused `codex-speed-live-persistence.test.ts` and `codex-speed-resume-continuity.test.ts`
+for real Codex adapter/generic-boundary coverage of persistence failure and released-lease resume.
+Register real journal/store fixtures in the Node project. Refusal-state maps apply only to
+`optionRejected`; `providerStarting` must not persist them even if an error supplies one.
 B supplies Codex's definition implementation through A's frozen interface; C never edits either definition file.
 Preserve complete option maps through at-rest writes, live writes, record reload and same-conversation resume.
 Verify existing account-home and provider-handle identity survives. Test Claude with the optional validator absent.
@@ -240,6 +241,13 @@ Focused presentation modules are also owned by D: `src/shared/codex-service-tier
 `codex-speed-facts-presentation.ts`, `structured-agent-session-option-picks.ts`, and desktop
 `use-structured-agent-session-speed-gate.ts`. Root records these extractions before further corrections.
 Live send admission additionally owns desktop `components/native-chat/structured-agent-session-send-attempt.ts`,
+`components/native-chat/structured-agent-session-message-sender.ts` and its existing test file for
+mirrored launch drafts: suppress duplicate composer append, preserve visible refusal/unconfirmed
+notices and terminal pending-send cleanup. This bounded ownership is recorded before writes.
+Own the existing `structured-agent-session-send-slot.ts` for any essential internal text-ownership
+discriminator; preserve external notes' no-notice behavior. D's notice integration may edit L's
+`codex-speed-launch-draft-recovery.test.ts` and `structured-agent-session-launch-prompt.ts` in an
+exclusive bounded task after L stops, using the real mirrored-launch boundary. No parallel L edits.
 `components/native-chat/use-structured-agent-session.ts` and
 `use-structured-agent-session-queued-messages.ts`, with matching tests. Reuse central send holds;
 retain refused requested intent until an explicit replacement is acknowledged for the same host generation.
@@ -256,12 +264,27 @@ and `use-mobile-structured-queued-message-controls.ts`, with matching tests.
 Focused tests may use `mobile-codex-speed-options-facts.test.ts` and
 `mobile-codex-speed-send-admission.test.ts`; extract the saved oversized mobile options additions
 before further corrections. Preserve actual controller forwarding and both clients' write assertions.
+Mobile facts and action provenance may update `use-mobile-native-chat-session-option-controller.ts`
+and `use-mobile-native-chat-controller.ts`, with matching tests. Preserve explicit accepted legacy
+action provenance for older-host at-rest acknowledgements that echo canonical and boolean values
+together; generic restored batches still prefer canonical. Show persisted blocked requested intent
+from `speed.selection` separately from `current.serviceTier`, including a fresh client after restart.
+D extracted `mobile/src/session/use-mobile-structured-agent-option-write.ts` for the 300-line hook
+cap before its exact path was authorized. Root inspected and retains that focused extraction,
+records it here before further edits, and does not treat the earlier write as compliant.
+No further unassigned extraction is permitted; report the required path before touching it.
+Focused mobile parent-forwarding coverage may use `mobile-codex-speed-parent-forwarding.test.ts`;
+the existing parent controller test is already large. Never make a fixture-only mapping stand in for
+the production forwarding path. D may extract `structured-agent-session-option-acknowledgement.ts`
+under `src/shared/` if needed to keep explicit-action handling focused without a file-limit exception.
 Generated localization catalogs may change only for the new strings using repository localization tooling.
 If a launch boundary needs another file, update this ownership map before writing; do not broaden scope silently.
 Use existing UI primitives and style tokens. Old-host controls remain selectable; new speed controls require capability.
 
 ### L: root-owned launch boundary, separate from D
 
+Own focused `codex-speed-launch-draft-recovery.test.ts` for final-probe persistence and idempotent
+parked-draft handoff regressions; keep existing large admission suite within its file cap.
 Writable production paths under `src/renderer/src/lib/`:
 `launch-structured-agent-session.ts`, `structured-agent-session-launch-options.ts`,
 `structured-agent-session-launch.ts`, `structured-agent-session-launch-prompt.ts`,
@@ -295,6 +318,12 @@ Execute this bounded correction after independent trace and red CI evidence, wit
 
 ### E: root-owned integration and delivery
 
+Temporary `.github/workflows/codex-speed-catalog-sync.yml` belongs to E. One narrowly scoped CI
+generation job may use existing localization/formatter tooling and upload an inspectable patch;
+it must not skip or replace required PR checks. Use only the lane's auxiliary generation branch,
+read-only GitHub permissions, no secrets and no deployment. Remove the helper from the final patch.
+Generated English catalogs under `src/renderer/src/i18n/` belong to E for these new strings only.
+
 Update `docs/site/content/docs/agents/codex.mdx` and `native-chat.mdx` in the same directory with selector,
 next-turn, older-host and unavailable-tier behavior. Keep this plan's acceptance evidence current.
 Inspect the combined diff for missed launch/resume consumers and simplify before independent review.
@@ -304,33 +333,37 @@ Do not independently bump upstream `package.json` or choose a released version; 
 
 ## Acceptance evidence
 
-### Pending review corrections
+### Current evidence and open gates
 
-| Slice | Production corrections | Regression corrections before red CI |
+Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
+can admit the release patch. Latest run: [CI38657670112](https://github.com/mercurai/orca/actions/runs/38657670112).
+Core: 823 passed (823). Mobile: 72 passed (72). Pinned upstream:
+32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
+Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
+B/D reviews accepted the corrections and all focused regressions now pass. Full exact-candidate
+CI and final verification remain next. A failed save cannot promise restart durability for intent
+never stored. While legacy intent has no existing durable encoding, non-speed writes must refuse
+before settlement rather than making the prior canonical tier look like an accepted replacement.
+
+| Criterion | Required proof | Current state |
 | --- | --- | --- |
-| B | Keep absent tier metadata unknown; remove stale legacy synthesis; record submission at actual write; align live/resting legacy intent; retain refused requested tier separately and block starts. | Add newer-unknown-after-old-Fast and real closed/terminal connection cases; legacy acknowledgement equivalence. |
-| C/F | Persist typed provider refusal-state maps before returning refusal; propagate persistence failures; register disk test in Node. Explicit defaults replace stale counterpart; canonical batch wins. | Assert refresh cannot unblock refused intent; refused-state and replacement persistence failure preserve durable state. F already has nine expected red failures. |
-| D | Rebuild controls on metadata/capability loss; capable unknown models show Standard recovery; fence mobile client/source changes; expose mobile facts; retain pending/refused intent and gate ordinary/reserved/queued sends. | Use real queue-controller wiring instead of test-only sessionId; attempt paired target after cutover; assert both clients receive no stale settings writes; add stable-client/source and late-unknown cases; test actual mobile forwarding; extract focused mobile additions. |
-| L | Recheck generations/cancellation after awaits and at delivery; capability-gate every canonical seed/write including Standard; explicit legacy replacement supersedes canonical; preserve both speed forms across model change; recover authoritative selection and existing receipt/draft. | Clear draft cache before setting storage; discard parked prompts and reset sends/fences in original/fresh module instances; replace fake reload; add host/catalog/model probe cutovers, delivery invalidation and held SSH picks; assert successful recovery publication and no persisted private diagnostic. |
+| Catalogs and missing Ultrafast | Modern/legacy exact IDs, empty precedence, unknown metadata; no invented choices | Deterministic focused CI passed |
+| Migration, defaults and persistence | Canonical/action precedence; unavailable intent; complete maps and disk | Targeted CI passed, including eight legacy non-speed refusal/recovery cases |
+| Conversation continuity | Actual database close/reopen, same thread/account, released lease/new fence | Eight focused resume cases passed |
+| Next-turn request and evidence | Exact IDs, mid-turn steer unchanged, submitted/accepted provenance, no processing inference | Deterministic transport/host coverage passed; installed live proof not run |
+| Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
+| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Focused fencing, cutover, pinned-account and nondefault host-model recovery cases passed |
+| Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
+| Exact product candidate | All required CI, independent final review and Opus verifier | Not run |
+| Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
+| Installed acceptance | Actual loaded executable/version, native picker and redacted outgoing request | Not run; repository-required Electron skill unavailable |
+| Actual Ultrafast execution | Direct server-reported processing evidence | Not observable through current Codex bridge; upstream metadata separate |
 
-Reviews were independent and read-only on slice diffs, not immutable final-head acceptance. The saved L
-regression file is not ready until fixture isolation is corrected. Do not count a passing fake reload
-as proof of fresh-renderer recovery. Real Sonnet correction workers resumed on October 14.
-
-| Criterion | Required proof | State |
-| --- | --- | --- |
-| Modern and legacy catalogs | Exact custom IDs, modern-empty precedence, snake/camel formats, unknown/malformed metadata | Not run |
-| Missing Ultrafast | No enabled invented choice, no subscription inference | Not run |
-| Migration and persistence | Restore vs toggle origin, explicit precedence, unavailable IDs, model switch, disk | Not run |
-| Conversation continuity | Same provider thread/account on resume; no duplicate conversation | Not run |
-| Next outgoing request | Picker -> stored option -> exact turn/start serviceTier, mid-turn turn/steer unchanged | Not run |
-| Launch refusal | Keep staged prompt/conversation; no first send after tier/capability refusal or invalidation | Not run |
-| Model/account/host changes | Generation fencing, pinned-account isolation, catalog refresh invalidation | Not run |
-| Old/new peers and SSH | New/old client-host matrix, no false at-rest acceptance, remote host owns catalog/defaults | Not run |
-| Other providers | Existing Claude/other selector and launch behavior stays covered | Not run |
-| Actionable failures | Definite pre-write rejection, provider rejection, preserved prompt and explicit recovery | Not run |
-| Live installed acceptance | Running build identity, installed picker, redacted outgoing tier evidence | Not run |
-| Actual Ultrafast execution | Direct per-turn server processing evidence; separately blocked if upstream omits metadata | Not run |
+The Windows baseline failures come from three stale package_windows test argv paths in
+`.github/workflows/pr.yml`, already present at the pinned upstream revision. Do not suppress the
+registration guards. The SSH launch AND-list runs in the background while foreground PID creation
+retains the parent umask; its best-effort chmod races that creation. Route both to their established
+owner without editing those unassigned paths or treating isolated SSH success as a race resolution.
 
 Run targeted Vitest suites, full node/CLI/web typechecks, mobile checks when touched, main/renderer/CLI build,
 changed-code quality, formatting and localization checks in the repository CI path on the exact candidate SHA.
@@ -377,5 +410,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: finish the saved regression corrections, then run red CI
-before the focused production fixes. Final review, exact-candidate CI and owner rollout remain open.
+Next action: commit the tested product tree without the temporary workflow and run full exact-candidate CI/review.
+Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type MutableRefObject } from 'react'
+import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
 import type { MobileNativeChatTab } from './mobile-native-chat-eligibility'
@@ -254,7 +255,8 @@ export function useMobileNativeChatController(args: {
         snapshot: structuredNativeChat.optionSnapshot,
         pendingId: structuredNativeChat.pendingOptionId,
         setOption: structuredNativeChat.setStructuredOption,
-        invokeAction: structuredNativeChat.invokeStructuredOption
+        invokeAction: structuredNativeChat.invokeStructuredOption,
+        speedLines: codexSpeedLinesOfSurface(structuredNativeChat.optionSurface)
       },
       toggleTabChatView,
       worktreeId

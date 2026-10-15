@@ -70,6 +70,8 @@ export const NODE_RUNTIME_INCLUDE = [
   'src/main/native-chat/agent-session-wire/structured-agent-session-status-first-input-identity.test.ts',
   'src/main/native-chat/agent-session-wire/codex-service-tier-record-round-trip.test.ts',
   'src/main/native-chat/agent-session-wire/structured-agent-session-speed-refusal-persistence.test.ts',
+  'src/main/native-chat/agent-session-wire/codex-speed-live-persistence.test.ts',
+  'src/main/native-chat/agent-session-wire/codex-speed-resume-continuity.test.ts',
   'src/main/native-chat/structured-chat-naming-command-first.test.ts',
   'src/main/native-chat/structured-chat-naming-status-hook.test.ts',
   'src/main/runtime/agent-session-conversation-name-store.test.ts',

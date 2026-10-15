@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-session-contracts'
 import type { StructuredAgentSessionLaunchIntent } from '@/lib/launch-structured-agent-session'
+import type * as ErrorsModule from '@/lib/structured-agent-session-launch-errors'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 
 type CallParams = {
@@ -14,18 +15,23 @@ type CallParams = {
 const mocks = vi.hoisted(() => ({
   call: vi.fn<(target: unknown, method: string, params: CallParams) => Promise<unknown>>(),
   createIntent: vi.fn(),
+  restoreIntent: vi.fn(),
   retryIntent: vi.fn(),
-  launch: vi.fn()
+  launch: vi.fn(),
+  speedSupport: vi.fn<(target: unknown) => Promise<'unknown' | 'supported' | 'unsupported'>>()
 }))
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
 
-vi.mock('@/lib/launch-structured-agent-session', () => {
-  class StructuredAgentSessionCreateRefusalError extends Error {}
+vi.mock('@/lib/launch-structured-agent-session', async () => {
+  // The real class: a speed block stopping a create is a refusal subclass, and must read as one.
+  const { StructuredAgentSessionCreateRefusalError } = await vi.importActual<typeof ErrorsModule>(
+    '@/lib/structured-agent-session-launch-errors'
+  )
   return {
     createStructuredAgentSessionLaunchIntent: mocks.createIntent,
     retryStructuredAgentSessionLaunchIntent: mocks.retryIntent,
-    restoreStructuredAgentSessionLaunchIntent: vi.fn(),
+    restoreStructuredAgentSessionLaunchIntent: mocks.restoreIntent,
     abandonStructuredAgentSessionLaunchIntent: vi.fn(),
     launchStructuredAgentSession: mocks.launch,
     StructuredAgentSessionCreateRefusalError
@@ -37,7 +43,8 @@ vi.mock('@/runtime/local-structured-session-tabs-sync', () => ({
 }))
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
-  callStructuredAgentSession: mocks.call
+  callStructuredAgentSession: mocks.call,
+  readStructuredAgentSessionCodexSpeedSupport: mocks.speedSupport
 }))
 
 vi.mock('@/store', () => ({
@@ -61,6 +68,7 @@ vi.mock('@/lib/agent-catalog', () => ({
 }))
 
 import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
+import { StructuredAgentSessionSpeedHostUnsupportedError } from '@/lib/structured-agent-session-launch-errors'
 import { refreshLocalStructuredSessionTabs } from '@/runtime/local-structured-session-tabs-sync'
 import {
   cancelStructuredAgentLaunch,
@@ -70,11 +78,19 @@ import {
 } from './structured-agent-session-launch'
 import {
   getStructuredAgentSessionLaunchSelection,
-  holdStructuredAgentSessionLaunchOption
+  holdStructuredAgentSessionLaunchOption,
+  recheckStructuredAgentSessionLaunchSpeed
 } from './structured-agent-session-launch-options'
+import { StructuredAgentSessionLaunchCancelledError } from './structured-agent-session-launch-recovery'
 import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
-import { hasStagedStructuredLaunchPrompt } from './structured-agent-session-launch-prompt'
 import {
+  discardStructuredLaunchPrompts,
+  hasStagedStructuredLaunchPrompt
+} from './structured-agent-session-launch-prompt'
+import { clearNativeChatDraftCacheForTests } from '@/components/native-chat/native-chat-draft-cache'
+import { resetStructuredAgentSessionSendsForTests } from '@/components/native-chat/structured-agent-session-message-sender'
+import {
+  getStructuredAgentSessionLaunchSpeedBlock,
   resetStructuredAgentLaunchRegistryForTests,
   subscribeStructuredAgentLaunchStatus
 } from './structured-agent-session-launch-registry'
@@ -86,6 +102,9 @@ import {
 
 const WORKTREE_ID = 'wt-1'
 const SESSION_ID = 'session-1'
+const LAUNCH_STORAGE_KEY = 'orca:structuredAgentLaunches:v1'
+// What the host said when it refused: no launch record may carry it.
+const HOST_DIAGNOSTIC = 'Service tier ultrafast is unavailable for account acct-private'
 
 function launchIntent(seedOptions?: Record<string, string>): StructuredAgentSessionLaunchIntent {
   return {
@@ -176,6 +195,7 @@ describe('picks made while a chat launches', () => {
       ...intent,
       seedOptions: { model: 'gpt-saved-since' }
     }))
+    mocks.speedSupport.mockResolvedValue('supported')
     vi.mocked(refreshLocalStructuredSessionTabs).mockResolvedValue([PUBLISHED])
     mocks.call.mockImplementation((_target, method) => {
       if (method === 'agentSession.setOption') {
@@ -186,8 +206,18 @@ describe('picks made while a chat launches', () => {
       if (method === 'agentSession.send') {
         return Promise.resolve({ ok: true, value: { submission: { dispatchState: 'accepted' } } })
       }
+      if (method === 'agentSession.history') {
+        return Promise.resolve({ ok: true, page: { fence: 7 } })
+      }
       return new Promise(() => {})
     })
+  })
+
+  afterEach(() => {
+    // A parked launch keeps staged text and a reserved send slot; a hand-back lands in the composer.
+    discardStructuredLaunchPrompts(SESSION_ID)
+    resetStructuredAgentSessionSendsForTests()
+    clearNativeChatDraftCacheForTests()
   })
 
   it('applies them against the receipt fence before the first turn and before publishing', async () => {
@@ -465,7 +495,11 @@ describe('picks made while a chat launches', () => {
         }
       )
 
-      const speedPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'ultrafast')
+      const speedPick = holdStructuredAgentSessionLaunchOption(
+        SESSION_ID,
+        'serviceTier',
+        'ultrafast'
+      )
       // Attached before the refusal arrives so the picker's outcome is never left unobserved.
       const reported = expect(speedPick).resolves.toMatchObject({
         kind: 'refused',
@@ -475,10 +509,7 @@ describe('picks made while a chat launches', () => {
       await settle()
       setOptionReplies[0]!.resolve({
         ok: false,
-        refusal: {
-          code: 'agent_session_operation_invalid',
-          message: 'Service tier ultrafast is unavailable'
-        }
+        refusal: { code: 'agent_session_operation_invalid', message: HOST_DIAGNOSTIC }
       })
       await reported
       await settle()
@@ -498,6 +529,14 @@ describe('picks made while a chat launches', () => {
         seed: { model: 'gpt-seeded' },
         held: { serviceTier: 'ultrafast' }
       })
+      // What the launch keeps names the speed and its reason, never the turn or the host's words.
+      const bookkeeping = JSON.stringify([
+        localStorage.getItem(LAUNCH_STORAGE_KEY),
+        getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)
+      ])
+      expect(bookkeeping).toContain('ultrafast')
+      expect(bookkeeping).not.toContain(HOST_DIAGNOSTIC)
+      expect(bookkeeping).not.toContain('first turn')
     }
 
     it('sends no first turn and does not publish, keeping the pick and the created chat', async () => {
@@ -576,5 +615,208 @@ describe('picks made while a chat launches', () => {
       expect(mocks.retryIntent).not.toHaveBeenCalled()
       expect(seen.promptRejected).toBeUndefined()
     })
+
+    it('blocks on a speed write nothing proves landed, keeping the pick, and retries it on a recheck', async () => {
+      mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
+      const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', {
+        requestId: 'request-9b',
+        prompt: 'first turn'
+      })
+      const pick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'ultrafast')
+      const reported = expect(pick).resolves.toEqual({
+        kind: 'refused',
+        failure: { kind: 'unconfirmed' }
+      })
+      await settle()
+      setOptionReplies[0]!.resolve(Promise.reject(new Error('connection lost')))
+      await reported
+      await settle()
+
+      expect(getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toMatchObject({
+        tierId: 'ultrafast',
+        reason: 'unconfirmed'
+      })
+      expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({
+        serviceTier: 'ultrafast'
+      })
+      expect(sentTurns()).toHaveLength(0)
+
+      expect(recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(true)
+      await settle()
+      expect(setOptionReplies).toHaveLength(2)
+      setOptionReplies[1]!.resolve({
+        ok: true,
+        value: {
+          key: 'serviceTier',
+          value: 'ultrafast',
+          options: { model: 'gpt-seeded', serviceTier: 'ultrafast' }
+        }
+      })
+      await expect(launch.promptDeliveryResult).resolves.toEqual({
+        delivered: true,
+        failureNotified: false
+      })
+      expect(sentTurns()).toHaveLength(1)
+      expect(mocks.launch).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  function sentTurns() {
+    return mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.send')
+  }
+
+  describe('when the host does not affirm the speed the chat runs', () => {
+    const SPEED_SEED = { model: 'gpt-seeded', serviceTier: 'ultrafast' }
+
+    async function launchWithSpeedSeed(support: 'unknown' | 'unsupported') {
+      mocks.createIntent.mockReturnValue(launchIntent(SPEED_SEED))
+      mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
+      mocks.speedSupport.mockResolvedValue(support)
+      const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', {
+        requestId: 'request-10',
+        prompt: 'first turn'
+      })
+      await settle()
+      return launch
+    }
+
+    it.each([
+      ['unsupported', 'host-update-needed'],
+      ['unknown', 'host-unreachable']
+    ] as const)(
+      'parks a launch whose host is %s, with the chat and the staged turn kept',
+      async (support, reason) => {
+        await launchWithSpeedSeed(support)
+
+        expect(mocks.speedSupport).toHaveBeenCalledWith({ kind: 'local' })
+        expect(getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toEqual({
+          tierId: 'ultrafast',
+          reason
+        })
+        expect(sentTurns()).toHaveLength(0)
+        expect(lifecycle()).toBe('pending')
+        expect(hasStagedStructuredLaunchPrompt(SESSION_ID)).toBe(true)
+
+        markStructuredAgentSessionLaunchesPublished(
+          'local',
+          publishedStructuredSessions([PUBLISHED])
+        )
+        await settle()
+        expect(lifecycle()).toBe('pending')
+        expect(sentTurns()).toHaveLength(0)
+        expect(mocks.launch).toHaveBeenCalledTimes(1)
+      }
+    )
+
+    it('sends the first turn once, on the same chat, when the host comes to affirm the speed', async () => {
+      const launch = await launchWithSpeedSeed('unknown')
+
+      // Still unanswered: it is checked again and parks again.
+      expect(recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(true)
+      await settle()
+      expect(mocks.speedSupport).toHaveBeenCalledTimes(2)
+      expect(sentTurns()).toHaveLength(0)
+
+      mocks.speedSupport.mockResolvedValue('supported')
+      expect(recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(true)
+      await expect(launch.promptDeliveryResult).resolves.toEqual({
+        delivered: true,
+        failureNotified: false
+      })
+
+      expect(sentTurns()).toHaveLength(1)
+      expect(mocks.launch).toHaveBeenCalledTimes(1)
+      expect(getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toBeNull()
+      expect(recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(false)
+    })
+
+    it('is resolved by an explicit replacement once the host affirms it, Standard included', async () => {
+      const launch = await launchWithSpeedSeed('unknown')
+
+      const standard = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'default')
+      await settle()
+      // Standard is a canonical tier too: nothing is written while the host cannot affirm it.
+      expect(mutations()).toEqual([])
+      mocks.speedSupport.mockResolvedValue('supported')
+      expect(recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(true)
+      await settle()
+      expect(mutations()).toEqual([
+        { method: 'agentSession.setOption', fence: 7, key: 'serviceTier', value: 'default' }
+      ])
+      setOptionReplies[0]!.resolve({
+        ok: true,
+        value: {
+          key: 'serviceTier',
+          value: 'default',
+          options: { model: 'gpt-seeded', serviceTier: 'default' }
+        }
+      })
+      await expect(standard).resolves.toEqual({
+        kind: 'accepted',
+        options: { model: 'gpt-seeded', serviceTier: 'default' }
+      })
+      await expect(launch.promptDeliveryResult).resolves.toEqual({
+        delivered: true,
+        failureNotified: false
+      })
+
+      expect(sentTurns()).toHaveLength(1)
+      expect(mocks.launch).toHaveBeenCalledTimes(1)
+    })
+
+    it('ends with the launch when its tab closes while parked', async () => {
+      const launch = await launchWithSpeedSeed('unsupported')
+      const ended = launch.launchResult.catch((error: unknown) => error)
+
+      cancelStructuredAgentLaunch(WORKTREE_ID, SESSION_ID)
+      await settle()
+
+      await expect(ended).resolves.toBeInstanceOf(StructuredAgentSessionLaunchCancelledError)
+      expect(sentTurns()).toHaveLength(0)
+      expect(recheckStructuredAgentSessionLaunchSpeed(SESSION_ID)).toBe(false)
+    })
+
+    it.each([
+      ['a legacy Fast seed', 'codex', { model: 'gpt-seeded', fastMode: 'true' }],
+      ['no speed', 'codex', { model: 'gpt-seeded' }],
+      ['another provider', 'claude', { model: 'opus', serviceTier: 'ultrafast' }]
+    ] as const)('never asks the host about %s', async (_name, agent, seed) => {
+      mocks.createIntent.mockReturnValue({ ...launchIntent(seed), agent })
+      mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 7 })
+      const launch = startStructuredAgentLaunch(WORKTREE_ID, agent, {
+        requestId: 'request-11',
+        prompt: 'first turn'
+      })
+
+      await expect(launch.promptDeliveryResult).resolves.toEqual({
+        delivered: true,
+        failureNotified: false
+      })
+      expect(mocks.speedSupport).not.toHaveBeenCalled()
+    })
+  })
+
+  it('names the speed beside Retry when it stopped the create, and drops it once a retry goes through', async () => {
+    mocks.launch
+      .mockRejectedValueOnce(
+        new StructuredAgentSessionSpeedHostUnsupportedError({
+          tierId: 'ultrafast',
+          reason: 'host-update-needed'
+        })
+      )
+      .mockResolvedValueOnce({ sessionId: SESSION_ID, fence: 2 })
+    startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'request-13' })
+    await settle()
+
+    expect(lifecycle()).toBe('failed')
+    expect(getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toEqual({
+      tierId: 'ultrafast',
+      reason: 'host-update-needed'
+    })
+
+    expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
+    await settle()
+    expect(getStructuredAgentSessionLaunchSpeedBlock(WORKTREE_ID, SESSION_ID)).toBeNull()
+    expect(lifecycle()).toBeNull()
   })
 })

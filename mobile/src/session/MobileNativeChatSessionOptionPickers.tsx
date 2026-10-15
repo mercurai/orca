@@ -9,10 +9,17 @@ import {
   type SessionOptionValue
 } from '../../../src/shared/native-chat-session-options'
 import {
+  CODEX_SERVICE_TIER_OPTION_ID,
+  isCodexSpeedSelectorSettable
+} from '../../../src/shared/codex-service-tier-presentation'
+import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
+import {
   mobileModelPillLabel,
   mobileOptionsPillLabel,
   mobileSessionOptionSummaryValue,
-  mobileSessionOptionDisabledReason
+  mobileSessionOptionDisabledReason,
+  mobileSpeedCaptions,
+  mobileSpeedLine
 } from './mobile-native-chat-session-option-labels'
 import {
   DescriptorRows,
@@ -50,10 +57,18 @@ export function MobileNativeChatSessionOptionPickers({
   const { snapshot, pendingId } = controller
   const model = snapshot.find((descriptor) => descriptor.category === 'model')
   const options = sortNativeChatSessionOptions(snapshot)
+  // The controller carries the session's speed facts; only the speed sheet words them.
+  const speedLines = codexSpeedLinesOfSurface(controller)
   if (!model) {
     return null
   }
-  const disabled = isWorking || pendingId !== null || sendInFlight
+  // A running turn locks every control that changes it. The speed select alone stays open: its
+  // choice applies to the next turn.
+  const speedOpenWhileWorking = isWorking && options.some(isCodexSpeedSelectorSettable)
+  const busy = pendingId !== null || sendInFlight
+  const disabled = (isWorking && !speedOpenWhileWorking) || busy
+  const rowsDisabled = (descriptor: SessionOptionDescriptor): boolean =>
+    busy || (isWorking && !isCodexSpeedSelectorSettable(descriptor))
   const activeDescriptor = snapshot.find((descriptor) => descriptor.id === openDescriptorId)
   const modelView = activeDescriptor?.id === model.id
   const modelLabel = mobileModelPillLabel(model)
@@ -67,9 +82,14 @@ export function MobileNativeChatSessionOptionPickers({
     setOpenDescriptorId(model.id)
   }
 
+  // A speed the host has not accepted may be asked for again, whatever the sheet already shows.
+  const speedUnanswered = speedLines.some(
+    (line) => line.kind === 'pending' || line.kind === 'requested'
+  )
   const applyOption = (descriptor: SessionOptionDescriptor, value: SessionOptionValue): void => {
     // Re-picking the tracked value is a no-op — never re-dispatch it.
     if (
+      !(descriptor.id === CODEX_SERVICE_TIER_OPTION_ID && speedUnanswered) &&
       descriptor.valueSource !== 'unknown' &&
       descriptor.kind.type === 'select' &&
       descriptor.kind.currentValue === value
@@ -129,10 +149,20 @@ export function MobileNativeChatSessionOptionPickers({
               <SessionOptionCaption>Sent to the agent — not confirmed</SessionOptionCaption>
             ) : null}
             {reason ? <SessionOptionCaption>{reason}</SessionOptionCaption> : null}
+            {mobileSpeedCaptions(activeDescriptor).map((caption) => (
+              <SessionOptionCaption key={caption}>{caption}</SessionOptionCaption>
+            ))}
+            {activeDescriptor.id === CODEX_SERVICE_TIER_OPTION_ID
+              ? speedLines.map((line) => (
+                  <SessionOptionCaption key={line.kind}>
+                    {mobileSpeedLine(line)}
+                  </SessionOptionCaption>
+                ))
+              : null}
             <View style={styles.choiceGroup}>
               <DescriptorRows
                 descriptor={activeDescriptor}
-                disabled={disabled}
+                disabled={rowsDisabled(activeDescriptor)}
                 grouped
                 onSetOption={(value) => applyOption(activeDescriptor, value)}
                 onInvokeAction={() => invokeAction(activeDescriptor)}
@@ -145,7 +175,7 @@ export function MobileNativeChatSessionOptionPickers({
                     key={descriptor.id}
                     label={descriptor.label}
                     value={mobileSessionOptionSummaryValue(descriptor)}
-                    disabled={disabled}
+                    disabled={rowsDisabled(descriptor)}
                     divided={index < options.length - 1}
                     onPress={() => setOpenDescriptorId(descriptor.id)}
                   />

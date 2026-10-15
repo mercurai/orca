@@ -8,6 +8,7 @@ import type { NativeChatBlock } from '../../shared/native-chat-types'
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import {
   isCodexAppServerRequestError,
+  isCodexAppServerRequestNotSubmittedError,
   type CodexAppServerConnection
 } from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
@@ -22,8 +23,12 @@ import {
   codexDispatchRejection,
   codexTurnEndRejection
 } from './codex-structured-turn-end-settlement'
-import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured-agent-session-option-codec'
-import { codexKnownFastModeTier } from './codex-structured-catalog-entry'
+import { CodexServiceTierSelectionError } from '../../shared/codex-service-tier-selection'
+import {
+  admitCodexTurnSpeed,
+  trackCodexSpeedRequest,
+  type CodexSpeedEvidence
+} from './codex-structured-fast-mode'
 import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 
 // Writing a Codex turn and learning which message landed where, which are not
@@ -61,6 +66,10 @@ export type CodexTurnHost = {
   reportedOptions?: { model?: string }
   /** The account's catalog, read at send so any writer's newer tier applies. */
   catalogAccess?: CodexSessionCatalogAccess
+  /** What this send's `turn/start` speed request comes to; see `CodexSession.speedEvidence`. */
+  speedEvidence?: CodexSpeedEvidence
+  /** See `CodexSession.speedQuarantined`; judged at `turn/start` only, never at a steer. */
+  speedQuarantined?: true
   dispatchEchoes: CodexDispatchEchoes
   activeTurnIds?: ReadonlySet<string>
   /** Running turns whose interrupt Codex already answered: aborted, so never steered. */
@@ -82,32 +91,21 @@ function turnInputFor(body: AgentJournalMessageItem): Record<string, unknown>[] 
   return input
 }
 
-function codexTurnOptions(host: CodexTurnHost): Record<string, string> {
+// The stored speed rides as the one canonical `serviceTier`; a session that never chose sends none,
+// so the provider's configured default stands. Only the turn-option allowlist is a parameter: the
+// private refused-tier record and any saved option Codex has no turn field for never are.
+function codexTurnOptions(host: CodexTurnHost, tierId: string | undefined): Record<string, string> {
   const options = Object.fromEntries(
-    [...host.options].filter(([key]) => key !== 'fastMode' && key !== 'serviceTier')
+    [...host.options].filter(
+      ([key]) => isCodexTurnOptionKey(key) && key !== 'fastMode' && key !== 'serviceTier'
+    )
   )
-  const encodedFastMode = host.options.get('fastMode')
-  if (encodedFastMode === undefined) {
-    return host.options.has('serviceTier') ? { ...options, serviceTier: 'default' } : options
-  }
-  const fastMode = decodeStructuredAgentSessionOptionValue('fastMode', encodedFastMode)
-  if (typeof fastMode !== 'boolean') {
-    throw new Error('codex fast mode must be encoded as true or false')
-  }
-  if (!fastMode) {
-    return { ...options, serviceTier: 'default' }
-  }
-  const model = host.options.get('model') ?? host.reportedOptions?.model
-  const tierId = model ? codexKnownFastModeTier(host.catalogAccess, model) : undefined
-  // Fast is on but nothing has named the tier for this model yet, so there is no
-  // value to route to. Deliberately Standard rather than an omission: the tier
-  // persists on the thread, so omitting would silently keep routing a paid tier we
-  // cannot currently name, and discovery recovers the exact tier on a later turn.
-  if (!tierId) {
-    return { ...options, serviceTier: 'default' }
-  }
-  return { ...options, serviceTier: tierId }
+  return tierId === undefined ? options : { ...options, serviceTier: tierId }
 }
+
+// A steer tracks nothing, but supplying a submission callback makes the transport report a refusal
+// made before any write as typed proof, so a closed connection never falls through to `turn/start`.
+const STEER_SUBMISSION_PROOF = (): void => {}
 
 /**
  * Steers a send into the turn Codex last reported running. Null when Codex refused the steer,
@@ -128,7 +126,7 @@ async function steerCodexTurn(
         clientUserMessageId: input.clientMessageId,
         input: turnInputFor(input.body)
       },
-      { timeoutMs: input.timeoutMs }
+      { timeoutMs: input.timeoutMs, onSubmitted: STEER_SUBMISSION_PROOF }
     )
     return { turnId: readCodexTurnId(answer) ?? expectedTurnId, via: 'steer' }
   } catch (error) {
@@ -172,15 +170,24 @@ export async function startCodexTurn(
   if (steered) {
     return steered
   }
-  const answer = await host.connection.request(
-    'turn/start',
-    {
-      threadId: host.threadId,
-      clientUserMessageId: input.clientMessageId,
-      input: turnInputFor(input.body),
-      ...codexTurnOptions(host)
-    },
-    { timeoutMs: input.timeoutMs }
+  // Judged here, not at the steer: a steer carries no speed, so a tier the catalog no longer backs
+  // blocks only the next turn/start, before anything is written.
+  const tierId = admitCodexTurnSpeed(host, input.clientMessageId)
+  const answer = await trackCodexSpeedRequest(
+    host,
+    { clientMessageId: input.clientMessageId, tierId },
+    (onSubmitted) =>
+      host.connection.request(
+        'turn/start',
+        {
+          threadId: host.threadId,
+          clientUserMessageId: input.clientMessageId,
+          input: turnInputFor(input.body),
+          ...codexTurnOptions(host, tierId)
+        },
+        { timeoutMs: input.timeoutMs, onSubmitted }
+      ),
+    readCodexTurnId
   )
   return { turnId: readCodexTurnId(answer), via: 'start' }
 }
@@ -205,6 +212,19 @@ export async function dispatchCodexTurn(
   try {
     answer = await startCodexTurn(session, { ...input, timeoutMs })
   } catch (error) {
+    if (
+      error instanceof CodexServiceTierSelectionError ||
+      isCodexAppServerRequestNotSubmittedError(error)
+    ) {
+      // Refused here, before any frame was written: nothing was sent, so no echo can arrive and the
+      // send stays retryable with its options intact. Never retried at another tier. The words are
+      // Orca's own, so the fact carries no provider diagnostic; the selection facts explain why.
+      session.dispatchEchoes.disarm(input.clientMessageId)
+      return {
+        state: 'rejected',
+        ...codexDispatchRejection(agentSessionFailureFact('writeFailed'))
+      }
+    }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       // Codex answered and declined, so no echo for this write can arrive.
       session.dispatchEchoes.disarm(input.clientMessageId)

@@ -6,6 +6,7 @@ import {
 import type { AgentSessionModelCatalogResult } from '../../../../shared/agent-session-wire'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { AgentSessionOptionCatalog } from '../../../../shared/agent-session-option-catalog'
+import type { CodexSpeedHostSupport } from '../../../../shared/codex-service-tier-presentation'
 import {
   applyStructuredAgentSessionModelCatalog,
   settleStructuredAgentSessionBuiltinCatalog,
@@ -59,6 +60,8 @@ export function useHostModelCatalogUpgrade(args: {
   reportedUnpickedModel?: boolean
   /** The host runs the chat's agent: a reason its start gave ends with it. */
   providerRunning?: boolean
+  /** The host's answer for the speed capability: a change reads the list again, shaped for it. */
+  codexSpeedHost?: CodexSpeedHostSupport
   activeOptionRecordRef: MutableRefObject<NativeChatSessionOptionRecord>
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
@@ -67,6 +70,7 @@ export function useHostModelCatalogUpgrade(args: {
   const {
     activeOptionRecordRef,
     agent,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
@@ -130,7 +134,8 @@ export function useHostModelCatalogUpgrade(args: {
           ? current
           : catalog
             ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, {
-                newLaunch
+                newLaunch,
+                ...(codexSpeedHost ? { codexSpeedHost } : {})
               })
             : settleStructuredAgentSessionBuiltinCatalog(current)
       )
@@ -172,6 +177,7 @@ export function useHostModelCatalogUpgrade(args: {
   }, [
     activeOptionRecordRef,
     agent,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
