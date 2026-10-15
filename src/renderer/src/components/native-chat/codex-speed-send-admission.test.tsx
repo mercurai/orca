@@ -150,7 +150,10 @@ let hostTier = FAST.value
 
 const CUSTOM = { value: 'synthetic-custom-lane', label: 'Custom lane' }
 // A tier the host refused before this client existed: only its facts say so, current stays accepted.
-const hostRefused = { tierId: null as string | null, catalogOffersIt: false }
+const hostRefused: { tierId: string | null; catalogOffersIt: boolean } = {
+  tierId: null,
+  catalogOffersIt: false
+}
 
 // The live catalog and the resting read report the stored tier in `current` and name no `confirmed`
 // list; the host's own ready selection fact then says what it stored.
