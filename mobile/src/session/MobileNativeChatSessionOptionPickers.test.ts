@@ -1,11 +1,18 @@
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type {
-  CodexSpeedLine,
-  SpeedAwareSessionOptionsSurface
+import { CODEX_SESSION_OPTION_CATALOG } from '../../../src/shared/agent-session-option-catalog-claude-codex'
+import { CODEX_SERVICE_TIER_OPTION_ID } from '../../../src/shared/codex-service-tier-presentation'
+import {
+  codexSpeedLines,
+  type CodexSpeedLine,
+  type SpeedAwareSessionOptionsSurface
 } from '../../../src/shared/codex-speed-facts-presentation'
 import type { SessionOptionDescriptor } from '../../../src/shared/native-chat-session-options'
+import {
+  createStructuredAgentSessionOptionState,
+  structuredAgentSessionOptionSnapshot
+} from '../../../src/shared/structured-agent-session-options'
 import { MobileNativeChatSessionOptionPickers } from './MobileNativeChatSessionOptionPickers'
 import type { MobileNativeChatSessionOptionsController } from './use-mobile-native-chat-session-options'
 
@@ -465,6 +472,75 @@ describe('MobileNativeChatSessionOptionPickers', () => {
       // That the parent controller forwards the session's lines to this controller is
       // `mobile-codex-speed-parent-forwarding.test.ts`, through the real parent: a copy of its field
       // list written here would pass whatever the parent actually forwards.
+
+      // The cold Codex model placeholder holds no speed select, so the real surface calls
+      // codexSpeedLines with no serviceTier descriptor. The probe phase is the optional third
+      // argument, passed through a typed alias so a missing parameter fails as a missing caption.
+      describe('cold placeholder phases', () => {
+        const LOADING = 'Loading speed options.'
+        const UNVERIFIED =
+          'Speed options could not be confirmed. Orca will retry when the host is available.'
+        const placeholder = structuredAgentSessionOptionSnapshot(
+          createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG)
+        )
+
+        const linesWithPhases: (
+          descriptor: Parameters<typeof codexSpeedLines>[0],
+          speed: Parameters<typeof codexSpeedLines>[1],
+          phases?: Readonly<{ capabilityPhase?: 'pending' | 'failed' | 'settled' }>
+        ) => CodexSpeedLine[] = codexSpeedLines
+
+        const coldLines = (phase: 'pending' | 'failed' | 'settled'): CodexSpeedLine[] =>
+          linesWithPhases(
+            placeholder.find((descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID),
+            undefined,
+            { capabilityPhase: phase }
+          )
+
+        const coldPickers = (lines: readonly CodexSpeedLine[]): ReactElement =>
+          createElement(MobileNativeChatSessionOptionPickers, {
+            controller: {
+              snapshot: placeholder,
+              pendingId: null,
+              setOption,
+              invokeAction,
+              recordCommand: vi.fn(),
+              getSpeedLines: () => lines
+            },
+            isWorking: false
+          })
+
+        it.each([
+          ['pending', LOADING, UNVERIFIED],
+          ['failed', UNVERIFIED, LOADING]
+        ] as const)(
+          'captions a %s read beside the closed pill without unlocking a speed select',
+          async (phase, shown, hidden) => {
+            act(() => {
+              renderer = create(coldPickers(coldLines(phase)))
+            })
+
+            expect(renderer!.root.findAllByType('BottomDrawer')).toEqual([])
+            expect(texts()).toContain(shown)
+            expect(texts()).not.toContain(hidden)
+            await act(async () => pill('Model').props.onPress())
+            expect(texts()).not.toContain('Speed')
+            expect(setOption).not.toHaveBeenCalled()
+          }
+        )
+
+        it('drops the loading caption once the read settles, claiming no speed', () => {
+          act(() => {
+            renderer = create(coldPickers(coldLines('pending')))
+          })
+          expect(texts()).toContain(LOADING)
+
+          act(() => renderer!.update(coldPickers(coldLines('settled'))))
+
+          expect(texts()).not.toContain(LOADING)
+          expect(texts()).not.toContain('The speed the server used is not reported.')
+        })
+      })
     })
   })
 })

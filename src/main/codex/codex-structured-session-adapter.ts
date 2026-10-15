@@ -282,15 +282,11 @@ export class CodexStructuredSessionAdapter implements StructuredAgentSessionAdap
   async setOption(
     input: StructuredAgentSessionSetOptionInput
   ): Promise<Readonly<Record<string, string>>> {
-    if (!isCodexTurnOptionKey(input.key)) {
-      throw new Error(`codex app-server has no thread option named ${input.key}`)
+    const { sessionId, key, value, priorOptions } = input
+    if (!isCodexTurnOptionKey(key)) {
+      throw new Error(`codex app-server has no thread option named ${key}`)
     }
-    return applyCodexStructuredSessionOption(
-      this.session(input.sessionId),
-      input.key,
-      input.value,
-      input.priorOptions
-    )
+    return applyCodexStructuredSessionOption(this.session(sessionId), key, value, priorOptions)
   }
 
   // Looked up, never required: a child that ended or was replaced since the write began is not

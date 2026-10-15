@@ -17,15 +17,23 @@ The fleet still owns landing, assembly and release ordering. Local builds/tests 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
 - Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
 - Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
-- Integration parent: `c9f164ad921173f48f145588654d442191410c15`; immutable product candidate pending.
+- Current product candidate: `11d32212ca6afdd10a7013e35e681f459c8d14b7`, pushed to PR #42.
 - Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
 
-Latest focused CI38657043624 at `7d8662fbcb31f05e07cdaf76a5dc7b68bd065d17` passed
-894 feature tests and failed one: mobile loses the nondefault host model on a same-session fence
-reset while its fresh read is pending. All 823 core cases and 71 mobile cases passed, including
-legacy failed-save protection and explicit fence recovery. B source passed independent review.
-The minimal shared canonical-model provenance correction is complete and under D review; a fresh
-combined run remains required. This is not final candidate verification.
+Latest focused CI38657670112 at `9a7b286ce4b45dd05c36e43eccefe319120880a0` passed all
+895 feature tests: 823 core and 72 mobile. Canonical model provenance now survives pending fence
+recovery, alongside legacy failed-save protection and the earlier host/picker corrections.
+B/D and the other slices passed independent source review. No generated patch remained.
+The job is red only because the separate pinned upstream baseline reproduces two Windows
+registration failures. Full PR CI38662957540 at `11d32212ca` passed static analysis and
+all desktop typechecks, mobile web bundle, both package jobs and cross-version wire compatibility.
+Three test shards failed: two known Windows registration failures, two stale fixture expectations
+(picker accessible name and unresolved Fast in a stalled-catalog concurrency test), and a real
+admission-await fence regression. Independent reviewers diagnosed and bounded these corrections.
+Five exact-head reviews and real Opus integration accepted the prior combined source; acceptance
+verification identified the required loading-versus-unknown gap. An Astra-approved completion plan
+has shared, desktop, mobile producer and closed-picker tests reviewed before red CI and production.
+No final release candidate has passed all gates; the owner has not assigned assembly or a version.
 All eight closed-database resume cases and the expanded launch suites passed this focused run.
 The separate pinned upstream baseline passed 32 tests and failed two Windows registration checks.
 Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
@@ -214,6 +222,9 @@ than declaring the child exited. `StructuredAgentSessionSetOptionInput.priorOpti
 provider for complete-map settlement, preserving unrelated saved options without restoring stale
 speed/private fields. It is optional internal input; other adapters ignore it. This adds no
 public wire field or database schema. Verify provider forwarding cannot leak it into requests.
+C also owns the focused type-only `structured-agent-session-option-contract.ts` extraction for the
+existing set-option input and named failed-persistence input. Re-export the existing input from
+the adapter module so all current imports remain compatible. This path is registered before writes.
 Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
 provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
@@ -281,6 +292,75 @@ Generated localization catalogs may change only for the new strings using reposi
 If a launch boundary needs another file, update this ownership map before writing; do not broaden scope silently.
 Use existing UI primitives and style tokens. Old-host controls remain selectable; new speed controls require capability.
 
+#### D completion: actual loading phase and retained canonical display
+
+Verification found a requirement gap: pending reads and failed/unknown support currently share a
+caption. Complete this presentation behavior without changing admission or provider/wire facts.
+The client-only `SessionOptionProbePhase = 'pending' | 'failed' | 'settled'` lives in the existing
+speed presentation contract. Track capability, options-read and catalog/listing phases separately;
+overlapping operations cannot clear another pending operation. Undefined preserves older callers.
+Freeze the optional `CodexSpeedPresentationPhases` fields as `capabilityPhase`, `optionsPhase`,
+and `catalogPhase`; shared option state carries those client-only fields. `codexSpeedLines` accepts
+that optional third argument. Existing callers remain valid. A pending phase emits a `loading` line;
+failed phases emit `support-unverified` after no phase remains pending. These public presentation
+discriminants are client-only. Keep stored/request/evidence
+lines independent. Desktop detailed hook names are `useStructuredAgentSessionHostCapabilityProbe`
+and `useStructuredAgentSessionHostCodexSpeedProbe`, returning `{ state, phase }`; existing state-only
+hooks delegate to the same owner. Mobile feedback uses `agentSessionHostSupportPhase`, forwards
+`hostSupportPhase` through the existing lane/session, and passes `codexSpeedHostPhase` to options.
+The existing probe's optional callbacks remain positional: failed third, attempt-start fourth.
+Only an actual active read/probe/listing wait is pending. Success settles; rejection/timeout clears
+pending to failed. Retry backoff is unknown; an actual retry becomes pending again. Existing
+session/client/source generations fence phase updates, including joined listing waits and host swaps.
+
+Use existing speed lines, captions, picker rows and style primitives. Loading must be visible while
+pending; failures show unverified support and an actionable explanation, not permanent loading.
+Before a speed selector exists, expose phase status beside the closed picker without unlocking it.
+Use `Loading speed options.` and `Speed options could not be confirmed. Orca will retry when the
+host is available.`; rendered tests cover this otherwise unreachable placeholder state.
+A saved or held canonical tier stays visible as a disabled canonical row when host support is
+unresolved, alongside its stored/requested provenance; it must not appear solely as Fast-off.
+Confirmed older hosts retain their supported Fast control and explicit recovery. A retained row
+never grants write/launch/send admission. Keep three-state capability admission and wire unchanged;
+phase fields are never persisted, sent to the provider, or presented as server processing evidence.
+Do not add a refresh button; document automatic refresh and explicit supported replacement.
+
+Register the following exclusive completion assignments before writes; existing B/C/L paths stay
+outside this wave. No worker may add an extraction without an exact ownership update.
+
+- **P shared/presentation:** existing `src/shared/structured-agent-session-options.ts`,
+  `codex-service-tier-presentation.ts`, `codex-speed-facts-presentation.ts`,
+  `native-chat-session-option-snapshot.ts`, and `native-chat-session-options.ts` only for an essential
+  additive internal disabled reason; desktop/mobile picker and option-label files already owned by D.
+  P owns shared/picker behavioral tests and any new focused
+  `src/shared/codex-speed-loading-presentation.test.ts` and desktop
+  `components/native-chat/NativeChatSessionOptionPickers.speed-loading.test.tsx`; the existing
+  main picker test is at its effective line cap.
+- **Q desktop owners:** existing `src/renderer/src/runtime/structured-agent-session-host-capability.ts`,
+  `components/native-chat/use-structured-agent-session-options.ts`,
+  `use-structured-agent-session-option-state.ts`, `use-host-model-catalog-upgrade.ts`, and
+  `use-structured-agent-session-speed-gate.ts` only if existing capability forwarding requires it.
+  Preserve the existing state-only hook and add a detailed result from its single probe owner.
+  Q owns their existing tests and focused `components/native-chat/codex-speed-loading.test.tsx`.
+- **R mobile owners:** existing `mobile/src/transport/runtime-status-probe.ts`,
+  `runtime-capability-probe.ts`, and their tests; `mobile/src/session/`
+  `use-mobile-session-feedback-capabilities.ts`, `use-mobile-session-tab-reconciliation.ts`,
+  `use-mobile-session-native-chat-dictation.ts`, `use-mobile-native-chat-controller.ts`,
+  `use-mobile-native-chat-session-lane.ts`, `use-mobile-structured-agent-session.ts`,
+  `use-mobile-structured-agent-options.ts`, `use-mobile-host-model-catalog-upgrade.ts`.
+  If the options owner exceeds its cap, R may move its existing reported-record projection unchanged
+  into `mobile/src/session/mobile-structured-agent-option-record.ts`; existing hook tests preserve behavior.
+  Forward phase beside support through existing inferred model types. Reuse `onAttemptFailed`,
+  with an optional attempt-start callback in the same retry owner; no second probe/cache.
+  R owns matching tests, focused `mobile/src/session/mobile-codex-speed-loading.test.ts`, and
+  `mobile/src/session/mobile-codex-speed-probe-phase.test.ts` for real feedback/probe producer wiring.
+
+Write behavioral reds through existing public hooks/pickers, not imports of missing future helpers.
+Cover pending-to-success/failure, joined-listing failure, retry/backoff, stale-host phases, retained
+canonical Ultra while capability is unresolved, and explicit older-host Fast recovery. Keep the
+895 previously passing cases. Use CI and independent source review; final exact-head verification
+and owner rollout still follow. Root owns generated English/doc updates and CI target admission.
+
 ### L: root-owned launch boundary, separate from D
 
 Own focused `codex-speed-launch-draft-recovery.test.ts` for final-probe persistence and idempotent
@@ -318,6 +398,17 @@ Execute this bounded correction after independent trace and red CI evidence, wit
 
 ### E: root-owned integration and delivery
 
+Full CI at `11d32212ca` passed static analysis, typechecks, packages and cross-version wire checks.
+It exposed three additional test failures besides the two known Windows registration failures.
+The existing `structured-agent-session-conversation-stop.test.ts` belongs to C for a bounded
+test-fixture correction: stalled catalog concurrency uses explicit Standard, since unresolved
+legacy Fast must now block. Preserve steer/Stop/replacement assertions and cover it in focused CI.
+P owns the picker test's stale `Effort` accessible-name expectation; the actual label is
+`Reasoning effort`. Independent review traced the superseded-fence toast to a real admission-await
+regression: recheck `isCurrent()` after `admitSend` before invoking mutation, so an old pick cannot
+capture a new fence. Q owns this narrow source correction and the existing regression test
+`components/native-chat/use-structured-agent-session.test.tsx`, strengthened with no-write evidence.
+
 Temporary `.github/workflows/codex-speed-catalog-sync.yml` belongs to E. One narrowly scoped CI
 generation job may use existing localization/formatter tooling and upload an inspectable patch;
 it must not skip or replace required PR checks. Use only the lane's auxiliary generation branch,
@@ -336,12 +427,12 @@ Do not independently bump upstream `package.json` or choose a released version; 
 ### Current evidence and open gates
 
 Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
-can admit the release patch. Latest run: [CI38657043624](https://github.com/mercurai/orca/actions/runs/38657043624).
-Core: 823 passed (823). Mobile: 71 passed, one failed (72). Pinned upstream:
+can admit the release patch. Latest run: [CI38657670112](https://github.com/mercurai/orca/actions/runs/38657670112).
+Core: 823 passed (823). Mobile: 72 passed (72). Pinned upstream:
 32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
 Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
-B review accepted the corrections; the legacy lifecycle regressions now pass. A fresh combined
-focused run remains next after canonical model-context review. A failed save cannot promise restart durability for intent
+B/D reviews accepted the corrections and all focused regressions now pass. Full exact-candidate
+CI and final verification remain next. A failed save cannot promise restart durability for intent
 never stored. While legacy intent has no existing durable encoding, non-speed writes must refuse
 before settlement rather than making the prior canonical tier look like an accepted replacement.
 
@@ -352,9 +443,9 @@ before settlement rather than making the prior canonical tier look like an accep
 | Conversation continuity | Actual database close/reopen, same thread/account, released lease/new fence | Eight focused resume cases passed |
 | Next-turn request and evidence | Exact IDs, mid-turn steer unchanged, submitted/accepted provenance, no processing inference | Deterministic transport/host coverage passed; installed live proof not run |
 | Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
-| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Prior fencing/cutover cases passed; nondefault host-model context remains one proven red with source correction under review |
+| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Focused fencing, cutover, pinned-account and nondefault host-model recovery cases passed |
 | Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
-| Exact product candidate | All required CI, independent final review and Opus verifier | Not run |
+| Exact product candidate | All required CI, independent final review and Opus verifier | e687 source accepted by five Codex reviewers and real Opus checks; 11d322 CI passed static/types/packages/wire; two baseline and three additional test failures require resolution |
 | Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
 | Installed acceptance | Actual loaded executable/version, native picker and redacted outgoing request | Not run; repository-required Electron skill unavailable |
 | Actual Ultrafast execution | Direct server-reported processing evidence | Not observable through current Codex bridge; upstream metadata separate |
@@ -410,5 +501,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: complete independent canonical-model provenance review and run the combined focused CI snapshot.
+Next action: finish reviewed loading tests and fixture corrections, then run red CI before production implementation.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

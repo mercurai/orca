@@ -183,3 +183,87 @@ describe('startRuntimeCapabilityProbe', () => {
     expect(seen).toEqual([])
   })
 })
+
+// The wrapper adds no probe of its own: the status probe's failed (third) and attempt-start (fourth)
+// callbacks must come out of it unchanged. The fourth is not in the signature yet, so the call goes
+// through a wider view of the same function.
+type ProbePort = Parameters<typeof startRuntimeCapabilityProbe>[0]
+
+const startCapabilityProbe: (
+  client: ProbePort,
+  onCapabilities: (capabilities: readonly string[]) => void,
+  onAttemptFailed?: () => void,
+  onAttemptStarted?: () => void
+) => () => void = startRuntimeCapabilityProbe
+
+function timelineClient(outcomes: ProbeOutcome[], events: string[]): ProbePort {
+  let calls = 0
+  return {
+    sendRequest: () => {
+      events.push('request')
+      const outcome = outcomes[Math.min(calls, outcomes.length - 1)]!
+      calls += 1
+      return outcome instanceof Error ? Promise.reject(outcome) : Promise.resolve(outcome)
+    }
+  }
+}
+
+function startRecording(client: ProbePort, events: string[]): () => void {
+  return startCapabilityProbe(
+    client,
+    (capabilities) => events.push(`capabilities:${capabilities.join(',')}`),
+    () => events.push('attempt-failed'),
+    () => events.push('attempt-start')
+  )
+}
+
+describe('startRuntimeCapabilityProbe attempt callbacks', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('forwards the failed and attempt-start callbacks of the one retry owner', async () => {
+    const events: string[] = []
+    const cancel = startRecording(
+      timelineClient([new Error('request timed out'), ok(['a.v1'])], events),
+      events
+    )
+    await flushMicrotasks()
+    expect(events).toEqual(['attempt-start', 'request', 'attempt-failed'])
+
+    await vi.advanceTimersByTimeAsync(999)
+    expect(events).toEqual(['attempt-start', 'request', 'attempt-failed'])
+    await vi.advanceTimersByTimeAsync(1)
+    expect(events).toEqual([
+      'attempt-start',
+      'request',
+      'attempt-failed',
+      'attempt-start',
+      'request',
+      'capabilities:a.v1'
+    ])
+    cancel()
+  })
+
+  it('publishes the empty set for an unreadable status as an answer, not a failed attempt', async () => {
+    const events: string[] = []
+    const unreadable: RpcResponse = { ok: true, id: '1', result: null, _meta: { runtimeId: 'r1' } }
+    const cancel = startRecording(timelineClient([unreadable], events), events)
+    await flushMicrotasks()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(events).toEqual(['attempt-start', 'request', 'capabilities:'])
+    cancel()
+  })
+
+  it('stays quiet after cancellation', async () => {
+    const events: string[] = []
+    const cancel = startRecording(timelineClient([new Error('request timed out')], events), events)
+    await flushMicrotasks()
+    cancel()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(events).toEqual(['attempt-start', 'request', 'attempt-failed'])
+  })
+})

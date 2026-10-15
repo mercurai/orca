@@ -12,7 +12,10 @@ import {
   CODEX_SERVICE_TIER_OPTION_ID,
   isCodexSpeedSelectorSettable
 } from '../../../src/shared/codex-service-tier-presentation'
-import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
+import {
+  codexSpeedLinesOfSurface,
+  type SessionOptionSpeedLinesSource
+} from '../../../src/shared/codex-speed-facts-presentation'
 import {
   mobileModelPillLabel,
   mobileOptionsPillLabel,
@@ -31,7 +34,7 @@ import { sortNativeChatSessionOptions } from '../../../src/shared/native-chat-se
 import type { MobileNativeChatSessionOptionsController } from './use-mobile-native-chat-session-options'
 
 export type MobileNativeChatSessionOptionPickersProps = {
-  controller: MobileNativeChatSessionOptionsController
+  controller: MobileNativeChatSessionOptionsController & SessionOptionSpeedLinesSource
   /** Pickers lock while the agent works — a mid-turn `/model` interleaves with
    *  the agent's own output (desktop parity). */
   isWorking: boolean

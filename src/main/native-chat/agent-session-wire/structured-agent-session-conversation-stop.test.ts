@@ -207,7 +207,7 @@ describe('a Stop that names no turn', () => {
       identity: identityFor(SESSION),
       fence: 1,
       spawnToken: 'spawn-catalog',
-      options: { fastMode: 'true' },
+      options: { serviceTier: 'default' },
       // Codex's turn events reach the host's journal, as the runtime wires them.
       events: hostEvents()
     })
@@ -222,7 +222,7 @@ describe('a Stop that names no turn', () => {
     )
     expect(await pickOption('model', 'gpt-next')).toMatchObject({
       ok: true,
-      value: { options: { model: 'gpt-next', fastMode: 'true' } }
+      value: { options: { model: 'gpt-next', serviceTier: 'default' } }
     })
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
       1

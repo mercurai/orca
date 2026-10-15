@@ -224,12 +224,12 @@ function SpeedCaptions(props: {
   return (
     <>
       {captions.map((key) => (
-        <DropdownMenuLabel key={key} className="font-normal">
+        <DropdownMenuLabel key={key}>
           {nativeChatSpeedCaption(key)}
         </DropdownMenuLabel>
       ))}
       {props.lines.map((line) => (
-        <DropdownMenuLabel key={line.kind} className="font-normal">
+        <DropdownMenuLabel key={line.kind}>
           {nativeChatSpeedLine(line)}
         </DropdownMenuLabel>
       ))}

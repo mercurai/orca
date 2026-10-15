@@ -499,7 +499,7 @@ describe('structured Codex session options', () => {
       clientMessageId: 'message-recovered',
       body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'recovered' }] }
     })
-    expect(requests.filter((entry) => entry.method === 'turn/start')[0]?.params).toMatchObject({
+    expect(requests.find((entry) => entry.method === 'turn/start')?.params).toMatchObject({
       serviceTier: 'priority-recovered'
     })
     expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'priority-recovered' })

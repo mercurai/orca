@@ -282,18 +282,20 @@ describe('Codex speed pick and the phone sends', () => {
     return settled
   }
 
+  type EverySendResult = {
+    send: MobileNativeChatSendOutcome
+    steer: boolean
+    resume: boolean
+  }
+
   /** An ordinary send, a queue Send now and a Resume, each tried once. */
   async function tryEverySend(
     target: Pick<
       ReturnType<typeof useMobileStructuredAgentSession>,
       'sendWithOutcome' | 'queued'
     > = chat()
-  ): Promise<{
-    send: MobileNativeChatSendOutcome
-    steer: boolean
-    resume: boolean
-  }> {
-    let result = { send: 'accepted' as MobileNativeChatSendOutcome, steer: true, resume: true }
+  ): Promise<EverySendResult> {
+    let result: EverySendResult = { send: 'accepted', steer: true, resume: true }
     await act(async () => {
       result = {
         send: await target.sendWithOutcome('typed meanwhile'),

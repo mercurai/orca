@@ -681,8 +681,8 @@ describe('Codex speed admission while a chat launches', () => {
       ['fastMode then a canonical tier', ['fastMode', 'true'], ['serviceTier', 'ultrafast']]
     ] as const)('keeps only the later of %s, and sends only it', async (_name, first, second) => {
       const { launch, created } = await launchHoldingPicks()
-      const earlier = hold(...first)
-      const later = hold(...second)
+      const earlier = hold(first[0], first[1])
+      const later = hold(second[0], second[1])
 
       expect(heldPicks()).toEqual({ [second[0]]: second[1] })
       expect(await peek(earlier)).toEqual({ kind: 'superseded' })

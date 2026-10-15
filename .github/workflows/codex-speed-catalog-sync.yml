@@ -51,6 +51,7 @@ jobs:
             src/renderer/src/lib
             src/renderer/src/runtime
             mobile/src/session
+            mobile/src/transport
             docs/site/content/docs/agents
           )
           changed="$RUNNER_TEMP/codex-speed-changed.zlist"
@@ -95,11 +96,14 @@ jobs:
           test -f src/renderer/src/lib/codex-speed-launch-draft-recovery.test.ts
           node config/scripts/run-vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 \
             src/shared/codex-service-tier-selection.test.ts \
+            src/main/native-chat/agent-session-wire/structured-agent-session-conversation-stop.test.ts \
+            src/renderer/src/components/native-chat/use-structured-agent-session.test.tsx \
             src/shared/codex-service-tier-seed.test.ts \
             src/shared/codex-service-tier-default-actions.test.ts \
             src/shared/codex-service-tier-host-gating.test.ts \
             src/shared/codex-service-tier-presentation.test.ts \
             src/shared/codex-speed-facts-presentation.test.ts \
+            src/shared/codex-speed-loading-presentation.test.ts \
             src/shared/structured-agent-session-option-acknowledgement.test.ts \
             src/main/codex/codex-service-tier-selection.test.ts \
             src/main/codex/codex-service-tier-turns.test.ts \
@@ -113,6 +117,9 @@ jobs:
             src/renderer/src/lib/launch-structured-agent-session.test.ts \
             src/renderer/src/lib/codex-speed-launch-admission.test.ts \
             src/renderer/src/components/native-chat/codex-speed-send-admission.test.tsx \
+            src/renderer/src/components/native-chat/codex-speed-loading.test.tsx \
+            src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed-loading.test.tsx \
+            src/renderer/src/runtime/structured-agent-session-host-capability.test.tsx \
             src/renderer/src/components/native-chat/structured-agent-session-message-sender.test.ts \
             src/renderer/src/components/native-chat/use-structured-agent-session-options.speed.test.tsx \
             src/main/codex/codex-structured-speed-intent.test.ts \
@@ -123,6 +130,11 @@ jobs:
             src/main/native-chat/agent-session-wire/codex-speed-live-persistence.test.ts \
             src/main/native-chat/agent-session-wire/codex-speed-resume-continuity.test.ts \
             src/renderer/src/lib/codex-speed-launch-draft-recovery.test.ts
+
+      - name: Typecheck desktop contracts
+        id: types
+        continue-on-error: true
+        run: pnpm run typecheck
 
       - name: Install mobile dependencies
         id: mobile-install
@@ -144,6 +156,24 @@ jobs:
           src/session/mobile-codex-speed-parent-forwarding.test.ts
           src/session/MobileNativeChatSessionOptionPickers.test.ts
           src/session/use-mobile-structured-agent-options.test.ts
+          src/session/mobile-codex-speed-loading.test.ts
+          src/session/mobile-codex-speed-probe-phase.test.ts
+          src/transport/runtime-status-probe.test.ts
+          src/transport/runtime-capability-probe.test.ts
+
+      - name: Typecheck mobile production
+        id: mobile-types
+        if: steps.mobile-install.outcome == 'success'
+        continue-on-error: true
+        working-directory: mobile
+        run: pnpm run typecheck
+
+      - name: Check mobile test type ratchet
+        id: mobile-test-types
+        if: steps.mobile-install.outcome == 'success'
+        continue-on-error: true
+        working-directory: mobile
+        run: pnpm run check:tests-typecheck
 
       - name: Checkout pinned upstream baseline
         uses: actions/checkout@v6
@@ -177,8 +207,11 @@ jobs:
         shell: bash
         env:
           CORE_OUTCOME: ${{ steps.core.outcome }}
+          TYPES_OUTCOME: ${{ steps.types.outcome }}
           MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
           MOBILE_OUTCOME: ${{ steps.mobile.outcome }}
+          MOBILE_TYPES_OUTCOME: ${{ steps.mobile-types.outcome }}
+          MOBILE_TEST_TYPES_OUTCOME: ${{ steps.mobile-test-types.outcome }}
           BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
         run: |
           set -euo pipefail
@@ -199,8 +232,11 @@ jobs:
               runAttempt: e.GITHUB_RUN_ATTEMPT,
               outcomes: {
                 core: e.CORE_OUTCOME,
+                types: e.TYPES_OUTCOME,
                 mobileInstall: e.MOBILE_INSTALL_OUTCOME,
                 mobile: e.MOBILE_OUTCOME,
+                mobileTypes: e.MOBILE_TYPES_OUTCOME,
+                mobileTestTypes: e.MOBILE_TEST_TYPES_OUTCOME,
                 baseline: e.BASELINE_OUTCOME
               }
             }
@@ -224,12 +260,15 @@ jobs:
         shell: bash
         env:
           CORE_OUTCOME: ${{ steps.core.outcome }}
+          TYPES_OUTCOME: ${{ steps.types.outcome }}
           MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
           MOBILE_OUTCOME: ${{ steps.mobile.outcome }}
+          MOBILE_TYPES_OUTCOME: ${{ steps.mobile-types.outcome }}
+          MOBILE_TEST_TYPES_OUTCOME: ${{ steps.mobile-test-types.outcome }}
           BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
         run: |
           echo "core=$CORE_OUTCOME mobile-install=$MOBILE_INSTALL_OUTCOME mobile=$MOBILE_OUTCOME baseline=$BASELINE_OUTCOME"
-          if [ "$CORE_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ] || [ "$BASELINE_OUTCOME" != success ]; then
+          if [ "$CORE_OUTCOME" != success ] || [ "$TYPES_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ] || [ "$MOBILE_TYPES_OUTCOME" != success ] || [ "$MOBILE_TEST_TYPES_OUTCOME" != success ] || [ "$BASELINE_OUTCOME" != success ]; then
             echo '::error::Speed targets or pinned baseline gates failed; inspect source metadata. This is not release evidence.'
             exit 1
           fi

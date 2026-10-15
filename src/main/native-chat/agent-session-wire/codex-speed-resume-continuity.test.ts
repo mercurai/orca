@@ -247,7 +247,7 @@ async function resumeAfterRestart(host: {
   journal: AgentSessionJournal
 }) {
   const closing = journals.indexOf(host.journal)
-  if (closing >= 0) {
+  if (closing !== -1) {
     journals.splice(closing, 1)
   }
   await host.journal.close()

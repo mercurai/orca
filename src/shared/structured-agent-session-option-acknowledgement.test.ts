@@ -139,7 +139,7 @@ describe('speed requests', () => {
       inFlight,
       CODEX_SESSION_OPTION_CATALOG,
       {
-        models: [{ id: MODEL_ID, label: 'Synthetic', efforts: [] }],
+        models: [{ id: MODEL_ID, label: 'Synthetic', isDefault: false, efforts: [] }],
         current: { model: MODEL_ID, serviceTier: ULTRAFAST.value, confirmed: ['serviceTier'] }
       },
       'supported'

@@ -53,6 +53,11 @@ import type { ProviderHistoryWindow } from '../agent-session-journal/journal-sub
 import type { StructuredAgentSessionStartupAttempt } from './structured-agent-session-startup-attempt-contract'
 import type { AgentSessionCreatePhaseRecorder } from '../../observability/agent-session-instrumentation'
 import type { AgentModelCatalogLiveListing } from '../agent-model-catalog/agent-model-catalog-entry'
+import type {
+  StructuredAgentSessionRecoverOptionInput,
+  StructuredAgentSessionSetOptionInput
+} from './structured-agent-session-option-contract'
+export type { StructuredAgentSessionSetOptionInput } from './structured-agent-session-option-contract'
 
 /** A live options read, plus what the child listed for its account's saved catalog. The host
  *  saves that listing and strips it before answering; an adapter whose listing reaches the
@@ -289,19 +294,6 @@ export type StructuredAgentSessionAcquireInput = Pick<
     onSpawned?: (process: AgentSessionProcessIdentity) => Promise<void>
   }
 
-export type StructuredAgentSessionSetOptionInput = {
-  sessionId: string
-  key: string
-  value: string
-  fence: number
-  /** Aborted by a close, a Stop admitted now, or quit, which must not wait behind a pick the
-   *  provider never answers: the write fails. An adapter that bounds its own write may ignore it. */
-  signal?: AbortSignal
-  /** A copy of the record's options as this write began, so an adapter that holds only some of them
-   *  can settle a complete map. */
-  priorOptions?: Readonly<Record<string, string>>
-}
-
 export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & {
   /** Provider-aware capability check for hosts that route more than one adapter. */
   supportsCreate?(location: AgentSessionExecutionLocation, agent: string): boolean
@@ -422,13 +414,7 @@ export type StructuredAgentSessionAdapter = StructuredAgentSessionAdapterStop & 
   /** The host could not persist the map a `setOption` settled, so the live session must not keep it.
    *  Synchronous and in-memory: no storage, no transport. `priorOptions` is the record as it stood
    *  before the write. A throw is logged and never replaces the persistence failure. */
-  recoverFailedOptionPersistence?(input: {
-    sessionId: string
-    fence: number
-    key: string
-    value: string
-    priorOptions: Readonly<Record<string, string>>
-  }): void
+  recoverFailedOptionPersistence?(input: StructuredAgentSessionRecoverOptionInput): void
   /** Resolves once a live session can take an option write, or after a bound; never rejects. */
   awaitOptionWritable?(sessionId: string): Promise<void>
   /** False while the live child has not answered its start, so it has run nothing it was handed.

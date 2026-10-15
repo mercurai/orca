@@ -78,7 +78,9 @@ function liveState(
   )
 }
 
-function hostCatalog(model: ReturnType<typeof tieredModel>): AgentSessionModelCatalogResult {
+type ListedModelCatalog = Extract<AgentSessionModelCatalogResult, { models: unknown }>
+
+function hostCatalog(model: ReturnType<typeof tieredModel>): ListedModelCatalog {
   return { origin: 'probe', models: [model], fetchedAt: 1_000 }
 }
 
