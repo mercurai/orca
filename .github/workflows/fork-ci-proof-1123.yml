@@ -1,0 +1,47 @@
+# Throwaway (claude-code-config#1125): proves the release and series workflows' pinning tests catch
+# every evasion mutant, and that the SEC-201 push jobs re-derive the tested trees exactly. Lives on
+# ci-only/sec-proof-1123-a only; never merged. No secrets. claude-code-config#1123 adds its own mutants.
+name: fork-ci-proof-1123
+
+on:
+  push:
+    branches: [ci-only/sec-proof-1123-a]
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      # The proof commit sits directly on the head under test, so the code proved is that head's.
+      - name: Source identity
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD~1)" = 7fdb3bb08c978b4c2e8a9a4d3ce1b1b6ac0c866f ]
+          git diff --exit-code HEAD~1 HEAD -- config/mercurai .github/workflows/fork-assemble-release.yml .github/workflows/fork-rebase-patches.yml
+          echo "source identity: config/mercurai and the two fork workflows equal 7fdb3bb08c"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Every mutant is caught
+        run: python3 ci-proof/mutate_run.py
+
+  derive-twice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Two derivations give the same trees
+        run: |
+          git config --global user.name proof
+          git config --global user.email proof@example.invalid
+          bash ci-proof/derive-twice.sh "$RUNNER_TEMP/derive"
