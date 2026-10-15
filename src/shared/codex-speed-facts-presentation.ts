@@ -104,12 +104,19 @@ export type SpeedAwareSessionOptionsSurface = SessionOptionsSurface & {
   getSpeedLines(): readonly CodexSpeedLine[]
 }
 
+/** The optional speed-line reader a controller may carry beyond its option surface. */
+export type SessionOptionSpeedLinesSource = { getSpeedLines?: () => readonly CodexSpeedLine[] }
+
+type SessionOptionSpeedLinesOwner = SessionOptionsSurface | SessionOptionSpeedLinesSource
+
 function reportsSpeedLines(
-  source: object
-): source is { getSpeedLines(): readonly CodexSpeedLine[] } {
+  source: SessionOptionSpeedLinesOwner
+): source is SessionOptionSpeedLinesOwner & { getSpeedLines(): readonly CodexSpeedLine[] } {
   return 'getSpeedLines' in source && typeof source.getSpeedLines === 'function'
 }
 
-export function codexSpeedLinesOfSurface(source: object | null): readonly CodexSpeedLine[] {
+export function codexSpeedLinesOfSurface(
+  source: SessionOptionSpeedLinesOwner | null
+): readonly CodexSpeedLine[] {
   return source && reportsSpeedLines(source) ? source.getSpeedLines() : NO_SPEED_LINES
 }

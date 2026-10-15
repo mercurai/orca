@@ -17,7 +17,7 @@ The fleet still owns landing, assembly and release ordering. Local builds/tests 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
 - Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
 - Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
-- Integration parent: `c9f164ad921173f48f145588654d442191410c15`; immutable product candidate pending.
+- Current product candidate: `e6870647ba512f73a99350b8bcc8e3e46e7fff7e`, pushed to PR #42.
 - Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
 
 Latest focused CI38657670112 at `9a7b286ce4b45dd05c36e43eccefe319120880a0` passed all
@@ -25,7 +25,12 @@ Latest focused CI38657670112 at `9a7b286ce4b45dd05c36e43eccefe319120880a0` passe
 recovery, alongside legacy failed-save protection and the earlier host/picker corrections.
 B/D and the other slices passed independent source review. No generated patch remained.
 The job is red only because the separate pinned upstream baseline reproduces two Windows
-registration failures. Full immutable product-candidate CI and final verification remain required.
+registration failures. Full PR CI38658103031 failed seven static errors: three file caps, two
+test idioms and two broad parameter types. Typechecks and downstream packaging/tests were skipped;
+the mobile production bundle passed. Five exact-head Codex source reviews and both real Opus
+source/integration checks accepted the behavior, with a required loading-versus-unknown presentation
+gap identified by verification. Correct static errors first, then add explicit client-owned pending
+presentation without new wire fields or duplicated capability probes. No rollout is authorized yet.
 All eight closed-database resume cases and the expanded launch suites passed this focused run.
 The separate pinned upstream baseline passed 32 tests and failed two Windows registration checks.
 Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
@@ -214,6 +219,9 @@ than declaring the child exited. `StructuredAgentSessionSetOptionInput.priorOpti
 provider for complete-map settlement, preserving unrelated saved options without restoring stale
 speed/private fields. It is optional internal input; other adapters ignore it. This adds no
 public wire field or database schema. Verify provider forwarding cannot leak it into requests.
+C also owns the focused type-only `structured-agent-session-option-contract.ts` extraction for the
+existing set-option input and named failed-persistence input. Re-export the existing input from
+the adapter module so all current imports remain compatible. This path is registered before writes.
 Also own `structured-agent-session-option-error.ts`: optional internal complete refusal-state options let
 provider-neutral live/at-rest catches persist the block before returning a refusal. Persistence failure
 must propagate. This adds no wire field or database schema and never reports the failed choice accepted.
@@ -354,7 +362,7 @@ before settlement rather than making the prior canonical tier look like an accep
 | Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
 | Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Focused fencing, cutover, pinned-account and nondefault host-model recovery cases passed |
 | Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
-| Exact product candidate | All required CI, independent final review and Opus verifier | Not run |
+| Exact product candidate | All required CI, independent final review and Opus verifier | e687 source accepted by five Codex reviewers and real Opus checks; full CI failed seven static errors, typechecks/packaging skipped |
 | Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
 | Installed acceptance | Actual loaded executable/version, native picker and redacted outgoing request | Not run; repository-required Electron skill unavailable |
 | Actual Ultrafast execution | Direct server-reported processing evidence | Not observable through current Codex bridge; upstream metadata separate |
@@ -410,5 +418,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: commit the tested product tree without the temporary workflow and run full exact-candidate CI/review.
+Next action: apply bounded static corrections, then cover the required loading/unknown distinction before final CI.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.
