@@ -182,7 +182,7 @@ function phaseExtras(
   const added: CodexSpeedLine[] = []
   for (const line of linesWith(descriptor, speed, phases)) {
     const at = remaining.indexOf(JSON.stringify(line))
-    if (at >= 0) {
+    if (at !== -1) {
       remaining.splice(at, 1)
     } else {
       added.push(line)

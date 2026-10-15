@@ -79,6 +79,16 @@ jobs:
           pnpm run sync:localization-catalog
           pnpm run sync:localization-runtime-catalog
 
+      - name: Lint complete product tree
+        id: lint
+        continue-on-error: true
+        run: pnpm exec oxlint --format github
+
+      - name: Reject low-evidence patterns
+        id: anti-slop
+        continue-on-error: true
+        run: pnpm run audit:anti-slop
+
       # Bounded focused verification of the speed work, run on the generated tree. These
       # steps never fail the job themselves: the patch below must upload either way, and
       # the final step turns a failed outcome into a red run.
@@ -211,6 +221,8 @@ jobs:
       - name: Write patch and source metadata
         shell: bash
         env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          ANTI_SLOP_OUTCOME: ${{ steps.anti-slop.outcome }}
           CORE_OUTCOME: ${{ steps.core.outcome }}
           TYPES_OUTCOME: ${{ steps.types.outcome }}
           MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
@@ -236,6 +248,8 @@ jobs:
               runId: e.GITHUB_RUN_ID,
               runAttempt: e.GITHUB_RUN_ATTEMPT,
               outcomes: {
+                lint: e.LINT_OUTCOME,
+                antiSlop: e.ANTI_SLOP_OUTCOME,
                 core: e.CORE_OUTCOME,
                 types: e.TYPES_OUTCOME,
                 mobileInstall: e.MOBILE_INSTALL_OUTCOME,
@@ -264,6 +278,8 @@ jobs:
       - name: Fail on red Codex speed targets
         shell: bash
         env:
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+          ANTI_SLOP_OUTCOME: ${{ steps.anti-slop.outcome }}
           CORE_OUTCOME: ${{ steps.core.outcome }}
           TYPES_OUTCOME: ${{ steps.types.outcome }}
           MOBILE_INSTALL_OUTCOME: ${{ steps.mobile-install.outcome }}
@@ -273,7 +289,7 @@ jobs:
           BASELINE_OUTCOME: ${{ steps.baseline.outcome }}
         run: |
           echo "core=$CORE_OUTCOME mobile-install=$MOBILE_INSTALL_OUTCOME mobile=$MOBILE_OUTCOME baseline=$BASELINE_OUTCOME"
-          if [ "$CORE_OUTCOME" != success ] || [ "$TYPES_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ] || [ "$MOBILE_TYPES_OUTCOME" != success ] || [ "$MOBILE_TEST_TYPES_OUTCOME" != success ] || [ "$BASELINE_OUTCOME" != success ]; then
+          if [ "$LINT_OUTCOME" != success ] || [ "$ANTI_SLOP_OUTCOME" != success ] || [ "$CORE_OUTCOME" != success ] || [ "$TYPES_OUTCOME" != success ] || [ "$MOBILE_OUTCOME" != success ] || [ "$MOBILE_TYPES_OUTCOME" != success ] || [ "$MOBILE_TEST_TYPES_OUTCOME" != success ] || [ "$BASELINE_OUTCOME" != success ]; then
             echo '::error::Speed targets or pinned baseline gates failed; inspect source metadata. This is not release evidence.'
             exit 1
           fi
