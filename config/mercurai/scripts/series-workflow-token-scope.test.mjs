@@ -138,6 +138,16 @@ test('every script that feeds a force push checks the branch prefix first (SEC S
   assert.ok(dir('assemble-release.sh').includes(String.raw`^release/[A-Za-z0-9._-]+$`))
 })
 
+test('the state files default to /tmp, where the workflows read them', () => {
+  for (const name of ['rebase-series.sh', 'assemble-release.sh', 'record-series.sh']) {
+    const script = readFileSync(resolve(import.meta.dirname, name), 'utf8')
+    assert.ok(script.includes('state=${FORK_STATE_DIR:-/tmp}\n'), name)
+  }
+  // The sourced parser uses its caller's state, with the same default.
+  const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
+  assert.ok(parse.includes('state=${state:-${FORK_STATE_DIR:-/tmp}}\n'))
+})
+
 test('assemble-release strips CR from the git output it prints', () => {
   const assemble = readFileSync(resolve(import.meta.dirname, 'assemble-release.sh'), 'utf8')
   assert.ok(assemble.includes(String.raw`"refs/tags/$TAG..HEAD" | tr -d '\r'`))
@@ -201,16 +211,58 @@ test('overrides reach the scripts as an env value only, and are checked strictly
   assert.doesNotMatch(code(assemble.get('push')), /OVERRIDES/)
   const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
   assert.ok(parse.includes(String.raw`^(patch/[A-Za-z0-9._/-]+)=([0-9a-f]{40})$`))
-  assert.ok(parse.includes('grep -qxF "$_branch" /tmp/active'))
+  assert.ok(parse.includes('grep -qxF "$_branch" "$state/active"'))
   assert.ok(parse.includes('is not on an origin patch/* or ci-only/* branch'))
   assert.ok(parse.includes('does not contain $2'))
   assert.ok(parse.includes('has no commits beyond $2'))
   // The raw input is never echoed to the log (a carriage return would reach the runner as a command).
   assert.doesNotMatch(parse, /echo "[^"]*\$_pair/)
   // Nor may a commit subject: every git log/diff line it prints drops carriage returns.
-  const printed = parse.split('\n').filter((l) => /^\s*git (log|diff)\b/.test(l))
+  // (use_head's own lines; the protected-path check lists file names through its own filter, pinned below.)
+  const useHead = parse.slice(parse.indexOf('use_head() {'), parse.indexOf('require_pinned_head() {'))
+  const printed = useHead.split('\n').filter((l) => /^\s*git (log|diff)\b/.test(l))
   assert.equal(printed.length, 2)
   for (const line of printed) {
     assert.match(line, /\| tr -d '\\r'$/, line)
   }
+})
+
+// A real run's override must be pinned in the manifest and carry the protected paths unchanged; only
+// the test job, bound to the dispatch's dry_run, may skip that. Nothing else may set DRY_RUN.
+test('DRY_RUN is bound to inputs.dry_run in the test job only, and the push job and workflow env never set it', () => {
+  for (const [file] of WORKFLOWS) {
+    const workflow = read(file)
+    const jobs = jobsOf(workflow)
+    assert.ok(jobs.get('test').includes('\n    env:\n      DRY_RUN: ${{ inputs.dry_run }}\n'), `${file}: test job binding`)
+    assert.doesNotMatch(jobs.get('push'), /DRY_RUN/, `${file}: push job`)
+    const workflowEnv = workflow.slice(workflow.indexOf('\nenv:\n'), workflow.indexOf('\njobs:\n'))
+    assert.ok(workflowEnv.length > 0, file)
+    assert.doesNotMatch(workflowEnv, /DRY_RUN/, `${file}: workflow-level env`)
+    assert.equal(code(workflow).match(/DRY_RUN/g).length, 1, `${file}: the only DRY_RUN`)
+  }
+})
+
+test('the dry-run report prints the tested-trees lines a real run would require', () => {
+  const test_ = jobsOf(read('fork-rebase-patches.yml')).get('test')
+  assert.match(test_, /- name: Report the dry run\n(?:.*\n)*? {10}cat \/tmp\/trees\n(?:.*\n)*? {10}bash \/tmp\/fork-scripts\/record-series\.sh\n/)
+})
+
+test('a real run enforces the manifest pin and an exactly derived protected tree', () => {
+  const parse = readFileSync(resolve(import.meta.dirname, 'parse-overrides.sh'), 'utf8')
+  // Skipped only when DRY_RUN is exactly true.
+  assert.ok(parse.includes('if [ "${DRY_RUN:-}" != true ]; then\n    require_pinned_head "$1" "$sha"\n    require_carried_protected_paths "$1" "$sha" "$2"\n  fi\n'))
+  // The pin is compared to the head itself and read through strenv.
+  assert.ok(parse.includes(String.raw`.patches[] | select(.branch == strenv(BRANCH)) | .ported_head // ""`))
+  assert.ok(parse.includes('[ "$pin" = "$2" ] || {'))
+  // The protected tree: both paths, a strict apply, an empty diff leaves the base alone.
+  assert.ok(parse.includes('git diff --binary "$old" "origin/$1" -- .github config/mercurai > "$diff"'))
+  assert.ok(parse.includes('if [ -s "$diff" ] && ! GIT_INDEX_FILE=$index git apply --cached "$diff"; then'))
+  assert.ok(parse.includes('for path in .github config/mercurai; do'))
+  assert.ok(parse.includes('[ "$want" = "$got" ] || differs="$differs $path"'))
+  assert.doesNotMatch(parse, /ignore-whitespace|ignore-space|--whitespace|git apply[^\n]* -C/)
+  // Listed paths are sanitised: the head's file names are the dispatcher's text.
+  assert.ok(parse.includes("| LC_ALL=C tr -c '[:print:]\\n' '?'"))
+  // Recording the series clears the pin, so an approval cannot be reused.
+  const record = readFileSync(resolve(import.meta.dirname, 'record-series.sh'), 'utf8')
+  assert.ok(record.includes(String.raw`'del(.patches[] | select(.branch == strenv(BRANCH)) | .ported_head)'`))
 })

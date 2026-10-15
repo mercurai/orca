@@ -40,6 +40,18 @@ jobs:
         with:
           node-version: 24
 
+      # The repo's own .oxlintrc.json at the version pnpm-lock pins (a test pins the two together). Upstream's
+      # lane lints the same files later; this fails them here first (claude-code-config#1152).
+      # Run outside the checkout with no user config: a .npmrc merged from upstream (the merge guard does
+      # not cover it) could otherwise redirect the registry, or the platform binary's scoped registry, and
+      # run its code. The config's jsPlugins resolve from the config file, not from the cwd.
+      - name: Lint config/mercurai
+        working-directory: ${{ runner.temp }}
+        env:
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+          NPM_CONFIG_USERCONFIG: /dev/null
+        run: npx --yes oxlint@1.86.0 -c "$GITHUB_WORKSPACE/.oxlintrc.json" --format github "$GITHUB_WORKSPACE/config/mercurai"
+
       - name: Series scripts (push and ci-base)
         run: bash config/mercurai/scripts/test-fork-series-scripts.sh
 

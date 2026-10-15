@@ -163,10 +163,9 @@ describe('NativeChatCodeBlock', () => {
       </NativeChatCodeBlock>
     )
     const pre = container.querySelector('pre')
-    await waitFor(
-      () => expect(pre?.querySelector('span[style*="--syntax-dark"]')).not.toBeNull(),
-      { timeout: 10_000 }
-    )
+    await waitFor(() => expect(pre?.querySelector('span[style*="--syntax-dark"]')).not.toBeNull(), {
+      timeout: 10_000
+    })
 
     fireEvent.click(screen.getByRole('button', { name: 'Wrap lines' }))
 

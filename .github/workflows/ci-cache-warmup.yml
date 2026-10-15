@@ -41,13 +41,8 @@ on:
   pull_request:
     paths:
       - '.github/workflows/ci-cache-warmup.yml'
-      - '.github/actions/prepare-git-compatibility/**'
       - '.github/actions/prepare-headless-compiler/**'
       - 'config/scripts/headless-detector-compiler-cache.mjs'
-      - '.github/actions/prepare-linux-package-fixture/**'
-      - 'config/docker/headless-serve-shutdown/**'
-      - 'config/docker/cli-launch-contract/**'
-      - 'config/docker/daemon-shutdown-descendants/**'
 
 permissions:
   contents: read

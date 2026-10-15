@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # fork-rebase-patches' fetch, shared by its test and push jobs: upstream main, the target tag from
-# the fork (fork-sync-upstream mirrors it first) and the patch branches, and the base pinned once. Out: output `base`, the commit to rebase onto.
+# the fork (fork-sync-upstream mirrors it first) and the patch branches, and the base pinned once.
+# Out: output `base`, the commit to rebase onto.
 # In: UPSTREAM_REPO, TARGET (empty = upstream/main), TAG_SHA (what fork-sync-upstream saw), GITHUB_OUTPUT.
 set -euo pipefail
 git config user.name 'mercurai-fork-bot'

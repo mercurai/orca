@@ -6,21 +6,23 @@
 #
 # In: TAG, MANIFEST (in the checked-out workflow branch), MANIFEST_WORK, GITHUB_OUTPUT,
 # OVERRIDES (optional, see parse-overrides.sh; the workflow allows it on a dry run only).
-# Out: HEAD on the release branch; /tmp/active; outputs release_branch, release_tag, tree.
+# Out: HEAD on the release branch; <state>/active; outputs release_branch, release_tag, tree.
+# <state> is FORK_STATE_DIR, /tmp by default.
 set -euo pipefail
+state=${FORK_STATE_DIR:-/tmp}
 
 git config user.name 'mercurai-fork-bot'
 git config user.email 'fork-bot@users.noreply.github.com'
 # The fork's tags only: fork-sync-upstream mirrors each release tag once and never moves it, and
 # the mercurai.N numbering below must count the fork's releases, not names upstream invents.
 git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' '+refs/heads/ci-only/*:refs/remotes/origin/ci-only/*' --tags
+echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }
 git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null ||
   { echo "::error::the fork has no tag $TAG; fork-sync-upstream mirrors it first"; exit 1; }
-echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }
 
 # The release branch starts from the upstream tag, which has no config/mercurai/, so every later read uses this copy.
 cp "$MANIFEST" "$MANIFEST_WORK"
-yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > /tmp/active
+yq -r '.patches[] | select(.status == "upstream-open" or .status == "ours-only") | .branch' "$MANIFEST_WORK" > "$state/active"
 branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
 # The push job force-pushes these names: a manifest that names `mercurai` or a traversal is refused.
 [[ "$branch" =~ ^release/[A-Za-z0-9._-]+$ && "$branch" != *..* ]] || { echo "::error::release_branch '$branch' is not release/<name>; nothing was assembled"; exit 1; }
@@ -42,8 +44,8 @@ while read -r patch; do
   [ "$pb" = "$TAG" ] || { echo "::error::$patch is recorded on $pb, not $TAG; it was not rebased"; exit 1; }
   git merge-base --is-ancestor "refs/tags/$TAG" "origin/$patch" || { echo "::error::$patch does not contain $TAG; it was not rebased onto it"; exit 1; }
   head_of[$patch]=origin/$patch
-done < /tmp/active
-echo "series: $(tr '\n' ' ' < /tmp/active)"
+done < "$state/active"
+echo "series: $(tr '\n' ' ' < "$state/active")"
 
 git checkout -q -B "$branch" "refs/tags/$TAG"
 while read -r patch; do
@@ -57,7 +59,7 @@ while read -r patch; do
   fi
   # A CR in a commit subject must not reach the job log, where it could inject workflow commands.
   git cherry-pick -x --empty=drop "refs/tags/$TAG..${head_of[$patch]}" 2>&1 | tr -d '\r' || { echo "::error::$patch does not apply on $TAG"; git cherry-pick --abort; exit 1; }
-done < /tmp/active
+done < "$state/active"
 version=${TAG#v}
 last=$(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1)
 n=$(( ${last:-0} + 1 ))

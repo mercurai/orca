@@ -23,7 +23,7 @@ on:
         type: boolean
         default: false
       overrides:
-        description: 'Dry run only: hand-ported patch heads to assemble instead of origin/patch/*, as patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the tag and add commits beyond it; the manifest base is not checked'
+        description: 'Hand-ported patch heads to assemble instead of origin/patch/*, as patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the tag and add commits beyond it; the manifest base is not checked. Needs dry_run=true unless the manifest pins each head as ported_head and its protected paths are carried unchanged'
         type: string
         default: ''
 
@@ -47,6 +47,9 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A dry run pushes nothing, so it may preview an unpinned head; any other run enforces the pin.
+    env:
+      DRY_RUN: ${{ inputs.dry_run }}
     outputs:
       release_branch: ${{ steps.assemble.outputs.release_branch }}
       release_tag: ${{ steps.assemble.outputs.release_tag }}
@@ -62,7 +65,7 @@ jobs:
       - name: Overrides are for a dry run only
         if: ${{ inputs.overrides != '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
         run: |
-          echo "::error::overrides need dry_run, or a dispatch from a branch other than the default"
+          echo "::error::overrides need dry_run=true on the default branch; on another branch they run without it only when the manifest pins each head as ported_head"
           exit 1
 
       - name: Assemble the release branch
