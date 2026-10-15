@@ -17,15 +17,15 @@ The fleet still owns landing, assembly and release ordering. Local builds/tests 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
 - Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
 - Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
-- Committed main HEAD: `c9f164ad921173f48f145588654d442191410c15`; remote PR head remains `691b3b5cc3`.
+- Integration parent: `c9f164ad921173f48f145588654d442191410c15`; immutable product candidate pending.
 - Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
 
-Latest focused CI38638173160 at `9311f6c983f3e622efab59e8e2b44fb16281b32e` passed
-884 feature tests and failed ten: eight expected unresolved-legacy non-speed settlement cases,
-one mobile same-session fence recovery defect and one obsolete stored-versus-requested assertion.
-All prior host quarantine and shared stored-provenance regressions passed. Independent review
-accepted the new legacy fixtures and diagnosed both mobile failures. B/D bounded corrections
-are in progress. This is not final candidate verification.
+Latest focused CI38657043624 at `7d8662fbcb31f05e07cdaf76a5dc7b68bd065d17` passed
+894 feature tests and failed one: mobile loses the nondefault host model on a same-session fence
+reset while its fresh read is pending. All 823 core cases and 71 mobile cases passed, including
+legacy failed-save protection and explicit fence recovery. B source passed independent review.
+The minimal shared canonical-model provenance correction is complete and under D review; a fresh
+combined run remains required. This is not final candidate verification.
 All eight closed-database resume cases and the expanded launch suites passed this focused run.
 The separate pinned upstream baseline passed 32 tests and failed two Windows registration checks.
 Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
@@ -336,23 +336,23 @@ Do not independently bump upstream `package.json` or choose a released version; 
 ### Current evidence and open gates
 
 Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
-can admit the release patch. Latest run: [CI38638173160](https://github.com/mercurai/orca/actions/runs/38638173160).
-Core: 815 passed, eight failed (823). Mobile: 69 passed, two failed (71). Pinned upstream:
+can admit the release patch. Latest run: [CI38657043624](https://github.com/mercurai/orca/actions/runs/38657043624).
+Core: 823 passed (823). Mobile: 71 passed, one failed (72). Pinned upstream:
 32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
 Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
-B review accepted the four proven corrections; the unresolved legacy lifecycle regression and a
-fresh combined focused run remain next. A failed save cannot promise restart durability for intent
+B review accepted the corrections; the legacy lifecycle regressions now pass. A fresh combined
+focused run remains next after canonical model-context review. A failed save cannot promise restart durability for intent
 never stored. While legacy intent has no existing durable encoding, non-speed writes must refuse
 before settlement rather than making the prior canonical tier look like an accepted replacement.
 
 | Criterion | Required proof | Current state |
 | --- | --- | --- |
 | Catalogs and missing Ultrafast | Modern/legacy exact IDs, empty precedence, unknown metadata; no invented choices | Deterministic focused CI passed |
-| Migration, defaults and persistence | Canonical/action precedence; unavailable intent; complete maps and disk | Prior quarantine cases passed; eight legacy non-speed refusal cases are red |
+| Migration, defaults and persistence | Canonical/action precedence; unavailable intent; complete maps and disk | Targeted CI passed, including eight legacy non-speed refusal/recovery cases |
 | Conversation continuity | Actual database close/reopen, same thread/account, released lease/new fence | Eight focused resume cases passed |
 | Next-turn request and evidence | Exact IDs, mid-turn steer unchanged, submitted/accepted provenance, no processing inference | Deterministic transport/host coverage passed; installed live proof not run |
 | Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
-| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Stored provenance and hold cases passed; same-session fence replacement requires retaining the validated live catalog |
+| Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Prior fencing/cutover cases passed; nondefault host-model context remains one proven red with source correction under review |
 | Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
 | Exact product candidate | All required CI, independent final review and Opus verifier | Not run |
 | Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
@@ -410,5 +410,5 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: complete independent B review and run the stopped-writer combined focused CI snapshot.
+Next action: complete independent canonical-model provenance review and run the combined focused CI snapshot.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

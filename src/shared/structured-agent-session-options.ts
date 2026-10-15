@@ -207,6 +207,8 @@ export function applyStructuredAgentSessionOptions(
   // what the host stores, whatever its selection says of a different or blocked request. Only
   // releasing a held request needs the ready selection naming exactly it.
   const tierReported = hostSpeed !== undefined && result.current.serviceTier !== undefined
+  // The same read's `current.model` is the host's actual stored model, not a local pick.
+  const modelReported = hostSpeed !== undefined && Boolean(result.current.model)
   applyNativeChatReportedSessionOptions(
     state.record,
     {
@@ -217,7 +219,11 @@ export function applyStructuredAgentSessionOptions(
         ? { [CODEX_SERVICE_TIER_OPTION_ID]: result.current.serviceTier }
         : {})
     },
-    [...(result.current.confirmed ?? []), ...(tierReported ? [CODEX_SERVICE_TIER_OPTION_ID] : [])]
+    [
+      ...(result.current.confirmed ?? []),
+      ...(tierReported ? [CODEX_SERVICE_TIER_OPTION_ID] : []),
+      ...(modelReported ? ['model'] : [])
+    ]
   )
   const { speed: _previousSpeed, requested, ...rest } = state
   // The host's own read of exactly what was requested answers it; any other read leaves it held.

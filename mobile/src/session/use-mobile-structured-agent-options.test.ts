@@ -627,10 +627,15 @@ describe('useMobileStructuredAgentOptions canonical read model provenance', () =
     const reread = deferred<AgentSessionOptionsResult>()
     let reads = 0
     // The catalog method is refused as on an older host, so the options read is the only model source.
-    const client = optionsClient(() => (reads++ === 0 ? Promise.resolve(CANONICAL) : reread.promise))
+    const client = optionsClient(() =>
+      reads++ === 0 ? Promise.resolve(CANONICAL) : reread.promise
+    )
     const { calls, mutate } = recordingMutate(async (call) => {
       const tier = call === 0 ? B_ULTRA.value : B_STANDARD.value
-      return accepted({ key: 'serviceTier', value: tier, options: { serviceTier: tier } }, call !== 0)
+      return accepted(
+        { key: 'serviceTier', value: tier, options: { serviceTier: tier } },
+        call !== 0
+      )
     })
     const harness = await mountOptions({
       ...BASE,
