@@ -2,7 +2,7 @@
 owner: codex-01a1273e
 last-reviewed: 2026-10-14
 stability: draft
-status: review-corrections
+status: final-verification
 ---
 
 # Catalog-backed Codex speed selection
@@ -17,19 +17,20 @@ The fleet still owns landing, assembly and release ordering. Local builds/tests 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
 - Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
 - Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
-- Current product candidate: `11d32212ca6afdd10a7013e35e681f459c8d14b7`, pushed to PR #42.
+- Feature completion commit: `2434a009787fd83c8c06efcce5e612dd09b28207`; current candidate is this branch's HEAD.
 - Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
 
-Latest focused CI38657670112 at `9a7b286ce4b45dd05c36e43eccefe319120880a0` passed all
-895 feature tests: 823 core and 72 mobile. Canonical model provenance now survives pending fence
-recovery, alongside legacy failed-save protection and the earlier host/picker corrections.
-B/D and the other slices passed independent source review. No generated patch remained.
-The job is red only because the separate pinned upstream baseline reproduces two Windows
-registration failures. Full PR CI38662957540 at `11d32212ca` passed static analysis and
+Latest focused CI38671493701 at `e2823f0ace664fddb41b42c9b22a568bf14166ff` passed all
+1,090 feature tests: 957 core and 133 mobile, with desktop/mobile production/mobile test types green.
+The committed product paths match the effective tested tree, excluding this plan and the temporary
+CI workflow. Independent reviewers accepted the loading, refresh, evidence-label and fence corrections.
+The focused job is red only because the separate pinned upstream baseline reproduces two Windows
+registration failures. Prior full PR CI38662957540 at `11d32212ca` passed static analysis and
 all desktop typechecks, mobile web bundle, both package jobs and cross-version wire compatibility.
 Three test shards failed: two known Windows registration failures, two stale fixture expectations
 (picker accessible name and unresolved Fast in a stalled-catalog concurrency test), and a real
-admission-await fence regression. Independent reviewers diagnosed and bounded these corrections.
+admission-await fence regression. All three additional failures now pass focused CI. Full CI and
+independent final verification at the new immutable candidate remain open.
 Five exact-head reviews and real Opus integration accepted the prior combined source; acceptance
 verification identified the required loading-versus-unknown gap. An Astra-approved completion plan
 has shared, desktop, mobile producer and closed-picker tests reviewed before red CI and production.
@@ -435,11 +436,11 @@ Do not independently bump upstream `package.json` or choose a released version; 
 ### Current evidence and open gates
 
 Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
-can admit the release patch. Latest run: [CI38657670112](https://github.com/mercurai/orca/actions/runs/38657670112).
-Core: 823 passed (823). Mobile: 72 passed (72). Pinned upstream:
+can admit the release patch. Latest run: [CI38671493701](https://github.com/mercurai/orca/actions/runs/38671493701).
+Core: 957 passed (957). Mobile: 133 passed (133). Pinned upstream:
 32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
 Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
-B/D reviews accepted the corrections and all focused regressions now pass. Full exact-candidate
+B/D/P/Q/R reviews accepted the corrections and all focused regressions now pass. Full exact-candidate
 CI and final verification remain next. A failed save cannot promise restart durability for intent
 never stored. While legacy intent has no existing durable encoding, non-speed writes must refuse
 before settlement rather than making the prior canonical tier look like an accepted replacement.
@@ -453,7 +454,7 @@ before settlement rather than making the prior canonical tier look like an accep
 | Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
 | Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Focused fencing, cutover, pinned-account and nondefault host-model recovery cases passed |
 | Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
-| Exact product candidate | All required CI, independent final review and Opus verifier | e687 source accepted by five Codex reviewers and real Opus checks; 11d322 CI passed static/types/packages/wire; two baseline and three additional test failures require resolution |
+| Exact product candidate | All required CI, independent final review and Opus verifier | Reviewed completion passed 1,090 focused cases and all type gates; new full CI and final independent verification pending; baseline Windows owner correction remains open |
 | Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
 | Installed acceptance | Actual loaded executable/version, native picker and redacted outgoing request | Not run; repository-required Electron skill unavailable |
 | Actual Ultrafast execution | Direct server-reported processing evidence | Not observable through current Codex bridge; upstream metadata separate |
