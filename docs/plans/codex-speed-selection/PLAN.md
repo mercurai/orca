@@ -479,6 +479,9 @@ never hand-edited; only the release publish job writes the Mercurai update chann
 remains standalone on the bare upstream tag. Do not invent a version/tag or upload an installer by hand.
 The fork owner (orca-config-73, routed by the orchestrator formerly c3 and now orca-config-0f) owns patch registration,
 base selection, assembly and landing order. The frozen v1.4.224 assembly must not gain a new patch without its order.
+Fresh read-only manifest inspection still shows default-branch base `v1.4.223`, with the partial
+orcad template planned; this feature remains standalone on `v1.4.224`. The owner must complete
+base/template coordination and assign this patch before assembly, rather than mixing release bases.
 Obtain independent local code review at the exact PR head with the mandated reviewer model before release assembly.
 Require reviewed assembly CI and Windows package evidence for the exact release artifact, not only the patch branch.
 
@@ -513,16 +516,16 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Latest expanded CI38669038744 at `a7906a000f` passed 1,061 feature tests and failed 20:
-core 945 passed / 7 failed, mobile 116 passed / 13 failed. Mobile production and test types passed;
-all new mobile loading/probe cases passed. The separate pinned baseline passed 32 and failed two.
-Five desktop refresh regressions failed as intended. Two desktop and 13 mobile evidence cases
-need valid catalog fixtures and explicit phase assertions; a shared Claude fixture widens phase literals.
-Independent review accepted the fence guard and stable mobile lifecycle. Desktop refresh ownership, cross-tier evidence labels and the shared fixture type correction
-are written and independently accepted. Mobile catalog fixtures and phase-aware evidence assertions
-are reviewed. Dedicated mobile accepted-write refresh reds are being added before routing that
-refresh through its existing options-read owner.
-The inspected English-only artifact was applied with all writers stopped. Main HEAD stays `11d32212ca`.
+Latest expanded [CI38670367240](https://github.com/mercurai/orca/actions/runs/38670367240)
+at `bc4143c84a` passed 1,088 feature tests and failed the two new mobile accepted-write refresh cases:
+core 957 passed, mobile 131 passed / two failed. Desktop, mobile production and mobile test types passed.
+The separate pinned baseline passed 32 and failed two Windows registration guards.
+The desktop refresh owner, fence guard, retained cross-tier labels and phase-aware fixtures are
+independently accepted and their targeted tests now pass. The remaining mobile write helper reads
+options outside the phase owner; its success/failure red cases establish that omission. Route its
+accepted-write refresh through the existing options-read owner, preserving generation guards and
+independent last-request/processing evidence. The scoped two-file formatting artifact was inspected
+and applied with all writers stopped. Main HEAD stays `11d32212ca`.
 
-Next action: finish bounded P/Q/R production changes, inspect independent reviews and run expanded CI.
+Next action: finish the bounded mobile post-write correction, review it and run expanded CI.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

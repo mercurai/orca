@@ -332,9 +332,12 @@ describe('useMobileStructuredAgentOptions last turn evidence', () => {
     }
   }
 
-  it.each(['rejected', 'unanswered'] as const)(
+  it.each([
+    ['rejected', { kind: 'support-unverified' }],
+    ['unanswered', { kind: 'loading' }]
+  ] as const)(
     'keeps it beside a newly accepted tier while the follow-up read is %s',
-    async (followUp) => {
+    async (followUp, phaseLine) => {
       let reads = 0
       const host = optionsClient(() => {
         reads += 1
@@ -367,11 +370,18 @@ describe('useMobileStructuredAgentOptions last turn evidence', () => {
         outcome = await harness.current().setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
       })
       await vi.waitFor(() => expect(host.optionReads()).toBe(2))
+      // The rejection reaches the phase a few promise hops after the request left.
+      await act(async () => {
+        for (let tick = 0; tick < 10; tick += 1) {
+          await Promise.resolve()
+        }
+      })
 
       expect(outcome).toBe(true)
       expect(tierValue(harness.current().optionSnapshot)).toBe(ULTRAFAST_TIER.value)
-      // The write's own refresh is not the options wait: it adds no loading or unverified line.
+      // The write's refresh is the options read itself: its wait shows beside the unchanged lines.
       expect(speedLines(harness.current())).toEqual([
+        phaseLine,
         { kind: 'pending', label: 'Ultrafast' },
         { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
         { kind: 'processing', label: 'Fast' }

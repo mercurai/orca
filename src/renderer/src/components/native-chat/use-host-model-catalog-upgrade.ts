@@ -158,7 +158,8 @@ export function useHostModelCatalogUpgrade(args: {
       )
     }
     // The catalog already applied stands in the state; only the phase follows each actual read.
-    const mark = (phase: SessionOptionProbePhase): void => setCatalogRead({ shape: readShape, phase })
+    const mark = (phase: SessionOptionProbePhase): void =>
+      setCatalogRead({ shape: readShape, phase })
     // A running listing keeps the first read pending; a joined answer still listing timed out.
     const finish = (catalog: AgentSessionModelCatalogResult | null, joined: boolean): void => {
       if (stale) {

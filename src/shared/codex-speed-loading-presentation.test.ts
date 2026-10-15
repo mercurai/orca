@@ -426,9 +426,7 @@ describe('Codex speed select while the host capability is unresolved', () => {
     expect(lines).toEqual([{ kind: 'stored', label: expect.any(String) }, { kind: 'processing' }])
   })
 
-  it.each<
-    [string, AgentSessionModelOption[], string, SessionOptionSelectChoice[], string]
-  >([
+  it.each<[string, AgentSessionModelOption[], string, SessionOptionSelectChoice[], string]>([
     [
       'every advertised tier under its label and description, the stored one included',
       heldModels(),

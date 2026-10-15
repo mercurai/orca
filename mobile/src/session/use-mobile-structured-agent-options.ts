@@ -21,8 +21,8 @@ import {
   structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
 } from '../../../src/shared/structured-agent-session-options'
-import type { NativeChatSessionOptionRecord } from '../../../src/shared/native-chat-session-option-state'
 import type { RpcClient } from '../transport/rpc-client'
+import { reportedOptionRecord } from './mobile-structured-agent-option-record'
 import {
   callAgentSession,
   type StructuredAgentSessionMutate
@@ -52,24 +52,6 @@ type StructuredOptionsController = {
   /** Read when a send or a queue action runs, never from a render: whether a speed the host has
    *  not accepted keeps every turn out. */
   isSpeedSendBlocked: () => boolean
-}
-
-/** The record without any pick the host never reported back. */
-function reportedOptionRecord(
-  record: NativeChatSessionOptionRecord
-): NativeChatSessionOptionRecord {
-  return {
-    agent: record.agent,
-    ...(record.model?.source === 'reported' ? { model: record.model } : {}),
-    valuesByModel: Object.fromEntries(
-      Object.entries(record.valuesByModel).map(([modelId, values]) => [
-        modelId,
-        Object.fromEntries(
-          Object.entries(values).filter(([, entry]) => entry.source === 'reported')
-        )
-      ])
-    )
-  }
 }
 
 export function useMobileStructuredAgentOptions(args: {
@@ -203,6 +185,10 @@ export function useMobileStructuredAgentOptions(args: {
 
   // The options read's own wait, apart from the catalog's: either one still pending keeps loading.
   const [optionsPhase, setOptionsPhase] = useState<SessionOptionProbePhase | undefined>(undefined)
+  // An accepted write asks this one owner to read again: it supersedes a read in flight, and the
+  // answer or failure below is the wait the speed lines show.
+  const [acceptedRefresh, setAcceptedRefresh] = useState(0)
+  const onAcceptedOptionRefresh = useCallback(() => setAcceptedRefresh((count) => count + 1), [])
   useEffect(() => {
     if (!client || !sessionId || !enabled || !optionCatalog) {
       setOptionsPhase(undefined)
@@ -237,6 +223,7 @@ export function useMobileStructuredAgentOptions(args: {
       stale = true
     }
   }, [
+    acceptedRefresh,
     client,
     codexSpeedHost,
     enabled,
@@ -279,6 +266,7 @@ export function useMobileStructuredAgentOptions(args: {
     activeOptionRecordRef,
     pendingOptionRef,
     optionMutationGeneration,
+    onAcceptedOptionRefresh,
     updateOptionState
   })
 
