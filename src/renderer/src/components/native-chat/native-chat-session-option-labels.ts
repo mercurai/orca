@@ -107,6 +107,13 @@ export function nativeChatSpeedCaption(key: CodexSpeedCaptionKey): string {
  *  the next turn, a request is what was submitted or refused, processing is what the server said. */
 export function nativeChatSpeedLine(line: CodexSpeedLine): string {
   switch (line.kind) {
+    case 'loading':
+      return translate('components.native-chat.composer.speedLoading', 'Loading speed options.')
+    case 'support-unverified':
+      return translate(
+        'components.native-chat.composer.speedOptionsUnconfirmed',
+        'Speed options could not be confirmed. Orca will retry when the host is available.'
+      )
     case 'pending':
       return translate(
         'components.native-chat.composer.speedPending',

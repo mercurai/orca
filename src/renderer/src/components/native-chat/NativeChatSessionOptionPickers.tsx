@@ -24,11 +24,13 @@ import {
   type SessionOptionValue
 } from '../../../../shared/native-chat-session-options'
 import {
+  CODEX_SERVICE_TIER_OPTION_ID,
   codexSpeedDescriptorCaptions,
   isCodexSpeedSelectorSettable
 } from '../../../../shared/codex-service-tier-presentation'
 import {
   codexSpeedLinesOfSurface,
+  codexSpeedPhaseLine,
   type CodexSpeedLine
 } from '../../../../shared/codex-speed-facts-presentation'
 import {
@@ -224,14 +226,10 @@ function SpeedCaptions(props: {
   return (
     <>
       {captions.map((key) => (
-        <DropdownMenuLabel key={key}>
-          {nativeChatSpeedCaption(key)}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel key={key}>{nativeChatSpeedCaption(key)}</DropdownMenuLabel>
       ))}
       {props.lines.map((line) => (
-        <DropdownMenuLabel key={line.kind}>
-          {nativeChatSpeedLine(line)}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel key={line.kind}>{nativeChatSpeedLine(line)}</DropdownMenuLabel>
       ))}
     </>
   )
@@ -281,6 +279,12 @@ function NativeChatSessionOptionPickersInner({
   // choice applies to the next turn.
   const speedOpenWhileWorking = isWorking && options.some(isCodexSpeedSelectorSettable)
   const speedLines = codexSpeedLinesOfSurface(surface)
+  // Before a speed select exists the wait has no menu row to live in, so it shows beside the pill.
+  const hasSpeedSelect = options.some(
+    (descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID
+  )
+  const speedPhaseLine = hasSpeedSelect ? undefined : codexSpeedPhaseLine(speedLines)
+  const speedPhaseText = speedPhaseLine ? nativeChatSpeedLine(speedPhaseLine) : null
   const requestedModelSequence = pickerRequest?.id === model.id ? pickerRequest.sequence : null
   const requestedOptionsSequence = options.some((descriptor) => descriptor.id === pickerRequest?.id)
     ? (pickerRequest?.sequence ?? null)
@@ -397,6 +401,11 @@ function NativeChatSessionOptionPickersInner({
             })}
           </DropdownMenuContent>
         </DropdownMenu>
+      ) : null}
+      {speedPhaseText ? (
+        <span className="min-w-0 truncate px-1 text-[11px]" title={speedPhaseText}>
+          {speedPhaseText}
+        </span>
       ) : null}
     </div>
   )

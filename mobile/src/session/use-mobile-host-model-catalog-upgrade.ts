@@ -1,4 +1,5 @@
-import { useEffect, type MutableRefObject } from 'react'
+import { useEffect, useState, type MutableRefObject } from 'react'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import type { AgentSessionModelCatalogResult } from '../../../src/shared/agent-session-wire'
 import type { AgentSessionOptionCatalog } from '../../../src/shared/agent-session-option-catalog'
 import type { CodexSpeedHostSupport } from '../../../src/shared/codex-service-tier-presentation'
@@ -19,7 +20,7 @@ const LISTING_WAIT_TIMEOUT_MS = 45_000
  * host store while the session's own options read may still wait on its attach. Until the host
  * answers it shows the quiet placeholder; it never waits on a listing: a first listing still
  * running lands in place. An older host refuses the method, and the built-in list stands, naming
- * nothing, until the options read lands.
+ * nothing, until the options read lands. It returns the phase of the read in flight, unset when none.
  */
 export function useMobileHostModelCatalogUpgrade(args: {
   agent: string | null
@@ -41,7 +42,7 @@ export function useMobileHostModelCatalogUpgrade(args: {
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
   ) => void
-}): void {
+}): SessionOptionProbePhase | undefined {
   const {
     activeOptionRecordRef,
     agent,
@@ -56,8 +57,10 @@ export function useMobileHostModelCatalogUpgrade(args: {
     updateOptionState,
     worktree
   } = args
+  const [phase, setPhase] = useState<SessionOptionProbePhase | undefined>(undefined)
   useEffect(() => {
     if (!client || !sessionId || !enabled || !agent || !optionCatalog) {
+      setPhase(undefined)
       return
     }
     let stale = false
@@ -95,6 +98,13 @@ export function useMobileHostModelCatalogUpgrade(args: {
         )
       }
     }
+    // The wait ends with the whole read, a joined listing included; a stale one says nothing.
+    const endWait = (ended: SessionOptionProbePhase): void => {
+      if (!stale) {
+        setPhase(ended)
+      }
+    }
+    setPhase('pending')
     void read(false)
       .then((catalog) => {
         if (catalog.origin === 'unknown' && catalog.listingInProgress === true && !stale) {
@@ -105,7 +115,13 @@ export function useMobileHostModelCatalogUpgrade(args: {
         apply(catalog)
         return undefined
       })
-      .catch(settleBuiltin)
+      .then(
+        () => endWait('settled'),
+        () => {
+          settleBuiltin()
+          endWait('failed')
+        }
+      )
     return () => {
       stale = true
     }
@@ -123,4 +139,5 @@ export function useMobileHostModelCatalogUpgrade(args: {
     updateOptionState,
     worktree
   ])
+  return phase
 }

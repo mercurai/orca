@@ -14,6 +14,7 @@ import {
 } from '../../../src/shared/codex-service-tier-presentation'
 import {
   codexSpeedLinesOfSurface,
+  codexSpeedPhaseLine,
   type SessionOptionSpeedLinesSource
 } from '../../../src/shared/codex-speed-facts-presentation'
 import {
@@ -78,6 +79,11 @@ export function MobileNativeChatSessionOptionPickers({
   const optionsLabel = options.length > 0 ? mobileOptionsPillLabel(options) : null
   const pillLabel = optionsLabel ? `${modelLabel} ${optionsLabel}` : modelLabel
   const reason = mobileSessionOptionDisabledReason(activeDescriptor?.disabledReason)
+  // Before a speed select exists the wait has no sheet row to live in, so it shows by the pill.
+  const hasSpeedSelect = options.some(
+    (descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID
+  )
+  const speedPhaseLine = hasSpeedSelect ? undefined : codexSpeedPhaseLine(speedLines)
 
   const closePicker = (): void => setOpenDescriptorId(null)
   const openPicker = (): void => {
@@ -122,6 +128,9 @@ export function MobileNativeChatSessionOptionPickers({
         disabled={disabled}
         onPress={openPicker}
       />
+      {speedPhaseLine ? (
+        <SessionOptionCaption>{mobileSpeedLine(speedPhaseLine)}</SessionOptionCaption>
+      ) : null}
       <BottomDrawer visible={activeDescriptor !== undefined} onClose={closePicker}>
         {activeDescriptor ? (
           <View style={styles.sheet}>

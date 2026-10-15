@@ -31,6 +31,7 @@ export function useMobileSessionNativeChatDictation(
     client,
     connState,
     agentSessionHostSupport,
+    agentSessionHostSupportPhase,
     setInput,
     liveInputTerminalHandles,
     activeHandle,
@@ -77,6 +78,7 @@ export function useMobileSessionNativeChatDictation(
     nativeChatInputLeaseReady,
     connState,
     agentSessionHostSupport,
+    agentSessionHostSupportPhase,
     onSendError: nativeChatSendError.show,
     onSendResolved: nativeChatSendError.clear
   })

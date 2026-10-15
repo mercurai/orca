@@ -8,6 +8,7 @@ import type {
 } from '../../../src/shared/native-chat-session-options'
 import {
   codexSpeedLines,
+  type SessionOptionProbePhase,
   type SpeedAwareSessionOptionsSurface
 } from '../../../src/shared/codex-speed-facts-presentation'
 import {
@@ -20,8 +21,8 @@ import {
   structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
 } from '../../../src/shared/structured-agent-session-options'
-import type { NativeChatSessionOptionRecord } from '../../../src/shared/native-chat-session-option-state'
 import type { RpcClient } from '../transport/rpc-client'
+import { reportedOptionRecord } from './mobile-structured-agent-option-record'
 import {
   callAgentSession,
   type StructuredAgentSessionMutate
@@ -53,24 +54,6 @@ type StructuredOptionsController = {
   isSpeedSendBlocked: () => boolean
 }
 
-/** The record without any pick the host never reported back. */
-function reportedOptionRecord(
-  record: NativeChatSessionOptionRecord
-): NativeChatSessionOptionRecord {
-  return {
-    agent: record.agent,
-    ...(record.model?.source === 'reported' ? { model: record.model } : {}),
-    valuesByModel: Object.fromEntries(
-      Object.entries(record.valuesByModel).map(([modelId, values]) => [
-        modelId,
-        Object.fromEntries(
-          Object.entries(values).filter(([, entry]) => entry.source === 'reported')
-        )
-      ])
-    )
-  }
-}
-
 export function useMobileStructuredAgentOptions(args: {
   agent: string | null
   client: RpcClient | null
@@ -85,8 +68,11 @@ export function useMobileStructuredAgentOptions(args: {
   /** The host's speed capability from the one status probe; only `supported` admits a canonical
    *  tier. Absent reads as unknown. */
   codexSpeedHost?: CodexSpeedHostSupport
+  /** Whether the probe behind `codexSpeedHost` is asking, failed or answered; absent when idle. */
+  codexSpeedHostPhase?: SessionOptionProbePhase | undefined
 }): StructuredOptionsController {
   const { agent, client, enabled, fence, mutate, sessionId, turnId = null } = args
+  const { codexSpeedHostPhase } = args
   const sourceIdentity = args.sourceIdentity ?? ''
   // Another agent has no speed control, so its reads never wait on the answer.
   const codexSpeedHost: CodexSpeedHostSupport =
@@ -182,7 +168,7 @@ export function useMobileStructuredAgentOptions(args: {
     () => (sessionId ? mobileCreatedStructuredSession(sessionId) : undefined),
     [sessionId]
   )
-  useMobileHostModelCatalogUpgrade({
+  const catalogPhase = useMobileHostModelCatalogUpgrade({
     agent,
     client,
     sessionId,
@@ -197,12 +183,20 @@ export function useMobileStructuredAgentOptions(args: {
     updateOptionState
   })
 
+  // The options read's own wait, apart from the catalog's: either one still pending keeps loading.
+  const [optionsPhase, setOptionsPhase] = useState<SessionOptionProbePhase | undefined>(undefined)
+  // An accepted write asks this one owner to read again: it supersedes a read in flight, and the
+  // answer or failure below is the wait the speed lines show.
+  const [acceptedRefresh, setAcceptedRefresh] = useState(0)
+  const onAcceptedOptionRefresh = useCallback(() => setAcceptedRefresh((count) => count + 1), [])
   useEffect(() => {
     if (!client || !sessionId || !enabled || !optionCatalog) {
+      setOptionsPhase(undefined)
       return
     }
     let stale = false
     const readGeneration = optionMutationGeneration.current
+    setOptionsPhase('pending')
     void callAgentSession<AgentSessionOptionsResult>(client, 'agentSession.options', { sessionId })
       .then((result) => {
         // This view keeps its latch; a later one may run a model picked here.
@@ -215,12 +209,21 @@ export function useMobileStructuredAgentOptions(args: {
               : current
           )
         }
+        // A write that outdated this read still ends its wait; its values were not applied.
+        if (!stale) {
+          setOptionsPhase('settled')
+        }
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (!stale) {
+          setOptionsPhase('failed')
+        }
+      })
     return () => {
       stale = true
     }
   }, [
+    acceptedRefresh,
     client,
     codexSpeedHost,
     enabled,
@@ -240,9 +243,12 @@ export function useMobileStructuredAgentOptions(args: {
     () =>
       codexSpeedLines(
         optionSnapshot.find((descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID),
-        optionState.speed
+        optionState.speed,
+        agent === 'codex'
+          ? { capabilityPhase: codexSpeedHostPhase, optionsPhase, catalogPhase }
+          : undefined
       ),
-    [optionSnapshot, optionState.speed]
+    [agent, catalogPhase, codexSpeedHostPhase, optionSnapshot, optionState.speed, optionsPhase]
   )
   const isSpeedSendBlocked = useCallback(
     () => structuredAgentSessionSpeedBlocked(optionStateRef.current),
@@ -260,6 +266,7 @@ export function useMobileStructuredAgentOptions(args: {
     activeOptionRecordRef,
     pendingOptionRef,
     optionMutationGeneration,
+    onAcceptedOptionRefresh,
     updateOptionState
   })
 

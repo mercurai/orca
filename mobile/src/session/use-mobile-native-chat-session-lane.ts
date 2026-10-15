@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
 import type { StructuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
@@ -18,6 +19,7 @@ export function useMobileNativeChatSessionLane({
   sessionId,
   sourceIdentity,
   hostSupport,
+  hostSupportPhase,
   appendComposerTextRef,
   enabled,
   connState,
@@ -34,6 +36,7 @@ export function useMobileNativeChatSessionLane({
   sessionId: string | null
   sourceIdentity: Parameters<typeof useMobileNativeChatSession>[0]['sourceIdentity']
   hostSupport: StructuredAgentSessionHostSupport | null
+  hostSupportPhase?: SessionOptionProbePhase | undefined
   /** The active pane's live composer; a queued card's Edit copies through it.
    *  A ref because the drafts (and their append) mount after this lane. */
   appendComposerTextRef: { readonly current: (text: string) => boolean }
@@ -62,6 +65,7 @@ export function useMobileNativeChatSessionLane({
     sessionId: structured ? sessionId : null,
     sourceIdentity,
     hostSupport,
+    hostSupportPhase,
     appendComposerText,
     enabled,
     // Holds are connection-scoped; dropping this on transport loss lets the hook

@@ -9,6 +9,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CodexSpeedLine } from '../../../src/shared/codex-speed-facts-presentation'
 import type { SessionOptionDescriptor } from '../../../src/shared/native-chat-session-options'
 import type { MobileNativeChatTab } from './mobile-native-chat-eligibility'
+import {
+  structuredAgentSessionHostSupport,
+  type StructuredAgentSessionHostSupport
+} from './mobile-structured-agent-session-host-support'
 
 const SPEED_LINES: CodexSpeedLine[] = [
   { kind: 'stored', label: 'Fast' },
@@ -37,40 +41,46 @@ vi.mock('./use-mobile-session-view-mode', () => ({
 vi.mock('./use-mobile-native-chat-session', () => ({
   useMobileNativeChatSession: () => ({ messages: [], status: 'ready', transcriptLoading: false })
 }))
+// What the real controller and lane hand the session hook, read after the fact.
+const sessionArgs = vi.hoisted((): { calls: Record<string, unknown>[] } => ({ calls: [] }))
+
 vi.mock('./use-mobile-structured-agent-session', () => ({
-  useMobileStructuredAgentSession: () => ({
-    session: {
-      messages: [],
-      status: 'ready',
-      transcriptLoading: false,
-      error: undefined,
-      hasMore: false,
-      loadingEarlier: false,
-      loadEarlier: vi.fn()
-    },
-    isWorking: false,
-    turnId: null,
-    queued: { cards: [], send: vi.fn(), delete: vi.fn(), edit: vi.fn() },
-    sendWithOutcome: vi.fn(),
-    cancel: vi.fn(),
-    cancelPrompt: vi.fn(),
-    permission: null,
-    question: null,
-    optionSnapshot: SNAPSHOT,
-    // What the real options hook returns: the surface carries the speed lines.
-    optionSurface: {
-      getSnapshot: () => SNAPSHOT,
-      setOption: async () => ({ snapshot: SNAPSHOT }),
-      invokeAction: async () => ({ snapshot: SNAPSHOT }),
-      subscribe: () => () => {},
-      getSpeedLines: () => SPEED_LINES
-    },
-    pendingOptionId: null,
-    respondPermission: vi.fn(),
-    respondQuestion: vi.fn(),
-    setStructuredOption: vi.fn(),
-    invokeStructuredOption: vi.fn()
-  })
+  useMobileStructuredAgentSession: (args: Record<string, unknown>) => {
+    sessionArgs.calls.push(args)
+    return {
+      session: {
+        messages: [],
+        status: 'ready',
+        transcriptLoading: false,
+        error: undefined,
+        hasMore: false,
+        loadingEarlier: false,
+        loadEarlier: vi.fn()
+      },
+      isWorking: false,
+      turnId: null,
+      queued: { cards: [], send: vi.fn(), delete: vi.fn(), edit: vi.fn() },
+      sendWithOutcome: vi.fn(),
+      cancel: vi.fn(),
+      cancelPrompt: vi.fn(),
+      permission: null,
+      question: null,
+      optionSnapshot: SNAPSHOT,
+      // What the real options hook returns: the surface carries the speed lines.
+      optionSurface: {
+        getSnapshot: () => SNAPSHOT,
+        setOption: async () => ({ snapshot: SNAPSHOT }),
+        invokeAction: async () => ({ snapshot: SNAPSHOT }),
+        subscribe: () => () => {},
+        getSpeedLines: () => SPEED_LINES
+      },
+      pendingOptionId: null,
+      respondPermission: vi.fn(),
+      respondQuestion: vi.fn(),
+      setStructuredOption: vi.fn(),
+      invokeStructuredOption: vi.fn()
+    }
+  }
 }))
 vi.mock('./use-mobile-native-chat-drafts', () => ({
   useMobileNativeChatDrafts: () => ({
@@ -117,9 +127,14 @@ const STRUCTURED_TAB: MobileNativeChatTab = {
   agent: 'codex'
 }
 
+const HOST_SUPPORT = structuredAgentSessionHostSupport([])
+
 describe('useMobileNativeChatController speed facts', () => {
   let renderer: ReactTestRenderer | null = null
   let controller: MobileNativeChatController | null = null
+  // What the feedback layer owns beside the support: the phase of the probe that produced it.
+  let hostSupport: StructuredAgentSessionHostSupport | null = null
+  let hostSupportPhase: 'pending' | 'failed' | 'settled' | undefined
 
   function Harness(): null {
     controller = useMobileNativeChatController({
@@ -134,15 +149,48 @@ describe('useMobileNativeChatController speed facts', () => {
       nativeChatTranscriptIsLocalReadable: true,
       nativeChatInputLeaseReady: false,
       onSendError: vi.fn(),
-      onSendResolved: vi.fn()
+      onSendResolved: vi.fn(),
+      agentSessionHostSupport: hostSupport,
+      // Spread: the controller does not type the phase argument yet.
+      ...(hostSupportPhase ? { agentSessionHostSupportPhase: hostSupportPhase } : {})
     })
     return null
   }
+
+  const lastSessionArgs = () => sessionArgs.calls.at(-1)
 
   afterEach(() => {
     act(() => renderer?.unmount())
     renderer = null
     controller = null
+    hostSupport = null
+    hostSupportPhase = undefined
+    sessionArgs.calls.length = 0
+  })
+
+  it('hands the session the support phase the feedback layer reports, and nothing it was not given', () => {
+    act(() => {
+      renderer = create(createElement(Harness))
+    })
+    expect(lastSessionArgs()?.hostSupport).toBeNull()
+    expect(lastSessionArgs()?.hostSupportPhase).toBeUndefined()
+
+    hostSupportPhase = 'pending'
+    act(() => renderer?.update(createElement(Harness)))
+    expect(lastSessionArgs()).toMatchObject({ hostSupport: null, hostSupportPhase: 'pending' })
+
+    hostSupportPhase = 'failed'
+    act(() => renderer?.update(createElement(Harness)))
+    expect(lastSessionArgs()).toMatchObject({ hostSupport: null, hostSupportPhase: 'failed' })
+
+    hostSupport = HOST_SUPPORT
+    hostSupportPhase = 'settled'
+    act(() => renderer?.update(createElement(Harness)))
+    expect(lastSessionArgs()).toMatchObject({
+      hostSupport: HOST_SUPPORT,
+      hostSupportPhase: 'settled'
+    })
+    expect(lastSessionArgs()?.hostSupport).toBe(HOST_SUPPORT)
   })
 
   it('hands the picker a controller that reads the speed lines the session reports', () => {

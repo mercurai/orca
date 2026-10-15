@@ -1,15 +1,12 @@
 // One explicit option pick on the phone, from its first synchronous step to the host's answer. A
 // pick belongs to the generation it was made in (client, source, agent, session, fence): whatever
-// it is answered with after the generation moved commits nothing, remembers nothing and reads
-// nothing back. A speed pick is also a request that holds every send out until an accepted
+// it is answered with after the generation moved commits nothing, remembers nothing and asks for
+// no read. A speed pick is also a request that holds every send out until an accepted
 // replacement, so a refusal or a lost answer never lets a turn go at the prior speed.
 
 import { useCallback, type MutableRefObject } from 'react'
 import type { AgentSessionOptionCatalog } from '../../../src/shared/agent-session-option-catalog'
-import type {
-  AgentSessionOptionResult,
-  AgentSessionOptionsResult
-} from '../../../src/shared/agent-session-wire'
+import type { AgentSessionOptionResult } from '../../../src/shared/agent-session-wire'
 import {
   CODEX_SERVICE_TIER_OPTION_ID,
   type CodexSpeedHostSupport
@@ -25,7 +22,6 @@ import {
 import { encodeStructuredAgentSessionOptionValue } from '../../../src/shared/structured-agent-session-option-codec'
 import { structuredAgentSessionOptionView } from '../../../src/shared/structured-agent-session-option-view'
 import {
-  applyStructuredAgentSessionOptions,
   canSetStructuredAgentSessionOption,
   commitStructuredAgentSessionOption,
   structuredAgentSessionOptionPicks,
@@ -33,10 +29,7 @@ import {
 } from '../../../src/shared/structured-agent-session-options'
 import type { RpcClient } from '../transport/rpc-client'
 import { persistMobileStructuredOptionPicks } from './mobile-native-chat-session-option-persistence'
-import {
-  callAgentSession,
-  type StructuredAgentSessionMutate
-} from './mobile-structured-agent-session-rpc'
+import type { StructuredAgentSessionMutate } from './mobile-structured-agent-session-rpc'
 
 const NO_HELD_OPTIONS: Readonly<Record<string, string>> = {}
 
@@ -68,6 +61,8 @@ export function useMobileStructuredAgentOptionWrite(args: {
   activeOptionRecordRef: MutableRefObject<NativeChatSessionOptionRecord>
   pendingOptionRef: MutableRefObject<string | null>
   optionMutationGeneration: MutableRefObject<number>
+  /** Asks the options read owner to read again after the host accepted this view's own pick. */
+  onAcceptedOptionRefresh: () => void
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
   ) => void
@@ -78,6 +73,7 @@ export function useMobileStructuredAgentOptionWrite(args: {
     client,
     codexSpeedHost,
     mutate,
+    onAcceptedOptionRefresh,
     optionCatalog,
     optionMutationGeneration,
     optionStateRef,
@@ -149,24 +145,8 @@ export function useMobileStructuredAgentOptionWrite(args: {
               picks: structuredAgentSessionOptionPicks(currentState, committed)
             })
           }
-          void callAgentSession<AgentSessionOptionsResult>(client, 'agentSession.options', {
-            sessionId
-          })
-            .then((refreshed) => {
-              if (isCurrent()) {
-                updateOptionState((latest) =>
-                  latest.record === targetRecord
-                    ? applyStructuredAgentSessionOptions(
-                        latest,
-                        optionCatalog,
-                        refreshed,
-                        codexSpeedHost
-                      )
-                    : latest
-                )
-              }
-            })
-            .catch(() => undefined)
+          // The options owner reads again and shows that wait; this pick never reads on its own.
+          onAcceptedOptionRefresh()
           return true
         }
         if (result.status === 'unknown') {
@@ -196,6 +176,7 @@ export function useMobileStructuredAgentOptionWrite(args: {
       client,
       codexSpeedHost,
       mutate,
+      onAcceptedOptionRefresh,
       optionCatalog,
       optionMutationGeneration,
       optionStateRef,

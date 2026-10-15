@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { encodeNativeChatTranscriptIdentity } from '../../../src/shared/native-chat-transcript-retention'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import { projectStructuredAgentSessionMessages } from '../../../src/shared/structured-agent-session-message-projection'
 import { withNativeChatCutTurnNotices } from '../../../src/shared/native-chat-cut-turn-notice'
 import { tuiAgentDisplayName } from '../../../src/shared/tui-agent-display-names'
@@ -53,6 +54,8 @@ export function useMobileStructuredAgentSession(args: {
   connected: boolean
   /** Capability facts from the shared runtime status probe; null follows the legacy wire. */
   hostSupport: StructuredAgentSessionHostSupport | null
+  /** Whether the probe behind `hostSupport` is asking, failed or answered; absent when idle. */
+  hostSupportPhase?: SessionOptionProbePhase | undefined
   agent: string | null
   /** The active pane's live composer; Edit copies a card's text through it. */
   appendComposerText?: (text: string) => boolean
@@ -70,7 +73,8 @@ export function useMobileStructuredAgentSession(args: {
     enabled,
     onActionResolved,
     onSendError,
-    hostSupport
+    hostSupport,
+    hostSupportPhase
   } = args
   // Only a host that queues sends gets the delivery field; any host's published cards show.
   const queueCapable = hostSupport?.queuedMessages === true
@@ -104,7 +108,8 @@ export function useMobileStructuredAgentSession(args: {
     fence: state.fence,
     turnId,
     mutate,
-    codexSpeedHost: mobileCodexSpeedHostSupport(hostSupport)
+    codexSpeedHost: mobileCodexSpeedHostSupport(hostSupport),
+    codexSpeedHostPhase: hostSupportPhase
   })
   const {
     conversationCommands,

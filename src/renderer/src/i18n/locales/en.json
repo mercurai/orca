@@ -18317,7 +18317,9 @@
         "speedHostUnconfirmed": "Orca could not confirm this host supports speed choices. Try again in a moment.",
         "speedRequestedUnavailable": "Requested {{value0}} is not available for this model. Sends are held until you choose another speed.",
         "speedRequestedUnknown": "Requested {{value0}} could not be confirmed for this model. Sends are held until you choose another speed.",
-        "speedSendHeld": "Your speed choice has not been accepted by the host yet. Choose a speed, then send again."
+        "speedSendHeld": "Your speed choice has not been accepted by the host yet. Choose a speed, then send again.",
+        "speedLoading": "Loading speed options.",
+        "speedOptionsUnconfirmed": "Speed options could not be confirmed. Orca will retry when the host is available."
       },
       "tool": {
         "exitCode": "exit {{value0}}",

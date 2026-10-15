@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { SessionOptionProbePhase } from '../../../shared/codex-speed-facts-presentation'
 import {
   AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY,
   AGENT_SESSION_CONVERSATION_STOP_RUNTIME_CAPABILITY,
@@ -23,17 +24,32 @@ export function structuredAgentSessionHostKey(target: RuntimeClientTarget): stri
  *  evidence about the host. */
 export type StructuredAgentSessionHostCapabilityState = 'unknown' | 'supported' | 'unsupported'
 
-/** Whether the session's host advertises `capability`. A failed probe stays `unknown` and a remote
- *  host is asked again each time this client regains contact with it. */
-export function useStructuredAgentSessionHostCapabilityState(
+/** The state beside whether an actual probe of it is still out: `pending` is presentation only and
+ *  never support, `failed` is an unanswered probe, `settled` a completed answer. */
+export type StructuredAgentSessionHostCapabilityProbe = {
+  state: StructuredAgentSessionHostCapabilityState
+  phase: SessionOptionProbePhase
+}
+
+type CapabilityAnswer = StructuredAgentSessionHostCapabilityProbe & {
+  /** The host and capability the answer is for; another pair never reuses it. */
+  key: string
+}
+
+const UNANSWERED: StructuredAgentSessionHostCapabilityProbe = { state: 'unknown', phase: 'pending' }
+
+/** Whether the session's host advertises `capability`, with the probe's phase. A failed probe stays
+ *  `unknown` and a remote host is asked again each time this client regains contact with it. The one
+ *  owner of the probe: the state-only hooks below read it. */
+export function useStructuredAgentSessionHostCapabilityProbe(
   target: RuntimeClientTarget,
   capability: RuntimeCapability
-): StructuredAgentSessionHostCapabilityState {
-  const key = structuredAgentSessionHostKey(target)
-  const [answer, setAnswer] = useState<{
-    key: string
-    state: StructuredAgentSessionHostCapabilityState
-  }>(() => ({ key, state: target.kind === 'local' ? localCapabilityState(capability) : 'unknown' }))
+): StructuredAgentSessionHostCapabilityProbe {
+  const key = `${structuredAgentSessionHostKey(target)}\u0000${capability}`
+  const [answer, setAnswer] = useState<CapabilityAnswer>(() => {
+    const state = target.kind === 'local' ? localCapabilityState(capability) : 'unknown'
+    return { key, state, phase: state === 'unknown' ? 'pending' : 'settled' }
+  })
   const environmentId = target.kind === 'environment' ? target.environmentId : null
   const [contact, setContact] = useState(0)
   useEffect(() => {
@@ -44,6 +60,15 @@ export function useStructuredAgentSessionHostCapabilityState(
   }, [environmentId])
   useEffect(() => {
     let cancelled = false
+    // Every actual probe is pending while it is out; the known state stands for admission meanwhile.
+    // A local runtime that has already answered is read from memory, so nothing is out for it.
+    setAnswer((current) =>
+      current.key === key &&
+      current.phase !== 'pending' &&
+      (environmentId !== null || current.state === 'unknown')
+        ? { ...current, phase: 'pending' }
+        : current
+    )
     const probe: Promise<StructuredAgentSessionHostCapabilityState> =
       environmentId === null
         ? ensureLocalRuntimeCapabilities().then(() => localCapabilityState(capability))
@@ -54,8 +79,11 @@ export function useStructuredAgentSessionHostCapabilityState(
       .catch((): StructuredAgentSessionHostCapabilityState => 'unknown')
       .then((state) => {
         if (!cancelled) {
+          const phase = state === 'unknown' ? 'failed' : 'settled'
           setAnswer((current) =>
-            current.key === key && current.state === state ? current : { key, state }
+            current.key === key && current.state === state && current.phase === phase
+              ? current
+              : { key, state, phase }
           )
         }
       })
@@ -63,7 +91,18 @@ export function useStructuredAgentSessionHostCapabilityState(
       cancelled = true
     }
   }, [capability, contact, environmentId, key])
-  return answer.key === key ? answer.state : 'unknown'
+  const matches = answer.key === key
+  const { state, phase } = answer
+  return useMemo(() => (matches ? { state, phase } : UNANSWERED), [matches, phase, state])
+}
+
+/** Whether the session's host advertises `capability`. A failed probe stays `unknown` and a remote
+ *  host is asked again each time this client regains contact with it. */
+export function useStructuredAgentSessionHostCapabilityState(
+  target: RuntimeClientTarget,
+  capability: RuntimeCapability
+): StructuredAgentSessionHostCapabilityState {
+  return useStructuredAgentSessionHostCapabilityProbe(target, capability).state
 }
 
 function localCapabilityState(
@@ -120,15 +159,22 @@ export function useStructuredAgentSessionHostQueuesMessagesState(
   )
 }
 
+/** The speed capability's state beside its probe phase. Admission reads the state only. */
+export function useStructuredAgentSessionHostCodexSpeedProbe(
+  target: RuntimeClientTarget
+): StructuredAgentSessionHostCapabilityProbe {
+  return useStructuredAgentSessionHostCapabilityProbe(
+    target,
+    AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY
+  )
+}
+
 /** Three-state: only `supported` lets a client offer, hold or send a catalog speed tier; every
  *  other answer keeps the older Fast control. */
 export function useStructuredAgentSessionHostCodexSpeedState(
   target: RuntimeClientTarget
 ): StructuredAgentSessionHostCapabilityState {
-  return useStructuredAgentSessionHostCapabilityState(
-    target,
-    AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY
-  )
+  return useStructuredAgentSessionHostCodexSpeedProbe(target).state
 }
 
 /** Whether the host holds a /compact sent while the agent works as a queued card: only then may

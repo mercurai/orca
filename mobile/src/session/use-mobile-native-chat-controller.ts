@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type MutableRefObject } from 'react'
-import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import type { RpcClient } from '../transport/rpc-client'
 import type { ConnectionState } from '../transport/types'
 import type { MobileNativeChatTab } from './mobile-native-chat-eligibility'
@@ -41,6 +41,8 @@ export function useMobileNativeChatController(args: {
   connState: ConnectionState
   /** Host capability fact from the shared runtime status probe. */
   agentSessionHostSupport?: StructuredAgentSessionHostSupport | null
+  /** Whether that probe is still asking, failed, or answered; absent when no request is active. */
+  agentSessionHostSupportPhase?: SessionOptionProbePhase | undefined
   /** Forwarded to the session lane, a refusal's cause with it. */
   onSendError: Parameters<typeof useMobileNativeChatSessionLane>[0]['onSendError']
   /** Retires a held failure banner. Any accepted chat write clears it — a delivered
@@ -58,7 +60,6 @@ export function useMobileNativeChatController(args: {
     nativeChatTranscriptIsLocalReadable,
     nativeChatInputLeaseReady,
     connState,
-    agentSessionHostSupport = null,
     onSendError,
     onSendResolved
   } = args
@@ -101,7 +102,8 @@ export function useMobileNativeChatController(args: {
       sourceIdentity,
       enabled: showNativeChat,
       connState,
-      hostSupport: agentSessionHostSupport,
+      hostSupport: args.agentSessionHostSupport ?? null,
+      hostSupportPhase: args.agentSessionHostSupportPhase,
       appendComposerTextRef,
       onSendError,
       onActionResolved: onSendResolved
@@ -256,7 +258,7 @@ export function useMobileNativeChatController(args: {
         pendingId: structuredNativeChat.pendingOptionId,
         setOption: structuredNativeChat.setStructuredOption,
         invokeAction: structuredNativeChat.invokeStructuredOption,
-        speedLines: codexSpeedLinesOfSurface(structuredNativeChat.optionSurface)
+        speedLines: structuredNativeChat.optionSurface.getSpeedLines()
       },
       toggleTabChatView,
       worktreeId

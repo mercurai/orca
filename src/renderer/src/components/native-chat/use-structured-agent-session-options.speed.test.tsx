@@ -317,6 +317,10 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
       mocks.speedSupport.mockResolvedValue('supported')
       let written = false
       mocks.call.mockImplementation((_target: unknown, method: string) => {
+        if (method === 'agentSession.modelCatalog') {
+          // Answered, so only the post-write options read can leave a wait pending below.
+          return Promise.resolve({ origin: 'unknown' })
+        }
         if (method !== 'agentSession.options') {
           return new Promise(() => {})
         }
@@ -351,7 +355,13 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
       })
       const { result, unmount } = renderOptions(mutate)
       const lines = () => result.current.optionSurface.getSpeedLines()
-      await waitFor(() => expect(lines()).toContainEqual({ kind: 'processing', label: 'Fast' }))
+      await waitFor(() =>
+        expect(lines()).toEqual([
+          { kind: 'stored', label: 'Fast' },
+          { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+          { kind: 'processing', label: 'Fast' }
+        ])
+      )
 
       let applied = false
       await act(async () => {
@@ -359,11 +369,15 @@ describe('useStructuredAgentSessionOptions speed gate', () => {
       })
 
       expect(applied).toBe(true)
-      expect(lines()).toEqual([
-        { kind: 'pending', label: 'Ultrafast' },
-        { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
-        { kind: 'processing', label: 'Fast' }
-      ])
+      // The follow-up read is its own wait: out it loads, refused it is unverified, never silent.
+      await waitFor(() =>
+        expect(lines()).toEqual([
+          { kind: followUp === 'rejected' ? 'support-unverified' : 'loading' },
+          { kind: 'pending', label: 'Ultrafast' },
+          { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+          { kind: 'processing', label: 'Fast' }
+        ])
+      )
       const tier = descriptor(result.current.optionSnapshot, 'serviceTier')
       expect(tier?.kind.type === 'select' ? tier.kind.currentValue : undefined).toBe(
         ULTRAFAST.value

@@ -6,7 +6,10 @@
 import { createElement, useMemo, useRef } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentSessionOptionsResult } from '../../../src/shared/agent-session-wire'
+import type {
+  AgentSessionModelCatalogResult,
+  AgentSessionOptionsResult
+} from '../../../src/shared/agent-session-wire'
 import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
 import {
   EMPTY_STRUCTURED_AGENT_SESSION,
@@ -48,6 +51,8 @@ const OLDER_HOST: StructuredAgentSessionHostSupport = { ...CAPABLE, codexService
 const SOURCE_A = 'host-a\0workspace-a'
 const SOURCE_B = 'host-b\0workspace-b'
 const SETTINGS_WRITE = 'settings.mutateNativeChatSessionOptions'
+// A real answer for the model listing, so its wait settles and a speed line never comes from it.
+const UNLISTED_CATALOG: AgentSessionModelCatalogResult = { origin: 'unknown' }
 
 /** `refused` is a tier the host refused earlier: only its facts say so, current stays accepted.
  *  A `read` number is the host in the shape the live catalog and the resting read report: no
@@ -116,6 +121,8 @@ function makeHost(start: { tier?: string; refused?: string; canonical?: boolean 
         }
         answered += 1
         return ok(optionsReply(tier, refused, start.canonical ? answered : null))
+      case 'agentSession.modelCatalog':
+        return ok(UNLISTED_CATALOG)
       case 'agentSession.setOption':
         return new Promise((reply) => writes.push({ value: String(fieldsOf(params).value), reply }))
       case 'agentSession.send':
@@ -584,6 +591,12 @@ describe('Codex speed pick and the phone sends', () => {
       return line?.kind === 'last-request' ? line.detail : undefined
     }
 
+    /** The client-only wait lines among the speed lines: none once every read has ended. */
+    const waitLines = () =>
+      codexSpeedLinesOfSurface(session().options.optionSurface)
+        .map((line) => line.kind)
+        .filter((kind) => kind === 'loading' || kind === 'support-unverified')
+
     async function moveTo(host: Host, fence: number): Promise<void> {
       // The parent's layout effect: the shared state's fence is current before options reset.
       stateRef.current = { ...stateRef.current, fence }
@@ -656,6 +669,9 @@ describe('Codex speed pick and the phone sends', () => {
           expect(host.calls('agentSession.options').length).toBeGreaterThan(readsBefore)
         )
         await expectEverySendHeldOut(host)
+        // Its own wait is the only wait line, and a failed read is unverified, never loading.
+        const expectedWait = firstRead === 'unanswered' ? 'loading' : 'support-unverified'
+        await vi.waitFor(() => expect(waitLines()).toEqual([expectedWait]))
 
         // A read that stores another tier, and one that still calls the pick blocked, answer nothing.
         host.readsAre('answer')
@@ -670,6 +686,7 @@ describe('Codex speed pick and the phone sends', () => {
         host.stores(ULTRAFAST_TIER.value)
         await moveAndApplyRead(host, NEXT_FENCE + 3)
         await vi.waitFor(() => expect(session().options.isSpeedSendBlocked()).toBe(false))
+        expect(waitLines()).toEqual([])
         const released = await tryEverySend({
           sendWithOutcome: session().send,
           queued: session().queued

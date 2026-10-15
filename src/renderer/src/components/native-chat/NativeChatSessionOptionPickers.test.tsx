@@ -744,7 +744,7 @@ describe('NativeChatSessionOptionPickers speed select', () => {
       />
     )
 
-    const options = screen.getByRole('button', { name: 'Effort High · Fast' })
+    const options = screen.getByRole('button', { name: 'Reasoning effort High · Fast' })
     expect(options.parentElement?.getAttribute('data-disabled')).toBeNull()
     // The model still changes the running turn, so it stays locked.
     expect(

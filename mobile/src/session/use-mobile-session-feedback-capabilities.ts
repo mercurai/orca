@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Animated } from 'react-native'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import { reconcileMobileSessionCreateWarningState } from './mobile-session-create-warning-state'
 import type { MobileSessionTerminalRuntimeModel } from './use-mobile-session-terminal-runtime'
 import type { StructuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
@@ -37,6 +38,11 @@ export function useMobileSessionFeedbackCapabilities(scope: MobileSessionTermina
   // the other session surfaces; consumers never maintain a second status cache.
   const [agentSessionHostSupport, setAgentSessionHostSupport] =
     useState<StructuredAgentSessionHostSupport | null>(null)
+  // Why: `null` support is also what a probe that is still asking leaves, so the phase tells a wait
+  // from a failure; it is unset while no request is active.
+  const [agentSessionHostSupportPhase, setAgentSessionHostSupportPhase] = useState<
+    SessionOptionProbePhase | undefined
+  >(undefined)
   // Why: stable callbacks (handleFileTap) read the live value via this ref, since
   // the capability probe resolves after the callbacks are created.
   const browserScreencastSupportedRef = useRef(browserScreencastSupported)
@@ -133,6 +139,8 @@ export function useMobileSessionFeedbackCapabilities(scope: MobileSessionTermina
     setQuickCommandsSupported,
     agentSessionHostSupport,
     setAgentSessionHostSupport,
+    agentSessionHostSupportPhase,
+    setAgentSessionHostSupportPhase,
     browserScreencastSupportedRef,
     reconciledCreateWarningState,
     createWarning,

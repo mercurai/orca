@@ -5,6 +5,7 @@ import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
 import type {
+  AgentSessionModelCatalogResult,
   AgentSessionOptionResult,
   AgentSessionOptionsResult
 } from '../../../src/shared/agent-session-wire'
@@ -62,18 +63,23 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
+// A host with no listing: a real answer, so the catalog wait settles and none of these tests is
+// about a failed catalog.
+const UNLISTED_CATALOG: AgentSessionModelCatalogResult = { origin: 'unknown' }
+
 /** A host that answers every `agentSession.options` read from `reads` and records each request. */
 function optionsClient(reads: () => Promise<AgentSessionOptionsResult>) {
   const sent: { method: string; params: unknown }[] = []
   const client: RpcClient = {
     sendRequest: async (method: string, params?: unknown) => {
       sent.push({ method, params })
-      return {
-        id: 'rpc-1',
-        ok: true as const,
-        result: method === 'agentSession.options' ? await reads() : {},
-        _meta: { runtimeId: 'runtime-1' }
+      let result: unknown = {}
+      if (method === 'agentSession.options') {
+        result = await reads()
+      } else if (method === 'agentSession.modelCatalog') {
+        result = UNLISTED_CATALOG
       }
+      return { id: 'rpc-1', ok: true as const, result, _meta: { runtimeId: 'runtime-1' } }
     },
     subscribe: () => () => {},
     updateTerminalSubscriptionViewport: () => {},
@@ -126,6 +132,7 @@ type ProbeProps = {
   client: RpcClient | null
   mutate: StructuredAgentSessionMutate
   codexSpeedHost?: CodexSpeedHostSupport
+  turnId?: string
   onRender: (controller: Controller) => void
 }
 
@@ -137,6 +144,7 @@ function Probe(props: ProbeProps): null {
       sessionId: 'session-1',
       enabled: true,
       fence: 1,
+      turnId: props.turnId ?? null,
       mutate: props.mutate,
       ...(props.codexSpeedHost ? { codexSpeedHost: props.codexSpeedHost } : {})
     })
@@ -324,9 +332,12 @@ describe('useMobileStructuredAgentOptions last turn evidence', () => {
     }
   }
 
-  it.each(['rejected', 'unanswered'] as const)(
+  it.each([
+    ['rejected', { kind: 'support-unverified' }],
+    ['unanswered', { kind: 'loading' }]
+  ] as const)(
     'keeps it beside a newly accepted tier while the follow-up read is %s',
-    async (followUp) => {
+    async (followUp, phaseLine) => {
       let reads = 0
       const host = optionsClient(() => {
         reads += 1
@@ -359,14 +370,61 @@ describe('useMobileStructuredAgentOptions last turn evidence', () => {
         outcome = await harness.current().setStructuredOption('serviceTier', ULTRAFAST_TIER.value)
       })
       await vi.waitFor(() => expect(host.optionReads()).toBe(2))
+      // The rejection reaches the phase a few promise hops after the request left.
+      await act(async () => {
+        for (let tick = 0; tick < 10; tick += 1) {
+          await Promise.resolve()
+        }
+      })
 
       expect(outcome).toBe(true)
       expect(tierValue(harness.current().optionSnapshot)).toBe(ULTRAFAST_TIER.value)
+      // The write's refresh is the options read itself: its wait shows beside the unchanged lines.
       expect(speedLines(harness.current())).toEqual([
+        phaseLine,
         { kind: 'pending', label: 'Ultrafast' },
         { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
         { kind: 'processing', label: 'Fast' }
       ])
+      await harness.unmount()
+    }
+  )
+
+  // A turn's start or end starts the options read itself: that wait shows as one extra line before
+  // the unchanged lines, and a failed one is unverified support, never loading.
+  it.each([
+    ['unanswered', { kind: 'loading' }],
+    ['rejected', { kind: 'support-unverified' }]
+  ] as const)(
+    'shows a turn read that is %s beside the unchanged last-turn lines',
+    async (followUp, phaseLine) => {
+      let reads = 0
+      const host = optionsClient(() => {
+        reads += 1
+        if (reads === 1) {
+          return Promise.resolve(lastTurn)
+        }
+        return followUp === 'rejected'
+          ? Promise.reject(new Error('options_read_failed'))
+          : new Promise<AgentSessionOptionsResult>(() => {})
+      })
+      const { mutate } = recordingMutate(async () => ({ status: 'unknown' }))
+      const harness = await mountOptions({
+        client: host.client,
+        mutate,
+        codexSpeedHost: 'supported'
+      })
+      const settled = speedLines(harness.current())
+      expect(settled).toEqual([
+        { kind: 'stored', label: 'Fast' },
+        { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+        { kind: 'processing', label: 'Fast' }
+      ])
+
+      await harness.rerender({ turnId: 'turn-2' })
+
+      expect(host.optionReads()).toBe(2)
+      expect(speedLines(harness.current())).toEqual([phaseLine, ...settled])
       await harness.unmount()
     }
   )
@@ -570,6 +628,8 @@ describe('useMobileStructuredAgentOptions client cutover', () => {
       mutate,
       codexSpeedHost: 'supported'
     })
+    // The previous client's read is a real wait until the swap replaces it.
+    expect(speedLines(harness.current())).toContainEqual({ kind: 'loading' })
 
     await harness.rerender({ client: nextHost.client })
     expect(tierValue(harness.current().optionSnapshot)).toBe('default')
