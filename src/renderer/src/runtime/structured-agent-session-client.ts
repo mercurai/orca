@@ -10,6 +10,7 @@ import type { AgentSessionConversationOutline } from '../../../shared/agent-sess
 import { AGENT_SESSION_CONVERSATION_COMMAND_TIMEOUT_MS } from '../../../shared/agent-session-conversation-command'
 import {
   AGENT_SESSION_ATTENTION_ACK_RUNTIME_CAPABILITY,
+  AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY,
   AGENT_SESSION_CONVERSATION_OUTLINE_RUNTIME_CAPABILITY,
   AGENT_SESSION_PROMPT_CANCEL_RUNTIME_CAPABILITY,
   AGENT_SESSION_QUESTION_ANSWERS_RUNTIME_CAPABILITY,
@@ -27,23 +28,50 @@ import {
   readLocalRuntimeCapabilitiesOrUnknown
 } from './local-runtime-capabilities'
 import { subscribeRuntimeEnvironment } from './runtime-environment-pairing-refresh'
-/** Read a capability through the runtime's existing status cache. A failed/unknown
- *  probe is treated as legacy so a newer call is never made before the host has
+import type { StructuredAgentSessionHostCapabilityState } from './structured-agent-session-host-capability'
+
+/** Read a capability through the runtime's existing status cache. A failed probe is `unknown`,
+ *  not evidence about the host. */
+async function structuredAgentSessionHostCapabilityOf(
+  target: RuntimeClientTarget,
+  capability: RuntimeCapability
+): Promise<StructuredAgentSessionHostCapabilityState> {
+  try {
+    if (target.kind === 'local') {
+      const known = readLocalRuntimeCapabilitiesOrUnknown()
+      const capabilities = known ?? (await ensureLocalRuntimeCapabilities())
+      if (capabilities === null) {
+        return 'unknown'
+      }
+      return capabilities.includes(capability) ? 'supported' : 'unsupported'
+    }
+    return (await runtimeEnvironmentSupportsCapability(target.environmentId, capability))
+      ? 'supported'
+      : 'unsupported'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/** A failed/unknown probe is treated as legacy so a newer call is never made before the host has
  *  proved it understands it. */
 async function structuredAgentSessionHostSupports(
   target: RuntimeClientTarget,
   capability: RuntimeCapability
 ): Promise<boolean> {
-  try {
-    if (target.kind === 'local') {
-      const known = readLocalRuntimeCapabilitiesOrUnknown()
-      const capabilities = known ?? (await ensureLocalRuntimeCapabilities())
-      return capabilities?.includes(capability) === true
-    }
-    return await runtimeEnvironmentSupportsCapability(target.environmentId, capability)
-  } catch {
-    return false
-  }
+  return (await structuredAgentSessionHostCapabilityOf(target, capability)) === 'supported'
+}
+
+/** Whether the host stores catalog speed tiers (Standard/Fast/custom): the gate for every canonical
+ *  `serviceTier` write or seed. `unknown` after a failed probe, so a caller refuses without
+ *  calling it unsupported. */
+export function readStructuredAgentSessionCodexSpeedSupport(
+  target: RuntimeClientTarget
+): Promise<StructuredAgentSessionHostCapabilityState> {
+  return structuredAgentSessionHostCapabilityOf(
+    target,
+    AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY
+  )
 }
 
 export function supportsStructuredAgentSessionPromptCancel(

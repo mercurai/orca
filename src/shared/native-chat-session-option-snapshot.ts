@@ -4,6 +4,10 @@ import type {
   CatalogModel,
   CatalogOption
 } from './agent-session-option-catalog'
+import {
+  CODEX_SERVICE_TIER_OPTION_ID,
+  codexServiceTierSelection
+} from './codex-service-tier-presentation'
 import type {
   NativeChatLiveOptionTransport,
   SessionOptionDescriptor,
@@ -70,9 +74,50 @@ function actionForApply(
   return isFlipOnlyMidSession(apply.midSession) && !tracked ? { type: 'toggle-command' } : undefined
 }
 
+// The speed select never names a default: the provider's configured speed stays unknown until a
+// pick or the host's stored selection. It always shows, even holding only Standard. One whose
+// choices are all disabled is the unresolved-host placeholder: it keeps every advertised tier as a
+// disabled, labelled row and shows only while a canonical tier is tracked. Locked.
+function serviceTierDescriptor(args: {
+  option: CatalogOption
+  tracked: TrackedNativeChatSessionOption | undefined
+  legacyFastMode: TrackedNativeChatSessionOption | undefined
+  liveTransport: NativeChatLiveOptionTransport
+  settable: Pick<SessionOptionDescriptor, 'settable' | 'disabledReason'>
+}): SessionOptionDescriptor | null {
+  const { option, tracked, legacyFastMode, liveTransport } = args
+  if (option.kind.type !== 'select') {
+    return null
+  }
+  const retainedOnly = option.kind.choices.every((choice) => choice.disabled === true)
+  if (retainedOnly && typeof tracked?.value !== 'string') {
+    return null
+  }
+  const settable = retainedOnly ? { settable: false } : args.settable
+  const selection = codexServiceTierSelection({
+    choices: option.kind.choices,
+    tracked,
+    legacyFastMode
+  })
+  return {
+    id: option.id,
+    label: option.label,
+    ...(option.category ? { category: option.category } : {}),
+    kind: {
+      type: 'select',
+      ...(selection.currentValue === undefined ? {} : { currentValue: selection.currentValue }),
+      choices: selection.choices
+    },
+    valueSource: selection.source ?? 'unknown',
+    transport: liveTransport,
+    ...settable
+  }
+}
+
 function optionDescriptor(args: {
   option: CatalogOption
   tracked: TrackedNativeChatSessionOption | undefined
+  legacyFastMode: TrackedNativeChatSessionOption | undefined
   mode: NativeChatSessionOptionMode
   liveTransport: NativeChatLiveOptionTransport
   modelIsCliDefault: boolean
@@ -81,6 +126,15 @@ function optionDescriptor(args: {
   const { option, tracked, mode, liveTransport, modelIsCliDefault, composedModelApply } = args
   const action = actionForApply(option.apply, tracked, mode, liveTransport)
   const settable = settableState({ mode, liveTransport, apply: option.apply, composedModelApply })
+  if (option.id === CODEX_SERVICE_TIER_OPTION_ID) {
+    return serviceTierDescriptor({
+      option,
+      tracked,
+      legacyFastMode: args.legacyFastMode,
+      liveTransport,
+      settable
+    })
+  }
   // Why: the launch only emits `values[id] ?? defaultValue` alongside a model flag, so
   // a draft names this option's value exactly when a model was picked. Under the CLI's
   // own default no flag is sent at all, so its choice is nameable only where its listing states it.
@@ -256,6 +310,7 @@ export function buildNativeChatSessionOptionSnapshot(args: {
     const descriptor = optionDescriptor({
       option,
       tracked: trackedValues[option.id],
+      legacyFastMode: trackedValues.fastMode,
       mode,
       liveTransport,
       modelIsCliDefault: effectiveModelId === defaultModelId,

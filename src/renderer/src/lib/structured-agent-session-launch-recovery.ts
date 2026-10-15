@@ -15,6 +15,8 @@ export type StructuredLaunchRecoveryState = {
   promise: Promise<StructuredAgentLaunchReceipt>
   visibilityUnknown: boolean
   cancelled: boolean
+  /** The chat the host created. A recovery that has it adopts that chat and never creates another. */
+  receipt?: StructuredAgentLaunchReceipt
   onVisibilityChanged?: () => void
   onHostSeed?: StructuredLaunchHostSeedListener
 }
@@ -64,6 +66,19 @@ async function recoverPublishedSessionReceipt(
   return { sessionId: state.intent.sessionId, fence }
 }
 
+/** The fence the host shows now when its inventory and history can be read; the receipt otherwise. */
+async function adoptRetainedReceipt(
+  state: StructuredLaunchRecoveryState,
+  receipt: StructuredAgentLaunchReceipt
+): Promise<StructuredAgentLaunchReceipt> {
+  try {
+    return await recoverPublishedSessionReceipt(state)
+  } catch {
+    throwIfLaunchCancelled(state)
+    return receipt
+  }
+}
+
 async function retrySameIntent(
   state: StructuredLaunchRecoveryState,
   priorError: unknown
@@ -98,6 +113,9 @@ export async function launchAndReconcile(
   state: StructuredLaunchRecoveryState
 ): Promise<StructuredAgentLaunchReceipt> {
   throwIfLaunchCancelled(state)
+  if (state.receipt) {
+    return adoptRetainedReceipt(state, state.receipt)
+  }
   let receipt: StructuredAgentLaunchReceipt
   try {
     receipt = await launchStructuredAgentSession(state.intent, state.onHostSeed)
@@ -132,6 +150,9 @@ export async function reconcileUnknownLaunch(
   throwIfLaunchCancelled(state)
   state.visibilityUnknown = false
   state.onVisibilityChanged?.()
+  if (state.receipt) {
+    return adoptRetainedReceipt(state, state.receipt)
+  }
   try {
     return await recoverPublishedSessionReceipt(state)
   } catch (error) {

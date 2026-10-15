@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react'
 import { encodeNativeChatTranscriptIdentity } from '../../../src/shared/native-chat-transcript-retention'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import { projectStructuredAgentSessionMessages } from '../../../src/shared/structured-agent-session-message-projection'
 import { withNativeChatCutTurnNotices } from '../../../src/shared/native-chat-cut-turn-notice'
 import { tuiAgentDisplayName } from '../../../src/shared/tui-agent-display-names'
@@ -23,7 +24,10 @@ import { useMobileStructuredAgentState } from './use-mobile-structured-agent-sta
 import { useMobileStructuredStopPress } from './use-mobile-structured-stop-press'
 import { useMobileStructuredSessionHostStopping } from './use-mobile-structured-session-host-stopping'
 import { useMobileStructuredPromptResponses } from './use-mobile-structured-prompt-responses'
-import type { StructuredAgentSessionHostSupport } from './mobile-structured-agent-session-host-support'
+import {
+  mobileCodexSpeedHostSupport,
+  type StructuredAgentSessionHostSupport
+} from './mobile-structured-agent-session-host-support'
 import { useMobileStructuredAgentOptions } from './use-mobile-structured-agent-options'
 import { useMobileStructuredAgentTurnTiming } from './use-mobile-structured-agent-turn-timing'
 import {
@@ -50,6 +54,8 @@ export function useMobileStructuredAgentSession(args: {
   connected: boolean
   /** Capability facts from the shared runtime status probe; null follows the legacy wire. */
   hostSupport: StructuredAgentSessionHostSupport | null
+  /** Whether the probe behind `hostSupport` is asking, failed or answered; absent when idle. */
+  hostSupportPhase?: SessionOptionProbePhase | undefined
   agent: string | null
   /** The active pane's live composer; Edit copies a card's text through it. */
   appendComposerText?: (text: string) => boolean
@@ -67,7 +73,8 @@ export function useMobileStructuredAgentSession(args: {
     enabled,
     onActionResolved,
     onSendError,
-    hostSupport
+    hostSupport,
+    hostSupportPhase
   } = args
   // Only a host that queues sends gets the delivery field; any host's published cards show.
   const queueCapable = hostSupport?.queuedMessages === true
@@ -91,16 +98,26 @@ export function useMobileStructuredAgentSession(args: {
     onSendError
   })
 
+  const turnId = runningStructuredAgentSessionTurnId(state)
   const options = useMobileStructuredAgentOptions({
     agent,
     client,
     sessionId,
+    sourceIdentity,
     enabled,
     fence: state.fence,
-    mutate
+    turnId,
+    mutate,
+    codexSpeedHost: mobileCodexSpeedHostSupport(hostSupport),
+    codexSpeedHostPhase: hostSupportPhase
   })
-  const { conversationCommands, invokeStructuredOption, optionSnapshot, setStructuredOption } =
-    options
+  const {
+    conversationCommands,
+    invokeStructuredOption,
+    isSpeedSendBlocked,
+    optionSnapshot,
+    setStructuredOption
+  } = options
   // Stable across renders, or the send callback is rebuilt on every streamed frame.
   const sendController = useMemo(
     () => ({
@@ -122,6 +139,7 @@ export function useMobileStructuredAgentSession(args: {
     stateRef,
     commandPending: commandPendingRef,
     controller: sendController,
+    speedSendBlocked: isSpeedSendBlocked,
     onSendError
   })
   const { groupedDraft, respondPermission, respondQuestion } = useMobileStructuredPromptResponses({
@@ -149,7 +167,6 @@ export function useMobileStructuredAgentSession(args: {
       }),
     [transcriptItems, state.submissions]
   )
-  const turnId = runningStructuredAgentSessionTurnId(state)
   const turnTiming = useMobileStructuredAgentTurnTiming(
     { ...state, items: transcriptItems },
     turnId
@@ -223,6 +240,7 @@ export function useMobileStructuredAgentSession(args: {
     agentWorking: isStructuredAgentSessionMainAgentWorking(turnId, state.submissions, state.fence),
     mutate,
     appendComposerText,
+    sendsBlocked: isSpeedSendBlocked,
     onSendError,
     ...(onActionResolved ? { onActionResolved } : {})
   })

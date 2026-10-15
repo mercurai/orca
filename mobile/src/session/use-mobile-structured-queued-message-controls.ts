@@ -26,6 +26,7 @@ import type {
   MobileQueuedMessageFeed,
   MobileQueuePause
 } from './mobile-structured-queued-message-feed'
+import { MOBILE_SPEED_SEND_BLOCKED_TEXT } from './mobile-native-chat-session-option-labels'
 import type { MobileStructuredAgentMutate } from './use-mobile-structured-agent-mutation'
 
 /** `onCopied` runs once the card's text is in the composer, before its Delete leaves. */
@@ -62,6 +63,9 @@ export function useMobileStructuredQueuedMessageControls(args: {
   /** The active pane's live composer, Edit's copy target; absent = Edit refuses. False when
    *  nothing was copied. */
   appendComposerText: ((text: string) => boolean) | undefined
+  /** Read when Send now or Resume runs, never from a render: either would start a turn, so a speed
+   *  the host has not accepted holds both. Delete and Edit send nothing and are never held. */
+  sendsBlocked?: () => boolean
   onSendError: (message: string) => void
   /** Called on any accepted card action, so the route can retire a held failure banner. */
   onActionResolved?: () => void
@@ -74,6 +78,7 @@ export function useMobileStructuredQueuedMessageControls(args: {
     pendingPrompt,
     queuedMessages,
     queuePause,
+    sendsBlocked,
     sessionKey,
     submissions
   } = args
@@ -108,8 +113,16 @@ export function useMobileStructuredQueuedMessageControls(args: {
     },
     [onActionResolved]
   )
+  const refusedWhileSpeedUnaccepted = useCallback((): boolean => {
+    if (!sendsBlocked?.()) {
+      return false
+    }
+    onSendError(MOBILE_SPEED_SEND_BLOCKED_TEXT)
+    return true
+  }, [onSendError, sendsBlocked])
   const send = useCallback(
     async (messageId: string): Promise<boolean> =>
+      !refusedWhileSpeedUnaccepted() &&
       resolved(
         (
           await mutate<AgentSessionSendResult>(
@@ -119,7 +132,7 @@ export function useMobileStructuredQueuedMessageControls(args: {
           )
         ).status === 'accepted'
       ),
-    [mutate, resolved]
+    [mutate, refusedWhileSpeedUnaccepted, resolved]
   )
   const deleteQueued = useCallback(
     async (messageId: string, copied: boolean): Promise<boolean> => {
@@ -169,6 +182,7 @@ export function useMobileStructuredQueuedMessageControls(args: {
   // Through the same mutation seam as Delete: a refusal reaches the send-error banner.
   const resume = useCallback(
     async (): Promise<boolean> =>
+      !refusedWhileSpeedUnaccepted() &&
       resolved(
         (
           await mutate<AgentSessionQueuedMessagesResumeResult>(
@@ -178,7 +192,7 @@ export function useMobileStructuredQueuedMessageControls(args: {
           )
         ).status === 'accepted'
       ),
-    [mutate, resolved]
+    [mutate, refusedWhileSpeedUnaccepted, resolved]
   )
   // The header shows only while Resume would send something, as on desktop.
   const pause = mobileQueueHasResumableCard(cards) ? queuePause : null

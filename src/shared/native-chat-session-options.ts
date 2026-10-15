@@ -6,6 +6,8 @@ export type SessionOptionSelectChoice = {
   value: string
   label: string
   description?: string
+  /** Shown but not selectable: presentation of an unavailable choice, never an advertised one. */
+  disabled?: boolean
 }
 
 /** `default` is the catalog's own value shown before anything is observed —

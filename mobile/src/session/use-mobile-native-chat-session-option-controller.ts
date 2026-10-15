@@ -6,6 +6,10 @@ import type {
   SessionOptionDescriptor,
   SessionOptionValue
 } from '../../../src/shared/native-chat-session-options'
+import type {
+  CodexSpeedLine,
+  SpeedAwareSessionOptionsSurface
+} from '../../../src/shared/codex-speed-facts-presentation'
 import { mobileNativeChatScopeKey } from './mobile-native-chat-scope-key'
 import type { MobileNativeChatSendOutcome } from './mobile-native-chat-send'
 import type { MobileNativeChatSessionOptionPickersProps } from './MobileNativeChatSessionOptionPickers'
@@ -13,6 +17,10 @@ import {
   useMobileNativeChatSessionOptions,
   type MobileNativeChatSessionOptionsController
 } from './use-mobile-native-chat-session-options'
+
+/** The structured session's controller: the picker reads its speed lines off it. */
+type StructuredSessionOptionsController = MobileNativeChatSessionOptionsController &
+  Pick<SpeedAwareSessionOptionsSurface, 'getSpeedLines'>
 
 export function useMobileNativeChatSessionOptionController(args: {
   client?: RpcClient | null
@@ -32,6 +40,9 @@ export function useMobileNativeChatSessionOptionController(args: {
     pendingId: string | null
     setOption: (id: string, value: SessionOptionValue) => Promise<boolean>
     invokeAction: (id: string) => Promise<boolean>
+    /** The speed facts the session's options surface reports; the picker reads them off the
+     *  controller it is given. */
+    speedLines?: readonly CodexSpeedLine[]
   }
   toggleTabChatView: (tabId: string) => void
   worktreeId: string
@@ -80,7 +91,8 @@ export function useMobileNativeChatSessionOptionController(args: {
     dispatchCommand,
     onAgentPicker: handleAgentPicker
   })
-  const structuredController = useMemo<MobileNativeChatSessionOptionsController | null>(
+  const structuredSpeedLines = structured.speedLines
+  const structuredController = useMemo<StructuredSessionOptionsController | null>(
     () =>
       activeChatStructured && structuredSnapshot.length > 0
         ? {
@@ -90,7 +102,8 @@ export function useMobileNativeChatSessionOptionController(args: {
             pendingId: structuredPendingId,
             setOption: setStructuredOption,
             invokeAction: invokeStructuredAction,
-            recordCommand: () => {}
+            recordCommand: () => {},
+            getSpeedLines: () => structuredSpeedLines ?? []
           }
         : null,
     [
@@ -99,6 +112,7 @@ export function useMobileNativeChatSessionOptionController(args: {
       setStructuredOption,
       structuredPendingId,
       structuredSnapshot,
+      structuredSpeedLines,
       structured.conversationCommands,
       structured.optionPickerRequest
     ]

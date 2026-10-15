@@ -55,6 +55,7 @@ function parseModel(value: unknown): AgentSessionModelOption | null {
   }
   const description = text(row.description)
   const defaultEffort = text(row.defaultEffort)
+  const serviceTiers = parseServiceTiers(row.serviceTiers)
   return {
     id,
     label,
@@ -62,8 +63,23 @@ function parseModel(value: unknown): AgentSessionModelOption | null {
     isDefault: row.isDefault === true,
     ...(defaultEffort ? { defaultEffort } : {}),
     efforts: efforts.filter((effort): effort is AgentSessionOptionChoice => effort !== null),
-    ...(typeof row.supportsFastMode === 'boolean' ? { supportsFastMode: row.supportsFastMode } : {})
+    ...(typeof row.supportsFastMode === 'boolean'
+      ? { supportsFastMode: row.supportsFastMode }
+      : {}),
+    ...(serviceTiers ? { serviceTiers } : {})
   }
+}
+
+/** Advertised tiers round-trip exactly, an empty list included. A list with any unreadable row
+ *  loads as absent: unknown support, never a partial claim of what is offered. */
+function parseServiceTiers(value: unknown): AgentSessionOptionChoice[] | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const tiers = value.map(parseEffort)
+  return tiers.some((tier) => tier === null)
+    ? null
+    : tiers.filter((tier): tier is AgentSessionOptionChoice => tier !== null)
 }
 
 function parseListing(value: unknown): AgentModelCatalogListing | null {

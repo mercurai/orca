@@ -1,7 +1,10 @@
 import { StructuredAgentSessionCreateRefusalError } from '@/lib/launch-structured-agent-session'
 import { settleStructuredLaunchCallers } from '@/lib/structured-agent-session-launch-callers'
 import type { StructuredAgentLaunchReceipt } from '@/lib/structured-agent-session-launch-recovery'
-import { structuredLaunchFailure } from './structured-agent-session-launch-failure'
+import {
+  structuredLaunchFailure,
+  structuredLaunchSpeedBlock
+} from './structured-agent-session-launch-failure'
 import {
   notifyStructuredLaunchListeners,
   retireStructuredAgentSessionLaunchCancellationTombstone,
@@ -54,6 +57,13 @@ export function trackLaunchSettlement(
         state.failure = failure
       } else {
         delete state.failure
+      }
+      // A create stopped before it was sent by the chosen speed says so beside Retry.
+      const speedBlock = structuredLaunchSpeedBlock(error)
+      if (speedBlock) {
+        state.speedBlock = speedBlock
+      } else {
+        delete state.speedBlock
       }
       if (error instanceof StructuredAgentSessionCreateRefusalError) {
         settleStructuredLaunchRefusal(state)

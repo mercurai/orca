@@ -30,7 +30,11 @@ import {
   type AgentSessionWriteFailure
 } from '../../../../shared/agent-session-write-failure'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
-import type { StructuredAgentSessionPendingSend } from './structured-agent-session-pending-sends'
+import { translate } from '@/i18n/i18n'
+import {
+  structuredAgentSessionSpeedSendsHeld,
+  type StructuredAgentSessionPendingSend
+} from './structured-agent-session-pending-sends'
 
 const fences = new Map<string, number>()
 
@@ -120,6 +124,22 @@ export async function attemptStructuredAgentSessionSend(args: {
   }
   if (fence === null) {
     return { kind: 'not-sent', parts: NOT_SENT }
+  }
+  // A speed the host has not accepted may have been picked while this send waited for its
+  // compatibility check or history read: it would go at the prior speed, so it goes back unsent.
+  if (structuredAgentSessionSpeedSendsHeld(entry.sessionId)) {
+    return {
+      kind: 'not-sent',
+      parts: [
+        {
+          text: translate(
+            'components.native-chat.composer.speedSendHeld',
+            'Your speed choice has not been accepted by the host yet. Choose a speed, then send again.'
+          )
+        },
+        ...NOT_SENT
+      ]
+    }
   }
   args.beforeIssue()
   const params = structuredAgentSessionMessageSendMutation({

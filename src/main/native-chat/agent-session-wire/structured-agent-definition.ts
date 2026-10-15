@@ -7,6 +7,19 @@
 import type { AgentSessionCapabilities } from '../../../shared/agent-session-capabilities'
 import type { AgentSessionStoredAgent } from '../../../shared/agent-session-stored-agent'
 import type { AgentSessionModelOption } from '../../../shared/agent-session-wire'
+import type {
+  RestingOptionsNormalizeInput,
+  RestingOptionsReadInput,
+  RestingOptionsReadResult
+} from '../../../shared/structured-agent-session-resting-options'
+
+export type {
+  RestingOptionsMap,
+  RestingOptionsNormalizeInput,
+  RestingOptionsOrigin,
+  RestingOptionsReadInput,
+  RestingOptionsReadResult
+} from '../../../shared/structured-agent-session-resting-options'
 
 /** `agent` names the Orca agent whose sessions this describes; the storage fields bound its records. */
 export type StructuredAgentDefinition = AgentSessionStoredAgent & {
@@ -19,6 +32,12 @@ export type StructuredAgentDefinition = AgentSessionStoredAgent & {
     fallbackModels: () => AgentSessionModelOption[] | null
     /** An unpicked effort reads as the model's default effort, as a running child reports it. */
     effortDefaultsToModel: boolean
+    /** The complete option map to persist for a restore, launch seed or option write, applying the
+     *  agent's own invariants. Throws for an explicit write the agent cannot accept; absent when
+     *  the agent keeps options as given. */
+    normalizeOptions?: (input: RestingOptionsNormalizeInput) => Record<string, string>
+    /** Canonical decoded values, plus speed facts where the agent reports any; absent when it has none. */
+    readOptions?: (input: RestingOptionsReadInput) => RestingOptionsReadResult
   }
 }
 

@@ -5,10 +5,15 @@ import {
   getPersistedStructuredAgentLaunchRecord,
   getStructuredLaunchStateBySessionId,
   hasStructuredAgentSessionLaunchCancellationTombstone,
-  notifyStructuredLaunchListeners
+  notifyStructuredLaunchListeners,
+  structuredLaunchSpeedRecord
 } from './structured-agent-session-launch-registry'
 
-/** `executionHostId` published the chat; only the host its launch was sent to settles it. */
+/**
+ * `executionHostId` published the chat; only the host its launch was sent to settles it. A chat
+ * whose chosen speed is held back or unconfirmed stays unsettled: showing in the inventory never
+ * proves the host accepted the speed.
+ */
 export function markStructuredAgentSessionLaunchPublished(
   worktreeId: string,
   sessionId: string,
@@ -17,7 +22,7 @@ export function markStructuredAgentSessionLaunchPublished(
   const state = getStructuredLaunchStateBySessionId(sessionId)
   if (!state) {
     const persisted = getPersistedStructuredAgentLaunchRecord(sessionId)
-    if (persisted?.executionHostId !== executionHostId) {
+    if (persisted?.executionHostId !== executionHostId || persisted.speed) {
       return false
     }
     deleteStructuredAgentLaunchRecord(sessionId)
@@ -37,6 +42,17 @@ export function markStructuredAgentSessionLaunchPublished(
   // Still in flight: its own settlement publishes once the picks held during launch land.
   if (state.callers.outcome === 'pending') {
     return true
+  }
+  const { held } = state.selection
+  // The inventory settles nothing a last capability look has not admitted: not a held or blocked
+  // speed, nor the accepted one the chat runs.
+  if (
+    state.speedBlock ||
+    held.serviceTier !== undefined ||
+    held.fastMode !== undefined ||
+    structuredLaunchSpeedRecord(state)
+  ) {
+    return false
   }
   state.callers.outcome = 'published'
   deleteStructuredAgentLaunchRecord(sessionId)

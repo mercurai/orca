@@ -1,7 +1,18 @@
-import { createElement } from 'react'
+import { createElement, type ReactElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { CODEX_SESSION_OPTION_CATALOG } from '../../../src/shared/agent-session-option-catalog-claude-codex'
+import { CODEX_SERVICE_TIER_OPTION_ID } from '../../../src/shared/codex-service-tier-presentation'
+import {
+  codexSpeedLines,
+  type CodexSpeedLine,
+  type SpeedAwareSessionOptionsSurface
+} from '../../../src/shared/codex-speed-facts-presentation'
 import type { SessionOptionDescriptor } from '../../../src/shared/native-chat-session-options'
+import {
+  createStructuredAgentSessionOptionState,
+  structuredAgentSessionOptionSnapshot
+} from '../../../src/shared/structured-agent-session-options'
 import { MobileNativeChatSessionOptionPickers } from './MobileNativeChatSessionOptionPickers'
 import type { MobileNativeChatSessionOptionsController } from './use-mobile-native-chat-session-options'
 
@@ -69,6 +80,24 @@ const FAST_MODE_DESCRIPTOR: SessionOptionDescriptor = {
   kind: { type: 'boolean', currentValue: false },
   valueSource: 'reported',
   transport: 'catalog',
+  settable: true
+}
+
+const SPEED_DESCRIPTOR: SessionOptionDescriptor = {
+  id: 'serviceTier',
+  label: 'Speed',
+  category: 'mode',
+  kind: {
+    type: 'select',
+    currentValue: 'default',
+    choices: [
+      { value: 'default', label: 'Standard' },
+      { value: 'synthetic-fast-lane', label: 'Fast', description: 'Quicker replies.' },
+      { value: 'orca-unavailable:ultrafast', label: 'Ultrafast', disabled: true }
+    ]
+  },
+  valueSource: 'reported',
+  transport: 'agent-session',
   settable: true
 }
 
@@ -283,5 +312,235 @@ describe('MobileNativeChatSessionOptionPickers', () => {
   it('locks the pills while the agent is working', () => {
     mount([MODEL_DESCRIPTOR, EFFORT_DESCRIPTOR], true)
     expect(pill('Model').props).toMatchObject({ disabled: true })
+  })
+
+  describe('speed select', () => {
+    const texts = (): unknown[] =>
+      renderer!.root
+        .findAll((node) => node.type === 'Text')
+        .map((node) => (node.props as { children?: unknown }).children)
+
+    it('stays open while the agent works, with every other control locked', async () => {
+      mount([MODEL_DESCRIPTOR, EFFORT_DESCRIPTOR, SPEED_DESCRIPTOR], true)
+      expect(pill('Model').props).toMatchObject({ disabled: false })
+
+      await act(async () => pill('Model').props.onPress())
+      expect(rowByText('Sonnet 5').props.accessibilityState?.disabled).toBe(true)
+      expect(rowByText('Effort').props.accessibilityState?.disabled).toBe(true)
+      expect(rowByText('Speed').props.accessibilityState?.disabled).toBe(false)
+
+      await act(async () => rowByText('Speed').props.onPress())
+      await act(async () => rowByText('Fast').props.onPress())
+      expect(setOption).toHaveBeenCalledExactlyOnceWith('serviceTier', 'synthetic-fast-lane')
+    })
+
+    it('keeps the pill locked while the agent works when the speed select is not settable', () => {
+      mount([MODEL_DESCRIPTOR, { ...SPEED_DESCRIPTOR, settable: false }], true)
+      expect(pill('Model').props).toMatchObject({ disabled: true })
+    })
+
+    it('states the next-turn rule, the usage cost, and why a row is unavailable', async () => {
+      mount([MODEL_DESCRIPTOR, SPEED_DESCRIPTOR])
+      await act(async () => pill('Model').props.onPress())
+      await act(async () => rowByText('Speed').props.onPress())
+
+      expect(texts()).toContain(
+        'Changes apply to the next turn, including while a turn is running.'
+      )
+      expect(texts()).toContain('Quicker replies. Uses more of your usage allowance than Standard.')
+      expect(texts()).toContain('Not offered for this model.')
+      expect(rowByText('Ultrafast').props.accessibilityState).toMatchObject({
+        checked: false,
+        disabled: true
+      })
+    })
+
+    it('shows a retired selection as checked but disabled and explains it', async () => {
+      mount([
+        MODEL_DESCRIPTOR,
+        {
+          ...SPEED_DESCRIPTOR,
+          kind: {
+            type: 'select',
+            currentValue: 'synthetic-retired-lane',
+            choices: [
+              { value: 'default', label: 'Standard' },
+              { value: 'synthetic-retired-lane', label: 'synthetic-retired-lane', disabled: true }
+            ]
+          }
+        }
+      ])
+      await act(async () => pill('Model').props.onPress())
+      await act(async () => rowByText('Speed').props.onPress())
+
+      expect(rowByText('synthetic-retired-lane').props.accessibilityState).toMatchObject({
+        checked: true,
+        disabled: true
+      })
+      expect(texts()).toContain('The selected speed cannot be sent for this model. Choose another.')
+    })
+
+    describe('speed facts', () => {
+      // The picker reads the lines off the controller it already gets, as the desktop picker does
+      // off its surface, so the composers that hand it a controller stay unchanged.
+      type SpeedAwareController = MobileNativeChatSessionOptionsController &
+        Pick<SpeedAwareSessionOptionsSurface, 'getSpeedLines'>
+
+      const mountSpeedAware = (lines: readonly CodexSpeedLine[]): void => {
+        const controller: SpeedAwareController = {
+          snapshot: [MODEL_DESCRIPTOR, EFFORT_DESCRIPTOR, SPEED_DESCRIPTOR],
+          pendingId: null,
+          setOption,
+          invokeAction,
+          recordCommand: vi.fn(),
+          getSpeedLines: () => lines
+        }
+        act(() => {
+          renderer = create(
+            createElement(MobileNativeChatSessionOptionPickers, { controller, isWorking: false })
+          )
+        })
+      }
+
+      const openSheet = async (label: string): Promise<void> => {
+        await act(async () => pill('Model').props.onPress())
+        await act(async () => rowByText(label).props.onPress())
+      }
+
+      it('captions the stored selection, the refused request and unknown processing separately', async () => {
+        mountSpeedAware([
+          { kind: 'stored', label: 'Fast' },
+          { kind: 'last-request', outcome: 'rejected', label: 'Fast', detail: 'not on this plan' },
+          { kind: 'processing' }
+        ])
+        await openSheet('Speed')
+
+        expect(texts()).toEqual(
+          expect.arrayContaining([
+            'Stored for the next turn: Fast.',
+            'Last request for Fast was refused: not on this plan',
+            'The speed the server used is not reported.'
+          ])
+        )
+      })
+
+      it('words a pending pick, an accepted request and a reported tier as those claims only', async () => {
+        mountSpeedAware([
+          { kind: 'pending', label: 'Ultrafast' },
+          { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+          { kind: 'processing', label: 'Standard' }
+        ])
+        await openSheet('Speed')
+
+        expect(texts()).toEqual(
+          expect.arrayContaining([
+            'Requested Ultrafast, waiting for the host to confirm.',
+            'Last turn requested Fast; accepted.',
+            'The server reported Standard for the last turn.'
+          ])
+        )
+      })
+
+      it.each([
+        { outcome: 'sent' as const, text: 'Last turn requested Fast; not yet accepted.' },
+        { outcome: 'rejected' as const, text: 'Last request for Fast was refused.' }
+      ])('words a $outcome request without claiming more', async ({ outcome, text }) => {
+        mountSpeedAware([{ kind: 'last-request', outcome, label: 'Fast' }])
+        await openSheet('Speed')
+
+        expect(texts()).toContain(text)
+        expect(texts()).not.toContain('Last turn requested Fast; accepted.')
+      })
+
+      it('keeps the speed facts off the other option sheets', async () => {
+        mountSpeedAware([{ kind: 'processing' }])
+        await openSheet('Effort')
+
+        expect(texts()).not.toContain('The speed the server used is not reported.')
+      })
+
+      it('adds no speed claim when the controller reports none', async () => {
+        mount([MODEL_DESCRIPTOR, EFFORT_DESCRIPTOR, SPEED_DESCRIPTOR])
+        await openSheet('Speed')
+
+        expect(texts()).not.toContain('The speed the server used is not reported.')
+        expect(texts()).toContain(
+          'Changes apply to the next turn, including while a turn is running.'
+        )
+      })
+
+      // That the parent controller forwards the session's lines to this controller is
+      // `mobile-codex-speed-parent-forwarding.test.ts`, through the real parent: a copy of its field
+      // list written here would pass whatever the parent actually forwards.
+
+      // The cold Codex model placeholder holds no speed select, so the real surface calls
+      // codexSpeedLines with no serviceTier descriptor. The probe phase is the optional third
+      // argument, passed through a typed alias so a missing parameter fails as a missing caption.
+      describe('cold placeholder phases', () => {
+        const LOADING = 'Loading speed options.'
+        const UNVERIFIED =
+          'Speed options could not be confirmed. Orca will retry when the host is available.'
+        const placeholder = structuredAgentSessionOptionSnapshot(
+          createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG)
+        )
+
+        const linesWithPhases: (
+          descriptor: Parameters<typeof codexSpeedLines>[0],
+          speed: Parameters<typeof codexSpeedLines>[1],
+          phases?: Readonly<{ capabilityPhase?: 'pending' | 'failed' | 'settled' }>
+        ) => CodexSpeedLine[] = codexSpeedLines
+
+        const coldLines = (phase: 'pending' | 'failed' | 'settled'): CodexSpeedLine[] =>
+          linesWithPhases(
+            placeholder.find((descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID),
+            undefined,
+            { capabilityPhase: phase }
+          )
+
+        const coldPickers = (lines: readonly CodexSpeedLine[]): ReactElement =>
+          createElement(MobileNativeChatSessionOptionPickers, {
+            controller: {
+              snapshot: placeholder,
+              pendingId: null,
+              setOption,
+              invokeAction,
+              recordCommand: vi.fn(),
+              getSpeedLines: () => lines
+            },
+            isWorking: false
+          })
+
+        it.each([
+          ['pending', LOADING, UNVERIFIED],
+          ['failed', UNVERIFIED, LOADING]
+        ] as const)(
+          'captions a %s read beside the closed pill without unlocking a speed select',
+          async (phase, shown, hidden) => {
+            act(() => {
+              renderer = create(coldPickers(coldLines(phase)))
+            })
+
+            expect(renderer!.root.findAllByType('BottomDrawer')).toEqual([])
+            expect(texts()).toContain(shown)
+            expect(texts()).not.toContain(hidden)
+            await act(async () => pill('Model').props.onPress())
+            expect(texts()).not.toContain('Speed')
+            expect(setOption).not.toHaveBeenCalled()
+          }
+        )
+
+        it('drops the loading caption once the read settles, claiming no speed', () => {
+          act(() => {
+            renderer = create(coldPickers(coldLines('pending')))
+          })
+          expect(texts()).toContain(LOADING)
+
+          act(() => renderer!.update(coldPickers(coldLines('settled'))))
+
+          expect(texts()).not.toContain(LOADING)
+          expect(texts()).not.toContain('The speed the server used is not reported.')
+        })
+      })
+    })
   })
 })

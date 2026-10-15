@@ -4,7 +4,10 @@ import {
   type CodexModelCatalogListing
 } from './codex-structured-model-catalog'
 import type { CodexSession } from './codex-structured-session-state'
-import { reconcileCodexFastModeOption } from './codex-structured-fast-mode'
+import { migrateCodexSessionSpeed } from './codex-structured-fast-mode'
+import { codexStandardTierId } from '../../shared/codex-service-tier-selection'
+import type { AgentModelCatalogEntry } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
+import { codexListingDefaultModel, listingFromEntry } from './codex-structured-catalog-entry'
 
 type BackgroundCatalogInput = {
   session: CodexSession
@@ -14,23 +17,38 @@ type BackgroundCatalogInput = {
   logger: StructuredAgentSessionLogger | undefined
 }
 
-/** Turns read tiers from the store; only a legacy saved tier needs migrating here. */
+/** Turns read tiers from the store; only unresolved legacy Fast intent needs migrating here. A
+ *  canonical tier is never rewritten, so a refresh cannot erase what the session chose. */
 function applyListing(session: CodexSession, listing: CodexModelCatalogListing): void {
-  if (!session.options.has('serviceTier')) {
+  if (!session.options.has('fastMode')) {
     return
   }
-  const model =
-    session.options.get('model') ??
-    session.reportedOptions.model ??
-    listing.models.find((entry) => entry.isDefault)?.id ??
-    listing.models[0]?.id ??
-    ''
-  reconcileCodexFastModeOption(session, {
-    fastModeTierByModel: listing.fastModeTierByModel,
-    currentFastMode: undefined,
-    model,
-    modelFastModeSupport: undefined
+  migrateCodexSessionSpeed(session, {
+    models: listing.models,
+    currentModel:
+      session.options.get('model') ??
+      session.reportedOptions.model ??
+      codexListingDefaultModel(listing.models)
   })
+}
+
+/** Whether a stored speed other than Standard still lacks tier metadata for its model. */
+function needsTierMetadata(
+  session: CodexSession,
+  prior: AgentModelCatalogEntry | undefined
+): boolean {
+  const serviceTier = session.options.get('serviceTier')
+  const pendingSpeed =
+    session.options.get('fastMode') === 'true' ||
+    (serviceTier !== undefined && serviceTier !== codexStandardTierId(undefined))
+  const model = session.options.get('model') ?? session.reportedOptions.model
+  return (
+    pendingSpeed &&
+    (!model ||
+      !prior ||
+      listingFromEntry(prior).models.find((entry) => entry.id === model)?.serviceTiers ===
+        undefined)
+  )
 }
 
 async function refresh(input: BackgroundCatalogInput): Promise<void> {
@@ -39,10 +57,7 @@ async function refresh(input: BackgroundCatalogInput): Promise<void> {
   const store = access?.store
   const fingerprint = access?.fingerprint
   const prior = fingerprint ? store?.get(fingerprint) : undefined
-  const model = session.options.get('model') ?? session.reportedOptions.model
-  const needsTier =
-    (session.options.get('fastMode') === 'true' || session.options.has('serviceTier')) &&
-    (!model || !prior?.fastModeTierByModel[model])
+  const needsTier = needsTierMetadata(session, prior ?? undefined)
   if (
     fingerprint &&
     store &&
@@ -65,10 +80,7 @@ async function refresh(input: BackgroundCatalogInput): Promise<void> {
     }
     const latest = fingerprint ? store?.get(fingerprint) : undefined
     if (latest && latest !== prior) {
-      applyListing(session, {
-        models: latest.models,
-        fastModeTierByModel: new Map(Object.entries(latest.fastModeTierByModel))
-      })
+      applyListing(session, listingFromEntry(latest))
       return
     }
     if (fingerprint && store) {

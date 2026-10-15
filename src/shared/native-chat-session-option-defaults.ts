@@ -1,4 +1,5 @@
 import type { AgentType } from './agent-status-types'
+import { isAgentSessionOptions } from './agent-session-record'
 import { sessionOptionValueIsValid } from './agent-session-option-catalog'
 import type {
   NativeChatSessionOptionSettingsMutation,
@@ -34,8 +35,16 @@ export function resolveNativeChatSessionOptionDefaults(
 }
 
 /** Canonical values seed through the existing durable string record; the codec
- *  is the only boundary that represents the boolean Fast preference as text. */
-export const STRUCTURED_LAUNCH_SEED_OPTION_IDS = ['model', 'effort', 'fastMode'] as const
+ *  is the only boundary that represents the boolean Fast preference as text.
+ *  `serviceTier` is Codex's canonical speed and outranks a coexisting `fastMode`. */
+export const STRUCTURED_LAUNCH_SEED_OPTION_IDS = [
+  'model',
+  'effort',
+  'serviceTier',
+  'fastMode'
+] as const
+
+const NON_BLANK_SEED_OPTION_IDS: ReadonlySet<string> = new Set(['model', 'effort', 'serviceTier'])
 
 /** Any chosen option set narrowed to what a structured create may seed: the seedable ids only,
  *  each encoded as a bounded string. An empty result is `undefined` rather than `{}` — an empty map fails
@@ -50,7 +59,10 @@ export function narrowStructuredLaunchSeedOptions(
   const seeded: Record<string, string> = {}
   for (const id of STRUCTURED_LAUNCH_SEED_OPTION_IDS) {
     const value = values?.[id]
-    if ((id === 'model' || id === 'effort') && !(typeof value === 'string' && value.trim())) {
+    if (id === 'fastMode' && seeded.serviceTier !== undefined) {
+      continue
+    }
+    if (NON_BLANK_SEED_OPTION_IDS.has(id) && !(typeof value === 'string' && value.trim())) {
       continue
     }
     if (typeof value === 'string' || typeof value === 'boolean') {
@@ -75,6 +87,9 @@ export function parseStructuredLaunchSeedOptions(
   const parsed: Record<string, string> = {}
   for (const id of STRUCTURED_LAUNCH_SEED_OPTION_IDS) {
     const encoded = entries.get(id)
+    if (id === 'fastMode' && parsed.serviceTier !== undefined) {
+      continue
+    }
     if (
       typeof encoded === 'string' &&
       encoded.trim() &&
@@ -86,12 +101,47 @@ export function parseStructuredLaunchSeedOptions(
   return Object.keys(parsed).length > 0 ? parsed : undefined
 }
 
-/** The saved selection a structured create seeds into its string-valued reservation. */
+/** The saved selection a structured create seeds into its string-valued reservation. Only Codex
+ *  keeps `serviceTier`; Claude and every other agent seed their own controls. */
 export function resolveStructuredLaunchSeedOptions(
   persisted: PersistedNativeChatSessionOptions | null | undefined,
   agent: AgentType
 ): Record<string, string> | undefined {
-  return narrowStructuredLaunchSeedOptions(resolveNativeChatSessionOptionDefaults(persisted, agent))
+  const values = resolveNativeChatSessionOptionDefaults(persisted, agent)
+  if (!values || agent === 'codex') {
+    return narrowStructuredLaunchSeedOptions(values)
+  }
+  const { serviceTier: _codexOnly, ...others } = values
+  return narrowStructuredLaunchSeedOptions(others)
+}
+
+const CODEX_SPEED_COUNTERPART: Readonly<Record<string, string>> = {
+  fastMode: 'serviceTier',
+  serviceTier: 'fastMode'
+}
+
+function isCodexSpeedOption(agent: AgentType, optionId: string): boolean {
+  return agent === 'codex' && (optionId === 'fastMode' || optionId === 'serviceTier')
+}
+
+/** A Codex speed value the seed boundary would accept: a boolean Fast toggle or a non-blank tier
+ *  id that fits the durable record's bounded string. Anything else is not a speed choice. */
+function isExplicitCodexSpeedChoice(
+  agent: AgentType,
+  optionId: string,
+  value: SessionOptionValue
+): boolean {
+  if (!isCodexSpeedOption(agent, optionId)) {
+    return false
+  }
+  const encoded = encodeStructuredAgentSessionOptionValue(optionId, value)
+  if (encoded === null) {
+    return false
+  }
+  return (
+    optionId === 'fastMode' ||
+    (encoded.trim() !== '' && isAgentSessionOptions({ serviceTier: encoded }))
+  )
 }
 
 /** Fold a settled batch of picks onto the durable record. A surface that must send the
@@ -103,8 +153,29 @@ export function applyNativeChatSessionOptionPicks(args: {
   picks: Extract<NativeChatSessionOptionSettingsMutation, { type: 'apply-picks' }>['picks']
 }): PersistedNativeChatSessionOptions {
   let persisted = args.persisted ?? {}
+  const tierModelIds = new Set(
+    args.picks
+      .filter(
+        (pick) =>
+          pick.optionId === 'serviceTier' &&
+          isExplicitCodexSpeedChoice(args.agent, pick.optionId, pick.value)
+      )
+      .map((pick) => pick.modelId)
+  )
   for (const pick of args.picks) {
-    persisted = updateNativeChatSessionOptionDefaults({ persisted, agent: args.agent, ...pick })
+    // Why: a canonical snapshot batch carries a compatibility fastMode projection for the same
+    // model. In pick order it still adopts the model, but stores no Fast value, so the tier wins
+    // whatever the intra-model order and the batch's last-picked model is unchanged.
+    const isProjection =
+      pick.optionId === 'fastMode' &&
+      tierModelIds.has(pick.modelId) &&
+      isExplicitCodexSpeedChoice(args.agent, pick.optionId, pick.value)
+    persisted = updateNativeChatSessionOptionDefaults({
+      persisted,
+      agent: args.agent,
+      ...pick,
+      ...(isProjection ? { optionId: 'model', value: pick.modelId } : {})
+    })
   }
   return persisted
 }
@@ -156,14 +227,25 @@ export function updateNativeChatSessionOptionDefaults(args: {
    *  later launch, fatal on an account without that model. */
   adoptModelAsLaunchDefault?: boolean
 }): PersistedNativeChatSessionOptions {
+  const isSpeed = isCodexSpeedOption(args.agent, args.optionId)
+  // Why: a malformed speed value is no choice at all; it must not overwrite the same key or
+  // adopt its model as the launch default.
+  if (isSpeed && !isExplicitCodexSpeedChoice(args.agent, args.optionId, args.value)) {
+    return args.persisted ?? {}
+  }
   const currentAgent = args.persisted?.[args.agent]
   const currentModelValues = currentAgent?.valuesByModel?.[args.modelId] ?? {}
+  // Why: an explicit speed action is a new user choice, so the other spelling of speed is stale.
+  const supersededId = isSpeed ? CODEX_SPEED_COUNTERPART[args.optionId] : undefined
+  const keptModelValues = Object.fromEntries(
+    Object.entries(currentModelValues).filter(([id]) => id !== supersededId)
+  )
   const valuesByModel = {
     ...currentAgent?.valuesByModel,
     ...(args.optionId === 'model'
       ? {}
       : {
-          [args.modelId]: { ...currentModelValues, [args.optionId]: args.value }
+          [args.modelId]: { ...keptModelValues, [args.optionId]: args.value }
         })
   }
   return {

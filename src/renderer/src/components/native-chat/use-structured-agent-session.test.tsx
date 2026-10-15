@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
   operationId: vi.fn(),
-  enqueueSettingsWrite: vi.fn(),
+  enqueueSettingsWrite: vi.fn<typeof enqueueSessionOptionSettingsWrite>(),
   toastError: vi.fn()
 }))
 
@@ -58,68 +58,14 @@ import type {
   AgentJournalRenderItem,
   AgentJournalSubmission
 } from '../../../../shared/agent-session-journal-types'
-import {
-  applyNativeChatSessionOptionSettingsMutation,
-  resolveStructuredLaunchSeedOptions
-} from '../../../../shared/native-chat-session-option-defaults'
-import type { PersistedNativeChatSessionOptions } from '../../../../shared/native-chat-session-options'
+import type { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
+import { deferred, FAST_OPTIONS, OPTIONS, replay } from './structured-agent-session-option-fixtures'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 
-/** Replay every host mutation in order, exactly as the runtime does. */
-function seededByNextLaunch(): Record<string, string> | undefined {
-  let persisted: PersistedNativeChatSessionOptions | undefined
-  for (const [, mutation] of mocks.enqueueSettingsWrite.mock.calls) {
-    persisted =
-      applyNativeChatSessionOptionSettingsMutation(
-        persisted,
-        mutation as Parameters<typeof applyNativeChatSessionOptionSettingsMutation>[1]
-      ) ?? persisted
-  }
-  return resolveStructuredLaunchSeedOptions(persisted, 'codex')
-}
+const seededByNextLaunch = () =>
+  replay(mocks.enqueueSettingsWrite.mock.calls.map(([, mutation]) => mutation))
 
 const LOCAL_TARGET = { kind: 'local' } as const
-
-const OPTIONS = {
-  models: [
-    {
-      id: 'gpt-live',
-      label: 'GPT Live',
-      isDefault: true,
-      defaultEffort: 'medium',
-      efforts: [
-        { value: 'medium', label: 'Medium' },
-        { value: 'high', label: 'High' }
-      ]
-    },
-    {
-      id: 'gpt-fast',
-      label: 'GPT Fast',
-      isDefault: false,
-      defaultEffort: 'low',
-      efforts: [
-        { value: 'low', label: 'Low' },
-        { value: 'medium', label: 'Medium' }
-      ]
-    }
-  ],
-  current: { model: 'gpt-live', effort: 'medium' }
-}
-
-const FAST_OPTIONS = {
-  ...OPTIONS,
-  models: OPTIONS.models.map((model) => ({ ...model, supportsFastMode: true })),
-  fastModeSupport: { supported: true },
-  current: { ...OPTIONS.current, fastMode: false, confirmed: ['fastMode'] }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((accept) => {
-    resolve = accept
-  })
-  return { promise, resolve }
-}
 
 describe('useStructuredAgentSession working state', () => {
   beforeEach(() => {
@@ -390,12 +336,55 @@ describe('useStructuredAgentSession options', () => {
     ).toEqual([3, 4])
   })
 
-  it('ignores an option failure from a superseded fence', async () => {
+  it('sends no option write when the fence is superseded during admission', async () => {
     let reject!: (error: Error) => void
     const pending = new Promise<never>((_resolve, rejectPromise) => {
       reject = rejectPromise
     })
+    // Handled up front: once the write is never sent, nothing else listens to this rejection.
+    pending.catch(() => undefined)
     // Only the option write fails; a refused hold would surface on `error` for its own reason.
+    mocks.call.mockImplementation((_target, method) =>
+      method === 'agentSession.options' || method === 'agentSession.hold'
+        ? Promise.resolve(method === 'agentSession.options' ? OPTIONS : null)
+        : pending
+    )
+    const { result, rerender } = renderHook(() =>
+      useStructuredAgentSession({
+        sessionId: 'session-1',
+        target: LOCAL_TARGET,
+        agent: 'codex',
+        isVisible: true
+      })
+    )
+    await waitFor(() => expect(result.current.optionSnapshot).toHaveLength(2))
+    let setting!: Promise<boolean>
+    // The fence moves in the same task as the pick, before admission's await resumes.
+    act(() => {
+      setting = result.current.setStructuredOption('model', 'gpt-fast')
+    })
+    fence = 4
+    rerender()
+
+    let applied = true
+    await act(async () => {
+      reject(new Error('stale provider failure'))
+      applied = await setting
+    })
+
+    expect(applied).toBe(false)
+    expect(
+      mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.setOption')
+    ).toHaveLength(0)
+    expect(result.current.error).toBeNull()
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+
+  it('ignores an option failure from a fence superseded while the write is in flight', async () => {
+    let reject!: (error: Error) => void
+    const pending = new Promise<never>((_resolve, rejectPromise) => {
+      reject = rejectPromise
+    })
     mocks.call.mockImplementation((_target, method) =>
       method === 'agentSession.options' || method === 'agentSession.hold'
         ? Promise.resolve(method === 'agentSession.options' ? OPTIONS : null)
@@ -414,6 +403,11 @@ describe('useStructuredAgentSession options', () => {
     act(() => {
       setting = result.current.setStructuredOption('model', 'gpt-fast')
     })
+    await waitFor(() =>
+      expect(
+        mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.setOption')
+      ).toHaveLength(1)
+    )
     fence = 4
     rerender()
 

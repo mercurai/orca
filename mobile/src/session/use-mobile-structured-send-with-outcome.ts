@@ -18,6 +18,7 @@ import { dispatchMobileStructuredCommand } from './mobile-structured-composer-co
 import type { MobileNativeChatSendErrorReporter } from './use-mobile-native-chat-send-error'
 import { sendMobileStructuredAgentSessionMessage } from './mobile-structured-agent-session-send'
 import { timeoutForDeadline } from './mobile-structured-agent-session-rpc'
+import { MOBILE_SPEED_SEND_BLOCKED_TEXT } from './mobile-native-chat-session-option-labels'
 import {
   pendingStructuredApproval,
   pendingStructuredQuestion
@@ -50,6 +51,9 @@ export function useMobileStructuredSendWithOutcome(args: {
     StructuredAgentSessionComposerOptions,
     'snapshot' | 'setOption' | 'invokeAction' | 'conversationCommands'
   >
+  /** Read each time a message is about to go out, never from a render: a speed the host has not
+   *  accepted would send it at the prior speed. */
+  speedSendBlocked?: () => boolean
   onSendError: MobileNativeChatSendErrorReporter
 }): (
   text: string,
@@ -67,6 +71,7 @@ export function useMobileStructuredSendWithOutcome(args: {
     onSendError,
     queueCapable,
     sessionId,
+    speedSendBlocked,
     stateRef
   } = args
   return useCallback(
@@ -125,6 +130,12 @@ export function useMobileStructuredSendWithOutcome(args: {
       if (body.blocks.length === 0) {
         return 'rejected'
       }
+      // After the command's await: a speed picked meanwhile holds this send, which goes back to the
+      // composer unsent.
+      if (speedSendBlocked?.()) {
+        onSendError(MOBILE_SPEED_SEND_BLOCKED_TEXT)
+        return 'rejected'
+      }
       return sendMobileStructuredAgentSessionMessage({
         client,
         sessionId,
@@ -148,6 +159,7 @@ export function useMobileStructuredSendWithOutcome(args: {
       onSendError,
       queueCapable,
       sessionId,
+      speedSendBlocked,
       stateRef
     ]
   )

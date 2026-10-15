@@ -21,7 +21,9 @@ export async function readNativeSessionOptions(input: {
 }
 
 /** The record's options once the provider has reported: its model, effort and Fast replace the
- *  saved ones, other saved options stay, and any the child could not take are dropped. */
+ *  saved ones, other saved options stay, and any the child could not take are dropped. A reported
+ *  canonical serviceTier replaces both the saved tier and fastMode; a saved tier the report does not
+ *  name stays as intent until the host acknowledges a replacement. */
 export function nativeSessionOptionsFromReport(input: {
   reported: AgentSessionOptionsResult['current']
   restoreSkipped: readonly string[]
@@ -34,17 +36,22 @@ export function nativeSessionOptionsFromReport(input: {
   delete restored.model
   delete restored.effort
   delete restored.fastMode
+  if (reported.serviceTier) {
+    delete restored.serviceTier
+  }
   for (const key of input.restoreSkipped) {
     delete restored[key]
   }
+  // A canonical tier outranks any boolean reported beside it.
   const fastMode =
-    reported.fastMode === undefined
+    reported.fastMode === undefined || reported.serviceTier
       ? undefined
       : encodeStructuredAgentSessionOptionValue('fastMode', reported.fastMode)
   const options: Record<string, string> = {
     ...restored,
     ...(reported.model ? { model: reported.model } : {}),
     ...(reported.effort ? { effort: reported.effort } : {}),
+    ...(reported.serviceTier ? { serviceTier: reported.serviceTier } : {}),
     ...(fastMode !== undefined && fastMode !== null ? { fastMode } : {})
   }
   for (const [key, value] of Object.entries(input.retired ?? {})) {

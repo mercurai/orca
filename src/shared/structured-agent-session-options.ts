@@ -5,26 +5,32 @@ import type {
 } from './agent-session-option-catalog'
 import {
   buildNativeChatSessionOptionSnapshot,
-  resolveEffectiveNativeChatModelId,
   withTrackedNativeChatModel
 } from './native-chat-session-option-snapshot'
 import {
   applyNativeChatReportedSessionOptions,
   clearTrackedSessionOption,
   createNativeChatSessionOptionRecord,
-  setTrackedSessionOption,
   type NativeChatSessionOptionRecord
 } from './native-chat-session-option-state'
-import { STRUCTURED_LAUNCH_SEED_OPTION_IDS } from './native-chat-session-option-defaults'
 import type { SessionOptionDescriptor, SessionOptionValue } from './native-chat-session-options'
 import type {
   AgentSessionModelCatalogResult,
   AgentSessionOptionsResult
 } from './agent-session-wire'
+import type { AgentSessionSpeedFacts } from './agent-session-speed-facts'
 import {
-  decodeStructuredAgentSessionOptionValue,
-  encodeStructuredAgentSessionOptionValue
-} from './structured-agent-session-option-codec'
+  CODEX_SERVICE_TIER_OPTION_ID,
+  codexSpeedCatalogOptions,
+  codexUnresolvedSpeedOptions,
+  refreshCodexServiceTierCatalog,
+  type CodexSpeedHostSupport
+} from './codex-service-tier-presentation'
+import type { SessionOptionProbePhase } from './codex-speed-facts-presentation'
+import {
+  structuredAgentSessionRequestConfirmed,
+  type StructuredAgentSessionRequestedSpeed
+} from './structured-agent-session-option-acknowledgement'
 
 function effortOption(model: AgentSessionOptionsResult['models'][number]): CatalogOption | null {
   if (model.efforts.length <= 1) {
@@ -44,21 +50,25 @@ function effortOption(model: AgentSessionOptionsResult['models'][number]): Catal
   }
 }
 
-function fastModeOption(): CatalogOption {
-  return {
-    id: 'fastMode',
-    label: 'Fast mode',
-    category: 'mode',
-    kind: { type: 'boolean', defaultValue: false },
-    apply: {}
-  }
+/** Who the catalog is for, stated by the caller from its session record. Speed tiers are Codex's
+ *  alone: another agent keeps its own controls however much tier metadata a listing carries. */
+export type StructuredAgentSessionCatalogContext = {
+  agent: string
+  /** The execution host's answer for the speed capability; absent leaves it to model metadata. */
+  codexSpeedHost?: CodexSpeedHostSupport
 }
+
+const CODEX_CATALOG_CONTEXT: StructuredAgentSessionCatalogContext = { agent: 'codex' }
 
 function discoveredModel(
   model: AgentSessionOptionsResult['models'][number],
-  sessionSupportsFastMode: boolean
+  sessionSupportsFastMode: boolean,
+  context: StructuredAgentSessionCatalogContext
 ): CatalogModel {
   const effort = effortOption(model)
+  // A model with a speed select drops the boolean: the select carries Standard and Fast too.
+  // Another agent never gets the select, however much tier metadata a listing carries.
+  const host = context.agent === 'codex' ? context.codexSpeedHost : 'unsupported'
   return {
     id: model.id,
     label: model.label,
@@ -66,17 +76,19 @@ function discoveredModel(
     ...(model.isDefault ? { isDefault: true } : {}),
     options: [
       ...(effort ? [effort] : []),
-      ...(sessionSupportsFastMode && model.supportsFastMode === true ? [fastModeOption()] : [])
+      ...codexSpeedCatalogOptions(model, host, sessionSupportsFastMode),
+      ...codexUnresolvedSpeedOptions(model, host)
     ]
   }
 }
 
 export function structuredAgentSessionOptionCatalog(
   seed: AgentSessionOptionCatalog,
-  result: AgentSessionOptionsResult
+  result: AgentSessionOptionsResult,
+  context: StructuredAgentSessionCatalogContext = CODEX_CATALOG_CONTEXT
 ): AgentSessionOptionCatalog {
   const models: CatalogModel[] = result.models.map((model) =>
-    discoveredModel(model, result.fastModeSupport?.supported === true)
+    discoveredModel(model, result.fastModeSupport?.supported === true, context)
   )
   if (result.current.model && !models.some((model) => model.id === result.current.model)) {
     models.push({
@@ -96,6 +108,17 @@ export type StructuredAgentSessionOptionState = {
   catalogSource: 'seed' | 'builtin' | 'host' | 'live' | null
   record: NativeChatSessionOptionRecord
   pendingId: string | null
+  /** The host's speed facts from the last live read: absent from an older host, another agent,
+   *  or before any read, which never means Standard. */
+  speed?: AgentSessionSpeedFacts
+  /** A speed this client asked for that no accepted answer has replaced: held apart from what the
+   *  host stores, and keeping sends out until an explicit accepted replacement. */
+  requested?: StructuredAgentSessionRequestedSpeed
+  /** Client-only waits behind the speed select (host capability, options read, model listing).
+   *  They ride through every `apply*` spread and are never persisted, sent or shown as evidence. */
+  capabilityPhase?: SessionOptionProbePhase
+  optionsPhase?: SessionOptionProbePhase
+  catalogPhase?: SessionOptionProbePhase
 }
 
 /** With `seedCatalog`, the state holds the static seed from the first frame, but the picker shows
@@ -130,16 +153,30 @@ export function applyStructuredAgentSessionModelCatalog(
   state: StructuredAgentSessionOptionState,
   seed: AgentSessionOptionCatalog,
   catalog: AgentSessionModelCatalogResult,
-  options: { newLaunch: boolean }
+  options: { newLaunch: boolean; codexSpeedHost?: CodexSpeedHostSupport }
 ): StructuredAgentSessionOptionState {
+  const context: StructuredAgentSessionCatalogContext = {
+    agent: state.record.agent,
+    ...(options.codexSpeedHost ? { codexSpeedHost: options.codexSpeedHost } : {})
+  }
   if (state.catalogSource === 'live') {
-    return state
+    // The session's list outranks the host's, but a refreshed tier list must still reach it.
+    const refreshed =
+      state.catalog && catalog.origin !== 'unknown' && context.agent === 'codex'
+        ? refreshCodexServiceTierCatalog(
+            state.catalog,
+            catalog.models,
+            context.codexSpeedHost,
+            catalog.fastModeSupport?.supported
+          )
+        : null
+    return refreshed ? { ...state, catalog: refreshed } : state
   }
   const models =
     catalog.origin === 'unknown'
       ? []
       : catalog.models.map((model) =>
-          discoveredModel(model, catalog.fastModeSupport?.supported === true)
+          discoveredModel(model, catalog.fastModeSupport?.supported === true, context)
         )
   if (catalog.origin === 'unknown' || models.length === 0) {
     return settleStructuredAgentSessionBuiltinCatalog(state)
@@ -165,24 +202,54 @@ export function applyStructuredAgentSessionModelCatalog(
 export function applyStructuredAgentSessionOptions(
   state: StructuredAgentSessionOptionState,
   seed: AgentSessionOptionCatalog,
-  result: AgentSessionOptionsResult
+  result: AgentSessionOptionsResult,
+  codexSpeedHost?: CodexSpeedHostSupport
 ): StructuredAgentSessionOptionState {
+  const isCodex = state.record.agent === 'codex'
   if (result.current.fastMode === undefined) {
     clearTrackedSessionOption(state.record, result.current.model ?? null, 'fastMode')
   }
+  // A read that names no tier does not erase one the user requested: revalidation keeps intent.
+  const hostSpeed = isCodex ? result.speed : undefined
+  // A canonical read (one carrying speed facts) lists no `confirmed` tier: its `current` tier is
+  // what the host stores, whatever its selection says of a different or blocked request. Only
+  // releasing a held request needs the ready selection naming exactly it.
+  const tierReported = hostSpeed !== undefined && result.current.serviceTier !== undefined
+  // The same read's `current.model` is the host's actual stored model, not a local pick.
+  const modelReported = hostSpeed !== undefined && Boolean(result.current.model)
   applyNativeChatReportedSessionOptions(
     state.record,
     {
       ...(result.current.model ? { model: result.current.model } : {}),
       ...(result.current.effort ? { effort: result.current.effort } : {}),
-      ...(result.current.fastMode !== undefined ? { fastMode: result.current.fastMode } : {})
+      ...(result.current.fastMode !== undefined ? { fastMode: result.current.fastMode } : {}),
+      ...(isCodex && result.current.serviceTier
+        ? { [CODEX_SERVICE_TIER_OPTION_ID]: result.current.serviceTier }
+        : {})
     },
-    result.current.confirmed ?? []
+    [
+      ...(result.current.confirmed ?? []),
+      ...(tierReported ? [CODEX_SERVICE_TIER_OPTION_ID] : []),
+      ...(modelReported ? ['model'] : [])
+    ]
   )
+  const { speed: _previousSpeed, requested, ...rest } = state
+  // The host's own read of exactly what was requested answers it; any other read leaves it held.
+  const stillRequested =
+    requested !== undefined &&
+    !(
+      state.pendingId === null &&
+      structuredAgentSessionRequestConfirmed(requested, result.current, hostSpeed)
+    )
   return {
-    ...state,
-    catalog: structuredAgentSessionOptionCatalog(seed, result),
-    catalogSource: 'live'
+    ...rest,
+    ...(stillRequested ? { requested } : {}),
+    catalog: structuredAgentSessionOptionCatalog(seed, result, {
+      agent: state.record.agent,
+      ...(codexSpeedHost ? { codexSpeedHost } : {})
+    }),
+    catalogSource: 'live',
+    ...(hostSpeed ? { speed: hostSpeed } : {})
   }
 }
 
@@ -245,91 +312,17 @@ export function canSetStructuredAgentSessionOption(
     state.pendingId === null &&
     ((typeof value === 'string' &&
       descriptor?.kind.type === 'select' &&
-      descriptor.kind.choices.some((choice) => choice.value === value)) ||
+      // A disabled row is presentation of an unavailable choice, never one that may be sent.
+      descriptor.kind.choices.some((choice) => choice.value === value && !choice.disabled)) ||
       (typeof value === 'boolean' && descriptor?.kind.type === 'boolean'))
   )
 }
 
-export function commitStructuredAgentSessionOption(
-  state: StructuredAgentSessionOptionState,
-  id: string,
-  value: string
-): StructuredAgentSessionOptionState {
-  if (!state.catalog) {
-    return state
-  }
-  const effectiveModel = resolveEffectiveNativeChatModelId(
-    state.catalog,
-    state.catalog.models,
-    state.record
-  )
-  const decoded = decodeStructuredAgentSessionOptionValue(id, value)
-  if (decoded === null) {
-    return { ...state, pendingId: null }
-  }
-  setTrackedSessionOption(state.record, id, decoded, 'dispatched', effectiveModel)
-  return { ...state, pendingId: null }
-}
-
-export function commitStructuredAgentSessionOptionValues(
-  state: StructuredAgentSessionOptionState,
-  values: Readonly<Record<string, string>>
-): StructuredAgentSessionOptionState {
-  let next = state
-  for (const id of STRUCTURED_LAUNCH_SEED_OPTION_IDS) {
-    const value = values[id]
-    if (value !== undefined) {
-      next = commitStructuredAgentSessionOption(next, id, value)
-    }
-  }
-  return next
-}
-
-export type StructuredSessionOptionPick = {
-  modelId: string
-  optionId: string
-  value: SessionOptionValue
-}
-
-/**
- * The picks a mutation must remember so the next launch starts where the user left off.
- * Keyed off the same ids the launch seed reads back, so a pick this surface cannot
- * re-seed is never written.
- *
- * Model and effort travel as a pair: a launch resolves a stored effort only under a
- * stored model, so an effort-only pick adopts the model it was chosen against. Values
- * come from what the provider committed, not what was requested — it reconciles an
- * effort the newly selected model cannot run before reporting back.
- *
- * `state` may still be pre-commit: a changed model arrives in `committed`, and an
- * unchanged one is already what the record tracks, so neither reading depends on the
- * commit having landed.
- */
-export function structuredAgentSessionOptionPicks(
-  state: StructuredAgentSessionOptionState,
-  committed: Readonly<Record<string, string>>
-): StructuredSessionOptionPick[] {
-  if (!state.catalog) {
-    return []
-  }
-  const committedModel = committed.model
-  const modelId =
-    typeof committedModel === 'string' && committedModel.trim()
-      ? committedModel
-      : resolveEffectiveNativeChatModelId(state.catalog, state.catalog.models, state.record)
-  if (!modelId) {
-    return []
-  }
-  return STRUCTURED_LAUNCH_SEED_OPTION_IDS.flatMap((optionId) => {
-    const value = committed[optionId]
-    if (value === undefined) {
-      return []
-    }
-    const decoded = decodeStructuredAgentSessionOptionValue(optionId, value)
-    return decoded === null ||
-      (typeof decoded === 'string' && !decoded.trim()) ||
-      encodeStructuredAgentSessionOptionValue(optionId, decoded) === null
-      ? []
-      : [{ modelId, optionId, value: decoded }]
-  })
-}
+export {
+  commitStructuredAgentSessionOption,
+  commitStructuredAgentSessionOptionValues
+} from './structured-agent-session-option-acknowledgement'
+export {
+  structuredAgentSessionOptionPicks,
+  type StructuredSessionOptionPick
+} from './structured-agent-session-option-picks'

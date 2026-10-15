@@ -2,6 +2,12 @@
 // (src/renderer/src/components/native-chat/native-chat-session-option-labels.ts),
 // minus i18n — mobile renders plain strings throughout.
 
+import {
+  codexSpeedChoiceStatus,
+  codexSpeedDescriptorCaptions,
+  type CodexSpeedCaptionKey
+} from '../../../src/shared/codex-service-tier-presentation'
+import type { CodexSpeedLine } from '../../../src/shared/codex-speed-facts-presentation'
 import type {
   SessionOptionDescriptor,
   SessionOptionDisabledReason,
@@ -19,6 +25,80 @@ export function mobileSessionOptionDisabledReason(
       return 'Available after the session starts.'
     case undefined:
       return null
+  }
+}
+
+/** A choice's second line: why an unavailable speed row cannot be picked, and the usage cost of an
+ *  offered Fast or Ultrafast, with no guessed rate. Every other choice keeps the provider's words. */
+export function mobileSessionChoiceDescription(
+  descriptor: SessionOptionDescriptor,
+  choice: SessionOptionSelectChoice
+): string | undefined {
+  switch (codexSpeedChoiceStatus(descriptor, choice)) {
+    case 'unavailable':
+      return 'Not offered for this model.'
+    case 'unverified':
+      return 'Cannot be confirmed for this model yet.'
+    case 'higher-usage': {
+      const usage = 'Uses more of your usage allowance than Standard.'
+      return choice.description ? `${choice.description} ${usage}` : usage
+    }
+    case 'offered':
+      return choice.description
+  }
+}
+
+const SPEED_CAPTIONS: Record<CodexSpeedCaptionKey, string> = {
+  'next-turn': 'Changes apply to the next turn, including while a turn is running.',
+  'not-chosen': 'No speed chosen. Codex uses its configured speed.',
+  'support-unverified': "This model's speed options could not be confirmed.",
+  'selection-blocked': 'The selected speed cannot be sent for this model. Choose another.'
+}
+
+/** The speed select's captions, from its descriptor alone; empty for every other option. */
+export function mobileSpeedCaptions(descriptor: SessionOptionDescriptor): string[] {
+  return codexSpeedDescriptorCaptions(descriptor).map((key) => SPEED_CAPTIONS[key])
+}
+
+/** Why a send or queue action did nothing: a speed the host has not accepted would go at the
+ *  prior speed, so every send stays out until one is chosen and accepted. */
+export const MOBILE_SPEED_SEND_BLOCKED_TEXT =
+  'Your speed choice has not been accepted by the host yet. Choose a speed, then send again.'
+
+function mobileSpeedRequestLine(line: Extract<CodexSpeedLine, { kind: 'last-request' }>): string {
+  switch (line.outcome) {
+    case 'sent':
+      return `Last turn requested ${line.label}; not yet accepted.`
+    case 'accepted':
+      return `Last turn requested ${line.label}; accepted.`
+    case 'rejected':
+      return line.detail
+        ? `Last request for ${line.label} was refused: ${line.detail}`
+        : `Last request for ${line.label} was refused.`
+  }
+}
+
+/** One claim about speed, worded as that claim and no stronger (the desktop picker's words). */
+export function mobileSpeedLine(line: CodexSpeedLine): string {
+  switch (line.kind) {
+    case 'loading':
+      return 'Loading speed options.'
+    case 'support-unverified':
+      return 'Speed options could not be confirmed. Orca will retry when the host is available.'
+    case 'pending':
+      return `Requested ${line.label}, waiting for the host to confirm.`
+    case 'stored':
+      return `Stored for the next turn: ${line.label}.`
+    case 'requested':
+      return line.state === 'unavailable'
+        ? `Requested ${line.label} is not available for this model. Sends are held until you choose another speed.`
+        : `Requested ${line.label} could not be confirmed for this model. Sends are held until you choose another speed.`
+    case 'last-request':
+      return mobileSpeedRequestLine(line)
+    case 'processing':
+      return line.label
+        ? `The server reported ${line.label} for the last turn.`
+        : 'The speed the server used is not reported.'
   }
 }
 

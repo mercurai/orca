@@ -1,6 +1,8 @@
-import { useEffect, type MutableRefObject } from 'react'
+import { useEffect, useState, type MutableRefObject } from 'react'
+import type { SessionOptionProbePhase } from '../../../src/shared/codex-speed-facts-presentation'
 import type { AgentSessionModelCatalogResult } from '../../../src/shared/agent-session-wire'
 import type { AgentSessionOptionCatalog } from '../../../src/shared/agent-session-option-catalog'
+import type { CodexSpeedHostSupport } from '../../../src/shared/codex-service-tier-presentation'
 import type { NativeChatSessionOptionRecord } from '../../../src/shared/native-chat-session-option-state'
 import {
   applyStructuredAgentSessionModelCatalog,
@@ -18,12 +20,15 @@ const LISTING_WAIT_TIMEOUT_MS = 45_000
  * host store while the session's own options read may still wait on its attach. Until the host
  * answers it shows the quiet placeholder; it never waits on a listing: a first listing still
  * running lands in place. An older host refuses the method, and the built-in list stands, naming
- * nothing, until the options read lands.
+ * nothing, until the options read lands. It returns the phase of the read in flight, unset when none.
  */
 export function useMobileHostModelCatalogUpgrade(args: {
   agent: string | null
   client: RpcClient | null
   sessionId: string | null
+  /** Host and workspace of the session: the same client and ids may stand for another source,
+   *  whose list is read again. */
+  sourceIdentity?: string
   enabled: boolean
   /** This phone created the chat, so it launches the listed default; a reopened one may not. */
   newLaunch: boolean
@@ -31,25 +36,31 @@ export function useMobileHostModelCatalogUpgrade(args: {
   worktree?: string
   fence: number | null
   optionCatalog: AgentSessionOptionCatalog | null
+  /** The host's speed capability: shapes the speed control, and a change reads the list again. */
+  codexSpeedHost: CodexSpeedHostSupport
   activeOptionRecordRef: MutableRefObject<NativeChatSessionOptionRecord>
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
   ) => void
-}): void {
+}): SessionOptionProbePhase | undefined {
   const {
     activeOptionRecordRef,
     agent,
     client,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
     optionCatalog,
     sessionId,
+    sourceIdentity,
     updateOptionState,
     worktree
   } = args
+  const [phase, setPhase] = useState<SessionOptionProbePhase | undefined>(undefined)
   useEffect(() => {
     if (!client || !sessionId || !enabled || !agent || !optionCatalog) {
+      setPhase(undefined)
       return
     }
     let stale = false
@@ -70,7 +81,10 @@ export function useMobileHostModelCatalogUpgrade(args: {
       }
       updateOptionState((current) =>
         current.record === activeOptionRecordRef.current
-          ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, { newLaunch })
+          ? applyStructuredAgentSessionModelCatalog(current, optionCatalog, catalog, {
+              newLaunch,
+              codexSpeedHost
+            })
           : current
       )
     }
@@ -84,6 +98,13 @@ export function useMobileHostModelCatalogUpgrade(args: {
         )
       }
     }
+    // The wait ends with the whole read, a joined listing included; a stale one says nothing.
+    const endWait = (ended: SessionOptionProbePhase): void => {
+      if (!stale) {
+        setPhase(ended)
+      }
+    }
+    setPhase('pending')
     void read(false)
       .then((catalog) => {
         if (catalog.origin === 'unknown' && catalog.listingInProgress === true && !stale) {
@@ -94,7 +115,13 @@ export function useMobileHostModelCatalogUpgrade(args: {
         apply(catalog)
         return undefined
       })
-      .catch(settleBuiltin)
+      .then(
+        () => endWait('settled'),
+        () => {
+          settleBuiltin()
+          endWait('failed')
+        }
+      )
     return () => {
       stale = true
     }
@@ -102,12 +129,15 @@ export function useMobileHostModelCatalogUpgrade(args: {
     activeOptionRecordRef,
     agent,
     client,
+    codexSpeedHost,
     enabled,
     fence,
     newLaunch,
     optionCatalog,
     sessionId,
+    sourceIdentity,
     updateOptionState,
     worktree
   ])
+  return phase
 }
