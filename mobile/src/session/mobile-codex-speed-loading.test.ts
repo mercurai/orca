@@ -91,6 +91,12 @@ const OTHER_SAVED: AgentSessionOptionsResult = {
   speed: { selection: { tierId: OTHER.value, state: 'ready' } }
 }
 
+// An older host names no speed facts: its saved tier is only the legacy Fast flag.
+const LEGACY_SAVED: AgentSessionOptionsResult = {
+  ...LISTED,
+  current: { ...LISTED.current, serviceTier: ULTRA.value, fastMode: true }
+}
+
 const FAST_LINES: CodexSpeedLine[] = [
   { kind: 'stored', label: 'Fast' },
   { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
@@ -527,6 +533,86 @@ describe('options and catalog reads overlapping', () => {
       await harness.unmount()
     }
   )
+})
+
+// A host confirmed older never offers the speed select, so its other reads failing or running again
+// are not speed waits: no loading or unverified caption, and the legacy Fast control stays usable.
+// A real new capability probe beside it is still a speed wait and still shows.
+describe('waits on a host confirmed older', () => {
+  const mountOlderHost = (host: ScriptedHost, mutate = unansweredMutate().mutate) =>
+    mountHook(useOptionsProbe, {
+      client: host.client,
+      mutate,
+      codexSpeedHost: 'unsupported',
+      codexSpeedHostPhase: 'settled'
+    })
+
+  function expectNoSpeedCaption(controller: Controller) {
+    const kinds = kindsOf(linesOf(controller))
+    expect(kinds).not.toContain('loading')
+    expect(kinds).not.toContain('support-unverified')
+    expect(speedDescriptor(controller)).toBeUndefined()
+    expect(controller.optionSnapshot.find((entry) => entry.id === 'fastMode')).toBeDefined()
+  }
+
+  it('shows no caption when its catalog read is rejected, keeping the legacy Fast control usable', async () => {
+    const { calls, mutate } = recordingMutate(async () => ({
+      status: 'accepted',
+      value: { key: 'fastMode', value: 'false', options: { model: 'gpt-live', fastMode: 'false' } },
+      sameFence: true
+    }))
+    const host = answered(LEGACY_SAVED, null)
+    const harness = await mountOlderHost(host, mutate)
+    expect(host.catalogs).toHaveLength(1)
+
+    await act(async () => host.catalogs[0]!.reject(new Error('catalog_read_failed')))
+    await settle()
+
+    expectNoSpeedCaption(harness.current())
+    let outcome: boolean | null = null
+    await act(async () => {
+      outcome = await harness.current().setStructuredOption('fastMode', false)
+    })
+    expect(outcome).toBe(true)
+    expect(calls[0]).toEqual({
+      method: 'agentSession.setOption',
+      fields: { key: 'fastMode', value: 'false' }
+    })
+    await harness.unmount()
+  })
+
+  it.each(['pending', 'failed'] as const)(
+    'shows no caption while a later turn options read is %s, keeping the legacy Fast control',
+    async (unresolved) => {
+      const host = answered(LEGACY_SAVED)
+      const harness = await mountOlderHost(host)
+      expectNoSpeedCaption(harness.current())
+
+      host.script.options = null
+      await harness.rerender({ turnId: 'turn-1' })
+      expect(host.options).toHaveLength(1)
+      if (unresolved === 'failed') {
+        await act(async () => host.options[0]!.reject(new Error('options_read_failed')))
+        await settle()
+      }
+
+      expectNoSpeedCaption(harness.current())
+      await harness.unmount()
+    }
+  )
+
+  it.each([
+    ['pending', 'unsupported', 'loading'],
+    ['failed', 'unknown', 'support-unverified']
+  ] as const)('still shows a new capability probe that is %s', async (phase, hostState, kind) => {
+    const harness = await mountOlderHost(answered(LEGACY_SAVED))
+    expect(kindsOf(linesOf(harness.current()))).not.toContain(kind)
+
+    await harness.rerender({ codexSpeedHost: hostState, codexSpeedHostPhase: phase })
+
+    expect(kindsOf(linesOf(harness.current()))).toContain(kind)
+    await harness.unmount()
+  })
 })
 
 // The previous generation (another client, or another source on the same client) still has a read

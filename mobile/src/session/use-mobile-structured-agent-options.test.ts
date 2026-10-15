@@ -16,54 +16,12 @@ import type {
 } from './mobile-structured-agent-session-rpc'
 import { useMobileStructuredAgentOptions } from './use-mobile-structured-agent-options'
 import { rememberMobileCreatedStructuredSession } from './mobile-created-structured-sessions'
-
-const OPTIONS: AgentSessionOptionsResult = {
-  models: [
-    {
-      id: 'gpt-live',
-      label: 'GPT Live',
-      isDefault: true,
-      defaultEffort: 'medium',
-      efforts: [
-        { value: 'medium', label: 'Medium' },
-        { value: 'high', label: 'High' }
-      ]
-    },
-    {
-      id: 'gpt-fast',
-      label: 'GPT Fast',
-      isDefault: false,
-      defaultEffort: 'low',
-      efforts: [
-        { value: 'low', label: 'Low' },
-        { value: 'medium', label: 'Medium' }
-      ]
-    }
-  ],
-  current: { model: 'gpt-live', effort: 'medium' }
-}
-
-/** Session support and the provider catalog both say yes, which is the only shape
- *  that earns a Fast row. */
-const FAST_OPTIONS: AgentSessionOptionsResult = {
-  ...OPTIONS,
-  models: OPTIONS.models.map((model) => ({ ...model, supportsFastMode: true })),
-  fastModeSupport: { supported: true },
-  current: { ...OPTIONS.current, fastMode: false, confirmed: ['fastMode'] }
-}
-
-const FAST_OPTIONS_ON: AgentSessionOptionsResult = {
-  ...FAST_OPTIONS,
-  current: { ...FAST_OPTIONS.current, fastMode: true }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((accept) => {
-    resolve = accept
-  })
-  return { promise, resolve }
-}
+import {
+  deferred,
+  FAST_OPTIONS,
+  FAST_OPTIONS_ON,
+  OPTIONS
+} from './mobile-structured-agent-option-fixtures'
 
 function rpcSuccess(result: unknown) {
   return { id: 'rpc-1', ok: true as const, result, _meta: { runtimeId: 'runtime-1' } }

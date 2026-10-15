@@ -1,6 +1,6 @@
 ---
 owner: codex-01a1273e
-last-reviewed: 2026-10-14
+last-reviewed: 2026-10-15
 stability: draft
 status: final-verification
 ---
@@ -17,13 +17,15 @@ The fleet still owns landing, assembly and release ordering. Local builds/tests 
 - Worktree: `C:/Users/svere/orca/worktrees/codex-speed-selection`.
 - Branch: `codex/codex-speed-selection`; base `v1.4.224` at `2bb20586ebc39d605e16d95f57420e20a16e7485`.
 - Harness: `01a1273e-01d1-7e12-8f0f-99a926abdd95`; draft PR https://github.com/mercurai/orca/pull/42.
-- Feature completion commit: `2434a009787fd83c8c06efcce5e612dd09b28207`; current candidate is this branch's HEAD.
+- Feature foundation commit: `2434a009787fd83c8c06efcce5e612dd09b28207`; current candidate is this branch's HEAD.
 - Actual Sonnet 5.5 implements; independent GPT-6.1 medium reviews; Astra ultra approved the plan.
 
-Latest focused CI38671493701 at `e2823f0ace664fddb41b42c9b22a568bf14166ff` passed all
-1,090 feature tests: 957 core and 133 mobile, with desktop/mobile production/mobile test types green.
+Latest focused CI38727720480 at `4413423c92b3d9337a83e53279781148d5ac1055` passed all
+1,100 feature tests: 962 core and 138 mobile, with root lint, pattern checks and
+desktop/mobile production/mobile test types green.
 The committed product paths match the effective tested tree, excluding this plan and the temporary
-CI workflow. Independent reviewers accepted the loading, refresh, evidence-label and fence corrections.
+CI workflow. Independent reviewers accepted the loading, refresh, evidence-label, fence and
+older-host caption corrections.
 The focused job is red only because the separate pinned upstream baseline reproduces two Windows
 registration failures. Prior full PR CI38662957540 at `11d32212ca` passed static analysis and
 all desktop typechecks, mobile web bundle, both package jobs and cross-version wire compatibility.
@@ -407,6 +409,25 @@ Execute this bounded correction after independent trace and red CI evidence, wit
 
 ### E: root-owned integration and delivery
 
+Full CI38672632436 at `17e57bc282` exposed four lint and twelve naming-rule errors.
+Bounded static corrections belong to Q (read identity names and desktop array idiom) and P
+(indexOf sentinel idiom). Preserve all read keys, lifecycles and assertions.
+For test caps, E registers two pure fixture extractions with their existing test owners:
+`src/renderer/src/components/native-chat/structured-agent-session-option-fixtures.ts` and
+`mobile/src/session/mobile-structured-agent-option-fixtures.ts`. Move existing catalog constants
+and deferred promises unchanged; keep every test case and assertion in its original suite.
+The desktop extraction also moves the existing settings-mutation replay into its fixture module
+with an explicit typed mutation list. Type the recorder with the existing enqueue function contract
+so replay needs no unchecked cast; preserve mutation order and all launch-default assertions.
+
+The real Opus acceptance verifier identified confirmed older hosts receiving unrelated
+options/catalog loading or failed speed captions. Independent Q/R review confirmed this MED.
+Add red cases to the existing desktop/mobile loading suites for catalog rejection and later-turn
+reads on a settled unsupported host. Preserve actual capability-reprobe pending/failed captions.
+Then Q/R may suppress only options/catalog speed presentation phases when host support is
+`unsupported`, retaining capability phase, read execution, evidence, admission and legacy Fast.
+Include support state in memo dependencies. Supported/unknown hosts retain all phases.
+
 Full CI at `11d32212ca` passed static analysis, typechecks, packages and cross-version wire checks.
 It exposed three additional test failures besides the two known Windows registration failures.
 The existing `structured-agent-session-conversation-stop.test.ts` belongs to C for a bounded
@@ -436,8 +457,8 @@ Do not independently bump upstream `package.json` or choose a released version; 
 ### Current evidence and open gates
 
 Focused snapshots are intermediate proof; only full exact-candidate CI and independent review
-can admit the release patch. Latest run: [CI38671493701](https://github.com/mercurai/orca/actions/runs/38671493701).
-Core: 957 passed (957). Mobile: 133 passed (133). Pinned upstream:
+can admit the release patch. Latest run: [CI38727720480](https://github.com/mercurai/orca/actions/runs/38727720480).
+Core: 962 passed (962). Mobile: 138 passed (138). Pinned upstream:
 32 passed, two failed (34). Scoped formatting/localization patches were inspected and applied.
 Independent C/F/L source reviews accepted their corrections; D accepted its final two-file correction.
 B/D/P/Q/R reviews accepted the corrections and all focused regressions now pass. Full exact-candidate
@@ -454,7 +475,7 @@ before settlement rather than making the prior canonical tier look like an accep
 | Launch and draft recovery | Held receipt, no duplicate session, cancellation/recheck, retained prompt and notices | Expanded launch suites and 18 draft-recovery cases passed |
 | Model/account/host changes | Generation fencing, pinned-account isolation, refresh revalidation | Focused fencing, cutover, pinned-account and nondefault host-model recovery cases passed |
 | Older peers and other providers | Additive capability gating, legacy actions, local/remote paths, unchanged other controls | Focused simulated-host/transport coverage passed; live SSH acceptance not run |
-| Exact product candidate | All required CI, independent final review and Opus verifier | Reviewed completion passed 1,090 focused cases and all type gates; new full CI and final independent verification pending; baseline Windows owner correction remains open |
+| Exact product candidate | All required CI, independent final review and Opus verifier | Reviewed completion passed 1,100 focused cases, lint/pattern checks and all type gates; new full CI and final independent verification pending; owner CI-path correction remains open |
 | Release assembly | Owner registration/version/order, exact assembled artifact CI | Not run; baseline Windows registration correction requires owner |
 | Installed acceptance | Actual loaded executable/version, native picker and redacted outgoing request | Not run; repository-required Electron skill unavailable |
 | Actual Ultrafast execution | Direct server-reported processing evidence | Not observable through current Codex bridge; upstream metadata separate |
@@ -472,6 +493,30 @@ The PR is a CI/review vehicle and must not be merged into that bare-tag CI base.
 Capture baseline failures separately; green partial checks do not establish complete candidate verification.
 
 ## Release, preservation and rollback
+
+The user also requested current official Orca changes in this release. Fresh upstream inspection
+on 2026-10-15 confirms [v1.4.224](https://github.com/stablyai/orca/releases/tag/v1.4.224)
+is the latest published official release at this lane's existing base `2bb20586eb`. The published
+fork remains `v1.4.223-mercurai.8`, and the default patch manifest still names `v1.4.223`.
+The fork's `main` at `de5470a900` is 448 commits behind the inspected official `main` at
+`1a19671ec5`; that newer development branch is separate from the published release target.
+Target the official v1.4.224 release with the required fork patches and this feature through the
+existing owner. Do not move fork main, change another lane's patch, or assemble without its order.
+The existing [nine-patch v1.4.224 dry run, PR39](https://github.com/mercurai/orca/pull/39)
+at `1857c5b6d7` built Windows/Linux packages and passed static/types/wire checks, but a unit shard
+and managed hooks on Node 18 failed; native managed-server verification was skipped. Those are
+owner assembly gates, not evidence that this lane's final combined release is verified.
+Read the exact failed-job logs: the unit shard reports only the same two Windows registration
+failures (23,422 passed), while Node 18 fails before its smoke can run because the workflow invokes
+missing `config/scripts/smoke-process-host-node18.mjs`. Route that stale path to the workflow owner
+alongside the Windows argv corrections; do not infer a Node 18 product incompatibility from it.
+Prepared `owner-stale-ci-paths-proposal.patch` in this lane's private review directory: four exact
+path replacements, each replacement target exists, and `git apply --check` succeeds. The proposal
+has not been applied to the repository or verified by tests; owner review and exact-revision CI
+remain required. The real Node 18 target is `config/scripts/smoke-managed-hook-runtime-node18.mjs`.
+The nightly [rebase run38687855215](https://github.com/mercurai/orca/actions/runs/38687855215)
+failed four patch rebases against a newer upstream-main SHA; it does not establish conflicts
+against the separate v1.4.224 stable target. Record these targets separately in the owner handoff.
 
 The established fork mechanism is `fork-rebase-patches` -> `fork-assemble-release` -> `fork-release-win-build`.
 Revalidated the canonical [fork release runbook](https://github.com/mercurai/orca/blob/mercurai/config/mercurai/README.md)
@@ -529,7 +574,7 @@ independent last-request/processing evidence. That correction is written and ind
 the setter requests a refresh only after a current, same-fence acceptance, and the existing effect
 supersedes the old read while retaining evidence and send holds. The registered record projection
 was moved unchanged to keep the options hook within its 300-line cap. The scoped two-file formatting
-artifact was inspected and applied with all writers stopped. Main HEAD stays `11d32212ca`.
+artifact was inspected and applied with all writers stopped. That earlier snapshot used main HEAD `11d32212ca`.
 Expanded [CI38671493701](https://github.com/mercurai/orca/actions/runs/38671493701)
 at `e2823f0ace` passed all 1,090 feature cases: core 957 and mobile 133. Desktop, mobile
 production and mobile test types passed. The artifact contains no generated changes. The two
@@ -537,5 +582,28 @@ separate pinned Windows registration failures remain the only failures in this f
 Commit only the reviewed product tree matching this effective tested snapshot, excluding the
 temporary workflow; full exact-product-candidate CI and final independent verification remain open.
 
-Next action: commit the verified effective source tree and run exact-candidate full CI and review.
+Full CI38672632436 now failed static checks; downstream tests and packages were skipped.
+Actual Opus integration accepted `17e57bc282` with no HIGH/MED; acceptance identified the older-host
+presentation MED above. The next candidate must clear those bounded static and behavioral deltas.
+Static corrections, fixture moves and ten older-host red/guard cases are written. Actual local
+GPT-6.1 Sol at medium, Standard accepted the supplied-source review and its typed-replay/cap
+addendum. Native reviewers hit a usage limit and the local CLI's read-only shell policy blocked
+reads, so the coordinator supplied bounded real source/diffs without changing execution policy.
+No tests or source reads beyond those supplied inputs were claimed by that reviewer.
+[CI38726618382](https://github.com/mercurai/orca/actions/runs/38726618382) at `fe5ccf3fe4`
+is executing root lint, pattern checks, the focused suites and type gates before the F1 source fix.
+That run completed: root lint and pattern checks passed, as did desktop/mobile production/mobile
+test types. Exactly six intended older-host cases failed, with 959 core and 135 mobile cases passing;
+the four new capability guards passed. Separate baseline: 32 passed / two Windows failures.
+The generated patch is empty. The bounded two-file production phase correction is now in progress.
+The correction is written and independently accepted by actual local GPT-6.1 Sol medium, Standard
+using supplied real source (review session `01a13f52-de90-74e2-acd7-f9fb409b7130`).
+[CI38727720480](https://github.com/mercurai/orca/actions/runs/38727720480) at `4413423c92`
+completed with 962 core and 138 mobile cases passing, zero feature failures. Root lint, pattern checks,
+desktop types, mobile production types and mobile test types passed. All six older-host reds now pass,
+as do the four capability guards. The generated patch is empty. The separate pinned baseline still
+has two Windows registration failures. Commit the verified effective product tree, then run full
+exact-candidate CI and final independent verification; owner assembly and native acceptance remain open.
+
+Next action: commit the verified product tree and run full exact-candidate CI and final verification.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

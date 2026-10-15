@@ -148,7 +148,7 @@ function latestRpc(method: string, key: string): RpcCall | undefined {
   const open = rpcCalls.filter(
     (call) => call.method === method && call.targetKey === key && !call.done
   )
-  return open[open.length - 1]
+  return open.at(-1)
 }
 
 async function pendingRpc(method: string, key: string): Promise<RpcCall> {
@@ -613,4 +613,90 @@ describe('speed picker phases after the first answers settled', () => {
     expect(speedSelect(result)?.choices).toEqual([STANDARD, FAST, ULTRAFAST])
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
+})
+
+// A host confirmed older never offers the speed select, so its other reads failing or running again
+// are not speed waits: no loading or unverified caption, and the legacy Fast control stays usable.
+// A real new capability probe beside it is still a speed wait and still shows.
+describe('speed captions on a host confirmed older', () => {
+  async function mountOlderHost(mutate = mutateWith(async () => null).mutate) {
+    const view = renderOptions(ENV_A, mutate)
+    await answer('agentSession.options', 'server-a', LEGACY_SAVED_ULTRA_OPTIONS)
+    await answer('agentSession.modelCatalog', 'server-a', LIVE_CATALOG)
+    await settleProbe(0, false)
+    return view
+  }
+
+  async function answerOlderHostReads(result: OptionsView): Promise<void> {
+    await answer('agentSession.options', 'server-a', LEGACY_SAVED_ULTRA_OPTIONS)
+    await answer('agentSession.modelCatalog', 'server-a', LIVE_CATALOG)
+    await waitFor(() => expect(hasSpeedLine(result, LOADING_LINE)).toBe(false))
+    await waitFor(() => expect(descriptor(result, 'fastMode')).toBeDefined())
+  }
+
+  function expectNoSpeedCaption(result: OptionsView): void {
+    expect(hasSpeedLine(result, LOADING_LINE)).toBe(false)
+    expect(hasSpeedLine(result, UNVERIFIED_LINE)).toBe(false)
+    expect(descriptor(result, 'fastMode')).toBeDefined()
+    expect(speedSelect(result)).toBeUndefined()
+  }
+
+  it('shows no caption when its catalog read is rejected, keeping the legacy Fast control usable', async () => {
+    const { mutate, calls } = mutateWith(async () => ({
+      key: 'fastMode',
+      value: 'false',
+      options: { model: MODEL_ID, serviceTier: ULTRAFAST.value, fastMode: 'false' }
+    }))
+    const { result } = await mountOlderHost(mutate)
+    await answer('agentSession.options', 'server-a', LEGACY_SAVED_ULTRA_OPTIONS)
+    await failRpc('agentSession.modelCatalog', 'server-a')
+
+    await waitFor(() => expect(descriptor(result, 'fastMode')).toBeDefined())
+    expectNoSpeedCaption(result)
+    let applied = false
+    await act(async () => {
+      applied = await result.current.setStructuredOption('fastMode', false)
+    })
+    expect(applied).toBe(true)
+    expect(setOptionCalls(calls)).toEqual([{ key: 'fastMode', value: 'false' }])
+  })
+
+  it.each(['pending', 'failed'] as const)(
+    'shows no caption while a later turn options read is %s, keeping the legacy Fast control',
+    async (unresolved) => {
+      const { result, rerender } = await mountOlderHost()
+      await answerOlderHostReads(result)
+      expectNoSpeedCaption(result)
+
+      rerender({ target: ENV_A, turnId: 'turn-2' })
+      await pendingRpc('agentSession.options', 'server-a')
+      if (unresolved === 'failed') {
+        await failRpc('agentSession.options', 'server-a')
+      }
+
+      expectNoSpeedCaption(result)
+    }
+  )
+
+  it.each(['pending', 'failed'] as const)(
+    'still shows a new capability probe that is %s once contact is regained',
+    async (probe) => {
+      const { result } = await mountOlderHost()
+      await answerOlderHostReads(result)
+
+      act(() => {
+        mocks.contactRegained.get('server-a')?.()
+      })
+      await waitFor(() => expect(supportProbes).toHaveLength(2))
+      expect(hasSpeedLine(result, LOADING_LINE)).toBe(true)
+      if (probe === 'failed') {
+        // The failed probe makes the host unknown again, so both reads are asked once more.
+        await settleProbe(1, 'reject')
+        await answer('agentSession.options', 'server-a', LEGACY_SAVED_ULTRA_OPTIONS)
+        await answer('agentSession.modelCatalog', 'server-a', LIVE_CATALOG)
+        await waitFor(() => expect(hasSpeedLine(result, LOADING_LINE)).toBe(false))
+        expect(hasSpeedLine(result, UNVERIFIED_LINE)).toBe(true)
+      }
+    }
+  )
 })

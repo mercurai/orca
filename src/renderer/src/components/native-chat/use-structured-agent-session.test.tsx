@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   call: vi.fn(),
   operationId: vi.fn(),
-  enqueueSettingsWrite: vi.fn(),
+  enqueueSettingsWrite: vi.fn<typeof enqueueSessionOptionSettingsWrite>(),
   toastError: vi.fn()
 }))
 
@@ -58,68 +58,14 @@ import type {
   AgentJournalRenderItem,
   AgentJournalSubmission
 } from '../../../../shared/agent-session-journal-types'
-import {
-  applyNativeChatSessionOptionSettingsMutation,
-  resolveStructuredLaunchSeedOptions
-} from '../../../../shared/native-chat-session-option-defaults'
-import type { PersistedNativeChatSessionOptions } from '../../../../shared/native-chat-session-options'
+import type { enqueueSessionOptionSettingsWrite } from './native-chat-session-option-settings-write'
+import { deferred, FAST_OPTIONS, OPTIONS, replay } from './structured-agent-session-option-fixtures'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 
-/** Replay every host mutation in order, exactly as the runtime does. */
-function seededByNextLaunch(): Record<string, string> | undefined {
-  let persisted: PersistedNativeChatSessionOptions | undefined
-  for (const [, mutation] of mocks.enqueueSettingsWrite.mock.calls) {
-    persisted =
-      applyNativeChatSessionOptionSettingsMutation(
-        persisted,
-        mutation as Parameters<typeof applyNativeChatSessionOptionSettingsMutation>[1]
-      ) ?? persisted
-  }
-  return resolveStructuredLaunchSeedOptions(persisted, 'codex')
-}
+const seededByNextLaunch = () =>
+  replay(mocks.enqueueSettingsWrite.mock.calls.map(([, mutation]) => mutation))
 
 const LOCAL_TARGET = { kind: 'local' } as const
-
-const OPTIONS = {
-  models: [
-    {
-      id: 'gpt-live',
-      label: 'GPT Live',
-      isDefault: true,
-      defaultEffort: 'medium',
-      efforts: [
-        { value: 'medium', label: 'Medium' },
-        { value: 'high', label: 'High' }
-      ]
-    },
-    {
-      id: 'gpt-fast',
-      label: 'GPT Fast',
-      isDefault: false,
-      defaultEffort: 'low',
-      efforts: [
-        { value: 'low', label: 'Low' },
-        { value: 'medium', label: 'Medium' }
-      ]
-    }
-  ],
-  current: { model: 'gpt-live', effort: 'medium' }
-}
-
-const FAST_OPTIONS = {
-  ...OPTIONS,
-  models: OPTIONS.models.map((model) => ({ ...model, supportsFastMode: true })),
-  fastModeSupport: { supported: true },
-  current: { ...OPTIONS.current, fastMode: false, confirmed: ['fastMode'] }
-}
-
-function deferred<T>() {
-  let resolve!: (value: T) => void
-  const promise = new Promise<T>((accept) => {
-    resolve = accept
-  })
-  return { promise, resolve }
-}
 
 describe('useStructuredAgentSession working state', () => {
   beforeEach(() => {

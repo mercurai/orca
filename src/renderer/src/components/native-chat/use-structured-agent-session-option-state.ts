@@ -181,10 +181,10 @@ export function useStructuredAgentSessionOptionState(args: {
 
   const optionsReadRef = useRef<CoalescedPollRunner | null>(null)
   // Presentation only, never in the record: what the read answered for, so another session, fence
-  // or speed answer starts unanswered. The shape's last answer stays in the state while a read runs.
-  const readShape = `${identity}\u0000${fence}\u0000${codexSpeedHost}`
+  // or speed answer starts unanswered. The last answer stays in the state while a read runs.
+  const readIdentity = `${identity}\u0000${fence}\u0000${codexSpeedHost}`
   const [optionsRead, setOptionsRead] = useState<{
-    shape: string
+    identity: string
     phase: SessionOptionProbePhase
   } | null>(null)
   const readsOptions =
@@ -199,7 +199,7 @@ export function useStructuredAgentSessionOptionState(args: {
     // Each actual read is pending while out, then settled or failed; a queued follow-up read marks
     // pending again in the same tick, so the phase never shows settled between the two.
     const markRead = (phase: SessionOptionProbePhase): void =>
-      setOptionsRead({ shape: readShape, phase })
+      setOptionsRead({ identity: readIdentity, phase })
     const runner = createCoalescedPollRunner(async () => {
       const readGeneration = optionMutationGeneration.current
       markRead('pending')
@@ -250,7 +250,7 @@ export function useStructuredAgentSessionOptionState(args: {
     optionCatalog,
     // The provider starting reads again, as it did before the guard was shared with the phase.
     providerStarting,
-    readShape,
+    readIdentity,
     readsBeforeStart,
     readsOptions,
     sessionId,
@@ -291,17 +291,19 @@ export function useStructuredAgentSessionOptionState(args: {
   // Only Codex has a speed control to caption; the phases never enter the ref'd record.
   const optionsPhase = !readsOptions
     ? undefined
-    : optionsRead?.shape === readShape
+    : optionsRead?.identity === readIdentity
       ? optionsRead.phase
       : 'pending'
   const capabilityPhase = speedProbe.phase
-  const phasedOptionState = useMemo(
-    () =>
-      agent === 'codex'
-        ? { ...optionState, capabilityPhase, optionsPhase, catalogPhase }
-        : optionState,
-    [agent, capabilityPhase, catalogPhase, optionState, optionsPhase]
-  )
+  // A host that settled as unsupported has no speed to wait for, so only its probe's own wait shows.
+  const phasedOptionState = useMemo(() => {
+    if (agent !== 'codex') {
+      return optionState
+    }
+    return codexSpeedHost === 'unsupported'
+      ? { ...optionState, capabilityPhase }
+      : { ...optionState, capabilityPhase, optionsPhase, catalogPhase }
+  }, [agent, capabilityPhase, catalogPhase, codexSpeedHost, optionState, optionsPhase])
 
   return {
     conversationSupport,

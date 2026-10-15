@@ -92,15 +92,15 @@ export function useHostModelCatalogUpgrade(args: {
   } | null>(null)
   const unavailable = verdict?.key === waitKey ? verdict.unavailable : null
   // What the answer is for: another chat, host, speed answer or launch shape starts unanswered.
-  const readShape = `${waitKey}\u0000${codexSpeedHost ?? ''}\u0000${newLaunch}:${worktree ?? ''}`
+  const readIdentity = `${waitKey}\u0000${codexSpeedHost ?? ''}\u0000${newLaunch}:${worktree ?? ''}`
   const [catalogRead, setCatalogRead] = useState<{
-    shape: string
+    identity: string
     phase: SessionOptionProbePhase
   } | null>(null)
   const reads = enabled && optionCatalog !== null
   const catalogPhase: SessionOptionProbePhase | undefined = !reads
     ? undefined
-    : catalogRead?.shape === readShape
+    : catalogRead?.identity === readIdentity
       ? catalogRead.phase
       : 'pending'
   const [rereads, setRereads] = useState(0)
@@ -159,7 +159,7 @@ export function useHostModelCatalogUpgrade(args: {
     }
     // The catalog already applied stands in the state; only the phase follows each actual read.
     const mark = (phase: SessionOptionProbePhase): void =>
-      setCatalogRead({ shape: readShape, phase })
+      setCatalogRead({ identity: readIdentity, phase })
     // A running listing keeps the first read pending; a joined answer still listing timed out.
     const finish = (catalog: AgentSessionModelCatalogResult | null, joined: boolean): void => {
       if (stale) {
@@ -215,7 +215,7 @@ export function useHostModelCatalogUpgrade(args: {
     fence,
     newLaunch,
     optionCatalog,
-    readShape,
+    readIdentity,
     reportedUnpickedModel,
     rereads,
     running,
