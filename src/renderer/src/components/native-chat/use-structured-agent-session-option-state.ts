@@ -295,13 +295,15 @@ export function useStructuredAgentSessionOptionState(args: {
       ? optionsRead.phase
       : 'pending'
   const capabilityPhase = speedProbe.phase
-  const phasedOptionState = useMemo(
-    () =>
-      agent === 'codex'
-        ? { ...optionState, capabilityPhase, optionsPhase, catalogPhase }
-        : optionState,
-    [agent, capabilityPhase, catalogPhase, optionState, optionsPhase]
-  )
+  // A host that settled as unsupported has no speed to wait for, so only its probe's own wait shows.
+  const phasedOptionState = useMemo(() => {
+    if (agent !== 'codex') {
+      return optionState
+    }
+    return codexSpeedHost === 'unsupported'
+      ? { ...optionState, capabilityPhase }
+      : { ...optionState, capabilityPhase, optionsPhase, catalogPhase }
+  }, [agent, capabilityPhase, catalogPhase, codexSpeedHost, optionState, optionsPhase])
 
   return {
     conversationSupport,

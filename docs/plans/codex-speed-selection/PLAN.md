@@ -492,6 +492,22 @@ Capture baseline failures separately; green partial checks do not establish comp
 
 ## Release, preservation and rollback
 
+The user also requested current official Orca changes in this release. Fresh upstream inspection
+on 2026-10-15 confirms [v1.4.224](https://github.com/stablyai/orca/releases/tag/v1.4.224)
+is the latest published official release at this lane's existing base `2bb20586eb`. The published
+fork remains `v1.4.223-mercurai.8`, and the default patch manifest still names `v1.4.223`.
+The fork's `main` at `de5470a900` is 448 commits behind the inspected official `main` at
+`1a19671ec5`; that newer development branch is separate from the published release target.
+Target the official v1.4.224 release with the required fork patches and this feature through the
+existing owner. Do not move fork main, change another lane's patch, or assemble without its order.
+The existing [nine-patch v1.4.224 dry run, PR39](https://github.com/mercurai/orca/pull/39)
+at `1857c5b6d7` built Windows/Linux packages and passed static/types/wire checks, but a unit shard
+and managed hooks on Node 18 failed; native managed-server verification was skipped. Those are
+owner assembly gates, not evidence that this lane's final combined release is verified.
+The nightly [rebase run38687855215](https://github.com/mercurai/orca/actions/runs/38687855215)
+failed four patch rebases against a newer upstream-main SHA; it does not establish conflicts
+against the separate v1.4.224 stable target. Record these targets separately in the owner handoff.
+
 The established fork mechanism is `fork-rebase-patches` -> `fork-assemble-release` -> `fork-release-win-build`.
 Revalidated the canonical [fork release runbook](https://github.com/mercurai/orca/blob/mercurai/config/mercurai/README.md)
 and assembly workflow through GitHub API during this session. `release/mercurai` is assembled and
@@ -559,6 +575,17 @@ temporary workflow; full exact-product-candidate CI and final independent verifi
 Full CI38672632436 now failed static checks; downstream tests and packages were skipped.
 Actual Opus integration accepted `17e57bc282` with no HIGH/MED; acceptance identified the older-host
 presentation MED above. The next candidate must clear those bounded static and behavioral deltas.
+Static corrections, fixture moves and ten older-host red/guard cases are written. Actual local
+GPT-6.1 Sol at medium, Standard accepted the supplied-source review and its typed-replay/cap
+addendum. Native reviewers hit a usage limit and the local CLI's read-only shell policy blocked
+reads, so the coordinator supplied bounded real source/diffs without changing execution policy.
+No tests or source reads beyond those supplied inputs were claimed by that reviewer.
+[CI38726618382](https://github.com/mercurai/orca/actions/runs/38726618382) at `fe5ccf3fe4`
+is executing root lint, pattern checks, the focused suites and type gates before the F1 source fix.
+That run completed: root lint and pattern checks passed, as did desktop/mobile production/mobile
+test types. Exactly six intended older-host cases failed, with 959 core and 135 mobile cases passing;
+the four new capability guards passed. Separate baseline: 32 passed / two Windows failures.
+The generated patch is empty. The bounded two-file production phase correction is now in progress.
 
-Next action: correct static findings and establish older-host presentation reds in CI.
+Next action: inspect CI for the six expected older-host reds, then apply the bounded phase correction.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

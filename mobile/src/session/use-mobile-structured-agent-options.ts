@@ -244,11 +244,22 @@ export function useMobileStructuredAgentOptions(args: {
       codexSpeedLines(
         optionSnapshot.find((descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID),
         optionState.speed,
-        agent === 'codex'
-          ? { capabilityPhase: codexSpeedHostPhase, optionsPhase, catalogPhase }
-          : undefined
+        agent !== 'codex'
+          ? undefined
+          : // A settled unsupported host has no speed to wait for: only its probe's own wait shows.
+            codexSpeedHost === 'unsupported'
+            ? { capabilityPhase: codexSpeedHostPhase }
+            : { capabilityPhase: codexSpeedHostPhase, optionsPhase, catalogPhase }
       ),
-    [agent, catalogPhase, codexSpeedHostPhase, optionSnapshot, optionState.speed, optionsPhase]
+    [
+      agent,
+      catalogPhase,
+      codexSpeedHost,
+      codexSpeedHostPhase,
+      optionSnapshot,
+      optionState.speed,
+      optionsPhase
+    ]
   )
   const isSpeedSendBlocked = useCallback(
     () => structuredAgentSessionSpeedBlocked(optionStateRef.current),
