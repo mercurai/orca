@@ -225,6 +225,32 @@ describe('the detailed capability probe, state with phase', () => {
     await waitFor(() => expect(result.current).toEqual({ state: 'supported', phase: 'settled' }))
   })
 
+  it('pends a known remote answer again while regained contact asks, then fails it on rejection', async () => {
+    const first = deferredAnswer()
+    const retry = deferredAnswer()
+    mocks.supports.mockImplementationOnce(() => first.promise)
+    mocks.supports.mockImplementationOnce(() => retry.promise)
+    const { result } = renderHook(() =>
+      useCapabilityProbe(ENV_1, AGENT_SESSION_QUEUED_MESSAGES_RUNTIME_CAPABILITY)
+    )
+    await act(async () => {
+      first.resolve(true)
+    })
+    await waitFor(() => expect(result.current).toEqual({ state: 'supported', phase: 'settled' }))
+
+    act(() => {
+      mocks.contactRegained.get('env-1')?.()
+    })
+    await waitFor(() => expect(mocks.supports).toHaveBeenCalledTimes(2))
+    // The old answer stands for admission while the actual retry is out, but the phase is pending.
+    expect(result.current).toEqual({ state: 'supported', phase: 'pending' })
+
+    await act(async () => {
+      retry.reject()
+    })
+    await waitFor(() => expect(result.current).toEqual({ state: 'unknown', phase: 'failed' }))
+  })
+
   it('settles at once from a local runtime that has already answered', () => {
     setLocalRuntimeCapabilitiesForTests([AGENT_SESSION_CODEX_SERVICE_TIERS_RUNTIME_CAPABILITY])
     const { result } = renderHook(() => useSpeedProbe({ kind: 'local' }))

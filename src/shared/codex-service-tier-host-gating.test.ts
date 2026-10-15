@@ -425,7 +425,14 @@ describe('Codex speed metadata refresh', () => {
       )
 
       expect(idsOf(refreshed)).toContain('fastMode')
-      expect(idsOf(refreshed)).not.toContain('serviceTier')
+      const tier = descriptorFor(refreshed, 'serviceTier')
+      if (host === 'unsupported') {
+        expect(tier).toBeUndefined()
+      } else {
+        // Unresolved support keeps the saved tier visible as a locked row and offers nothing.
+        expect(currentOf(tier)).toBe(FAST.value)
+        expect(offered(tier)).toEqual([])
+      }
       expect(canSetStructuredAgentSessionOption(refreshed, 'fastMode', true)).toBe(true)
       expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', FAST.value)).toBe(false)
       expect(canSetStructuredAgentSessionOption(refreshed, 'serviceTier', ULTRAFAST.value)).toBe(

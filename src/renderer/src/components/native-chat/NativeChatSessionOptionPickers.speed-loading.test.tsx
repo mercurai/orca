@@ -67,7 +67,11 @@ function coldSurface(phase: Phase) {
 function pickers(surface: ReturnType<typeof coldSurface>): React.JSX.Element {
   return (
     <TooltipProvider>
-      <NativeChatSessionOptionPickers surface={surface} snapshot={COLD_SNAPSHOT} isWorking={false} />
+      <NativeChatSessionOptionPickers
+        surface={surface}
+        snapshot={COLD_SNAPSHOT}
+        isWorking={false}
+      />
     </TooltipProvider>
   )
 }

@@ -148,7 +148,9 @@ export function useStructuredAgentSessionOptions(args: {
       pendingOptionRef.current = id
       updateOptionState((current) => ({ ...current, pendingId: id }))
       try {
-        if (!(await admitSend(id, isCurrent))) {
+        // Every option awaits admission, so a fence that moved in that gap must not see this pick
+        // written under the new fence.
+        if (!(await admitSend(id, isCurrent)) || !isCurrent()) {
           return false
         }
         const result = await mutate<AgentSessionOptionResult>(

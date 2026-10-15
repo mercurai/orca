@@ -420,11 +420,13 @@ describe('useStructuredAgentSession options', () => {
     fence = 4
     rerender()
 
+    let applied = true
     await act(async () => {
       reject(new Error('stale provider failure'))
-      await setting
+      applied = await setting
     })
 
+    expect(applied).toBe(false)
     expect(
       mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.setOption')
     ).toHaveLength(0)

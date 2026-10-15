@@ -22,9 +22,11 @@ import type { AgentSessionSpeedFacts } from './agent-session-speed-facts'
 import {
   CODEX_SERVICE_TIER_OPTION_ID,
   codexSpeedCatalogOptions,
+  codexUnresolvedSpeedOptions,
   refreshCodexServiceTierCatalog,
   type CodexSpeedHostSupport
 } from './codex-service-tier-presentation'
+import type { SessionOptionProbePhase } from './codex-speed-facts-presentation'
 import {
   structuredAgentSessionRequestConfirmed,
   type StructuredAgentSessionRequestedSpeed
@@ -74,7 +76,8 @@ function discoveredModel(
     ...(model.isDefault ? { isDefault: true } : {}),
     options: [
       ...(effort ? [effort] : []),
-      ...codexSpeedCatalogOptions(model, host, sessionSupportsFastMode)
+      ...codexSpeedCatalogOptions(model, host, sessionSupportsFastMode),
+      ...codexUnresolvedSpeedOptions(model, host)
     ]
   }
 }
@@ -111,6 +114,11 @@ export type StructuredAgentSessionOptionState = {
   /** A speed this client asked for that no accepted answer has replaced: held apart from what the
    *  host stores, and keeping sends out until an explicit accepted replacement. */
   requested?: StructuredAgentSessionRequestedSpeed
+  /** Client-only waits behind the speed select (host capability, options read, model listing).
+   *  They ride through every `apply*` spread and are never persisted, sent or shown as evidence. */
+  capabilityPhase?: SessionOptionProbePhase
+  optionsPhase?: SessionOptionProbePhase
+  catalogPhase?: SessionOptionProbePhase
 }
 
 /** With `seedCatalog`, the state holds the static seed from the first frame, but the picker shows

@@ -100,10 +100,7 @@ const ULTRA_LINES: CodexSpeedLine[] = [
   { kind: 'stored', label: 'Ultrafast' },
   { kind: 'processing' }
 ]
-const OTHER_LINES: CodexSpeedLine[] = [
-  { kind: 'stored', label: 'Other' },
-  { kind: 'processing' }
-]
+const OTHER_LINES: CodexSpeedLine[] = [{ kind: 'stored', label: 'Other' }, { kind: 'processing' }]
 
 type Held<T> = { params: unknown; resolve: (value: T) => void; reject: (error: Error) => void }
 
@@ -253,7 +250,7 @@ const speedDescriptor = (controller: Controller) =>
 
 function tierValue(controller: Controller): string | undefined {
   const kind = speedDescriptor(controller)?.kind
-  return kind && 'currentValue' in kind ? kind.currentValue : undefined
+  return kind?.type === 'select' ? kind.currentValue : undefined
 }
 
 /** A wait is the settled lines plus one more: none of the independent lines is dropped for it. */
@@ -277,27 +274,32 @@ describe('speed support still unresolved', () => {
     ['without a phase', undefined],
     ['while pending', 'pending'],
     ['after failing', 'failed']
-  ] as const)('keeps a saved opaque tier visible, disabled and unwritable %s', async (_name, phase) => {
-    const { calls, mutate } = unansweredMutate()
-    const harness = await mountHook(useOptionsProbe, {
-      client: answered(ULTRA_SAVED).client,
-      mutate,
-      codexSpeedHost: 'unknown',
-      ...(phase ? { codexSpeedHostPhase: phase } : {})
-    })
+  ] as const)(
+    'keeps a saved opaque tier visible, disabled and unwritable %s',
+    async (_name, phase) => {
+      const { calls, mutate } = unansweredMutate()
+      const harness = await mountHook(useOptionsProbe, {
+        client: answered(ULTRA_SAVED).client,
+        mutate,
+        codexSpeedHost: 'unknown',
+        ...(phase ? { codexSpeedHostPhase: phase } : {})
+      })
 
-    const tier = speedDescriptor(harness.current())
-    expect(tier?.kind).toMatchObject({ type: 'select', currentValue: ULTRA.value })
-    const choices = tier?.kind.type === 'select' ? tier.kind.choices : []
-    expect(choices.find((choice) => choice.value === ULTRA.value)).toMatchObject({ disabled: true })
-    let outcome: boolean | null = null
-    await act(async () => {
-      outcome = await harness.current().setStructuredOption('serviceTier', STANDARD.value)
-    })
-    expect(outcome).toBe(false)
-    expect(calls).toHaveLength(0)
-    await harness.unmount()
-  })
+      const tier = speedDescriptor(harness.current())
+      expect(tier?.kind).toMatchObject({ type: 'select', currentValue: ULTRA.value })
+      const choices = tier?.kind.type === 'select' ? tier.kind.choices : []
+      expect(choices.find((choice) => choice.value === ULTRA.value)).toMatchObject({
+        disabled: true
+      })
+      let outcome: boolean | null = null
+      await act(async () => {
+        outcome = await harness.current().setStructuredOption('serviceTier', STANDARD.value)
+      })
+      expect(outcome).toBe(false)
+      expect(calls).toHaveLength(0)
+      await harness.unmount()
+    }
+  )
 
   it('tells a support wait that is running from one that failed, keeping the saved tier line', async () => {
     const harness = await mountHook(useOptionsProbe, {
@@ -440,9 +442,7 @@ describe('waits on a confirmed host', () => {
   it('ends a joined listing wait as unknown when the host fails it', async () => {
     const host = answered(FAST_SAVED, null)
     const harness = await mountSupported(host)
-    await act(async () =>
-      host.catalogs[0]!.resolve({ origin: 'unknown', listingInProgress: true })
-    )
+    await act(async () => host.catalogs[0]!.resolve({ origin: 'unknown', listingInProgress: true }))
     await settle()
     expect(host.catalogs).toHaveLength(2)
     expect(host.catalogs[1]!.params).toMatchObject({ waitForListing: true })
@@ -535,46 +535,49 @@ describe('a previous generation answering late', () => {
     ['client', 'answers'],
     ['source', 'rejects'],
     ['source', 'answers']
-  ] as const)('after a %s swap, a read that %s changes neither phase nor tier', async (swap, outcome) => {
-    const previous = answered(FAST_SAVED)
-    const harness = await mountSupported(previous)
-    expect(linesOf(harness.current())).toEqual(FAST_LINES)
-    previous.script.options = null
-    await harness.rerender({ turnId: 'turn-1' })
-    const late = previous.options[0]!
+  ] as const)(
+    'after a %s swap, a read that %s changes neither phase nor tier',
+    async (swap, outcome) => {
+      const previous = answered(FAST_SAVED)
+      const harness = await mountSupported(previous)
+      expect(linesOf(harness.current())).toEqual(FAST_LINES)
+      previous.script.options = null
+      await harness.rerender({ turnId: 'turn-1' })
+      const late = previous.options[0]!
 
-    // The new generation's options landed; its catalog read is still running.
-    let current = previous
-    if (swap === 'client') {
-      current = answered(OTHER_SAVED, null)
-      await harness.rerender({ client: current.client })
-    } else {
-      previous.script.options = OTHER_SAVED
-      previous.script.catalog = null
-      await harness.rerender({ sourceIdentity: 'other-source' })
-    }
-    expect(current.catalogs).toHaveLength(1)
-    expect(tierValue(harness.current())).toBe(OTHER.value)
-    const waiting = linesOf(harness.current())
-    expectExtraLine(waiting, OTHER_LINES)
-
-    await act(async () => {
-      if (outcome === 'rejects') {
-        late.reject(new Error('previous_generation_failed'))
+      // The new generation's options landed; its catalog read is still running.
+      let current = previous
+      if (swap === 'client') {
+        current = answered(OTHER_SAVED, null)
+        await harness.rerender({ client: current.client })
       } else {
-        late.resolve(FAST_SAVED)
+        previous.script.options = OTHER_SAVED
+        previous.script.catalog = null
+        await harness.rerender({ sourceIdentity: 'other-source' })
       }
-    })
-    await settle()
+      expect(current.catalogs).toHaveLength(1)
+      expect(tierValue(harness.current())).toBe(OTHER.value)
+      const waiting = linesOf(harness.current())
+      expectExtraLine(waiting, OTHER_LINES)
 
-    expect(tierValue(harness.current())).toBe(OTHER.value)
-    expect(linesOf(harness.current())).toEqual(waiting)
+      await act(async () => {
+        if (outcome === 'rejects') {
+          late.reject(new Error('previous_generation_failed'))
+        } else {
+          late.resolve(FAST_SAVED)
+        }
+      })
+      await settle()
 
-    await act(async () => current.catalogs[0]!.resolve({ origin: 'unknown' }))
-    await settle()
-    expect(linesOf(harness.current())).toEqual(OTHER_LINES)
-    await harness.unmount()
-  })
+      expect(tierValue(harness.current())).toBe(OTHER.value)
+      expect(linesOf(harness.current())).toEqual(waiting)
+
+      await act(async () => current.catalogs[0]!.resolve({ origin: 'unknown' }))
+      await settle()
+      expect(linesOf(harness.current())).toEqual(OTHER_LINES)
+      await harness.unmount()
+    }
+  )
 })
 
 // The session hook is the one parent that hands the options hook its host support: the phase it is

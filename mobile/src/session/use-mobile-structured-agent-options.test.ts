@@ -7,6 +7,7 @@ import type {
   AgentSessionOptionsResult
 } from '../../../src/shared/agent-session-wire'
 import type { CodexSpeedHostSupport } from '../../../src/shared/codex-service-tier-presentation'
+import { codexSpeedLinesOfSurface } from '../../../src/shared/codex-speed-facts-presentation'
 import type { SessionOptionDescriptor } from '../../../src/shared/native-chat-session-options'
 import type { RpcClient } from '../transport/rpc-client'
 import type {
@@ -216,6 +217,24 @@ function currentValueOf(snapshot: readonly SessionOptionDescriptor[], id: string
 }
 
 const BASE = { agent: 'codex', sessionId: 'session-1', fence: 1 } as const
+
+/** A host that has not affirmed speed support keeps the saved canonical tier as a read-only row. */
+function expectRetainedStandardRow(controller: {
+  optionSnapshot: readonly SessionOptionDescriptor[]
+  optionSurface: Parameters<typeof codexSpeedLinesOfSurface>[0]
+}) {
+  const tier = descriptorFor(controller.optionSnapshot, 'serviceTier')
+  expect(tier?.kind).toMatchObject({ type: 'select', currentValue: 'default' })
+  const choices = tier?.kind.type === 'select' ? tier.kind.choices : []
+  expect(choices.find((choice) => choice.value === 'default')).toMatchObject({
+    label: 'Standard',
+    disabled: true
+  })
+  expect(codexSpeedLinesOfSurface(controller.optionSurface)).toContainEqual({
+    kind: 'stored',
+    label: 'Standard'
+  })
+}
 
 describe('useMobileStructuredAgentOptions fast mode', () => {
   it('round-trips a boolean fastMode pick as the wire string and remembers the decoded pick', async () => {
@@ -506,7 +525,11 @@ describe('useMobileStructuredAgentOptions speed select', () => {
       const harness = await mountOptions({ ...BASE, client: client.client, mutate, codexSpeedHost })
 
       expect(descriptorFor(harness.current().optionSnapshot, 'fastMode')).toBeDefined()
-      expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
+      if (codexSpeedHost === 'unsupported') {
+        expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
+      } else {
+        expectRetainedStandardRow(harness.current())
+      }
       let outcome: boolean | null = null
       await act(async () => {
         outcome = await harness.current().setStructuredOption('serviceTier', FAST_TIER.value)
@@ -527,13 +550,16 @@ describe('useMobileStructuredAgentOptions speed select', () => {
       mutate,
       codexSpeedHost: 'unknown'
     })
-    expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeUndefined()
+    expectRetainedStandardRow(harness.current())
     const readsBefore = client.optionReads()
 
     await harness.rerender({ codexSpeedHost: 'supported' })
 
     expect(client.optionReads()).toBe(readsBefore + 1)
-    expect(descriptorFor(harness.current().optionSnapshot, 'serviceTier')).toBeDefined()
+    const tier = descriptorFor(harness.current().optionSnapshot, 'serviceTier')
+    expect(tier).toBeDefined()
+    const choices = tier?.kind.type === 'select' ? tier.kind.choices : []
+    expect(choices.find((choice) => choice.value === FAST_TIER.value)?.disabled).toBeFalsy()
     await harness.unmount()
   })
 

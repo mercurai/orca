@@ -39,6 +39,10 @@ The separate pinned upstream baseline passed 32 tests and failed two Windows reg
 Its three SSH permission tests passed; an unchanged scheduling-dependent PID permission race remains
 under owner investigation. Do not claim that race reproduced in the pinned run or was fixed here.
 No source landing, released version, package installation or loaded-runtime proof is complete.
+Read-only rollout preflight found the installed app.asar package version `1.4.223-mercurai.8`,
+matching the latest published Mercurai channel tag. Existing desktop and versioned daemon-host
+processes remain active. Disk manifest and executable metadata do not prove the loaded app build;
+no profile/config changes, app shutdown or task starts were performed.
 Native plugin work remains separate and this lane owns none of its files.
 
 ## Revalidated flow and failure boundaries
@@ -296,8 +300,9 @@ Use existing UI primitives and style tokens. Old-host controls remain selectable
 
 Verification found a requirement gap: pending reads and failed/unknown support currently share a
 caption. Complete this presentation behavior without changing admission or provider/wire facts.
-The client-only `SessionOptionProbePhase = 'pending' | 'failed' | 'settled'` lives in the existing
-speed presentation contract. Track capability, options-read and catalog/listing phases separately;
+The client-only `SessionOptionProbePhase = 'pending' | 'failed' | 'settled'` and
+`CodexSpeedPresentationPhases` are exported by `src/shared/codex-speed-facts-presentation.ts`.
+Track capability, options-read and catalog/listing phases separately;
 overlapping operations cannot clear another pending operation. Undefined preserves older callers.
 Freeze the optional `CodexSpeedPresentationPhases` fields as `capabilityPhase`, `optionsPhase`,
 and `catalogPhase`; shared option state carries those client-only fields. `codexSpeedLines` accepts
@@ -465,6 +470,10 @@ Capture baseline failures separately; green partial checks do not establish comp
 ## Release, preservation and rollback
 
 The established fork mechanism is `fork-rebase-patches` -> `fork-assemble-release` -> `fork-release-win-build`.
+Revalidated the canonical [fork release runbook](https://github.com/mercurai/orca/blob/mercurai/config/mercurai/README.md)
+and assembly workflow through GitHub API during this session. `release/mercurai` is assembled and
+never hand-edited; only the release publish job writes the Mercurai update channel. The branch
+remains standalone on the bare upstream tag. Do not invent a version/tag or upload an installer by hand.
 The fork owner (orca-config-73, routed by the orchestrator formerly c3 and now orca-config-0f) owns patch registration,
 base selection, assembly and landing order. The frozen v1.4.224 assembly must not gain a new patch without its order.
 Obtain independent local code review at the exact PR head with the mandated reviewer model before release assembly.
@@ -501,5 +510,7 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Next action: finish reviewed loading tests and fixture corrections, then run red CI before production implementation.
+Expanded red CI38666958746 at dcb2f6cdc6 passed 983 tests and failed 87 feature cases (core896/45, mobile87/42). Desktop and mobile production types passed; the new mobile loading test needs a type correction. The separate baseline passed32/failed2. Inspected format-only patch applied with all writers stopped. P/Q/R initial implementation is written against this red proof. Independent review accepted the fence guard and stable mobile lifecycle. P must preserve advertised labels on locked retained rows; Q must stop keeping settled phases during later pending/failed reads and route post-write reads through the existing owner. Actual Sonnet corrections and Q refresh regressions are active. The new mobile test type helper is narrowed; the controller needs a bounded one-line cap reduction without an unrelated extraction.
+
+Next action: finish bounded P/Q/R production changes, inspect independent reviews and run expanded CI.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.

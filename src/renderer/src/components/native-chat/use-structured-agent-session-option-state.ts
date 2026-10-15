@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentSessionConversationCommand } from '../../../../shared/agent-session-conversation-command'
 import type { AgentSessionOptionsResult } from '../../../../shared/agent-session-wire'
 import type { AgentSessionRewindSupport } from '../../../../shared/agent-session-rewind'
@@ -12,10 +12,11 @@ import {
   type StructuredAgentSessionOptionState
 } from '../../../../shared/structured-agent-session-options'
 import type { CodexSpeedHostSupport } from '../../../../shared/codex-service-tier-presentation'
+import type { SessionOptionProbePhase } from '../../../../shared/codex-speed-facts-presentation'
 import { structuredAgentSessionSpeedBlocked } from '../../../../shared/structured-agent-session-option-acknowledgement'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
-import { useStructuredAgentSessionHostCodexSpeedState } from '@/runtime/structured-agent-session-host-capability'
+import { useStructuredAgentSessionHostCodexSpeedProbe } from '@/runtime/structured-agent-session-host-capability'
 import { readHostModelCatalogSnapshot } from '@/runtime/host-model-catalog-snapshots'
 import { holdStructuredAgentSessionSpeedSends } from './structured-agent-session-pending-sends'
 import { useHostModelCatalogUpgrade } from './use-host-model-catalog-upgrade'
@@ -81,8 +82,8 @@ export function useStructuredAgentSessionOptionState(args: {
   } = args
   // What shapes the speed control in every list, so each applies it and re-reads when it changes.
   // Another agent has no speed control, so its reads never wait on this answer.
-  const probedSpeedHost = useStructuredAgentSessionHostCodexSpeedState(target)
-  const codexSpeedHost = agent === 'codex' ? probedSpeedHost : 'unsupported'
+  const speedProbe = useStructuredAgentSessionHostCodexSpeedProbe(target)
+  const codexSpeedHost = agent === 'codex' ? speedProbe.state : 'unsupported'
   const [conversationSupport, setConversationSupport] = useState<{
     sessionId: string
     commands: readonly AgentSessionConversationCommand[]
@@ -179,21 +180,50 @@ export function useStructuredAgentSessionOptionState(args: {
   }, [agent, fence, identity, syncSpeedHold])
 
   const optionsReadRef = useRef<CoalescedPollRunner | null>(null)
+  // Presentation only, never in the record: what the read answered for, so another session, fence
+  // or speed answer starts unanswered. A refresh over a settled answer of that shape stays settled.
+  const readShape = `${identity}\u0000${fence}\u0000${codexSpeedHost}`
+  const [optionsRead, setOptionsRead] = useState<{
+    shape: string
+    phase: SessionOptionProbePhase
+  } | null>(null)
+  const readsOptions =
+    providerVisible && !(providerStarting && !readsBeforeStart) && optionCatalog !== null
   // Refresh options each turn to confirm which model the provider actually selected, and once
   // the provider starts: only then has the host read what it will run.
   useEffect(() => {
-    if (!providerVisible || (providerStarting && !readsBeforeStart) || !optionCatalog) {
+    if (!readsOptions || !optionCatalog) {
       return
     }
     let stale = false
+    const markRead = (phase: SessionOptionProbePhase): void =>
+      setOptionsRead((current) =>
+        current?.shape === readShape && current.phase === 'settled'
+          ? current
+          : { shape: readShape, phase }
+      )
     const runner = createCoalescedPollRunner(async () => {
       const readGeneration = optionMutationGeneration.current
-      const result = await callStructuredAgentSession<AgentSessionOptionsResult>(
-        target,
-        'agentSession.options',
-        { sessionId }
-      )
-      if (!stale && optionMutationGeneration.current === readGeneration) {
+      markRead('pending')
+      let result: AgentSessionOptionsResult
+      try {
+        result = await callStructuredAgentSession<AgentSessionOptionsResult>(
+          target,
+          'agentSession.options',
+          { sessionId }
+        )
+      } catch (error) {
+        if (!stale) {
+          markRead('failed')
+        }
+        throw error
+      }
+      if (stale) {
+        return
+      }
+      // A write that superseded this read keeps its values out, but the read itself completed.
+      markRead('settled')
+      if (optionMutationGeneration.current === readGeneration) {
         setConversationSupport({
           sessionId,
           commands: result.conversationCommands ?? [],
@@ -220,9 +250,11 @@ export function useStructuredAgentSessionOptionState(args: {
     codexSpeedHost,
     fence,
     optionCatalog,
+    // The provider starting reads again, as it did before the guard was shared with the phase.
     providerStarting,
-    providerVisible,
+    readShape,
     readsBeforeStart,
+    readsOptions,
     sessionId,
     target,
     turnId,
@@ -239,7 +271,7 @@ export function useStructuredAgentSessionOptionState(args: {
     }
   }, [contextRefresh])
 
-  const { unavailable } = useHostModelCatalogUpgrade({
+  const { unavailable, catalogPhase } = useHostModelCatalogUpgrade({
     agent,
     sessionId,
     target,
@@ -257,11 +289,26 @@ export function useStructuredAgentSessionOptionState(args: {
     updateOptionState
   })
 
+  // Only Codex has a speed control to caption; the phases never enter the ref'd record.
+  const optionsPhase = !readsOptions
+    ? undefined
+    : optionsRead?.shape === readShape
+      ? optionsRead.phase
+      : 'pending'
+  const capabilityPhase = speedProbe.phase
+  const phasedOptionState = useMemo(
+    () =>
+      agent === 'codex'
+        ? { ...optionState, capabilityPhase, optionsPhase, catalogPhase }
+        : optionState,
+    [agent, capabilityPhase, catalogPhase, optionState, optionsPhase]
+  )
+
   return {
     conversationSupport,
     codexSpeedHost,
     unavailable,
-    optionState,
+    optionState: phasedOptionState,
     optionStateRef,
     activeOptionRecordRef,
     pendingOptionRef,

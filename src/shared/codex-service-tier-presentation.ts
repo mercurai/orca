@@ -43,6 +43,14 @@ function missingTierRow(
   return { value: `${prefix}${name}`, label, disabled: true }
 }
 
+function advertisedChoice({
+  value,
+  label,
+  description
+}: AgentSessionOptionChoice): SessionOptionSelectChoice {
+  return { value, label, ...(description ? { description } : {}) }
+}
+
 /** Standard, every advertised tier with its exact id, then disabled rows for the Fast and
  *  Ultrafast the model does not offer. Standard is always present: the protocol default is
  *  added when the provider omits it. */
@@ -51,11 +59,7 @@ export function codexServiceTierChoices(
   supportKnown: boolean
 ): SessionOptionSelectChoice[] {
   const standardId = codexStandardTierId(tiers)
-  const listed: SessionOptionSelectChoice[] = tiers.map(({ value, label, description }) => ({
-    value,
-    label,
-    ...(description ? { description } : {})
-  }))
+  const listed = tiers.map(advertisedChoice)
   const prefix = supportKnown ? UNAVAILABLE_PREFIX : UNVERIFIED_PREFIX
   return [
     ...(listed.some((choice) => choice.value === standardId)
@@ -92,6 +96,34 @@ export function codexServiceTierCatalogOption(
     },
     apply: {}
   }
+}
+
+/** While host support is unresolved no tier is offered, but a saved or held canonical tier must
+ *  stay visible under its advertised label. Every row here is disabled, so nothing can be picked;
+ *  the snapshot shows only the retained row and drops the select when nothing canonical is tracked. */
+export function codexUnresolvedSpeedOptions(
+  model: Pick<AgentSessionModelOption, 'serviceTiers'>,
+  host: CodexSpeedHostSupport | undefined
+): CatalogOption[] {
+  if (host !== 'unknown') {
+    return []
+  }
+  return [
+    {
+      id: CODEX_SERVICE_TIER_OPTION_ID,
+      label: 'Speed',
+      category: 'mode',
+      kind: {
+        type: 'select',
+        choices: (model.serviceTiers ?? []).map((tier) => ({
+          ...advertisedChoice(tier),
+          disabled: true
+        })),
+        defaultValue: codexStandardTierId(undefined)
+      },
+      apply: {}
+    }
+  ]
 }
 
 function legacyFastModeOption(): CatalogOption {
@@ -150,7 +182,8 @@ export function refreshCodexServiceTierCatalog(
             (existing.id !== CODEX_SERVICE_TIER_OPTION_ID && existing.id !== 'fastMode') ||
             (keepsToggle && existing.id === 'fastMode')
         ),
-        ...speed
+        ...speed,
+        ...codexUnresolvedSpeedOptions(listing, host)
       ]
     }
   })
@@ -203,7 +236,13 @@ export function codexServiceTierSelection(args: {
   }
   const choices = [...args.choices]
   if (currentValue !== undefined && !choices.some((choice) => choice.value === currentValue)) {
-    choices.push({ value: currentValue, label: currentValue, disabled: true })
+    // With no choice listed the protocol default still reads as Standard; any other id stays opaque.
+    const isStandard = args.choices.length === 0 && currentValue === codexStandardTierId(undefined)
+    choices.push({
+      value: currentValue,
+      label: isStandard ? 'Standard' : currentValue,
+      disabled: true
+    })
   }
   return {
     choices,
@@ -236,6 +275,11 @@ function hasUnverifiedRow(choices: readonly SessionOptionSelectChoice[]): boolea
   return choices.some((choice) => choice.value.startsWith(UNVERIFIED_PREFIX))
 }
 
+/** A select with nothing to pick: host support is unresolved and only the retained value shows. */
+function offersNoChoice(choices: readonly SessionOptionSelectChoice[]): boolean {
+  return enabledChoices(choices).length === 0
+}
+
 /** Why the speed select reads as it does, from its descriptor alone, in display order.
  *  Always opens with the next-turn rule, which holds while a turn is running too. */
 export function codexSpeedDescriptorCaptions(
@@ -252,7 +296,11 @@ export function codexSpeedDescriptorCaptions(
   if (hasUnverifiedRow(choices)) {
     captions.push('support-unverified')
   }
-  if (choices.some((choice) => choice.value === currentValue && choice.disabled === true)) {
+  // "Choose another" is false when nothing is offered: the phase and row text carry that case.
+  if (
+    !offersNoChoice(choices) &&
+    choices.some((choice) => choice.value === currentValue && choice.disabled === true)
+  ) {
     captions.push('selection-blocked')
   }
   return captions
@@ -270,7 +318,8 @@ export function codexSpeedChoiceStatus(
     return 'offered'
   }
   if (choice.disabled === true) {
-    return hasUnverifiedRow(descriptor.kind.choices) ? 'unverified' : 'unavailable'
+    const { choices } = descriptor.kind
+    return hasUnverifiedRow(choices) || offersNoChoice(choices) ? 'unverified' : 'unavailable'
   }
   const names = [compactName(choice.label), compactName(choice.value)]
   return names.includes('fast') || names.includes('ultrafast') ? 'higher-usage' : 'offered'

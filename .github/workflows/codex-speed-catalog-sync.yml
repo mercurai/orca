@@ -173,7 +173,12 @@ jobs:
         if: steps.mobile-install.outcome == 'success'
         continue-on-error: true
         working-directory: mobile
-        run: pnpm run check:tests-typecheck
+        shell: bash
+        run: |
+          if ! pnpm run check:tests-typecheck; then
+            pnpm run typecheck:tests 2>&1 | rg '^src/(session/.*(codex-speed|SessionOptionPickers)|transport/runtime-(status|capability)-probe).*error TS' || true
+            exit 1
+          fi
 
       - name: Checkout pinned upstream baseline
         uses: actions/checkout@v6

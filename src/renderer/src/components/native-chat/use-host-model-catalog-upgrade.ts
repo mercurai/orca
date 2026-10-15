@@ -7,6 +7,7 @@ import type { AgentSessionModelCatalogResult } from '../../../../shared/agent-se
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { AgentSessionOptionCatalog } from '../../../../shared/agent-session-option-catalog'
 import type { CodexSpeedHostSupport } from '../../../../shared/codex-service-tier-presentation'
+import type { SessionOptionProbePhase } from '../../../../shared/codex-speed-facts-presentation'
 import {
   applyStructuredAgentSessionModelCatalog,
   settleStructuredAgentSessionBuiltinCatalog,
@@ -40,6 +41,9 @@ import {
  * focus or a turn starting or ending does too: the host
  * pushes no change, the fix (signing in, installing) happens elsewhere, and a
  * started chat makes the host re-check.
+ * `catalogPhase` is presentation only: pending while the read or its joined listing wait is
+ * out, failed when either ends unanswered, settled on a completed answer; a re-read over a
+ * settled answer of the same shape stays settled. Absent while no read runs.
  */
 export function useHostModelCatalogUpgrade(args: {
   agent: AgentType
@@ -66,7 +70,7 @@ export function useHostModelCatalogUpgrade(args: {
   updateOptionState: (
     update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
   ) => void
-}): { unavailable: AgentSessionUnavailable | null } {
+}): { unavailable: AgentSessionUnavailable | null; catalogPhase?: SessionOptionProbePhase } {
   const {
     activeOptionRecordRef,
     agent,
@@ -86,6 +90,18 @@ export function useHostModelCatalogUpgrade(args: {
     unavailable: AgentSessionUnavailable | null
   } | null>(null)
   const unavailable = verdict?.key === waitKey ? verdict.unavailable : null
+  // What the answer is for: another chat, host, speed answer or launch shape starts unanswered.
+  const readShape = `${waitKey}\u0000${codexSpeedHost ?? ''}\u0000${newLaunch}:${worktree ?? ''}`
+  const [catalogRead, setCatalogRead] = useState<{
+    shape: string
+    phase: SessionOptionProbePhase
+  } | null>(null)
+  const reads = enabled && optionCatalog !== null
+  const catalogPhase: SessionOptionProbePhase | undefined = !reads
+    ? undefined
+    : catalogRead?.shape === readShape
+      ? catalogRead.phase
+      : 'pending'
   const [rereads, setRereads] = useState(0)
   const recheck = useCallback(() => setRereads((count) => count + 1), [])
   const said = unavailable !== null
@@ -140,9 +156,33 @@ export function useHostModelCatalogUpgrade(args: {
             : settleStructuredAgentSessionBuiltinCatalog(current)
       )
     }
+    // A settled answer of this shape stands while a refresh is out or fails.
+    const mark = (phase: SessionOptionProbePhase): void =>
+      setCatalogRead((current) =>
+        current?.shape === readShape && current.phase === 'settled'
+          ? current
+          : { shape: readShape, phase }
+      )
+    // A running listing keeps the first read pending; a joined answer still listing timed out.
+    const finish = (catalog: AgentSessionModelCatalogResult | null, joined: boolean): void => {
+      if (stale) {
+        return
+      }
+      apply(catalog)
+      if (catalog === null || (joined && catalog.listingInProgress === true)) {
+        mark('failed')
+      } else {
+        mark(catalog.listingInProgress === true ? 'pending' : 'settled')
+      }
+    }
+    mark('pending')
     let leave: (() => void) | null = null
     const waitForListing = (): void => {
-      leave = joinHostModelListingWait(waitKey, () => read(true), apply)
+      leave = joinHostModelListingWait(
+        waitKey,
+        () => read(true),
+        (catalog) => finish(catalog, true)
+      )
     }
     if (isHostModelListingWaitInFlight(waitKey)) {
       // The host already answered that its listing is running: the built-in list stands meanwhile.
@@ -158,17 +198,13 @@ export function useHostModelCatalogUpgrade(args: {
           if (stale) {
             return
           }
-          apply(catalog)
+          finish(catalog, false)
           // Only a host that reports the listing knows the wait param; an older one refuses it.
           if (catalog.listingInProgress === true) {
             waitForListing()
           }
         })
-        .catch(() => {
-          if (!stale) {
-            apply(null)
-          }
-        })
+        .catch(() => finish(null, false))
     }
     return () => {
       stale = true
@@ -182,6 +218,7 @@ export function useHostModelCatalogUpgrade(args: {
     fence,
     newLaunch,
     optionCatalog,
+    readShape,
     reportedUnpickedModel,
     rereads,
     running,
@@ -192,5 +229,5 @@ export function useHostModelCatalogUpgrade(args: {
     waitKey,
     worktree
   ])
-  return { unavailable }
+  return { unavailable, ...(catalogPhase ? { catalogPhase } : {}) }
 }

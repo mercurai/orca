@@ -11,7 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
 
 const mocks = vi.hoisted(() => ({
-  callRpc: vi.fn<(target: RuntimeClientTarget, method: string, params?: unknown) => Promise<unknown>>(),
+  callRpc:
+    vi.fn<(target: RuntimeClientTarget, method: string, params?: unknown) => Promise<unknown>>(),
   supports: vi.fn<(environmentId: string, capability: string) => Promise<boolean>>(),
   contactRegained: new Map<string, () => void>(),
   enqueue: vi.fn(),
@@ -237,10 +238,14 @@ function mutateWith(reply: MutateCall): {
   return { mutate: calls as unknown as StructuredAgentSessionMutate, calls }
 }
 
+// A rerender that omits fence or turnId keeps the defaults the earlier cases rely on.
+type RenderProps = { target: RuntimeClientTarget; fence?: number; turnId?: string | null }
+
 function renderOptions(target: RuntimeClientTarget, mutate = mutateWith(async () => null).mutate) {
   const sessionId = `codex-speed-loading-${++sessions}`
+  const initialProps: RenderProps = { target }
   const view = renderHook(
-    (props: { target: RuntimeClientTarget }) =>
+    (props: RenderProps) =>
       useStructuredAgentSessionOptions({
         agent: 'codex',
         sessionId,
@@ -248,12 +253,12 @@ function renderOptions(target: RuntimeClientTarget, mutate = mutateWith(async ()
         transportEnabled: true,
         isVisible: true,
         providerVisible: true,
-        fence: 1,
-        turnId: null,
+        fence: props.fence ?? 1,
+        turnId: props.turnId ?? null,
         unloadedTurnRevisions: undefined,
         mutate
       }),
-    { initialProps: { target } }
+    { initialProps }
   )
   unmounts.push(view.unmount)
   return view
@@ -473,7 +478,9 @@ describe('speed picker loading phases', () => {
 
       const select = speedSelect(result)
       expect(select?.currentValue).toBe(ULTRAFAST.value)
-      expect(select?.choices.find((choice) => choice.value === ULTRAFAST.value)?.disabled).toBe(true)
+      expect(select?.choices.find((choice) => choice.value === ULTRAFAST.value)?.disabled).toBe(
+        true
+      )
       expect(
         result.current.optionSurface
           .getSpeedLines()
@@ -514,6 +521,96 @@ describe('speed picker loading phases', () => {
     })
     expect(applied).toBe(true)
     expect(setOptionCalls(calls)).toEqual([{ key: 'fastMode', value: 'false' }])
+    expect(mocks.toastError).not.toHaveBeenCalled()
+  })
+})
+
+async function answerInitialLocalReads(result: OptionsView): Promise<void> {
+  await answer('agentSession.options', 'local', TIERED_OPTIONS)
+  await answer('agentSession.modelCatalog', 'local', LIVE_CATALOG)
+  await waitFor(() => expect(hasSpeedLine(result, LOADING_LINE)).toBe(false))
+  expect(speedSelect(result)?.choices).toEqual([STANDARD, FAST, ULTRAFAST])
+}
+
+function isOpenListingWait(call: RpcCall): boolean {
+  return (
+    call.method === 'agentSession.modelCatalog' &&
+    !call.done &&
+    JSON.stringify(call.params).includes('waitForListing')
+  )
+}
+
+// After the first answers every phase is settled, so each later real read must track its own wait
+// rather than inherit the earlier answer: pending while out, failed (never settled) on rejection.
+describe('speed picker phases after the first answers settled', () => {
+  it('shows loading while a turn re-read of settled options is out, then unverified when it fails', async () => {
+    setLocalRuntimeCapabilitiesForTests([CAPABILITY])
+    const { result, rerender } = renderOptions(LOCAL)
+    await answerInitialLocalReads(result)
+
+    rerender({ target: LOCAL, turnId: 'turn-2' })
+    await pendingRpc('agentSession.options', 'local')
+    expect(hasSpeedLine(result, LOADING_LINE)).toBe(true)
+
+    await failRpc('agentSession.options', 'local')
+    await waitFor(() => expect(hasSpeedLine(result, LOADING_LINE)).toBe(false))
+    expect(hasSpeedLine(result, UNVERIFIED_LINE)).toBe(true)
+    expect(speedSelect(result)?.choices).toEqual([STANDARD, FAST, ULTRAFAST])
+  })
+
+  it.each(['re-read', 'joined listing wait'] as const)(
+    'shows loading while only a settled catalog is read again, then unverified when its %s fails',
+    async (failing) => {
+      setLocalRuntimeCapabilitiesForTests([CAPABILITY])
+      const { result, rerender } = renderOptions(LOCAL)
+      await answerInitialLocalReads(result)
+
+      // A new fence reads the same-shaped catalog again; answering options leaves only that wait.
+      rerender({ target: LOCAL, fence: 2 })
+      await answer('agentSession.options', 'local', TIERED_OPTIONS)
+      await pendingRpc('agentSession.modelCatalog', 'local')
+      expect(hasSpeedLine(result, LOADING_LINE)).toBe(true)
+
+      if (failing === 'joined listing wait') {
+        await answer('agentSession.modelCatalog', 'local', {
+          ...LIVE_CATALOG,
+          listingInProgress: true
+        })
+        await waitFor(() => expect(rpcCalls.some(isOpenListingWait)).toBe(true))
+        expect(hasSpeedLine(result, LOADING_LINE)).toBe(true)
+      }
+
+      await failRpc('agentSession.modelCatalog', 'local')
+      await waitFor(() => expect(hasSpeedLine(result, LOADING_LINE)).toBe(false))
+      expect(hasSpeedLine(result, UNVERIFIED_LINE)).toBe(true)
+    }
+  )
+
+  it('shows loading while the options read after an accepted speed write is out, then unverified when it fails', async () => {
+    setLocalRuntimeCapabilitiesForTests([CAPABILITY])
+    const { mutate, calls } = mutateWith(async () => ({
+      key: 'serviceTier',
+      value: FAST.value,
+      options: { model: MODEL_ID, serviceTier: FAST.value }
+    }))
+    const { result } = renderOptions(LOCAL, mutate)
+    await answerInitialLocalReads(result)
+
+    let applied = false
+    await act(async () => {
+      applied = await result.current.setStructuredOption('serviceTier', FAST.value)
+    })
+    expect(applied).toBe(true)
+    await pendingRpc('agentSession.options', 'local')
+    expect(hasSpeedLine(result, LOADING_LINE)).toBe(true)
+
+    await failRpc('agentSession.options', 'local')
+    await waitFor(() => expect(hasSpeedLine(result, LOADING_LINE)).toBe(false))
+    expect(hasSpeedLine(result, UNVERIFIED_LINE)).toBe(true)
+    // The refused read is not evidence about the write: no second request, no requested tier.
+    expect(setOptionCalls(calls)).toEqual([{ key: 'serviceTier', value: FAST.value }])
+    expect(hasSpeedLine(result, 'requested')).toBe(false)
+    expect(speedSelect(result)?.choices).toEqual([STANDARD, FAST, ULTRAFAST])
     expect(mocks.toastError).not.toHaveBeenCalled()
   })
 })

@@ -81,6 +81,10 @@ function mobileSpeedRequestLine(line: Extract<CodexSpeedLine, { kind: 'last-requ
 /** One claim about speed, worded as that claim and no stronger (the desktop picker's words). */
 export function mobileSpeedLine(line: CodexSpeedLine): string {
   switch (line.kind) {
+    case 'loading':
+      return 'Loading speed options.'
+    case 'support-unverified':
+      return 'Speed options could not be confirmed. Orca will retry when the host is available.'
     case 'pending':
       return `Requested ${line.label}, waiting for the host to confirm.`
     case 'stored':

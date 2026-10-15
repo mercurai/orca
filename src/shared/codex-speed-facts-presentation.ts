@@ -10,7 +10,23 @@ import type { SessionOptionDescriptor, SessionOptionsSurface } from './native-ch
 
 const MAX_DETAIL_LENGTH = 200
 
+/** Where one client-side wait stands. Presentation only: never persisted, sent to a provider or
+ *  shown as server evidence. */
+export type SessionOptionProbePhase = 'pending' | 'failed' | 'settled'
+
+/** The separate waits behind the speed select: host capability, the options read and the listing.
+ *  One settling never clears another still pending; undefined means the caller has no such wait. */
+export type CodexSpeedPresentationPhases = {
+  capabilityPhase?: SessionOptionProbePhase
+  optionsPhase?: SessionOptionProbePhase
+  catalogPhase?: SessionOptionProbePhase
+}
+
 export type CodexSpeedLine =
+  /** A speed read is still in flight: no claim about any tier, stored or not. */
+  | { kind: 'loading' }
+  /** A speed read failed and none is in flight: support is unverified, not denied. */
+  | { kind: 'support-unverified' }
   | { kind: 'pending'; label: string }
   | { kind: 'stored'; label: string }
   /** The host holds a requested tier it cannot send: shown apart from what it has stored. */
@@ -52,20 +68,31 @@ function blockedRequestLine(
   return null
 }
 
-/** Empty when the model has no speed select. `dispatched` is a pick this client sent that the host
+/** Any wait still running reads as loading; failures only count once nothing is running. */
+function probePhaseLine(phases: CodexSpeedPresentationPhases | undefined): CodexSpeedLine | null {
+  const all = [phases?.capabilityPhase, phases?.optionsPhase, phases?.catalogPhase]
+  if (all.includes('pending')) {
+    return { kind: 'loading' }
+  }
+  return all.includes('failed') ? { kind: 'support-unverified' } : null
+}
+
+/** Empty when the model has no speed select, except the phase line: the waits can precede any
+ *  descriptor, and then name no tier. `dispatched` is a pick this client sent that the host
  *  has not confirmed; `reported` is the host's stored next-turn selection. */
 export function codexSpeedLines(
   descriptor: SessionOptionDescriptor | undefined,
-  speed: AgentSessionSpeedFacts | undefined
+  speed: AgentSessionSpeedFacts | undefined,
+  phases?: CodexSpeedPresentationPhases
 ): CodexSpeedLine[] {
-  if (
-    !descriptor ||
-    descriptor.id !== CODEX_SERVICE_TIER_OPTION_ID ||
-    descriptor.kind.type !== 'select'
-  ) {
+  const phaseLine = probePhaseLine(phases)
+  if (!descriptor) {
+    return phaseLine ? [phaseLine] : []
+  }
+  if (descriptor.id !== CODEX_SERVICE_TIER_OPTION_ID || descriptor.kind.type !== 'select') {
     return []
   }
-  const lines: CodexSpeedLine[] = []
+  const lines: CodexSpeedLine[] = phaseLine ? [phaseLine] : []
   const { currentValue } = descriptor.kind
   if (currentValue !== undefined && descriptor.valueSource === 'dispatched') {
     lines.push({ kind: 'pending', label: tierLabel(descriptor, currentValue) })
@@ -96,6 +123,12 @@ export function codexSpeedLines(
       : { kind: 'processing' }
   )
   return lines
+}
+
+/** The wait line, when one exists. A picker with no speed select to hang it on shows it beside the
+ *  closed pill; with a select, the select's own rows already carry it. */
+export function codexSpeedPhaseLine(lines: readonly CodexSpeedLine[]): CodexSpeedLine | undefined {
+  return lines.find((line) => line.kind === 'loading' || line.kind === 'support-unverified')
 }
 
 /** A surface or controller that also reports speed lines. The picker reads them without a new

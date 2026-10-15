@@ -33,6 +33,7 @@ export function useMobileSessionTabReconciliation(scope: MobileSessionMarkdownAc
     setBrowserScreencastSupported,
     setAgentSessionHistorySupported,
     setAgentSessionHostSupport,
+    setAgentSessionHostSupportPhase,
     setQuickCommandsSupported,
     nativeChatStream,
     fetchTerminals,
@@ -151,6 +152,7 @@ export function useMobileSessionTabReconciliation(scope: MobileSessionMarkdownAc
       setBrowserScreencastSupported(null)
       setAgentSessionHistorySupported(null)
       setAgentSessionHostSupport(null)
+      setAgentSessionHostSupportPhase(undefined)
       setQuickCommandsSupported(null)
       setShowQuickCommands(false)
       hostQueryReplyInputSupportedRef.current = false
@@ -166,17 +168,24 @@ export function useMobileSessionTabReconciliation(scope: MobileSessionMarkdownAc
     hostQueryReplyInputSupportedRef.current = false
     // Why: the probe retries — a relay→direct cutover or request timeout rejects
     // status.get without changing connState, which used to latch these hidden.
-    return startRuntimeCapabilityProbe(client, (capabilities) => {
-      setBrowserScreencastSupported(capabilities.includes('browser.screencast.v1'))
-      setAgentSessionHistorySupported(capabilities.includes(MOBILE_AI_VAULT_CAPABILITY))
-      setAgentSessionHostSupport(structuredAgentSessionHostSupport(capabilities))
-      setQuickCommandsSupported(supportsMobileQuickCommands(capabilities))
-      // Why: hosts without this capability strip inputKind from terminal.send,
-      // so a forwarded xterm reply would become floor-stealing shell input.
-      hostQueryReplyInputSupportedRef.current = capabilities.includes(
-        TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY
-      )
-    })
+    // The cancel the effect returns also fences this probe's late callbacks off the next client's phase.
+    return startRuntimeCapabilityProbe(
+      client,
+      (capabilities) => {
+        setBrowserScreencastSupported(capabilities.includes('browser.screencast.v1'))
+        setAgentSessionHistorySupported(capabilities.includes(MOBILE_AI_VAULT_CAPABILITY))
+        setAgentSessionHostSupport(structuredAgentSessionHostSupport(capabilities))
+        setAgentSessionHostSupportPhase('settled')
+        setQuickCommandsSupported(supportsMobileQuickCommands(capabilities))
+        // Why: hosts without this capability strip inputKind from terminal.send,
+        // so a forwarded xterm reply would become floor-stealing shell input.
+        hostQueryReplyInputSupportedRef.current = capabilities.includes(
+          TERMINAL_QUERY_REPLY_INPUT_RUNTIME_CAPABILITY
+        )
+      },
+      () => setAgentSessionHostSupportPhase('failed'),
+      () => setAgentSessionHostSupportPhase('pending')
+    )
   }, [client, connState])
   return {
     consumeAcceptedSessionTabs,

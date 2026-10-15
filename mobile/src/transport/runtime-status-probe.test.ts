@@ -203,7 +203,10 @@ describe('startRuntimeStatusProbe attempt callbacks', () => {
     }
     const events: string[] = []
     const cancel = startRecording(
-      timelineClient([refusal, new LogicalClientCutoverError(), ok({ machineName: 'Studio' })], events),
+      timelineClient(
+        [refusal, new LogicalClientCutoverError(), ok({ machineName: 'Studio' })],
+        events
+      ),
       events
     )
     await flushMicrotasks()

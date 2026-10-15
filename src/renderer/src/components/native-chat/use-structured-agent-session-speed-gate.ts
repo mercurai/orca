@@ -45,13 +45,15 @@ export function useStructuredAgentSessionSpeedGate(args: {
     target,
     updateOptionState
   } = args
+  const { capabilityPhase, catalogPhase, optionsPhase, speed } = optionState
   const speedLines = useMemo(
     () =>
       codexSpeedLines(
         optionSnapshot.find((descriptor) => descriptor.id === CODEX_SERVICE_TIER_OPTION_ID),
-        optionState.speed
+        speed,
+        { capabilityPhase, optionsPhase, catalogPhase }
       ),
-    [optionSnapshot, optionState.speed]
+    [capabilityPhase, catalogPhase, optionSnapshot, optionsPhase, speed]
   )
   /** Before a pick is held or dispatched, from the last answer this render has. */
   const admitPick = useCallback(
