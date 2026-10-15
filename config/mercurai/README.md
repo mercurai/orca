@@ -121,8 +121,21 @@ series.
     instead of the rebase. The sha must be on an origin `patch/*` or `ci-only/*` branch (never a pull ref), contain the
     base and add commits beyond it, or the run fails; the log shows its commits and diffstat; the push job pushes it in the same atomic push, leased on
     the branch's old sha. Names must be active patches of the manifest.
-- `fork-assemble-release`: manual. `overrides` (dry run only, same format) assembles ported heads
-  that no `patch/*` ref holds yet: each must contain the tag, and the manifest base is not checked.
+    - A dry run (`dry_run=true`, nothing pushed) takes any such head and prints the tested-trees
+      line (`branch tree before`) a real run would require.
+    - A real run promotes the head to `patch/*` with the bot token, so it needs two things a
+      dispatch cannot supply. First, a reviewed manifest PR to `mercurai` that adds
+      `ported_head: <the same 40-hex sha>` to the patch's entry (the run records the series and
+      clears the pin, so each pin approves one run). Second, `.github` and `config/mercurai` in
+      the head must equal the existing `patch/<name>` change carried onto the new base, byte for
+      byte (a strict apply, no whitespace tolerance); a port that needs new or changed protected
+      content moves `patch/<name>` through a reviewed PR instead. Only `dry_run=true` skips both
+      checks; an unset, `false` or any other value enforces them.
+- `fork-assemble-release`: manual. `overrides` assembles ported heads that no `patch/*` ref holds
+  yet: each must contain the tag, and the manifest base is not checked. On the default branch it
+  needs `dry_run=true`. Any run that is not a dry run, a feature branch included, applies the same
+  `ported_head` pin and protected-path checks as a real rebase, so an unpinned preview needs
+  `dry_run=true` on every branch.
   Without it: Checks every active patch is recorded on the tag and contains
   it, builds `release/mercurai` = tag + cherry-picked patches (a patch with no commits beyond the
   tag is skipped with a warning), runs the series tests, tags `v<upstream>-mercurai.N` and pushes

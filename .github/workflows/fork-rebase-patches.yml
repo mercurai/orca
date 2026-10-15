@@ -30,7 +30,7 @@ on:
         type: boolean
         default: false
       overrides:
-        description: 'Hand-ported patch heads to use instead of rebasing: patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the base and add commits beyond it; the push job pushes them in the same atomic push'
+        description: 'Hand-ported patch heads to use instead of rebasing: patch/<name>=<40-hex sha> pairs, comma or space separated. Each must be on an origin patch/* or ci-only/* branch, contain the base and add commits beyond it; the push job pushes them in the same atomic push. Without dry_run=true each must be pinned as ported_head in the manifest and carry the existing patch protected paths unchanged'
         type: string
         default: ''
   schedule:
@@ -60,6 +60,9 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A dry run pushes nothing, so it may take an unpinned head; any other run enforces the pin.
+    env:
+      DRY_RUN: ${{ inputs.dry_run }}
     outputs:
       failed: ${{ steps.test.outputs.failed }}
       trees: ${{ steps.test.outputs.trees }}
@@ -157,6 +160,9 @@ jobs:
           while read -r branch before after; do
             echo "would push $after to refs/heads/$branch, leased on $before"
           done < /tmp/rebased
+          # The lines the push job compares: the exact tree and lease a real run would require.
+          echo "tested trees (branch tree before) a real run would require:"
+          cat /tmp/trees
           cp "$MANIFEST_WORK" /tmp/manifest-before.yaml
           bash /tmp/fork-scripts/record-series.sh
           echo "manifest change the push job would commit on $FORK_BRANCH:"
