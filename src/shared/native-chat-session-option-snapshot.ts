@@ -76,8 +76,8 @@ function actionForApply(
 
 // The speed select never names a default: the provider's configured speed stays unknown until a
 // pick or the host's stored selection. It always shows, even holding only Standard. One whose
-// choices are all disabled is the unresolved-host placeholder: it shows only the tracked canonical
-// tier, under its advertised label when the model lists it, locked.
+// choices are all disabled is the unresolved-host placeholder: it keeps every advertised tier as a
+// disabled, labelled row and shows only while a canonical tier is tracked. Locked.
 function serviceTierDescriptor(args: {
   option: CatalogOption
   tracked: TrackedNativeChatSessionOption | undefined
@@ -95,9 +95,7 @@ function serviceTierDescriptor(args: {
   }
   const settable = retainedOnly ? { settable: false } : args.settable
   const selection = codexServiceTierSelection({
-    choices: retainedOnly
-      ? option.kind.choices.filter((choice) => choice.value === tracked?.value)
-      : option.kind.choices,
+    choices: option.kind.choices,
     tracked,
     legacyFastMode
   })

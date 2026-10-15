@@ -1,20 +1,11 @@
 import { toast } from 'sonner'
 import { useCallback, useMemo } from 'react'
-import type { AgentSessionOptionsResult } from '../../../../shared/agent-session-wire'
-import type { AgentSessionOptionCatalog } from '../../../../shared/agent-session-option-catalog'
 import { CODEX_SERVICE_TIER_OPTION_ID } from '../../../../shared/codex-service-tier-presentation'
 import { codexSpeedLines } from '../../../../shared/codex-speed-facts-presentation'
-import type { NativeChatSessionOptionRecord } from '../../../../shared/native-chat-session-option-state'
 import type { SessionOptionDescriptor } from '../../../../shared/native-chat-session-options'
-import {
-  applyStructuredAgentSessionOptions,
-  type StructuredAgentSessionOptionState
-} from '../../../../shared/structured-agent-session-options'
+import type { StructuredAgentSessionOptionState } from '../../../../shared/structured-agent-session-options'
 import type { RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
-import {
-  callStructuredAgentSession,
-  readStructuredAgentSessionCodexSpeedSupport
-} from '@/runtime/structured-agent-session-client'
+import { readStructuredAgentSessionCodexSpeedSupport } from '@/runtime/structured-agent-session-client'
 import type { StructuredAgentSessionHostCapabilityState } from '@/runtime/structured-agent-session-host-capability'
 import { nativeChatSpeedHostRefusalText } from './native-chat-session-option-labels'
 
@@ -27,24 +18,13 @@ function refuseSpeedWrite(support: StructuredAgentSessionHostCapabilityState): v
  *  refuses it with the reason, and the older Fast toggle stays as it was. */
 export function useStructuredAgentSessionSpeedGate(args: {
   target: RuntimeClientTarget
-  sessionId: string
-  optionCatalog: AgentSessionOptionCatalog | null
   codexSpeedHost: StructuredAgentSessionHostCapabilityState
   optionState: StructuredAgentSessionOptionState
   optionSnapshot: readonly SessionOptionDescriptor[]
-  updateOptionState: (
-    update: (current: StructuredAgentSessionOptionState) => StructuredAgentSessionOptionState
-  ) => void
+  /** Requests the options owner's next read. */
+  refreshOptions: () => void
 }) {
-  const {
-    codexSpeedHost,
-    optionCatalog,
-    optionSnapshot,
-    optionState,
-    sessionId,
-    target,
-    updateOptionState
-  } = args
+  const { codexSpeedHost, optionSnapshot, optionState, refreshOptions, target } = args
   const { capabilityPhase, catalogPhase, optionsPhase, speed } = optionState
   const speedLines = useMemo(
     () =>
@@ -88,30 +68,16 @@ export function useStructuredAgentSessionSpeedGate(args: {
     [target]
   )
   /** After an accepted write: the host's own read replaces the committed guess, and its speed
-   *  facts (the request it saw, what it applied) follow the write. Ignored once the session, host
-   *  or generation the write was made for is gone. */
+   *  facts (the request it saw, what it applied) follow the write. The options owner runs that read
+   *  (its phase, coalescing and generation guard); nothing is requested once the session, host or
+   *  generation the write was made for is gone. */
   const refreshAfterWrite = useCallback(
-    (targetRecord: NativeChatSessionOptionRecord, isCurrent: () => boolean): void => {
-      void callStructuredAgentSession<AgentSessionOptionsResult>(target, 'agentSession.options', {
-        sessionId
-      })
-        .then((refreshed) => {
-          if (isCurrent()) {
-            updateOptionState((latest) =>
-              latest.record === targetRecord && optionCatalog
-                ? applyStructuredAgentSessionOptions(
-                    latest,
-                    optionCatalog,
-                    refreshed,
-                    codexSpeedHost
-                  )
-                : latest
-            )
-          }
-        })
-        .catch(() => {})
+    (isCurrent: () => boolean): void => {
+      if (isCurrent()) {
+        refreshOptions()
+      }
     },
-    [codexSpeedHost, optionCatalog, sessionId, target, updateOptionState]
+    [refreshOptions]
   )
   return { speedLines, admitPick, admitSend, refreshAfterWrite }
 }

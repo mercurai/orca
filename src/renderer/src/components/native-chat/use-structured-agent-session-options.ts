@@ -75,6 +75,7 @@ export function useStructuredAgentSessionOptions(args: {
     pendingOptionRef,
     optionMutationGeneration,
     updateOptionState,
+    refreshOptions,
     conversationSupport,
     codexSpeedHost,
     unavailable
@@ -114,12 +115,10 @@ export function useStructuredAgentSessionOptions(args: {
   const { speedLines, admitPick, admitSend, refreshAfterWrite } =
     useStructuredAgentSessionSpeedGate({
       target,
-      sessionId,
-      optionCatalog,
       codexSpeedHost,
       optionState,
       optionSnapshot,
-      updateOptionState
+      refreshOptions
     })
 
   // What a settled pick must remember so the next launch starts where the user left off.
@@ -174,7 +173,7 @@ export function useStructuredAgentSessionOptions(args: {
             structuredAgentSessionOptionView(currentState, launchSeedOptions, NO_HELD_OPTIONS),
             committed
           )
-          refreshAfterWrite(targetRecord, isCurrent)
+          refreshAfterWrite(isCurrent)
         }
         return Boolean(result)
       } finally {

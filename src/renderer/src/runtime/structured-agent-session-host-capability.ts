@@ -60,9 +60,12 @@ export function useStructuredAgentSessionHostCapabilityProbe(
   }, [environmentId])
   useEffect(() => {
     let cancelled = false
-    // An unanswered probe that is asked again is pending again; a known answer stands meanwhile.
+    // Every actual probe is pending while it is out; the known state stands for admission meanwhile.
+    // A local runtime that has already answered is read from memory, so nothing is out for it.
     setAnswer((current) =>
-      current.key === key && current.state === 'unknown' && current.phase === 'failed'
+      current.key === key &&
+      current.phase !== 'pending' &&
+      (environmentId !== null || current.state === 'unknown')
         ? { ...current, phase: 'pending' }
         : current
     )

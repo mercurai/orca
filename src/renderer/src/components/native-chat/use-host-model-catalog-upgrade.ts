@@ -42,8 +42,9 @@ import {
  * pushes no change, the fix (signing in, installing) happens elsewhere, and a
  * started chat makes the host re-check.
  * `catalogPhase` is presentation only: pending while the read or its joined listing wait is
- * out, failed when either ends unanswered, settled on a completed answer; a re-read over a
- * settled answer of the same shape stays settled. Absent while no read runs.
+ * out, failed when either ends unanswered, settled on a completed answer. Every re-read is its
+ * own operation, over a settled answer too; the answer's catalog stays applied meanwhile.
+ * Absent while no read runs.
  */
 export function useHostModelCatalogUpgrade(args: {
   agent: AgentType
@@ -156,13 +157,8 @@ export function useHostModelCatalogUpgrade(args: {
             : settleStructuredAgentSessionBuiltinCatalog(current)
       )
     }
-    // A settled answer of this shape stands while a refresh is out or fails.
-    const mark = (phase: SessionOptionProbePhase): void =>
-      setCatalogRead((current) =>
-        current?.shape === readShape && current.phase === 'settled'
-          ? current
-          : { shape: readShape, phase }
-      )
+    // The catalog already applied stands in the state; only the phase follows each actual read.
+    const mark = (phase: SessionOptionProbePhase): void => setCatalogRead({ shape: readShape, phase })
     // A running listing keeps the first read pending; a joined answer still listing timed out.
     const finish = (catalog: AgentSessionModelCatalogResult | null, joined: boolean): void => {
       if (stale) {

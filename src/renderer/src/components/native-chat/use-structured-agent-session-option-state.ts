@@ -181,7 +181,7 @@ export function useStructuredAgentSessionOptionState(args: {
 
   const optionsReadRef = useRef<CoalescedPollRunner | null>(null)
   // Presentation only, never in the record: what the read answered for, so another session, fence
-  // or speed answer starts unanswered. A refresh over a settled answer of that shape stays settled.
+  // or speed answer starts unanswered. The shape's last answer stays in the state while a read runs.
   const readShape = `${identity}\u0000${fence}\u0000${codexSpeedHost}`
   const [optionsRead, setOptionsRead] = useState<{
     shape: string
@@ -196,12 +196,10 @@ export function useStructuredAgentSessionOptionState(args: {
       return
     }
     let stale = false
+    // Each actual read is pending while out, then settled or failed; a queued follow-up read marks
+    // pending again in the same tick, so the phase never shows settled between the two.
     const markRead = (phase: SessionOptionProbePhase): void =>
-      setOptionsRead((current) =>
-        current?.shape === readShape && current.phase === 'settled'
-          ? current
-          : { shape: readShape, phase }
-      )
+      setOptionsRead({ shape: readShape, phase })
     const runner = createCoalescedPollRunner(async () => {
       const readGeneration = optionMutationGeneration.current
       markRead('pending')
@@ -263,13 +261,14 @@ export function useStructuredAgentSessionOptionState(args: {
 
   // Reads share the session's host queue with sends and interrupts, so a burst of
   // missed revisions keeps one read in flight and at most one behind it.
+  const refreshOptions = useCallback(() => optionsReadRef.current?.run(), [])
   const seenContextRefresh = useRef(contextRefresh)
   useEffect(() => {
     if (contextRefresh !== seenContextRefresh.current) {
       seenContextRefresh.current = contextRefresh
-      optionsReadRef.current?.run()
+      refreshOptions()
     }
-  }, [contextRefresh])
+  }, [contextRefresh, refreshOptions])
 
   const { unavailable, catalogPhase } = useHostModelCatalogUpgrade({
     agent,
@@ -313,6 +312,8 @@ export function useStructuredAgentSessionOptionState(args: {
     activeOptionRecordRef,
     pendingOptionRef,
     optionMutationGeneration,
-    updateOptionState
+    updateOptionState,
+    /** A write's follow-up read: the same runner, so one read phase and one coalescing owner. */
+    refreshOptions
   }
 }

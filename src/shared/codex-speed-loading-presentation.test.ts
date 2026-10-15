@@ -139,6 +139,16 @@ function currentOf(descriptor: SessionOptionDescriptor | undefined): string | un
   return descriptor?.kind.type === 'select' ? descriptor.kind.currentValue : undefined
 }
 
+/** An advertised tier as the unresolved-host select keeps it: exact id and label, never pickable. */
+function locked(...tiers: Tier[]): SessionOptionSelectChoice[] {
+  return tiers.map(({ value, label, description }) => ({
+    value,
+    label,
+    description,
+    disabled: true
+  }))
+}
+
 function only(source: PhaseSource, phase: Phase): SpeedPhases {
   const phases: SpeedPhases = {}
   phases[source] = phase
@@ -416,32 +426,45 @@ describe('Codex speed select while the host capability is unresolved', () => {
     expect(lines).toEqual([{ kind: 'stored', label: expect.any(String) }, { kind: 'processing' }])
   })
 
-  it.each<[string, AgentSessionModelOption[], string, SessionOptionSelectChoice]>([
+  it.each<
+    [string, AgentSessionModelOption[], string, SessionOptionSelectChoice[], string]
+  >([
     [
-      'an advertised opaque tier under its label and description',
+      'every advertised tier under its label and description, the stored one included',
       heldModels(),
       ULTRA.value,
-      { value: ULTRA.value, label: 'Ultrafast', description: 'Fastest.', disabled: true }
+      locked(STANDARD, FAST, ULTRA),
+      'Ultrafast'
     ],
     [
-      'an id the model does not advertise as the exact id',
+      'an advertised Standard under its listed id and label',
+      heldModels([STANDARD, FAST]),
+      STANDARD.value,
+      locked(STANDARD, FAST),
+      'Standard'
+    ],
+    [
+      'an id the model does not advertise as the exact id, after the advertised rows',
       heldModels([STANDARD, FAST]),
       ULTRA.value,
-      { value: ULTRA.value, label: ULTRA.value, disabled: true }
+      [...locked(STANDARD, FAST), { value: ULTRA.value, label: ULTRA.value, disabled: true }],
+      ULTRA.value
     ],
     [
-      'the protocol default the model leaves unlisted as Standard',
+      'the protocol default the model leaves unlisted as Standard beside other advertised tiers',
       heldModels([FAST]),
       STANDARD.value,
-      { value: STANDARD.value, label: 'Standard', disabled: true }
+      [...locked(FAST), { value: STANDARD.value, label: 'Standard', disabled: true }],
+      'Standard'
     ],
     [
       'the protocol default of a model with no tier metadata as Standard',
       [modelOption(HELD_MODEL_ID, undefined, { supportsFastMode: true })],
       STANDARD.value,
-      { value: STANDARD.value, label: 'Standard', disabled: true }
+      [{ value: STANDARD.value, label: 'Standard', disabled: true }],
+      'Standard'
     ]
-  ])('retains %s, locked, with its stored provenance', (_name, models, tierId, row) => {
+  ])('keeps %s locked, with its stored provenance', (_name, models, tierId, rows, label) => {
     const state = liveState({
       models,
       current: { serviceTier: tierId },
@@ -451,16 +474,74 @@ describe('Codex speed select while the host capability is unresolved', () => {
     const tier = descriptorFor(state, 'serviceTier')
     const held = requestStructuredAgentSessionSpeed(state, 'serviceTier', tierId)
 
-    expect(choicesOf(tier)).toEqual([row])
-    expect(choicesOf(tier).every((choice) => choice.disabled === true)).toBe(true)
+    expect(choicesOf(tier)).toEqual(rows)
     expect(tier).toMatchObject({ valueSource: 'reported', settable: false })
     expect(currentOf(tier)).toBe(tierId)
-    expect(canSetStructuredAgentSessionOption(state, 'serviceTier', tierId)).toBe(false)
-    expect(codexSpeedLines(tier, state.speed)[0]).toEqual({ kind: 'stored', label: row.label })
+    for (const row of rows) {
+      expect(canSetStructuredAgentSessionOption(state, 'serviceTier', row.value)).toBe(false)
+    }
+    expect(codexSpeedLines(tier, state.speed)[0]).toEqual({ kind: 'stored', label })
     expect(held.requested).toEqual({ id: 'serviceTier', value: tierId })
     expect(structuredAgentSessionOptionSnapshot(held)).toEqual(
       structuredAgentSessionOptionSnapshot(state)
     )
+  })
+
+  it.each<[string, AgentSessionSpeedFacts, CodexSpeedLine[]]>([
+    [
+      'a requested Ultrafast',
+      { selection: { tierId: ULTRA.value, state: 'unavailable' } },
+      [
+        { kind: 'stored', label: 'Fast' },
+        { kind: 'requested', label: 'Ultrafast', state: 'unavailable' },
+        { kind: 'processing' }
+      ]
+    ],
+    [
+      'a last-requested Ultrafast',
+      {
+        selection: READY_FAST.selection,
+        lastRequest: { clientMessageId: 'm1', tierId: ULTRA.value, state: 'accepted' }
+      },
+      [
+        { kind: 'stored', label: 'Fast' },
+        { kind: 'last-request', outcome: 'accepted', label: 'Ultrafast' },
+        { kind: 'processing' }
+      ]
+    ],
+    [
+      'a processing Ultrafast',
+      { selection: READY_FAST.selection, processing: { turnId: 't1', tierId: ULTRA.value } },
+      [
+        { kind: 'stored', label: 'Fast' },
+        { kind: 'processing', label: 'Ultrafast' }
+      ]
+    ],
+    [
+      'a refused Ultrafast beside a processing Fast',
+      REFUSED_ULTRA_FACTS,
+      [
+        { kind: 'stored', label: 'Fast' },
+        { kind: 'requested', label: 'Ultrafast', state: 'unavailable' },
+        { kind: 'last-request', outcome: 'rejected', label: 'Ultrafast', detail: 'refused' },
+        { kind: 'processing', label: 'Fast' }
+      ]
+    ]
+  ])('names %s by its advertised label while the stored tier is another', (_name, facts, lines) => {
+    const state = liveState({
+      current: { serviceTier: FAST.value },
+      host: 'unknown',
+      speed: READY_FAST
+    })
+    const tier = descriptorFor(state, 'serviceTier')
+
+    expect(choicesOf(tier)).toEqual(locked(STANDARD, FAST, ULTRA))
+    expect(tier).toMatchObject({ valueSource: 'reported', settable: false })
+    expect(currentOf(tier)).toBe(FAST.value)
+    for (const value of [STANDARD.value, FAST.value, ULTRA.value]) {
+      expect(canSetStructuredAgentSessionOption(state, 'serviceTier', value)).toBe(false)
+    }
+    expect(codexSpeedLines(tier, facts)).toEqual(lines)
   })
 
   it('labels a held advertised pick while keeping it dispatched and locked', () => {
@@ -471,9 +552,7 @@ describe('Codex speed select while the host capability is unresolved', () => {
     )
     const tier = descriptorFor(view, 'serviceTier')
 
-    expect(choicesOf(tier)).toEqual([
-      { value: ULTRA.value, label: 'Ultrafast', description: 'Fastest.', disabled: true }
-    ])
+    expect(choicesOf(tier)).toEqual(locked(STANDARD, FAST, ULTRA))
     expect(tier).toMatchObject({ valueSource: 'dispatched', settable: false })
     expect(codexSpeedLines(tier, view.speed)[0]).toEqual({ kind: 'pending', label: 'Ultrafast' })
     expect(canSetStructuredAgentSessionOption(view, 'serviceTier', ULTRA.value)).toBe(false)
@@ -668,7 +747,7 @@ describe('Claude and other providers with speed phases carried', () => {
       { model: HELD_MODEL_ID },
       { serviceTier: ULTRA.value }
     )
-    const phased = { ...view, capabilityPhase: 'pending', optionsPhase: 'failed' }
+    const phased = { ...view, capabilityPhase: 'pending', optionsPhase: 'failed' } as const
 
     expect(state.speed).toBeUndefined()
     expect(idsOf(phased)).not.toContain('serviceTier')

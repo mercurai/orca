@@ -99,8 +99,9 @@ export function codexServiceTierCatalogOption(
 }
 
 /** While host support is unresolved no tier is offered, but a saved or held canonical tier must
- *  stay visible under its advertised label. Every row here is disabled, so nothing can be picked;
- *  the snapshot shows only the retained row and drops the select when nothing canonical is tracked. */
+ *  stay visible under its advertised label. Every row here is disabled, so nothing can be picked
+ *  or read as available; the rows only keep each advertised id labelled. The snapshot drops the
+ *  select when nothing canonical is tracked. */
 export function codexUnresolvedSpeedOptions(
   model: Pick<AgentSessionModelOption, 'serviceTiers'>,
   host: CodexSpeedHostSupport | undefined
@@ -236,8 +237,9 @@ export function codexServiceTierSelection(args: {
   }
   const choices = [...args.choices]
   if (currentValue !== undefined && !choices.some((choice) => choice.value === currentValue)) {
-    // With no choice listed the protocol default still reads as Standard; any other id stays opaque.
-    const isStandard = args.choices.length === 0 && currentValue === codexStandardTierId(undefined)
+    // With nothing offered the unlisted protocol default still reads as Standard, however many
+    // disabled rows are listed; any other id stays opaque.
+    const isStandard = offered.length === 0 && currentValue === codexStandardTierId(undefined)
     choices.push({
       value: currentValue,
       label: isStandard ? 'Standard' : currentValue,

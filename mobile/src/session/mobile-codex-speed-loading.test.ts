@@ -112,6 +112,7 @@ function scriptedHost() {
   } = { options: null, catalog: null }
   const options: Held<AgentSessionOptionsResult>[] = []
   const catalogs: Held<AgentSessionModelCatalogResult>[] = []
+  const methods: string[] = []
 
   function read<T>(reply: T | null, queue: Held<T>[], params: unknown): Promise<T> {
     if (reply !== null) {
@@ -124,6 +125,7 @@ function scriptedHost() {
 
   const client: RpcClient = {
     sendRequest: async (method: string, params?: unknown) => {
+      methods.push(method)
       let result: unknown = {}
       if (method === 'agentSession.options') {
         result = await read(script.options, options, params)
@@ -141,7 +143,7 @@ function scriptedHost() {
     notifyForeground: () => {},
     close: () => {}
   }
-  return { client, script, options, catalogs }
+  return { client, script, options, catalogs, methods }
 }
 
 type ScriptedHost = ReturnType<typeof scriptedHost>
@@ -578,6 +580,110 @@ describe('a previous generation answering late', () => {
       await harness.unmount()
     }
   )
+})
+
+// An accepted speed write is followed by one read of the host's options. That read is a wait like
+// any other: loading while it runs, support-unverified if it fails, and neither changes what the
+// write acknowledged nor what the host said of earlier requests and turns.
+describe('the read after an accepted speed write', () => {
+  const ULTRA_READ: AgentSessionOptionsResult = {
+    ...ULTRA_SAVED,
+    speed: {
+      selection: { tierId: ULTRA.value, state: 'ready' },
+      lastRequest: { clientMessageId: 'm1', tierId: FAST.value, state: 'accepted' }
+    }
+  }
+  const ULTRA_READ_LINES: CodexSpeedLine[] = [
+    { kind: 'stored', label: 'Ultrafast' },
+    { kind: 'last-request', outcome: 'accepted', label: 'Fast' },
+    { kind: 'processing' }
+  ]
+  const ultraWrite = async (): Promise<WriteResult> => ({
+    status: 'accepted',
+    value: { key: 'serviceTier', value: ULTRA.value, options: { serviceTier: ULTRA.value } },
+    sameFence: true
+  })
+
+  const optionReads = (host: ScriptedHost) =>
+    host.methods.filter((method) => method === 'agentSession.options').length
+  const withoutWait = (lines: readonly CodexSpeedLine[]) =>
+    lines.filter((line) => line.kind !== 'loading' && line.kind !== 'support-unverified')
+
+  /** The acknowledged pick, the earlier request and the unknown processing tier: three lines the
+   *  wait never owns, whichever way it ends. */
+  function expectWriteEvidenceKept(lines: readonly CodexSpeedLine[]) {
+    const tier = lines.filter((line) => line.kind === 'pending' || line.kind === 'stored')
+    expect(tier).toHaveLength(1)
+    expect(tier[0]).toMatchObject({ label: 'Ultrafast' })
+    expect(lines).toContainEqual({ kind: 'last-request', outcome: 'accepted', label: 'Fast' })
+    // An accepted write is not a turn: no processing tier is named for it.
+    expect(lines.filter((line) => line.kind === 'processing')).toEqual([{ kind: 'processing' }])
+  }
+
+  /** Mounts on a settled host, then accepts an Ultrafast write while the next options read is held. */
+  async function writeWithHeldRead() {
+    const host = answered(FAST_SAVED)
+    const { calls, mutate } = recordingMutate(ultraWrite)
+    const harness = await mountSupported(host, { mutate })
+    expect(linesOf(harness.current())).toEqual(FAST_LINES)
+    const readsBefore = optionReads(host)
+
+    host.script.options = null
+    let outcome = false
+    await act(async () => {
+      outcome = await harness.current().setStructuredOption('serviceTier', ULTRA.value)
+    })
+    await settle()
+
+    expect(outcome).toBe(true)
+    expect(calls).toEqual([
+      { method: 'agentSession.setOption', fields: { key: 'serviceTier', value: ULTRA.value } }
+    ])
+    // The read the write asked for is out and held, and it is the only one.
+    expect(host.options).toHaveLength(1)
+    expect(host.options[0]!.params).toMatchObject({ sessionId: 'session-1' })
+    expect(optionReads(host)).toBe(readsBefore + 1)
+    const held = linesOf(harness.current())
+    expect(kindsOf(held)).toContain('loading')
+    expect(kindsOf(held)).not.toContain('support-unverified')
+    expectWriteEvidenceKept(held)
+    expect(tierValue(harness.current())).toBe(ULTRA.value)
+    return { host, harness, held, readsBefore }
+  }
+
+  it('ends the loading line when the read answers, with the write evidence unchanged', async () => {
+    const { host, harness, readsBefore } = await writeWithHeldRead()
+
+    await act(async () => host.options[0]!.resolve(ULTRA_READ))
+    await settle()
+
+    const settled = linesOf(harness.current())
+    expect(kindsOf(settled)).not.toContain('loading')
+    expect(kindsOf(settled)).not.toContain('support-unverified')
+    expect(settled).toEqual(ULTRA_READ_LINES)
+    expect(tierValue(harness.current())).toBe(ULTRA.value)
+    expect(optionReads(host)).toBe(readsBefore + 1)
+    expect(host.methods).not.toContain('agentSession.setOption')
+    await harness.unmount()
+  })
+
+  it('reports support-unverified, not loading, when the read fails, keeping the write evidence', async () => {
+    const { host, harness, held, readsBefore } = await writeWithHeldRead()
+
+    await act(async () => host.options[0]!.reject(new Error('options_read_failed')))
+    await settle()
+
+    const failed = linesOf(harness.current())
+    expect(kindsOf(failed)).toContain('support-unverified')
+    expect(kindsOf(failed)).not.toContain('loading')
+    expectWriteEvidenceKept(failed)
+    // Only the wait line differs: the failed read says nothing about the pick or the earlier facts.
+    expect(withoutWait(failed)).toEqual(withoutWait(held))
+    expect(tierValue(harness.current())).toBe(ULTRA.value)
+    expect(optionReads(host)).toBe(readsBefore + 1)
+    expect(host.methods).not.toContain('agentSession.setOption')
+    await harness.unmount()
+  })
 })
 
 // The session hook is the one parent that hands the options hook its host support: the phase it is

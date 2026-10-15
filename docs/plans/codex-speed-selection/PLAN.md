@@ -353,6 +353,9 @@ outside this wave. No worker may add an extraction without an exact ownership up
   `use-mobile-session-native-chat-dictation.ts`, `use-mobile-native-chat-controller.ts`,
   `use-mobile-native-chat-session-lane.ts`, `use-mobile-structured-agent-session.ts`,
   `use-mobile-structured-agent-options.ts`, `use-mobile-host-model-catalog-upgrade.ts`.
+  R also owns `use-mobile-structured-agent-option-write.ts` for its accepted-write options refresh.
+  Replace that direct read with a typed `onAcceptedOptionRefresh` callback into the existing
+  options-read owner, preserving its phase and generation fencing rather than adding another owner.
   If the options owner exceeds its cap, R may move its existing reported-record projection unchanged
   into `mobile/src/session/mobile-structured-agent-option-record.ts`; existing hook tests preserve behavior.
   Forward phase beside support through existing inferred model types. Reuse `onAttemptFailed`,
@@ -510,7 +513,16 @@ The [app-server documentation](https://learn.chatgpt.com/docs/app-server) suppli
 The community workaround was read as context only; no override or instructions were executed.
 This session has not freshly queried this account's live catalog and makes no entitlement or actual Ultrafast claim.
 
-Expanded red CI38666958746 at dcb2f6cdc6 passed 983 tests and failed 87 feature cases (core896/45, mobile87/42). Desktop and mobile production types passed; the new mobile loading test needs a type correction. The separate baseline passed32/failed2. Inspected format-only patch applied with all writers stopped. P/Q/R initial implementation is written against this red proof. Independent review accepted the fence guard and stable mobile lifecycle. P must preserve advertised labels on locked retained rows; Q must stop keeping settled phases during later pending/failed reads and route post-write reads through the existing owner. Actual Sonnet corrections and Q refresh regressions are active. The new mobile test type helper is narrowed; the controller needs a bounded one-line cap reduction without an unrelated extraction.
+Latest expanded CI38669038744 at `a7906a000f` passed 1,061 feature tests and failed 20:
+core 945 passed / 7 failed, mobile 116 passed / 13 failed. Mobile production and test types passed;
+all new mobile loading/probe cases passed. The separate pinned baseline passed 32 and failed two.
+Five desktop refresh regressions failed as intended. Two desktop and 13 mobile evidence cases
+need valid catalog fixtures and explicit phase assertions; a shared Claude fixture widens phase literals.
+Independent review accepted the fence guard and stable mobile lifecycle. Desktop refresh ownership, cross-tier evidence labels and the shared fixture type correction
+are written and independently accepted. Mobile catalog fixtures and phase-aware evidence assertions
+are reviewed. Dedicated mobile accepted-write refresh reds are being added before routing that
+refresh through its existing options-read owner.
+The inspected English-only artifact was applied with all writers stopped. Main HEAD stays `11d32212ca`.
 
 Next action: finish bounded P/Q/R production changes, inspect independent reviews and run expanded CI.
 Final exact-candidate review/CI, owner baseline correction/assembly and native rollout remain open.
