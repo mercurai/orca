@@ -17,6 +17,14 @@ on:
         description: Fetch and compare only; push nothing and dispatch nothing
         type: boolean
         default: false
+      allow_tag:
+        description: Mirror one upstream release tag the owner reviewed, as <tag>@<40-hex sha> (the sha the tag points at; see its "fork-sync tag" issue). Pushes only that tag, then rebases onto it. The schedule never sets it
+        type: string
+        default: ''
+      allow_guarded_merge_sha:
+        description: Full sha of the upstream commit whose range you reviewed (it touches .github/ or config/mercurai); merges only that commit. The schedule never sets it
+        type: string
+        default: ''
 
 # The default token only reads. Every write goes through FORK_BOT_TOKEN, which only the steps
 # that write receive (claude-code-config#1125, SEC-201): git gets it as a per-step extraheader,
@@ -38,6 +46,10 @@ env:
   # The schedule payload may carry no repository object, so the default branch is spelled out as the fallback.
   DEFAULT_BRANCH: ${{ github.event.repository.default_branch || 'mercurai' }}
   SYNC_ISSUE_LABEL: fork-sync
+  # The owner's pinned override: only an explicit dispatch can set it, the schedule has no inputs.
+  ALLOWED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_guarded_merge_sha || '' }}
+  # The owner's approval of one release tag, <tag>@<40-hex sha>: same rule, the schedule has no inputs.
+  ALLOW_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_tag || '' }}
 
 jobs:
   mirror:
@@ -73,36 +85,43 @@ jobs:
         id: fetch
         run: |
           set -euo pipefail
-          # join needs both lists sorted the way it compares.
-          export LC_ALL=C
           git config user.name 'mercurai-fork-bot'
           git config user.email 'fork-bot@users.noreply.github.com'
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git"
-          git ls-remote --tags origin | grep -v '\^{}$' | sed 's#\trefs/tags/# #' | sort -k2 > /tmp/origin-tags
           git fetch --no-tags upstream main
+          # The one commit this run guards, mirrors and merges; upstream/main can move meanwhile.
+          upstream_sha=$(bash config/mercurai/scripts/pin-upstream-sha.sh upstream/main)
+          if [ "$upstream_sha" != "$(git rev-parse upstream/main)" ]; then
+            echo "::notice::pinned to the commit the owner allowed ($upstream_sha); upstream/main is newer and waits for the next run"
+          fi
           # Upstream's tags land in a namespace of their own, so no tag this fork holds is touched.
           git fetch --no-tags --force upstream '+refs/tags/*:refs/upstream-tags/*'
-          # Release names only: never the fork's own tags, and never a name that shadows a branch.
-          git for-each-ref --format='%(objectname) %(refname:strip=2)' refs/upstream-tags \
-            | (grep -E ' v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || true) | sort -k2 > /tmp/upstream-tags
-          # New: upstream has the name and the fork does not. Moved: both have it, pointing apart.
-          join -1 2 -2 2 -v 1 /tmp/upstream-tags /tmp/origin-tags | awk '{print $1}' > /tmp/tags-new
-          join -1 2 -2 2 /tmp/upstream-tags /tmp/origin-tags | awk '$2 != $3 {print $1}' > /tmp/tags-moved
-          if [ -s /tmp/tags-moved ]; then
-            echo "::warning::upstream moved tags the fork already holds; they are not mirrored: $(tr '\n' ' ' < /tmp/tags-moved)"
-          fi
-          # Stable tags win over release candidates; one dispatch per run, the newest tag of the better kind.
-          stable=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
-          rc=$( (grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$' /tmp/tags-new || true) | sort -V | tail -1)
-          echo "new tags: $(tr '\n' ' ' < /tmp/tags-new)"
-          echo "rebase_tag=${stable:-$rc}" >> "$GITHUB_OUTPUT"
-          echo "upstream_sha=$(git rev-parse upstream/main)" >> "$GITHUB_OUTPUT"
+          # New release names (the fork's tags excluded) and the ones upstream moved: list-new-tags.sh.
+          bash config/mercurai/scripts/list-new-tags.sh
+          echo "upstream_sha=$upstream_sha" >> "$GITHUB_OUTPUT"
+          echo "fork_main=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          # These run after the merge-forward, which may have changed the tree, and hold the token: copy them now.
+          cp config/mercurai/scripts/tag-issues.sh config/mercurai/scripts/list-skipped-tags.sh config/mercurai/scripts/render-tag-review.sh \
+            config/mercurai/scripts/report-sync-issue.sh config/mercurai/scripts/mirror-allowed-tag.sh /tmp/
           echo "main is $(git rev-list --left-right --count origin/main...upstream/main | awk '{print $1" ahead / "$2" behind"}') upstream/main"
 
-      - name: Mirror main (fast-forward only)
-        if: ${{ steps.mode.outputs.push == 'true' }}
-        # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
+      - name: Guard every push and the merge-forward
+        id: guard
+        # Git only, no token, and before anything is pushed: a pushed workflow file is active at once and runs
+        # with the repository secrets, so a range that touches .github/ or config/mercurai/ waits for the owner.
+        # The ranges are what the main mirror would publish (origin/main..) and what the merge-forward would
+        # bring in (merge base with this branch..), both up to the one pinned commit (claude-code-config#1148).
         env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+        run: bash config/mercurai/scripts/guard-step.sh
+
+      - name: Mirror main (fast-forward only)
+        id: mainmirror
+        # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
+        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
+        env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
@@ -110,12 +129,15 @@ jobs:
           echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          git push origin refs/remotes/upstream/main:refs/heads/main
+          bash config/mercurai/scripts/sync-push.sh main
 
       - name: Mirror new tags
-        if: ${{ steps.mode.outputs.push == 'true' }}
-        # New names only, never forced: an existing tag is not rewritten, whatever upstream did.
+        id: tags
+        # New names only, never forced, and only tags whose commit is in the pinned commit.
+        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
         env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
@@ -123,26 +145,30 @@ jobs:
           echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          refspecs=()
-          while read -r tag; do refspecs+=("refs/upstream-tags/$tag:refs/tags/$tag"); done < /tmp/tags-new
-          if [ "${#refspecs[@]}" -gt 0 ]; then git push origin "${refspecs[@]}"; fi
+          # The script writes the step output `rebase_tag` (a release name it matched, so no workflow command).
+          bash config/mercurai/scripts/sync-push.sh tags
 
       - name: Hand the newest release tag to fork-rebase-patches
+        id: dispatch
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
-        if: ${{ steps.mode.outputs.push == 'true' && steps.fetch.outputs.rebase_tag != '' }}
+        # Only a tag that was mirrored this run. The outputs name what was dispatched, written only once it was.
+        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && steps.tags.outputs.rebase_tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
-          echo "dispatching rebase onto ${{ steps.fetch.outputs.rebase_tag }}"
-          tag="${{ steps.fetch.outputs.rebase_tag }}"
+          echo "dispatching rebase onto ${{ steps.tags.outputs.rebase_tag }}"
+          tag="${{ steps.tags.outputs.rebase_tag }}"
           # Hand over the commit this run saw: a tag upstream re-cuts in between fails the rebase instead of moving it.
           tag_sha=$(git rev-parse --verify "refs/upstream-tags/$tag^{commit}")
           gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$tag_sha"
+          { echo "dispatched_tag=$tag"; echo "dispatched_sha=$tag_sha"; } >> "$GITHUB_OUTPUT"
 
       - name: Mirror upstream branches under upstream/*
-        if: ${{ steps.mode.outputs.push == 'true' && inputs.mirror_branches == true }}
+        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && inputs.mirror_branches == true }}
         env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
@@ -151,23 +177,31 @@ jobs:
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           git fetch --no-tags upstream '+refs/heads/*:refs/remotes/upstream/*'
-          git push origin 'refs/remotes/upstream/*:refs/heads/upstream/*'
+          bash config/mercurai/scripts/sync-push.sh branches
 
       - name: Merge main forward into the fork branch
         id: merge
+        # Skipped when the guard refused; the issue step below then fails the run.
+        if: ${{ steps.guard.outputs.refused == 'false' }}
         env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          GUARD_ALLOWED: ${{ steps.guard.outputs.allowed }}
           # Empty on a report-only run, which pushes nothing.
           GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
         run: |
           set -euo pipefail
           git checkout -q "$FORK_BRANCH"
-          echo "conflict=false" >> "$GITHUB_OUTPUT"
+          # Run from copies: after a merge the tree may hold upstream's version of these scripts.
+          cp config/mercurai/scripts/merge-forward.sh config/mercurai/scripts/merge-result-guard.sh /tmp/
+          # The script writes the step outputs `conflict` and `guarded` (false first) and exits 10 / 11 for them.
           try_merge() {
-            if git merge --no-edit upstream/main; then return 0; fi
-            git diff --name-only --diff-filter=U | head -50 > /tmp/conflicts
-            git merge --abort
-            echo "conflict=true" >> "$GITHUB_OUTPUT"
-            return 1
+            local rc=0
+            bash /tmp/merge-forward.sh || rc=$?
+            case "$rc" in
+              0) return 0 ;;
+              10 | 11) return 1 ;;
+              *) exit "$rc" ;;
+            esac
           }
           if [ "${{ steps.mode.outputs.push }}" != "true" ]; then
             try_merge && echo "merge is clean; not pushed (report-only run)"
@@ -188,22 +222,71 @@ jobs:
             sleep 15
           done
 
+      - name: Report a guarded upstream range as an issue
+        if: ${{ steps.guard.outputs.refused == 'true' || steps.merge.outputs.guarded == 'true' }}
+        env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          # The text differs by which output fired: a refused range pushed nothing; a reset merge came after the
+          # mirrors had already pushed main, tags and branches.
+          STAGE: ${{ steps.guard.outputs.refused == 'true' && 'guard' || 'merge' }}
+          # Anything but true prints the text instead of filing it (a report-only run).
+          PUSH: ${{ steps.mode.outputs.push }}
+          GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
+        run: bash /tmp/report-sync-issue.sh "$STAGE"
+
       - name: Report a merge conflict as an issue
         if: ${{ steps.merge.outputs.conflict == 'true' }}
         env:
-          # Empty on a report-only run, which prints the body instead of filing it.
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          PUSH: ${{ steps.mode.outputs.push }}
           GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}
+        run: bash /tmp/report-sync-issue.sh conflict
+
+      # The owner-allowed tag comes last, so a failure in it cannot skip the pushes, the merge or the issues above
+      # (the approved tag is handed on here unless the automatic step already dispatched it at that commit), and before the tag issues, which leave out
+      # the tag the owner just allowed. Deliberately not gated on the main-range guard: the owner approved this one
+      # tag at this one commit after reading its diff in the tag's issue, so it is an independent push of that tag
+      # and nothing else. A refused main range still pushes nothing else, and this does not release it.
+      - name: Mirror the owner-allowed tag
+        id: allowtag
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && env.ALLOW_TAG != '' }}
+        env:
+          # Set only when the automatic hand-off dispatched; the script leaves the hand-off to it for that exact tag@sha.
+          DISPATCHED_TAG: ${{ steps.dispatch.outputs.dispatched_tag }}
+          DISPATCHED_SHA: ${{ steps.dispatch.outputs.dispatched_sha }}
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
-          title="fork-sync: ${FORK_BRANCH} does not merge with upstream main ${{ steps.fetch.outputs.upstream_sha }}"
-          body=$(printf 'Merging upstream/main (%s) into `%s` conflicts in:\n\n```\n%s\n```\n\nResolve on a branch from `%s`, open a PR, and the next hourly run continues.\n' \
-            "${{ steps.fetch.outputs.upstream_sha }}" "$FORK_BRANCH" "$(cat /tmp/conflicts)" "$FORK_BRANCH")
-          if [ "${{ steps.mode.outputs.push }}" != "true" ]; then echo "$body"; exit 1; fi
-          existing=$(gh issue list --label "$SYNC_ISSUE_LABEL" --state open --search "in:title fork-sync:" --json number --jq '.[0].number')
-          if [ -n "$existing" ]; then
-            gh issue comment "$existing" --body "$body"
-          else
-            gh label create "$SYNC_ISSUE_LABEL" --color d93f0b --description 'fork sync needs a human' 2>/dev/null || true
-            gh issue create --label "$SYNC_ISSUE_LABEL" --title "$title" --body "$body"
-          fi
-          exit 1
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          # The script writes the step outputs `tag` and `sha` itself (also on a retry that finds the tag on origin).
+          bash /tmp/mirror-allowed-tag.sh
+
+      - name: Hand the owner-allowed tag to fork-rebase-patches
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.allowtag.outputs.tag != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.allowtag.outputs.tag }}"
+          sha="${{ steps.allowtag.outputs.sha }}"
+          echo "dispatching rebase onto $tag at $sha"
+          # The commit the owner approved: a tag upstream re-cuts in between fails the rebase instead of moving it.
+          gh workflow run fork-rebase-patches.yml --ref "$FORK_BRANCH" -f "tag=$tag" -f "tag_sha=$sha"
+
+      - name: Open review issues for skipped release tags
+        # Last, and run whatever failed before it (not when cancelled): upstream decides how many tags there are, so
+        # this step must never be able to skip the pushes or the merge-forward. It caps what it opens per run, pages
+        # through every issue (closed ones included) and trusts only the bot's own words (tag-issues.sh).
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}
+        env:
+          UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
+          FORK_MAIN: ${{ steps.fetch.outputs.fork_main }}
+          GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
+          # The pin is the trusted tree only if the main mirror pushed it; otherwise origin/main as found.
+          MAIN_MIRRORED: ${{ steps.mainmirror.outcome }}
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+        # From the copies made before the merge: the merged tree may hold upstream's version of these scripts.
+        run: bash /tmp/tag-issues.sh

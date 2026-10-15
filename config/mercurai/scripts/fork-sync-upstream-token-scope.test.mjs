@@ -27,15 +27,26 @@ const WRITE_STEPS = [
   'Hand the newest release tag to fork-rebase-patches',
   'Mirror upstream branches under upstream/*',
   'Merge main forward into the fork branch',
-  'Report a merge conflict as an issue'
+  'Report a guarded upstream range as an issue',
+  'Report a merge conflict as an issue',
+  'Mirror the owner-allowed tag',
+  'Hand the owner-allowed tag to fork-rebase-patches',
+  'Open review issues for skipped release tags'
 ]
 const GIT_WRITERS = [
   'Mirror main (fast-forward only)',
   'Mirror new tags',
+  'Mirror the owner-allowed tag',
   'Mirror upstream branches under upstream/*',
   'Merge main forward into the fork branch'
 ]
-const GH_WRITERS = ['Hand the newest release tag to fork-rebase-patches', 'Report a merge conflict as an issue']
+const GH_WRITERS = [
+  'Hand the owner-allowed tag to fork-rebase-patches',
+  'Hand the newest release tag to fork-rebase-patches',
+  'Open review issues for skipped release tags',
+  'Report a guarded upstream range as an issue',
+  'Report a merge conflict as an issue'
+]
 const TOKEN_ENV = [
   'GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}',
   "GH_TOKEN: ${{ steps.mode.outputs.push == 'true' && secrets.FORK_BOT_TOKEN || '' }}"
@@ -95,7 +106,11 @@ test('every step that pushes sets the extraheader, and gh gets GH_TOKEN, only in
 })
 
 test('a report-only run gives the merge and issue steps no token', () => {
-  for (const name of ['Merge main forward into the fork branch', 'Report a merge conflict as an issue']) {
+  for (const name of [
+    'Merge main forward into the fork branch',
+    'Report a guarded upstream range as an issue',
+    'Report a merge conflict as an issue'
+  ]) {
     assert.ok(steps.find((step) => stepName(step) === name).includes(TOKEN_ENV[1]), name)
   }
   const merge = steps.find((step) => stepName(step) === 'Merge main forward into the fork branch')

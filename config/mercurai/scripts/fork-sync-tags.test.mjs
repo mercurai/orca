@@ -16,8 +16,15 @@ const code = sync
   .filter((line) => !/^\s*#/.test(line))
   .join('\n')
 
+// Which tags are new, moved or skipped is asserted on what list-new-tags.sh and sync-push.sh produce, in the harness.
+const scripts = ['sync-push.sh', 'mirror-allowed-tag.sh']
+  .map((name) => readFileSync(resolve(import.meta.dirname, name), 'utf8').replaceAll('\r\n', '\n'))
+  .join('\n')
+
 test('no push is forced and no push sends every tag', () => {
-  for (const line of code.split('\n').filter((l) => /\bgit push\b/.test(l))) {
+  const lines = [...code.split('\n'), ...scripts.split('\n')].filter((l) => /\bgit push\b/.test(l))
+  assert.ok(lines.length >= 5)
+  for (const line of lines) {
     assert.doesNotMatch(line, /--force|\s-f\b|--tags|--mirror|\s\+/, `forced or bulk push: ${line.trim()}`)
   }
 })
@@ -28,14 +35,4 @@ test("upstream's tags are fetched into their own namespace, never over the fork'
     assert.doesNotMatch(line, /--tags\b|refs\/tags\/\*:refs\/tags\//, `fetch over the fork's tags: ${line.trim()}`)
   }
   assert.ok(fetches.some((l) => l.includes("'+refs/tags/*:refs/upstream-tags/*'")))
-})
-
-test('only new upstream release names are pushed: no fork tag, no name that shadows a branch', () => {
-  assert.ok(
-    code.includes(
-      "| (grep -E ' v[0-9]+\\.[0-9]+\\.[0-9]+(-rc\\.[0-9]+)?$' || true) | sort -k2 > /tmp/upstream-tags"
-    )
-  )
-  assert.match(code, /join -1 2 -2 2 -v 1 \/tmp\/upstream-tags \/tmp\/origin-tags/)
-  assert.match(code, /refspecs\+=\("refs\/upstream-tags\/\$tag:refs\/tags\/\$tag"\); done < \/tmp\/tags-new/)
 })
