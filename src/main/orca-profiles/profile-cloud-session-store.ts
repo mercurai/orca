@@ -130,7 +130,8 @@ const retriesInFlight = new Set<string>()
 async function persistOrcaCloudSession(
   profileId: string,
   userDataPath: string,
-  session: OrcaCloudSession
+  session: OrcaCloudSession,
+  shouldPublish?: () => boolean
 ): Promise<Exclude<OrcaCloudSessionPersistence, 'none'>> {
   if (safeStorage.isEncryptionAvailable()) {
     const encrypted: PersistedEncryptedSession = {
@@ -139,7 +140,9 @@ async function persistOrcaCloudSession(
       savedAt: Date.now(),
       ciphertext: safeStorage.encryptString(JSON.stringify(session)).toString('base64')
     }
-    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), encrypted)
+    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), encrypted, {
+      shouldPublish
+    })
     return 'encrypted'
   }
 
@@ -150,7 +153,9 @@ async function persistOrcaCloudSession(
       savedAt: Date.now(),
       session
     }
-    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), plaintext)
+    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), plaintext, {
+      shouldPublish
+    })
     return 'dev-plaintext'
   }
 
@@ -182,6 +187,9 @@ export async function saveOrcaCloudSession(
     unsavedRotations.delete(key)
     return persistence
   } catch (error) {
+    if (pathDiscardEpoch(path) !== discardEpoch) {
+      throw new SecureWriteDiscardedError(path)
+    }
     // A failed non-rotating write throws as before and leaves any unsaved rotation pending.
     if (!options.spentOnFailure || error instanceof SecureWriteDiscardedError) {
       throw error
@@ -206,7 +214,12 @@ function retryUnsavedRotation(key: string): void {
   retriesInFlight.add(key)
   const path = getOrcaCloudSessionPath(unsaved.profileId, unsaved.userDataPath)
   const discardEpoch = pathDiscardEpoch(path)
-  persistOrcaCloudSession(unsaved.profileId, unsaved.userDataPath, unsaved.session)
+  persistOrcaCloudSession(
+    unsaved.profileId,
+    unsaved.userDataPath,
+    unsaved.session,
+    () => unsavedRotations.get(key) === unsaved && pathDiscardEpoch(path) === discardEpoch
+  )
     .then((persistence) => {
       // Only the rotation still pending may land; a sign-out or newer save already replaced it.
       if (unsavedRotations.get(key) === unsaved && pathDiscardEpoch(path) === discardEpoch) {

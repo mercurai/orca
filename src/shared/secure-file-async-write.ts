@@ -20,9 +20,10 @@ type RestrictionOutcome = 'applied' | 'failed'
 /** Async lane. Use this from anything an IPC handler can await; see `writeSecureFileAsync`. */
 export async function writeSecureJsonFileAsync(
   targetPath: string,
-  value: unknown
+  value: unknown,
+  options: { shouldPublish?: () => boolean } = {}
 ): Promise<boolean> {
-  return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2))
+  return await writeSecureFileAsync(targetPath, JSON.stringify(value, null, 2), options)
 }
 
 /** Async lane for the stores that fsync before they report a write as committed. */

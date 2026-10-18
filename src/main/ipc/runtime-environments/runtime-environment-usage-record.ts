@@ -13,7 +13,7 @@ import { markEnvironmentUsedDetached } from '../../../shared/runtime-environment
 export function recordRuntimeEnvironmentUsage(
   userDataPath: string,
   selector: string,
-  args: Parameters<typeof markEnvironmentUsed>[2] = {}
+  args: Parameters<typeof markEnvironmentUsedDetached>[2] = {}
 ): void {
   try {
     markEnvironmentUsedDetached(userDataPath, selector, args)

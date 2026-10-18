@@ -12,9 +12,12 @@ it('keeps ownership fences when the secure-write drain times out', async () => {
   const events: string[] = []
   const write = serializePathWrite('orcad-host-cleanup-timeout', () => gate.promise)
   try {
-    const rejected = expect(runOrcadHostCleanup(steps(events))).rejects.toThrow()
+    const outcome = runOrcadHostCleanup(steps(events)).then(
+      () => null,
+      (error: unknown) => error
+    )
     await vi.advanceTimersByTimeAsync(PATH_WRITE_QUIT_DEADLINE_MS)
-    await rejected
+    expect(await outcome).toBeInstanceOf(Error)
     expect(events).not.toContain('admission-released')
     expect(events).not.toContain('lock-released')
   } finally {

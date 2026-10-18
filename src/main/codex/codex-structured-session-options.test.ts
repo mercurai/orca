@@ -399,39 +399,19 @@ describe('structured Codex session options', () => {
     )
   })
 
-  it('drops a restored tier to Standard when the selected model no longer lists it', async () => {
-    const requests: { method: string; params?: Record<string, unknown> }[] = []
+  it('retains a restored tier when the selected model no longer lists it', async () => {
     const session = optionSession(
-      vi.fn(async (method: string, params?: Record<string, unknown>) => {
-        requests.push({ method, params })
-        return method === 'model/list'
-          ? {
-              data: [
-                {
-                  model: 'gpt-live',
-                  supportedReasoningEfforts: [],
-                  serviceTiers: []
-                }
-              ],
-              nextCursor: null
-            }
-          : { turn: { id: 'turn-standard' } }
-      })
+      vi.fn(async () => ({
+        data: [{ model: 'gpt-live', supportedReasoningEfforts: [], serviceTiers: [] }],
+        nextCursor: null
+      }))
     )
     session.options.set('serviceTier', 'priority')
 
     await expect(readLiveCodexSessionOptions(session, undefined)).resolves.toMatchObject({
-      current: { serviceTier: 'default', fastMode: false }
+      current: { serviceTier: 'priority' }
     })
-    expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'default' })
-
-    await startCodexTurn(session, {
-      clientMessageId: 'message-standard',
-      body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'standard' }] }
-    })
-    expect(requests.find((entry) => entry.method === 'turn/start')?.params).toMatchObject({
-      serviceTier: 'default'
-    })
+    expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'priority' })
   })
 
   it('sends a restored tier before any listing names it', async () => {
@@ -615,7 +595,7 @@ describe('Codex service tiers', () => {
     })
   })
 
-  it('refuses a tier the model does not list and drops to Standard on a switch to one', async () => {
+  it('refuses a new unlisted tier and retains an explicit selection on a model switch', async () => {
     const session = optionSession(vi.fn(async () => tierListing))
     session.reportedOptions = { model: 'gpt-6-luna' }
     await primePicker(session)
@@ -627,7 +607,7 @@ describe('Codex service tiers', () => {
     await applyCodexStructuredSessionOption(session, 'serviceTier', 'ultrafast')
     await expect(
       applyCodexStructuredSessionOption(session, 'model', 'gpt-6-luna')
-    ).resolves.toMatchObject({ model: 'gpt-6-luna', serviceTier: 'default' })
+    ).resolves.toMatchObject({ model: 'gpt-6-luna', serviceTier: 'ultrafast' })
   })
 })
 
@@ -698,7 +678,7 @@ describe('Codex reported tier', () => {
     ['untouched', []],
     ['re-picked', ['priority', 'ultrafast']]
   ])(
-    'resets a %s reported tier another model lists on a switch to a model without it',
+    'preserves a %s reported tier without inserting a Standard override on model switch',
     async (_case, picks) => {
       const session = optionSession(vi.fn(async () => listing))
       session.reportedOptions = {
@@ -713,7 +693,10 @@ describe('Codex reported tier', () => {
 
       await expect(
         applyCodexStructuredSessionOption(session, 'model', 'gpt-6-luna')
-      ).resolves.toEqual({ model: 'gpt-6-luna', serviceTier: 'default' })
+      ).resolves.toEqual({
+        model: 'gpt-6-luna',
+        ...(picks.length ? { serviceTier: 'ultrafast' } : {})
+      })
       await expect(
         applyCodexStructuredSessionOption(session, 'serviceTier', 'ultrafast')
       ).rejects.toThrow('does not offer the ultrafast tier')

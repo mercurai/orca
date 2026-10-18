@@ -194,7 +194,7 @@ export async function runOrcadHostCleanup(steps: {
   // Why after the quit handlers (push, relay): secure-file writes are async now, and the synchronous
   // ones always finished before exit. Wait for every one still queued (bounded, inside
   // ORCAD_SHUTDOWN_DEADLINE_MS) while the lock still fences a second orcad out.
-  host.add(() => drainPathWritesForQuit())
+  host.add(() => drainPathWritesForQuit(undefined, { throwOnTimeout: true }))
   host.add(() => steps.runQuitHandlers())
   host.add(() => steps.clearBrowserCommands())
   host.add(() => steps.stopBrowserProvider())

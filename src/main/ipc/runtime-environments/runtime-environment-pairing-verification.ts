@@ -149,9 +149,9 @@ export async function verifyAndRepairRuntimeEnvironmentFromPairingCode(
       message: 'This pairing link is for a different server.'
     }
   }
-  let environment: ReturnType<typeof updateEnvironmentFromPairingCode>
+  let environment: Awaited<ReturnType<typeof updateEnvironmentFromPairingCode>>
   try {
-    environment = updateEnvironmentFromPairingCode(userDataPath, existing.id, {
+    environment = await updateEnvironmentFromPairingCode(userDataPath, existing.id, {
       pairingCode: args.pairingCode,
       // Why: the key match proves the same server; a restarted one may report a new runtimeId.
       runtimeId: verified.runtimeStatus.runtimeId

@@ -5,9 +5,10 @@ import { settleWithinMs } from '../quit-teardown-deadline'
 // it has to fit well inside the shared 20s will-quit deadline.
 export const PATH_WRITE_QUIT_DEADLINE_MS = 5_000
 
-/** Waits for queued secure-file writes before quit; a hung write is logged and abandoned, never awaited. */
+/** Bounds shutdown writes; daemon hosts reject timeouts to retain their ownership fences. */
 export async function drainPathWritesForQuit(
-  timeoutMs: number = PATH_WRITE_QUIT_DEADLINE_MS
+  timeoutMs: number = PATH_WRITE_QUIT_DEADLINE_MS,
+  options: { throwOnTimeout?: boolean } = {}
 ): Promise<void> {
   const settled = await settleWithinMs(drainPendingPathWrites(), timeoutMs)
   if (settled.outcome === 'timed-out') {
@@ -15,5 +16,8 @@ export async function drainPathWritesForQuit(
     console.warn('[shutdown] Secure file writes still pending at quit', {
       paths: pendingPathWritePaths()
     })
+    if (options.throwOnTimeout) {
+      throw new Error('Secure file writes did not drain before shutdown')
+    }
   }
 }
