@@ -2,22 +2,30 @@
 # run the patches' tests, and tag it `v<upstream>-mercurai.N`. The branch and tag are what the
 # build/publish job (fork-release-win-build, which this workflow dispatches after tagging) consumes. The series must
 # already be rebased onto the tag (fork-rebase-patches does that and records it per patch).
+# With upstream_main_sha the branch is a frozen commit of official stablyai/orca main instead: the
+# tag is then the version floor and the name, and the manifest pins every active patch by commit.
 # Dispatched from a non-default branch, or with dry_run, it pushes nothing. Lives in the fork only.
 #
 # FORK_BOT_TOKEN can push this repo's workflows and publish to the channel the owner's app updates
 # from, so it never shares a job with the code under test (claude-code-config#1125, SEC-201). The
 # test job assembles and tests with no secret and no cache. The push job runs no repository code:
-# it assembles the branch again with git alone, pushes only if its tree is the one tested, and
-# hands the token to its push and dispatch steps only.
+# it assembles the branch again with git alone, pushes only if its tree and its base and patch
+# commits are the ones tested, and hands the token to its push and dispatch steps only. Both jobs
+# check out the dispatched commit, so a branch that moves mid-run cannot give them different inputs.
 name: fork-assemble-release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Upstream release tag to assemble on (for example v1.4.222)
+        description: Upstream release tag to assemble on (for example v1.4.222); with upstream_main_sha, the version floor and release name
         type: string
         required: true
+      upstream_main_sha:
+        description: Frozen stablyai/orca main commit to assemble on, lowercase 40-hex (empty assembles on the tag)
+        type: string
+        required: false
+        default: ''
       dry_run:
         description: Assemble and test, but push nothing
         type: boolean
@@ -39,6 +47,8 @@ env:
   # The runner checkout has an upstream remote; gh prefers it when inferring the repo.
   GH_REPO: ${{ github.repository }}
   TAG: ${{ inputs.tag }}
+  # Empty assembles on the tag. The script refuses anything but a full sha that official main holds.
+  UPSTREAM_MAIN_SHA: ${{ inputs.upstream_main_sha }}
 
 jobs:
   test:
@@ -47,10 +57,12 @@ jobs:
       release_branch: ${{ steps.assemble.outputs.release_branch }}
       release_tag: ${{ steps.assemble.outputs.release_tag }}
       tree: ${{ steps.assemble.outputs.tree }}
+      upstream_main_sha: ${{ steps.assemble.outputs.upstream_main_sha }}
+      series: ${{ steps.assemble.outputs.series }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
@@ -117,12 +129,12 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       # Assembled again here, from git alone: the test job ran the code under test, so its result
-      # is compared, never pushed.
+      # is compared, never pushed. The same dispatched commit gives it the same manifest and inputs.
       - name: Assemble the release branch again
         id: assemble
         env:
@@ -141,11 +153,28 @@ jobs:
           fi
           echo "tested tree $tree; release tag $TESTED_TAG"
 
+      # The tree alone could match with other commits underneath: the base and the patch commits
+      # this job assembled must be the ones the tests ran on.
+      - name: Match the tested base and patch commits
+        env:
+          TESTED_MAIN_SHA: ${{ needs.test.outputs.upstream_main_sha }}
+          TESTED_SERIES: ${{ needs.test.outputs.series }}
+          ASSEMBLED_MAIN_SHA: ${{ steps.assemble.outputs.upstream_main_sha }}
+          ASSEMBLED_SERIES: ${{ steps.assemble.outputs.series }}
+        run: |
+          set -euo pipefail
+          if [ "$ASSEMBLED_MAIN_SHA" != "$TESTED_MAIN_SHA" ] || [ "$ASSEMBLED_SERIES" != "$TESTED_SERIES" ]; then
+            echo "::error::assembled base ${ASSEMBLED_MAIN_SHA:-none} with patches ${ASSEMBLED_SERIES:-none}, but the tests ran on ${TESTED_MAIN_SHA:-none} with ${TESTED_SERIES:-none}. Dispatch again."
+            exit 1
+          fi
+
       - name: Push the release branch and tag
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           RELEASE_BRANCH: ${{ steps.assemble.outputs.release_branch }}
           RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
+          MAIN_SHA: ${{ steps.assemble.outputs.upstream_main_sha }}
+          SERIES: ${{ steps.assemble.outputs.series }}
         run: |
           set -euo pipefail
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
@@ -154,7 +183,7 @@ jobs:
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           # The release branch is assembled, never hand-edited, so replacing it is the contract.
           git push --force-with-lease origin "HEAD:refs/heads/$RELEASE_BRANCH"
-          git tag -a "$RELEASE_TAG" -m "mercurai release on $TAG: $(tr '\n' ' ' < /tmp/active)"
+          git tag -a "$RELEASE_TAG" -m "mercurai release on $TAG${MAIN_SHA:+ at upstream main $MAIN_SHA}: $(tr '\n' ' ' < /tmp/active)${SERIES:+pinned $SERIES}"
           git push origin "refs/tags/$RELEASE_TAG"
           echo "tagged $RELEASE_TAG on $RELEASE_BRANCH"
 

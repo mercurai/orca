@@ -305,6 +305,50 @@ test('a second assembly of the same tuple is identical after upstream and the fo
   assert.equal(second.outputs.release_tag, first.outputs.release_tag)
 })
 
+test('main mode outputs the frozen base and the ordered pins; tag mode outputs neither', () => {
+  const fx = createFixture()
+  const patches = seriesOn(fx, fx.frozen)
+  writeManifest(fx, { base: fx.frozen, patches })
+
+  const run = assemble(fx, { mainSha: fx.frozen })
+
+  assert.equal(run.status, 0, run.log)
+  assert.equal(run.outputs.upstream_main_sha, fx.frozen)
+  assert.equal(run.outputs.series, patches.map((patch) => `${patch.branch}:${patch.commit}`).join(','))
+
+  const tagFx = createFixture()
+  addPatch(tagFx, 'gamma', tagFx.tagSha)
+  writeManifest(tagFx, { base: TAG, patches: [{ branch: 'patch/gamma', base: TAG }] })
+  const tagRun = assemble(tagFx)
+  assert.equal(tagRun.status, 0, tagRun.log)
+  assert.equal(tagRun.outputs.upstream_main_sha, undefined)
+  assert.equal(tagRun.outputs.series, undefined)
+})
+
+test('main mode skips a patch pinned at the frozen commit with a warning and still reports its pin', () => {
+  const fx = createFixture()
+  const patches = seriesOn(fx, fx.frozen)
+  git(fx, fx.seed, 'push', '-q', '-f', fx.origin, `${fx.frozen}:refs/heads/patch/zero`)
+  const zero = { branch: 'patch/zero', status: 'ours-only', base: fx.frozen, commit: fx.frozen }
+  writeManifest(fx, { base: fx.frozen, patches: [zero, ...patches] })
+
+  const run = assemble(fx, { mainSha: fx.frozen })
+
+  assert.equal(run.status, 0, run.log)
+  assert.ok(run.log.includes('::warning::patch/zero has no commits beyond'), run.log)
+  assert.equal(subjects(fx, `${fx.frozen}..HEAD`), 'patch beta\npatch alpha')
+  assert.ok(run.outputs.series.startsWith(`patch/zero:${fx.frozen},`), run.outputs.series)
+})
+
+test('the workflow takes the frozen sha as an input and both jobs check out the dispatched commit', () => {
+  const file = resolve(import.meta.dirname, '..', '..', '..', '.github', 'workflows', 'fork-assemble-release.yml')
+  const workflow = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
+  assert.match(workflow, /^ {6}upstream_main_sha:\n/m)
+  assert.match(workflow, /^ {2}UPSTREAM_MAIN_SHA: \$\{\{ inputs\.upstream_main_sha \}\}$/m)
+  assert.deepEqual(workflow.match(/^ {10}ref: .*$/gm), Array(2).fill('          ref: ${{ github.sha }}'))
+  assert.doesNotMatch(workflow, /^\s+ref: \$\{\{ github\.ref_name \}\}/m)
+})
+
 const MALFORMED = [
   ['an uppercase sha', (fx) => fx.frozen.toUpperCase()],
   ['an abbreviated sha', (fx) => fx.frozen.slice(0, 12)],
@@ -407,6 +451,26 @@ for (const [label, malformed] of [
     assertMainRefused(fx, fx.frozen, ['patch/alpha'])
   })
 }
+
+test('a deleted patch branch cannot be satisfied by a cached remote-tracking ref', () => {
+  const fx = createFixture()
+  const patches = seriesOn(fx, fx.frozen)
+  writeManifest(fx, { base: fx.frozen, patches })
+  git(fx, fx.work, 'fetch', 'origin', '+refs/heads/patch/*:refs/remotes/origin/patch/*')
+  git(fx, fx.seed, 'push', '-q', fx.origin, '--delete', 'patch/alpha')
+  assert.equal(git(fx, fx.work, 'rev-parse', 'refs/remotes/origin/patch/alpha'), patches[1].commit)
+  assertMainRefused(fx, fx.frozen, ['patch/alpha'])
+})
+
+test('an annotated-tag object pointing to an official-main commit is not a commit SHA', () => {
+  const fx = createFixture()
+  git(fx, fx.seed, 'tag', '-a', 'snapshot-object', fx.frozen, '-m', 'snapshot fixture')
+  const tagObject = git(fx, fx.seed, 'rev-parse', 'refs/tags/snapshot-object')
+  git(fx, fx.seed, 'push', '-q', fx.origin, 'refs/tags/snapshot-object')
+  const patches = seriesOn(fx, fx.frozen).map((patch) => ({ ...patch, base: tagObject }))
+  writeManifest(fx, { base: tagObject, patches })
+  assertMainRefused(fx, tagObject, [SHA_VAR])
+})
 
 test('an active patch whose branch the fork does not have is refused by name', () => {
   const fx = createFixture()
