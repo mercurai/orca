@@ -486,7 +486,7 @@ second held prompt`)
       reloadedStorage.setNativeChatComposerDraftStorageForTests(storage)
       const reloadedStore = await import('@/components/native-chat/native-chat-composer-draft-store')
       const reloadedCache = await import('@/components/native-chat/native-chat-draft-cache')
-      const reloadedRecovery = await import('./structured-agent-session-launch-prompt-recovery')
+      const reloadedPrompt = await import('./structured-agent-session-launch-prompt')
       try {
         await reloadedStore.hydrateNativeChatComposerDrafts()
         const scope = structuredAgentSessionDraftScopeKey(SESSION)
@@ -495,9 +495,11 @@ second held prompt`)
         reloadedStore.flushNativeChatComposerDrafts()
         await reloadedStore.nativeChatComposerDraftWritesSettled()
 
-        expect(await reloadedRecovery.recoverStructuredLaunchPromptDrafts(
-          SESSION, staleSource?.heldPromptDrafts ?? []
-        )).toBe(true)
+        const implementation = 'recoverStructuredLaunchPromptDrafts' in reloadedPrompt
+          ? reloadedPrompt.recoverStructuredLaunchPromptDrafts : undefined
+        expect(typeof implementation === 'function'
+          ? await implementation(SESSION, staleSource?.heldPromptDrafts ?? [])
+          : undefined).toBe(true)
         await reloadedStore.nativeChatComposerDraftWritesSettled()
 
         expect(reloadedCache.readNativeChatDraftCache(scope)).toBe(edited)
