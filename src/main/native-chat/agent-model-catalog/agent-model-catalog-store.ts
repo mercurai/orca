@@ -126,12 +126,13 @@ export class AgentModelCatalogStore {
     return false
   }
 
-  /** Only a discovery ages: live saves never postpone the next account-level listing. */
-  isStale(entry: AgentModelCatalogEntry): boolean {
+  /** Refresh ages discovery; turn admission can check the latest live or discovered capabilities. */
+  isStale(entry: AgentModelCatalogEntry, source: 'discovery' | 'latest' = 'discovery'): boolean {
+    const at = source === 'latest' ? entry.fetchedAt : entry.discovered?.at
     return (
       this.dueEntries.has(entry.fingerprint) ||
-      !entry.discovered ||
-      this.now() - entry.discovered.at >= AGENT_MODEL_CATALOG_FRESH_MS
+      at === undefined ||
+      this.now() - at >= AGENT_MODEL_CATALOG_FRESH_MS
     )
   }
 

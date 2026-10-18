@@ -249,6 +249,8 @@ const FAILURE_SENTENCES = {
   commandUnavailable: namingAgent('commandUnavailable'),
   queueFull: (_context, _fact, _surface, say) => say('queueFull'),
   writeFailed: (_context, _fact, _surface, say) => say('writeFailed'),
+  speedSupportUnknown: (_context, _fact, _surface, say) => say('speedSupportUnknown'),
+  speedUnavailable: (_context, _fact, _surface, say) => say('speedUnavailable'),
   cancelled: (_context, _fact, _surface, say) => say('cancelled'),
   chatClosed: (_context, _fact, _surface, say) => say('chatClosed'),
   hostRestarted: (_context, _fact, _surface, say) => say('hostRestarted'),

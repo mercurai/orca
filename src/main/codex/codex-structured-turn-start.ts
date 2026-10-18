@@ -11,6 +11,8 @@ import {
   type CodexAppServerConnection
 } from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
+import { assertCodexSpeedAdmitted, CodexSpeedAdmissionError } from './codex-structured-speed-admission'
+import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
 import {
@@ -48,6 +50,7 @@ export type CodexTurnHost = {
   connection: Pick<CodexAppServerConnection, 'request'>
   threadId: string
   options: Map<string, string>
+  catalogAccess?: CodexSessionCatalogAccess
   reportedOptions?: { model?: string }
   dispatchEchoes: CodexDispatchEchoes
   activeTurnIds?: ReadonlySet<string>
@@ -140,13 +143,13 @@ export async function startCodexTurn(
   if (steered) {
     return steered
   }
+  assertCodexSpeedAdmitted(host)
   const answer = await host.connection.request(
     'turn/start',
     {
       threadId: host.threadId,
       clientUserMessageId: input.clientMessageId,
       input: turnInputFor(input.body),
-      // Codex omits a tier the model does not list.
       ...Object.fromEntries(host.options)
     },
     { timeoutMs: input.timeoutMs, onReply: input.onReply }
@@ -179,6 +182,13 @@ export async function dispatchCodexTurn(
   try {
     answer = await startCodexTurn(session, { ...input, timeoutMs, onReply })
   } catch (error) {
+    if (error instanceof CodexSpeedAdmissionError) {
+      session.dispatchEchoes.disarm(input.clientMessageId)
+      return {
+        state: 'rejected',
+        ...codexDispatchRejection(agentSessionFailureFact(error.kind, { neverReachedAgent: true }))
+      }
+    }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       // Codex answered and declined, so no echo for this write can arrive.
       session.dispatchEchoes.disarm(input.clientMessageId)

@@ -1,6 +1,8 @@
-import type { ChildProcessHandle as ChildProcess } from '@orca/process-host/process-spec'
 import { runProcessInProcess } from '@orca/process-host'
-import type { ProcessTerminationBarrier } from '@orca/process-host/process-spec'
+import type {
+  ChildProcessHandle as ChildProcess,
+  ProcessTerminationBarrier
+} from '@orca/process-host/process-spec'
 import { createWslProcessGroupTermination } from '../wsl-process-group-termination'
 import { killTreeAtShutdown } from './git-spawn-worker-kill'
 import {

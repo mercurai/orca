@@ -14,6 +14,20 @@ Codex is OpenAI's agentic CLI. Orca's Codex integration is one of the deepest in
 
 Pick **Codex** from the agent combobox. Orca launches `codex` with the worktree as `cwd` and routes auth through the currently selected account.
 
+## Native chat speed
+
+Choose Standard or a speed advertised for the selected model and the account running the chat.
+Orca preserves the catalog's exact request ID. A speed change applies to the next new turn;
+steering a message into a running turn keeps that turn's settings.
+
+Orca keeps an explicit selection when the model or catalog changes. Before starting a new turn,
+a non-Standard selection requires fresh support from that execution account's catalog. If support
+is unknown or unavailable, refresh the model catalog or explicitly choose Standard and send again.
+Orca does not silently replace the selection with a different speed.
+
+A missing catalog tier does not establish that the account lacks subscription entitlement.
+A requested speed also does not prove the server's actual processing tier.
+
 ## Account hot-swap
 
 Many Codex users run multiple accounts to stretch rate limits. Orca's account switcher swaps the active account without re-login or config edits. See [Hot-swap Codex accounts](/docs/agents/codex-hot-swap).

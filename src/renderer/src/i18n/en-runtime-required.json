@@ -2985,6 +2985,8 @@
         "signInFirst": "Sign in first.",
         "signInThenRunCommand": "Sign in, then run /{{command}} again.",
         "signInThenSend": "Sign in, then send your message again.",
+        "speedSupportUnknown": "Orca has not verified the selected speed for this model and account. Refresh the model catalog or choose Standard, then send again.",
+        "speedUnavailable": "The selected speed is unavailable for this model and account. Refresh the model catalog or choose Standard, then send again.",
         "stopRefused": "{{agent}} didn't stop.",
         "stopRefusedQuoted": "{{agent}} didn't stop: {{detail}}.",
         "theAgent": "The agent",

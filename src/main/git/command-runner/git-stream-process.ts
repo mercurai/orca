@@ -1,5 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process'
-import { recordSubprocessSpawn } from '../../diagnostics/main-thread-churn-probe'
+import { spawnProcess } from '@orca/process-host'
+import type { ChildProcessHandle as ChildProcess } from '@orca/process-host/process-spec'
 import { getGitSpawnWorkerClient } from './git-spawn-worker-access'
 import { gitSpawn } from './git-spawn'
 import { resolveGitSpawnTarget } from './git-spawn-target'
@@ -34,15 +34,13 @@ function streamInProcess(
   if (command.wslMode !== 'direct-git') {
     return gitSpawn(args, { ...options, stdio, windowsHide: true })
   }
-  const spawnStartedAt = performance.now()
-  const child = spawn(command.binary, command.args, {
+  return spawnProcess({
+    program: command.binary,
+    args: command.args,
     cwd: command.cwd,
     env: untranslatedGitOutputEnv(options.env),
-    stdio,
-    windowsHide: true
+    stdio
   })
-  recordSubprocessSpawn(command.binary, command.args, performance.now() - spawnStartedAt)
-  return child
 }
 
 function wrapChild(child: ChildProcess, listeners: StreamListeners): StreamedProcess {
