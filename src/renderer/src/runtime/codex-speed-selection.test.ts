@@ -61,6 +61,15 @@ describe('catalog proof for legacy Codex speed requests', () => {
     })).rejects.toThrow(/speed|tier|host|catalog/i)
   })
 
+  it.each(['loading', 'unknown'] as const)('rejects explicit %s catalog confidence despite fresh rows', async (catalogState) => {
+    mocks.call.mockImplementation(async (_target, method) => method === 'status.get'
+      ? { runtimeId: 'synthetic-runtime', capabilities: [] }
+      : { ...catalog, catalogState })
+    await expect(prepareCodexSpeedWireOptions({
+      target: TARGET, worktree: 'id:synthetic', options: { model: 'model-default', serviceTier: FAST }
+    })).rejects.toThrow(/speed|tier|host|catalog/i)
+  })
+
   it('retains exact modern tier ids and does not substitute a legacy toggle', async () => {
     mocks.call.mockResolvedValue({ runtimeId: 'synthetic-runtime',
       capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY] })

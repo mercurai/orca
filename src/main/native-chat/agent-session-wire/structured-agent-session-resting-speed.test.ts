@@ -1,3 +1,4 @@
+import { structuredAgentSessionOptionOverridesRefusal } from './structured-agent-session-options-read'
 import { closeTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
 import { afterEach, describe, expect, it } from 'vitest'
 import { agentSessionLeaseFixture, agentSessionRecordFixture } from '../../../shared/agent-session-record.test-fixture'
@@ -185,6 +186,53 @@ describe('Codex speed intent while the provider is at rest', () => {
       requested: { tierId: TIER }, support: 'unknown', processing: { status: 'unknown' }
     } })
     expect(fixture.rig.store.getRecord(SESSION)?.options?.serviceTier).toBe(TIER)
+    expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
+  })
+
+  it('keeps fresh advertised support available during a gated background refresh', async () => {
+    const fixture = await resting({ model: MODEL, serviceTier: TIER })
+    fixture.list()
+    const pending = Promise.withResolvers<AgentModelCatalogSuccess>()
+    const probe = async () => pending.promise
+    const listing = fixture.catalogStore.refresh(fingerprint(PINNED), 'codex', probe, probe)
+    try {
+      expect(await fixture.read()).toMatchObject({ speed: {
+        requested: { tierId: TIER }, support: 'available', processing: { status: 'unknown' }
+      } })
+      expect(fixture.rig.store.getRecord(SESSION)?.options?.serviceTier).toBe(TIER)
+      expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
+    } finally {
+      pending.resolve({ models: [], origin: 'probe' })
+      await listing
+    }
+  })
+
+  it('rejects malformed initial overrides through the registered provider rules', async () => {
+    const saved = { model: MODEL, serviceTier: TIER }
+    const fixture = await resting(saved)
+    expect(structuredAgentSessionOptionOverridesRefusal(
+      fixture.rig.host.deps.agents, 'codex', { model: MODEL, fastMode: 'maybe' }
+    )).toMatchObject({
+      code: 'agent_session_operation_invalid', details: { reason: 'optionRejected' }
+    })
+    expect(fixture.rig.store.getRecord(SESSION)?.options).toEqual(saved)
+    expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
+  })
+
+  it('reads a restored legacy false preference as explicit Standard without a catalog', async () => {
+    const fixture = await resting({ model: MODEL, fastMode: 'false' })
+    expect(await fixture.read()).toMatchObject({ speed: {
+      requested: { tierId: 'default' }, support: 'unknown', processing: { status: 'unknown' }
+    } })
+    expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
+  })
+
+  it('resolves restored legacy Fast to its fresh advertised exact request ID', async () => {
+    const fixture = await resting({ model: MODEL, fastMode: 'true' })
+    fixture.list()
+    expect(await fixture.read()).toMatchObject({ speed: {
+      requested: { tierId: TIER }, support: 'available', processing: { status: 'unknown' }
+    } })
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
 

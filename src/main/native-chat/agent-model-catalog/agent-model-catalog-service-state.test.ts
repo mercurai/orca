@@ -47,11 +47,30 @@ describe('account-scoped catalog confidence', () => {
     expect(r.probe).not.toHaveBeenCalled()
   })
 
+  it('keeps fresh choices available during a background refresh', async () => {
+    const r = rig()
+    r.store.recordSuccess(r.selectedKey(), 'codex', listing(), 'discovery')
+    const refreshing = r.store.refresh(r.selectedKey(), 'codex', r.probe, () => r.pending.promise)
+    try {
+      expect(r.store.isListing(r.selectedKey())).toBe(true)
+      expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+        origin: 'probe', catalogState: 'available'
+      })
+      expect(r.probe).not.toHaveBeenCalled()
+    } finally {
+      r.pending.resolve(listing())
+      await refreshing
+    }
+  })
+
   it.each(['aged', 'invalidated'] as const)('keeps %s saved choices unknown without probing', async (kind) => {
     const r = rig()
     r.store.recordSuccess(r.selectedKey(), 'codex', listing(), 'discovery')
-    if (kind === 'aged') r.advance(AGENT_MODEL_CATALOG_FRESH_MS)
-    else r.store.expireAgent('codex')
+    if (kind === 'aged') {
+      r.advance(AGENT_MODEL_CATALOG_FRESH_MS)
+    } else {
+      r.store.expireAgent('codex')
+    }
 
     expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
       origin: 'probe', catalogState: 'unknown'
