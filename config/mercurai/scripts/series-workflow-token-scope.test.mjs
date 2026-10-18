@@ -110,6 +110,14 @@ for (const [file, pushGate] of WORKFLOWS) {
   })
 }
 
+test('the assembler caps registered series tests at two workers', () => {
+  const assemble = code(jobsOf(read('fork-assemble-release.yml')).get('test'))
+  const commands = assemble.match(/^\s+pnpm exec vitest run[^\n]*$/gm) ?? []
+  assert.deepEqual(commands.map((command) => command.trim()), [
+    'pnpm exec vitest run --config config/vitest.config.ts --maxWorkers 2 "${tests[@]}"'
+  ])
+})
+
 test('the push jobs push only what they derived and matched against what was tested', () => {
   const assemble = jobsOf(read('fork-assemble-release.yml')).get('push')
   assert.match(assemble, /bash \/tmp\/assemble-release\.sh\n/)
