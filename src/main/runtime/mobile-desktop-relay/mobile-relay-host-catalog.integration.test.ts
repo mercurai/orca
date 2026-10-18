@@ -62,8 +62,11 @@ describe('mobile relay hosts: phone -> desktop lists the servers it shows', () =
     return server
   }
 
-  function pairingUrl(server: OrcaRuntimeRpcServer, scope: 'mobile' | 'runtime'): string {
-    const offer = server.createPairingOffer({ address: '127.0.0.1', name: scope, scope })
+  async function pairingUrl(
+    server: OrcaRuntimeRpcServer,
+    scope: 'mobile' | 'runtime'
+  ): Promise<string> {
+    const offer = await server.createPairingOffer({ address: '127.0.0.1', name: scope, scope })
     if (!offer.available) {
       throw new Error('pairing unavailable')
     }
@@ -103,11 +106,11 @@ describe('mobile relay hosts: phone -> desktop lists the servers it shows', () =
     const servers = new Map<string, { name: string; pairing: PairingOffer; capable: boolean }>([
       [
         'box',
-        { name: 'Box', pairing: parsePairingCode(pairingUrl(box, 'runtime'))!, capable: true }
+        { name: 'Box', pairing: parsePairingCode(await pairingUrl(box, 'runtime'))!, capable: true }
       ],
       [
         'old',
-        { name: 'ThinkPad', pairing: parsePairingCode(pairingUrl(old, 'runtime'))!, capable: false }
+        { name: 'ThinkPad', pairing: parsePairingCode(await pairingUrl(old, 'runtime'))!, capable: false }
       ]
     ])
     const contact = new Map<string, Contact>([
@@ -148,7 +151,7 @@ describe('mobile relay hosts: phone -> desktop lists the servers it shows', () =
       watchChanges: () => ({ close: () => {}, current: () => true })
     }
     desktop.setMobileDesktopRelayHosts(hosts)
-    const session = await authenticateMobileWsSession(pairingUrl(desktop, 'mobile'))
+    const session = await authenticateMobileWsSession(await pairingUrl(desktop, 'mobile'))
     const replies = createEncryptedWsResponseReader(session)
     cleanups.push(() => {
       replies.dispose()
@@ -200,7 +203,7 @@ describe('mobile relay hosts: phone -> desktop lists the servers it shows', () =
 
   it('answers an empty list on a desktop that relays nowhere', async () => {
     const desktop = await startRuntime()
-    const session = await authenticateMobileWsSession(pairingUrl(desktop, 'mobile'))
+    const session = await authenticateMobileWsSession(await pairingUrl(desktop, 'mobile'))
     const replies = createEncryptedWsResponseReader(session)
     cleanups.push(() => {
       replies.dispose()

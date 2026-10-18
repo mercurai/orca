@@ -93,7 +93,7 @@ export class MobileSocketWiring {
     this.onReady = options.onReady
     this.onUnpairedDeviceAuthFailure = options.onUnpairedDeviceAuthFailure
     this.ephemeralSweep = setInterval(
-      () => this.sweepIdleEphemeralDevices(Date.now()),
+      () => void this.sweepIdleEphemeralDevices(Date.now()),
       EPHEMERAL_DEVICE_SWEEP_INTERVAL_MS
     )
     // Why: bookkeeping must never hold the process open.
@@ -105,10 +105,10 @@ export class MobileSocketWiring {
   }
 
   /** Removes idle session-only browser rows and cuts any socket still bound to them. */
-  sweepIdleEphemeralDevices(now: number): string[] {
+  async sweepIdleEphemeralDevices(now: number): Promise<string[]> {
     let removed: string[] = []
     try {
-      removed = this.deviceRegistry.pruneIdleEphemeralDevices(now, (deviceId) =>
+      removed = await this.deviceRegistry.pruneIdleEphemeralDevices(now, (deviceId) =>
         this.hasAuthenticatedSocket(deviceId)
       )
     } catch (error) {

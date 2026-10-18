@@ -3,6 +3,7 @@ import { ipcMain } from 'electron'
 import type { Store } from '../../persistence'
 import type { Project, ProjectUpdateArgs } from '../../../shared/project-types'
 import { normalizeExecutionHostId } from '../../../shared/execution-host'
+import { withGitCaller } from '../../git/command-runner/git-operation-executor'
 import { enrichRepoGitUsernames } from '../../repo-git-username-enrichment'
 import { enrichMissingRepoGitRemoteIdentities } from '../../repo-git-remote-identity-enrichment'
 import { invalidateAuthorizedRootsCache } from '../registered-worktree-roots-cache'
@@ -23,7 +24,9 @@ export function registerRepoCatalogHandlers(mainWindow: BrowserWindow, store: St
   ipcMain.handle('repos:list', () => {
     enrichMissingRepoGitRemoteIdentities(store, { onChanged: broadcastReposChanged })
     // Why: username resolution spawns git/gh, so keep it off this sync handler (issue #7225); it re-lists when values land.
-    enrichRepoGitUsernames(store, { onChanged: broadcastReposChanged })
+    withGitCaller('repos:enrichUsernames', () =>
+      enrichRepoGitUsernames(store, { onChanged: broadcastReposChanged })
+    )
     return visibleRepos(store)
   })
 

@@ -15,9 +15,9 @@ import {
 import {
   addEnvironmentFromPairingCode,
   getEnvironmentStorePath,
-  listEnvironments,
-  markEnvironmentUsed
+  listEnvironments
 } from './runtime-environment-store'
+import { markEnvironmentUsed } from './runtime-environment-usage'
 import {
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
@@ -81,8 +81,8 @@ describe('WSL host deployment store', () => {
   }
 
   // Why a plain pairing: orca-environments.json holds nothing an older build cannot read.
-  function addWslManaged(record = wslRecord()) {
-    const environment = addEnvironmentFromPairingCode(userDataPath, {
+  async function addWslManaged(record = wslRecord()) {
+    const environment = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Ubuntu',
       pairingCode: encodePairingOffer({
         ...pairing,
@@ -118,11 +118,11 @@ describe('WSL host deployment store', () => {
     expect(existsSync(getWslHostDeploymentStorePath(userDataPath))).toBe(false)
   })
 
-  it('overlays a WSL deployment as a managed server without touching the shared files', () => {
+  it('overlays a WSL deployment as a managed server without touching the shared files', async () => {
     addSshManaged()
     const storeBefore = bytes(getEnvironmentStorePath(userDataPath))
     const sidecarBefore = bytes(getRuntimeEnvironmentSidecarPath(userDataPath))
-    const wslId = addWslManaged()
+    const wslId = await addWslManaged()
 
     const byId = new Map(listEnvironments(userDataPath).map((entry) => [entry.id, entry]))
     expect(byId.get('ssh-managed')?.orcadDeployment).toEqual(sshTunnel)
@@ -135,9 +135,9 @@ describe('WSL host deployment store', () => {
   })
 
   describe('downgrade to builds that never read the WSL file', () => {
-    it('keeps every environment readable by a build that rejects the whole store on one bad record', () => {
+    it('keeps every environment readable by a build that rejects the whole store on one bad record', async () => {
       addSshManaged()
-      const wslId = addWslManaged()
+      const wslId = await addWslManaged()
 
       // Builds before the per-record store parsed orca-environments.json whole.
       const strict = RuntimeEnvironmentStoreSchema.parse(
@@ -149,9 +149,9 @@ describe('WSL host deployment store', () => {
       expect(Object.keys(readRuntimeEnvironmentSidecar(userDataPath).unreadable)).toEqual([])
     })
 
-    it("keeps SSH servers managed under main's reader, which sees the WSL server as a plain pairing", () => {
+    it("keeps SSH servers managed under main's reader, which sees the WSL server as a plain pairing", async () => {
       addSshManaged()
-      const wslId = addWslManaged()
+      const wslId = await addWslManaged()
 
       // main's readEnvironmentStore: persisted records with their sidecar entries overlaid.
       const sidecar = readRuntimeEnvironmentSidecar(userDataPath)
@@ -163,16 +163,16 @@ describe('WSL host deployment store', () => {
       expect(byId.get(wslId)?.orcadDeployment).toBeUndefined()
     })
 
-    it('keeps the WSL deployment after an older build rewrites the store', () => {
+    it('keeps the WSL deployment after an older build rewrites the store', async () => {
       addSshManaged()
-      const wslId = addWslManaged()
+      const wslId = await addWslManaged()
       // An older build's routine write: parse, strip unknown keys, rewrite.
       const path = getEnvironmentStorePath(userDataPath)
       writeFileSync(
         path,
         JSON.stringify(RuntimeEnvironmentStoreSchema.parse(JSON.parse(bytes(path))), null, 2)
       )
-      markEnvironmentUsed(userDataPath, wslId, { now: 10_000 })
+      await markEnvironmentUsed(userDataPath, wslId, { now: 10_000 })
 
       expect(listEnvironments(userDataPath).find((entry) => entry.id === wslId)).toMatchObject({
         orcadDeployment: { kind: 'wsl', distro: 'Ubuntu-24.04' }
@@ -218,10 +218,10 @@ describe('WSL host deployment store', () => {
       ])
     })
 
-    it('hides the environment an unreadable record owns and refuses to replace that record', () => {
+    it('hides the environment an unreadable record owns and refuses to replace that record', async () => {
       vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
       addSshManaged()
-      const wslId = addWslManaged()
+      const wslId = await addWslManaged()
       const future = { ...futureKind, environmentId: wslId }
       seed(future)
 
@@ -264,15 +264,15 @@ describe('WSL host deployment store', () => {
     })
 
     // Regression: a stale record must not hide a re-paired loopback server while the gate is closed.
-    it('hides nothing for an unreadable record while the gate is closed', () => {
+    it('hides nothing for an unreadable record while the gate is closed', async () => {
       vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
-      const wslId = addWslManaged()
+      const wslId = await addWslManaged()
       seed({ ...futureKind, environmentId: wslId })
       expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual([wslId])
     })
 
-    it('never hides a remote paired server behind an unreadable WSL record', () => {
-      const remote = addEnvironmentFromPairingCode(userDataPath, {
+    it('never hides a remote paired server behind an unreadable WSL record', async () => {
+      const remote = await addEnvironmentFromPairingCode(userDataPath, {
         name: 'Remote',
         pairingCode: encodePairingOffer({
           ...pairing,
@@ -291,8 +291,8 @@ describe('WSL host deployment store', () => {
     })
   })
 
-  it('ignores a stale record whose port no longer matches the pairing', () => {
-    const wslId = addWslManaged()
+  it('ignores a stale record whose port no longer matches the pairing', async () => {
+    const wslId = await addWslManaged()
     writeWslHostDeployment(
       userDataPath,
       wslId,

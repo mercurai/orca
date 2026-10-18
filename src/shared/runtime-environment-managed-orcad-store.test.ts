@@ -6,10 +6,10 @@ import { encodePairingOffer } from './pairing'
 import {
   getEnvironmentStorePath,
   listEnvironments,
-  markEnvironmentUsed,
   removeEnvironment,
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
+import { markEnvironmentUsed } from './runtime-environment-usage'
 import {
   addManagedOrcadEnvironment,
   recordManagedOrcadMigration,
@@ -100,12 +100,14 @@ describe('managed orcad environment store', () => {
     expect(() => add({ id: 'environment-2' })).toThrow('already exists')
   })
 
-  it('keeps a managed server from being removed or re-paired outside its lifecycle', () => {
+  it('keeps a managed server from being removed or re-paired outside its lifecycle', async () => {
     add()
-    expect(() => removeEnvironment(userDataPath, 'Managed')).toThrow('managed by Orca over SSH')
-    expect(() =>
+    await expect(removeEnvironment(userDataPath, 'Managed')).rejects.toThrow(
+      'managed by Orca over SSH'
+    )
+    await expect(
       updateEnvironmentFromPairingCode(userDataPath, 'Managed', { pairingCode: pairingCode() })
-    ).toThrow('managed by Orca over SSH')
+    ).rejects.toThrow('managed by Orca over SSH')
     expect(listEnvironments(userDataPath)).toHaveLength(1)
   })
 
@@ -158,7 +160,7 @@ describe('managed orcad environment store', () => {
     expect(listEnvironments(userDataPath)[0]?.orcadDeployment, 'store written').toEqual(deployment)
   })
 
-  it('keeps the re-paired device identity when a reply from the previous pairing lands late', () => {
+  it('keeps the re-paired device identity when a reply from the previous pairing lands late', async () => {
     const offer = (deviceToken: string, pairedDeviceId: string) =>
       encodePairingOffer({
         v: 2,
@@ -177,7 +179,7 @@ describe('managed orcad environment store', () => {
     expect(repaired).toMatchObject({ pairedDeviceId: 'device-new', pairingRevision: 500 })
 
     // A status reply authenticated with the old token finishes after the re-pair.
-    markEnvironmentUsed(userDataPath, 'environment-1', {
+    await markEnvironmentUsed(userDataPath, 'environment-1', {
       pairedDeviceId: 'device-old',
       pairingDeviceToken: 'token-old',
       now: 600

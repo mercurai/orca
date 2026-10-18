@@ -3,7 +3,23 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
-      - 'src/main/git/command-runner/spawned-command-tree-kill*'
+      - 'src/main/git/command-runner/**'
+      - 'src/main/native-chat/agent-model-catalog/**'
+      - 'src/packages/process-host/**'
+      - 'src/main/codex/codex-structured-session-options.test.ts'
+      - 'src/main/codex/codex-structured-speed-*.test.ts'
+      - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
+      - 'src/main/orcad/orcad-host-cleanup.test.ts'
+      - 'src/shared/structured-agent-session-speed*.test.ts'
+      - 'src/renderer/src/components/native-chat/NativeChatSessionOption*.tsx'
+      - 'src/renderer/src/components/native-chat/NativeChatSessionSpeedStatus.tsx'
+      - 'src/renderer/src/components/native-chat/native-chat-session-speed-labels.ts'
+      - 'src/renderer/src/runtime/codex-speed*.ts'
+      - 'src/renderer/src/lib/structured-agent-session-launch*.ts'
+      - 'src/renderer/src/components/native-chat/structured-agent-session-send-attempt.ts'
+      - 'src/renderer/src/components/native-chat/use-structured-agent-session-mutate.ts'
+      - 'src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts'
+      - 'src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts'
       - '.github/workflows/git-command-termination-runtime.yml'
   workflow_dispatch:
 permissions:
@@ -23,5 +39,77 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/install-node-dependencies
-      - name: Verify exited native child does not trigger taskkill
-        run: node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts src/main/git/command-runner/spawned-command-tree-kill.test.ts
+      - name: Verify process termination and worker stderr progress
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/git/command-runner/spawned-command-tree-kill.test.ts
+          src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
+          src/main/git/command-runner/git-spawn-worker-client.test.ts
+          src/main/git/command-runner/git-spawn-worker-handler.test.ts
+          src/main/git/command-runner/exec-file-capture.test.ts
+          src/main/codex/codex-structured-session-options.test.ts
+          src/main/codex/codex-structured-service-tier.test.ts
+          src/main/codex/codex-structured-speed-admission.test.ts
+          src/main/codex/codex-structured-speed-admission-catalog.test.ts
+          src/main/codex/codex-structured-speed-legacy-migration.test.ts
+          src/main/codex/codex-structured-speed-state.test.ts
+          src/main/orca-profiles/profile-cloud-session-store.test.ts
+          src/main/orcad/orcad-host-cleanup.test.ts
+          src/shared/structured-agent-session-speed.test.ts
+          src/shared/structured-agent-session-speed-state.test.ts
+          src/renderer/src/runtime/codex-speed-compatibility-mutations.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts
+          src/renderer/src/runtime/codex-speed-selection.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-persistence.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-record.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-reload.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-prompt.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-publication.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-recovery.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-indexeddb.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-held-speed-refusal.test.ts
+          src/renderer/src/components/native-chat/use-structured-agent-session-send-options.speed.test.tsx
+          src/renderer/src/components/native-chat/use-structured-agent-session-sends.test.tsx
+          src/shared/structured-agent-session-option-view.test.ts
+          src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
+          src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
+          src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
+          src/shared/agent-session-failure-words.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-unavailable.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
+  fork-costs:
+    name: Deterministic fork costs (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install-node-dependencies
+      - name: Verify scan, probe, write and packaged worker costs
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/runtime/worktree-scan-admin-fingerprint-gate.test.ts
+          src/main/runtime/repo-worktree-admin-fingerprint-shared.test.ts
+          src/main/git/worktree-scan-cache-sharing.test.ts
+          src/main/git/worktree-scan-cache-annotation-reuse.test.ts
+          src/main/git/repo-username.test.ts
+          src/main/repo-git-username-enrichment.test.ts
+          src/main/git/git-username-signature.test.ts
+          src/shared/secure-file-async-spawn-count.test.ts
+          src/main/credentials/credential-writers-win32-spawn.test.ts
+          src/shared/secure-file-async-write-serialization.test.ts
+          src/main/git/command-runner/git-spawn-admission-lifetime.test.ts
+          src/main/diagnostics/event-loop-delay-probe.test.ts
+          src/main/orcad/orcad-runtime-entry-artifacts.test.ts
+          src/shared/orcad-artifacts.test.ts

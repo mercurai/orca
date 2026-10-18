@@ -13,6 +13,7 @@ export type UnconfirmedDraftChange = {
   readonly at: number
 }
 
+export const disposedDraftScopes = new Set<string>()
 export const records = new Map<string, DraftRecord>()
 // Changed in memory with no write issued yet; a refused write comes back here for the next flush.
 export const dirtyScopes = new Set<string>()
@@ -76,6 +77,7 @@ export function hasLocalChange(scopeKey: string): boolean {
 
 export function clearDraftMemoryForTests(): void {
   records.clear()
+  disposedDraftScopes.clear()
   dirtyScopes.clear()
   unconfirmed.clear()
   refusedScopes.clear()

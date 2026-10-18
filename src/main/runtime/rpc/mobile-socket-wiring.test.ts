@@ -72,6 +72,37 @@ function registryFor(
 }
 
 describe('MobileSocketWiring', () => {
+  it('cuts the sockets of swept rows, and survives a failed prune without rejecting', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const transport = new FakeTransport()
+    const prune = vi.fn().mockResolvedValueOnce(['swept']).mockRejectedValueOnce(new Error('disk'))
+    const desktop = generateKeyPair()
+    const wiring = new MobileSocketWiring({
+      deviceRegistry: Object.assign(registryFor('device-1', 'valid-token'), {
+        pruneIdleEphemeralDevices: prune
+      }),
+      e2eeKeypair: {
+        publicKey: desktop.publicKey,
+        secretKey: desktop.secretKey,
+        publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
+      },
+      onText: vi.fn(),
+      onBinary: vi.fn(),
+      onClose: vi.fn()
+    })
+    wiring.attachTransport(transport)
+
+    await expect(wiring.sweepIdleEphemeralDevices(1)).resolves.toEqual(['swept'])
+    expect(transport.terminateClientConnections).toHaveBeenCalledWith('swept')
+
+    transport.terminateClientConnections.mockClear()
+    await expect(wiring.sweepIdleEphemeralDevices(2)).resolves.toEqual([])
+    expect(transport.terminateClientConnections).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledOnce()
+    wiring.dispose()
+    error.mockRestore()
+  })
+
   it('terminates a revoked device across every attached transport', () => {
     const direct = new FakeTransport()
     const relay = new FakeTransport()

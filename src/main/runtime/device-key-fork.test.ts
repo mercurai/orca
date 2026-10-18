@@ -73,21 +73,35 @@ describe('planDeviceKeyFork', () => {
     expect(() => planDeviceKeyFork([], 'legacy', KEY_A, 'x', 1)).toThrow('device_not_found')
   })
 
-  it('commits nothing when the registry cannot be read', () => {
+  it('commits nothing when the registry cannot be read', async () => {
     const registry = new DeviceRegistry(mkdtempSync(join(tmpdir(), 'orca-device-key-fork-')))
-    const legacy = registry.addDevice('Laptop', 'runtime')
+    const legacy = await registry.addDevice('Laptop', 'runtime')
     registry['registryUnreadable'] = true
-    expect(() => registry.forkDeviceKey(legacy.deviceId, KEY_A, 'Mac')).toThrow()
+    await expect(registry.forkDeviceKey(legacy.deviceId, KEY_A, 'Mac')).rejects.toThrow()
     expect(registry.listDevices()).toHaveLength(1)
     expect(registry.lookupDeviceKey('anything')).toEqual({ kind: 'unavailable' })
   })
 
-  it('keeps a corrupt registry aside and never calls an unlisted key revoked while it exists', () => {
+  it('refuses a fork once its token row has begun to be revoked, and allows it after a rollback', async () => {
+    const registry = new DeviceRegistry(mkdtempSync(join(tmpdir(), 'orca-device-key-fork-')))
+    const legacy = await registry.addDevice('Laptop', 'runtime')
+    const release = registry.beginRevocation(legacy.deviceId)
+    await expect(registry.forkDeviceKey(legacy.deviceId, KEY_A, 'Mac')).rejects.toThrow(
+      'device_not_found'
+    )
+    expect(registry.listDevices()).toHaveLength(1)
+    release()
+    await expect(registry.forkDeviceKey(legacy.deviceId, KEY_A, 'Mac')).resolves.toMatchObject({
+      forkedFrom: legacy.deviceId
+    })
+  })
+
+  it('keeps a corrupt registry aside and never calls an unlisted key revoked while it exists', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-device-key-fork-'))
     writeFileSync(join(userDataPath, DEVICE_REGISTRY_FILENAME), '[{"deviceId":"keyed",')
     const afterCrash = new DeviceRegistry(userDataPath)
     expect(afterCrash.lookupDeviceKey('keyed')).toEqual({ kind: 'unavailable' })
-    afterCrash.getOrCreatePendingDevice('Re-pair', 'mobile')
+    await afterCrash.getOrCreatePendingDevice('Re-pair', 'mobile')
     expect(readdirSync(userDataPath).some((name) => name.includes('.corrupt-'))).toBe(true)
 
     const nextLaunch = new DeviceRegistry(userDataPath)
