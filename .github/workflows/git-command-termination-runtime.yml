@@ -6,6 +6,7 @@ on:
       - 'src/main/git/command-runner/**'
       - 'src/packages/process-host/**'
       - 'src/main/codex/codex-structured-session-options.test.ts'
+      - 'src/main/codex/codex-structured-speed-admission.test.ts'
       - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
       - 'src/main/orcad/orcad-host-cleanup.test.ts'
       - '.github/workflows/git-command-termination-runtime.yml'
@@ -36,5 +37,6 @@ jobs:
           src/main/git/command-runner/git-spawn-worker-handler.test.ts
           src/main/git/command-runner/exec-file-capture.test.ts
           src/main/codex/codex-structured-session-options.test.ts
+          src/main/codex/codex-structured-speed-admission.test.ts
           src/main/orca-profiles/profile-cloud-session-store.test.ts
           src/main/orcad/orcad-host-cleanup.test.ts
