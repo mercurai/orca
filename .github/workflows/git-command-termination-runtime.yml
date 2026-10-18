@@ -56,3 +56,5 @@ jobs:
           src/renderer/src/runtime/codex-speed-selection.test.ts
           src/renderer/src/lib/structured-agent-session-launch-persistence.test.ts
           src/renderer/src/lib/structured-agent-session-launch-record.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
+          src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx

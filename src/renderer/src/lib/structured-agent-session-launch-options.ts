@@ -1,3 +1,4 @@
+import { prepareCodexSpeedWireOptions } from '@/runtime/codex-speed-selection'
 import { useSyncExternalStore } from 'react'
 import type {
   AgentSessionMutationResult,
@@ -27,7 +28,6 @@ import {
   agentSessionThrownFailure,
   type AgentSessionWriteFailure
 } from '../../../shared/agent-session-write-failure'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 
 /** The options a launch starts with, replaced whole so readers can compare by identity. */
 export type StructuredLaunchSelection = {
@@ -73,7 +73,10 @@ export function holdStructuredAgentSessionLaunchOption(
   // A model pick drops picks held under the model it replaces; the permission mode is the chat's.
   const dropped =
     id === 'model'
-      ? Object.keys(held).filter((key) => key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID)
+      ? Object.keys(held).filter((key) =>
+          key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID &&
+          !(state.intent.agent === 'codex' && (key === 'serviceTier' || key === 'fastMode'))
+        )
       : [id]
   for (const key of dropped) {
     replies.get(key)?.({ kind: 'superseded' })
@@ -86,14 +89,25 @@ export function holdStructuredAgentSessionLaunchOption(
 }
 
 async function setLaunchOption(
-  target: RuntimeClientTarget,
-  sessionId: string,
+  state: StructuredLaunchState,
   fence: number,
   key: string,
   value: string
 ): Promise<StructuredLaunchOptionOutcome> {
-  const fields = { key, value }
+  const { target, sessionId, agent } = state.intent
   try {
+    const model = state.selection.held.model ?? state.selection.seed?.model
+    const prepared = await prepareCodexSpeedWireOptions({
+      target,
+      sessionId,
+      agent,
+      worktree: state.intent.params.worktree,
+      options: { ...(model ? { model } : {}), [key]: value }
+    })
+    const wireKey = key === 'serviceTier' && prepared.options?.serviceTier === undefined
+      ? 'fastMode'
+      : key
+    const fields = { key: wireKey, value: prepared.options?.[wireKey] ?? value }
     const result = await callStructuredAgentSession<
       AgentSessionMutationResult<AgentSessionOptionResult>
     >(target, 'agentSession.setOption', {
@@ -108,10 +122,15 @@ async function setLaunchOption(
         })
       },
       ...fields
-    })
-    return result.ok
-      ? { kind: 'accepted', options: result.value.options ?? { [key]: value } }
-      : { kind: 'refused', failure: agentSessionRefusalFailure(result.refusal) }
+    }, prepared.authority)
+    if (!result.ok) {
+      return { kind: 'refused', failure: agentSessionRefusalFailure(result.refusal) }
+    }
+    const options = { ...result.value.options, [key]: value }
+    if (wireKey !== key) {
+      delete options[wireKey]
+    }
+    return { kind: 'accepted', options }
   } catch (error) {
     return {
       kind: 'refused',
@@ -178,8 +197,7 @@ export async function applyStructuredLaunchHeldOptions(
       return receipt
     }
     const outcome = await setLaunchOption(
-      state.intent.target,
-      state.intent.sessionId,
+      state,
       receipt.fence,
       id,
       encoded

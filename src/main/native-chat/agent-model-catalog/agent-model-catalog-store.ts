@@ -1,3 +1,4 @@
+import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 import type { AgentSessionAccountHome } from '../../../shared/agent-session-account-home'
 import type { AgentModelCatalogPersistence } from './agent-model-catalog-persistence'
 import { startSpan } from '../../observability/tracer'
@@ -45,7 +46,7 @@ export type { AgentModelCatalogFailure }
 // picker opens does not hammer a dead binary, then dies on its own (see
 // `AgentModelCatalogFailures`, which also holds why no chat can start under the account).
 
-export const AGENT_MODEL_CATALOG_FRESH_MS = 10 * 60_000
+export { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 export const AGENT_MODEL_CATALOG_MAX_ENTRIES = 256
 
 /** Lists an agent's models before a chat, under the account a launch would pin. `signal` stops

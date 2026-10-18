@@ -36,6 +36,8 @@ export function restorePersistedStructuredLaunchState(
       ...(record.seedOptions ? { seedOptions: record.seedOptions } : {}),
       ...(record.firstMessage ? { firstMessage: record.firstMessage } : {}),
       ...(record.options ? { options: record.options } : {}),
+      ...(record.createCanonicalOptions ? { createCanonicalOptions: record.createCanonicalOptions } : {}),
+      ...(record.createSpeedAuthority ? { createSpeedAuthority: record.createSpeedAuthority } : {}),
       ...(record.createMessageSupport === undefined
         ? {}
         : { createMessageSupport: record.createMessageSupport })

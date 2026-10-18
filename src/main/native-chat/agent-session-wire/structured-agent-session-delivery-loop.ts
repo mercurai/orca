@@ -1,3 +1,4 @@
+import { StructuredAgentSessionSpeedOptionError } from './structured-agent-session-speed-option-error'
 // The one thing that starts a provider child for a send, the one thing that hands a message to
 // it, and the one thing that settles a queued message because of a start, a child or a leftover.
 //
@@ -182,7 +183,9 @@ export class StructuredAgentSessionDeliveryLoop {
         sessionId,
         error
       })
-      const cause = { hostFault: true } as const
+      const cause = error instanceof StructuredAgentSessionSpeedOptionError
+        ? { failure: error.failure }
+        : { hostFault: true as const }
       await this.deps
         .serialize(sessionId, () => this.fail(sessionId, { startKey: null, cause }))
         .catch((failure: unknown) => {

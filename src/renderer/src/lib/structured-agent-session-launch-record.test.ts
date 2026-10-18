@@ -33,3 +33,13 @@ describe('a persisted create opening message', () => {
     expect(validRecord({ ...record, firstMessage: { ...record.firstMessage, body } })).toBe(false)
   })
 })
+
+describe('persisted speed authorization', () => {
+  it.each([
+    { createCanonicalOptions: { serviceTier: 42 } },
+    { createSpeedAuthority: { expectedEnvironmentRuntimeId: 42 } },
+    { createSpeedAuthority: { expectedEnvironmentPairingRevision: 'different-host' } }
+  ])('refuses malformed canonical choices or host bindings', (fields) => {
+    expect(validRecord({ ...record, ...fields })).toBe(false)
+  })
+})

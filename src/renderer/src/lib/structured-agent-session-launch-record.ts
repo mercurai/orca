@@ -1,3 +1,4 @@
+import type { CodexSpeedWireAuthority } from '@/runtime/codex-speed-selection'
 import { isTuiAgent } from '../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type {
@@ -25,6 +26,8 @@ export type StructuredAgentLaunchPersistedRecord = {
   firstMessage?: StructuredAgentSessionFirstMessage
   options?: Readonly<Record<string, string>>
   createMessageSupport?: boolean
+  createCanonicalOptions?: Readonly<Record<string, string>>
+  createSpeedAuthority?: CodexSpeedWireAuthority
   /** A paired server's reported seed, which this machine cannot re-derive after a reload. */
   seedOptions?: Readonly<Record<string, string>>
   /** When a failed launch failed; records written by older builds lack it. */
@@ -50,7 +53,9 @@ export function structuredAgentLaunchRecordFor(
     ...(resumeFrom ? { resumeFrom } : {}),
     ...(firstMessage ? { firstMessage } : {}),
     ...(options ? { options } : {}),
-    ...(intent.createMessageSupport === undefined
+    ...(intent.createCanonicalOptions ? { createCanonicalOptions: intent.createCanonicalOptions } : {}),
+    ...(intent.createSpeedAuthority ? { createSpeedAuthority: intent.createSpeedAuthority } : {}),
+    ...(intent.createPrepared !== true || intent.createMessageSupport === undefined
       ? {}
       : { createMessageSupport: intent.createMessageSupport }),
     ...(pairedSeed ? { seedOptions: pairedSeed } : {})
@@ -89,6 +94,8 @@ export function validRecord(value: unknown): value is Omit<
   const failedAt = 'failedAt' in value ? value.failedAt : undefined
   const firstMessage = 'firstMessage' in value ? value.firstMessage : undefined
   const options = 'options' in value ? value.options : undefined
+  const canonical = 'createCanonicalOptions' in value ? value.createCanonicalOptions : undefined
+  const authority = 'createSpeedAuthority' in value ? value.createSpeedAuthority : undefined
   const createMessageSupport =
     'createMessageSupport' in value ? value.createMessageSupport : undefined
   return (
@@ -104,6 +111,8 @@ export function validRecord(value: unknown): value is Omit<
     (failedAt === undefined || Number.isFinite(failedAt)) &&
     (firstMessage === undefined || validFirstMessage(firstMessage)) &&
     (options === undefined || isAgentSessionOptions(options)) &&
+    (canonical === undefined || isAgentSessionOptions(canonical)) &&
+    (authority === undefined || validSpeedAuthority(authority)) &&
     (createMessageSupport === undefined || typeof createMessageSupport === 'boolean') &&
     (resumeFrom === undefined ||
       (typeof resumeFrom === 'object' &&
@@ -122,4 +131,16 @@ function validFirstMessage(value: unknown): value is StructuredAgentSessionFirst
     'body' in value &&
     SendBodyStructure.safeParse(value.body).success
   )
+}
+
+function validSpeedAuthority(value: unknown): value is CodexSpeedWireAuthority {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const revision = 'expectedEnvironmentPairingRevision' in value
+    ? value.expectedEnvironmentPairingRevision : undefined
+  const runtime = 'expectedEnvironmentRuntimeId' in value
+    ? value.expectedEnvironmentRuntimeId : undefined
+  return (revision === undefined || (typeof revision === 'number' && Number.isFinite(revision))) &&
+    (runtime === undefined || (typeof runtime === 'string' && runtime.length > 0))
 }

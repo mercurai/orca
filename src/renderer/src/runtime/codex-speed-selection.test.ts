@@ -65,3 +65,22 @@ describe('catalog proof for legacy Codex speed requests', () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('frozen Fast wire requests across host upgrades', () => {
+  it('replays legacy true after an upgrade when the exact canonical Fast id is still advertised', async () => {
+    mocks.call.mockImplementation(async (_target, method) => method === 'status.get'
+      ? { runtimeId: 'synthetic-runtime', capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY] }
+      : catalog)
+    const frozenOptions = { model: 'model-default', fastMode: 'true' }
+    expect(await prepareCodexSpeedWireOptions({ target: TARGET, worktree: 'id:synthetic',
+      options: { model: 'model-default', serviceTier: FAST }, frozenOptions
+    })).toMatchObject({ options: frozenOptions })
+  })
+
+  it('does not send a frozen canonical request after a downgrade that requires boolean encoding', async () => {
+    const options = { model: 'model-default', serviceTier: FAST }
+    await expect(prepareCodexSpeedWireOptions({ target: TARGET, worktree: 'id:synthetic',
+      options, frozenOptions: options
+    })).rejects.toThrow(/speed|tier|replay/i)
+  })
+})

@@ -64,3 +64,10 @@ Orca reads local Codex usage state for the active account and surfaces it in the
 ## Codex on Windows (WSL)
 
 On Windows, Orca can run Codex either from your host install or from a WSL distro. Add a WSL-hosted Codex account from the account switcher — Orca creates an isolated account home inside the distro (under `~/.local/share/orca/codex-accounts/<id>/home`), maps it back to the host as a `\\wsl.localhost\<distro>\...` path for auth reads, and routes launches, hot-swap, and rate-limit fetches through the selected distro. If Codex isn't installed in the target distro, the **Add account** dialog fails with an actionable message telling you which distro is missing the binary.
+
+Older execution hosts retain their supported Fast controls. Orca translates Standard to Fast off;
+it translates a paid tier to Fast on only when a fresh catalog for the selected account and model
+identifies that exact ID as Fast. An unsupported or unknown selection requires refreshing the
+catalog, updating the execution host, or choosing Standard. An uncertain request keeps its original
+payload on retry, including after a host upgrade. Failed speed updates stop the message before
+provider dispatch instead of sending with previous settings.

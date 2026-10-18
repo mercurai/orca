@@ -79,6 +79,8 @@ describe('message-carried speed mutations', () => {
 
     expect(dispatch).not.toHaveBeenCalled()
     await rejectedSubmission()
+    expect((await hostTestState().host.journalSnapshot(SESSION)).submissions[0]?.rejection)
+      .toMatchObject({ kind: 'speedUnavailable', neverReachedAgent: true })
     expect(store.getRecord(SESSION)?.options?.[key]).not.toBe(value)
   })
 

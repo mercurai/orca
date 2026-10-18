@@ -98,7 +98,15 @@ function callsFor(method: string) {
 describe('Codex speed compatibility is negotiated before mutation fingerprints', () => {
   beforeEach(() => {
     mocks.call.mockReset()
-    mocks.call.mockRejectedValue(new Error('Synthetic transport loss'))
+    mocks.call.mockImplementation(async (_target, method) => {
+      if (method === 'status.get') {
+        if (mocks.capabilities === null) {
+          throw new Error('Synthetic capability probe unavailable')
+        }
+        return { runtimeId: 'synthetic-runtime', capabilities: mocks.capabilities }
+      }
+      throw new Error('Synthetic transport loss')
+    })
     mocks.capabilities = []
     resetStructuredAgentSessionFencesForTests()
     noteStructuredAgentSessionFence(SESSION, 7)

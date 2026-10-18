@@ -1,3 +1,4 @@
+import { StructuredAgentSessionSpeedOptionError } from './structured-agent-session-speed-option-error'
 // A message's model and effort, applied to the turn it starts the way a picker change is applied.
 
 import type { AgentSessionOptionResult } from '../../../shared/agent-session-wire'
@@ -47,7 +48,8 @@ export async function writeStructuredAgentSessionOption(
 
 /** A message's model and effort, applied as it is handed over or its agent starts for it: model
  *  first, so the effort lands under it, and a value the chat already holds writes nothing. A failed
- *  write is logged and never stops the message, which runs on what the chat holds. */
+ *  model/effort write is logged and the message runs on what the chat holds. A failed speed
+ *  write stops delivery so a message never silently runs at a different speed or cost. */
 export async function applyStructuredAgentSessionMessageOptions(
   context: StructuredAgentSessionMutationContext,
   sessionId: string,
@@ -76,6 +78,15 @@ export async function applyStructuredAgentSessionMessageOptions(
         key,
         error: 'error' in written ? written.error : written.refusal
       })
+      if (key === 'serviceTier' || key === 'fastMode') {
+        if ('error' in written) {
+          throw written.error
+        }
+        throw new StructuredAgentSessionSpeedOptionError(
+          `Could not apply the requested speed: ${written.refusal.message}. Refresh the speed choices and retry.`,
+          written.refusal
+        )
+      }
     }
   }
 }
