@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-12.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-15.
 
 ## Branches
 
@@ -10,7 +10,7 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-12.
 | `main` | exact mirror of `upstream/main`, fast-forward only | `fork-sync-upstream` (hourly) |
 | `mercurai` (default) | `main` + this directory and the `fork-*` workflows, merged forward | `fork-sync-upstream`, reviewed PRs |
 | `patch/<slug>` | one patch of the series, rebased onto the manifest `base:` tag | lanes, `fork-rebase-patches` |
-| `release/mercurai` | assembled: an upstream release tag + the active patches, never hand-edited | `fork-assemble-release` |
+| `release/mercurai` | assembled: an upstream release tag (or a frozen official `main` commit) + the active patches, never hand-edited | `fork-assemble-release` |
 | `upstream/*` | optional mirror of upstream branches (off by default) | `fork-sync-upstream` with `mirror_branches=true` |
 
 Tags: upstream's tags are mirrored as they are; mercurai releases are `v<upstream>-mercurai.N`.
@@ -31,6 +31,10 @@ One entry per patch branch. `status` is the only field the jobs branch on:
 tag; assembly refuses a series whose per-patch bases do not all equal the tag. `tests` lists the
 Vitest files that prove the patch; the rebase and assembly jobs run them on the rebased code with
 dependencies installed from that code's lockfile.
+
+`commit` is the full lowercase 40-hex head a patch branch had when the owner froze it. Tag assembly
+ignores it. Main-snapshot assembly (below) requires it on every `upstream-open` and `ours-only`
+patch and refuses a branch that is not at that commit.
 
 Adding a patch: branch `patch/<slug>` from the manifest `base:` tag, open the upstream PR from it,
 add the entry with `status: upstream-open`, merge the manifest change into `mercurai` by PR.
@@ -118,6 +122,23 @@ series.
   it, builds `release/mercurai` = tag + cherry-picked patches (a patch with no commits beyond the
   tag is skipped with a warning), runs the series tests, tags `v<upstream>-mercurai.N` and pushes
   both, then dispatches `fork-release-win-build` with the new tag.
+  **Main snapshot:** the optional `upstream_main_sha` input (`UPSTREAM_MAIN_SHA` to
+  `scripts/assemble-release.sh`) assembles on a frozen commit of official `stablyai/orca` `main`
+  instead of the tag, for a release that must carry upstream changes no tag has yet. The value is a
+  lowercase full 40-hex sha, fetched from `stablyai/orca` and proven to be a commit of its `main`
+  (not a release branch, not a fork-only commit). `tag` stays required: it is the version floor and
+  names the release (`v<tag version>-mercurai.N`, numbered from the fork's tags) and need not be an
+  ancestor of `main`. The manifest `base:` and every active patch's `base:` must equal that sha, and
+  every active patch needs a `commit:` pin equal to its fetched `patch/*` head. A malformed or
+  unreachable sha, a wrong base, a missing or malformed pin and a moved or missing patch branch each
+  refuse the run before anything is checked out, built or written. The branch starts at the sha and
+  cherry-picks `sha..<pinned head>` per patch in manifest order, so the same sha and pins give the
+  same tree after `main` moves on. The run reports `upstream_main_sha` and `series`
+  (`patch/<name>:<sha>,...` in manifest order) as outputs and in the release tag message. The test
+  and push jobs both check out the dispatched commit (`github.sha`), not the branch name, and the push
+  job pushes only when its tree, base and pinned patch commits equal the tested ones. Leave the input
+  empty for the unchanged tag assembly. The owner registers the sha and pins in the manifest;
+  recurring snapshots are not automated.
 - `fork-release-win-build`: builds the Windows installer for a `v<upstream>-mercurai.N` tag and
   publishes it to the release channel (below). Dispatchable by hand with `-f tag=...` to rebuild
   or retry a tag.
