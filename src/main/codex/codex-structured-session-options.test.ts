@@ -57,6 +57,47 @@ async function primePicker(session: CodexSession): Promise<void> {
 }
 
 describe('structured Codex session options', () => {
+  it('retains an explicit tier when a refreshed model catalog no longer advertises it', async () => {
+    const session = optionSession(vi.fn(async () => ({
+      data: [{ model: 'gpt-live', supportedReasoningEfforts: [], serviceTiers: [] }],
+      nextCursor: null
+    })))
+    session.options.set('serviceTier', 'synthetic-ultra-request-id')
+
+    await readLiveCodexSessionOptions(session, undefined)
+
+    expect(session.options.get('serviceTier')).toBe('synthetic-ultra-request-id')
+  })
+
+  it('does not silently replace a saved speed when switching to an incompatible model', async () => {
+    const session = optionSession(vi.fn(async () => ({
+      data: [
+        {
+          model: 'gpt-live', supportedReasoningEfforts: [],
+          serviceTiers: [{ id: 'synthetic-fast-request-id', name: 'Fast' }]
+        },
+        { model: 'synthetic-other-model', supportedReasoningEfforts: [], serviceTiers: [] }
+      ],
+      nextCursor: null
+    })))
+    await primePicker(session)
+    session.options.set('serviceTier', 'synthetic-fast-request-id')
+
+    await applyCodexStructuredSessionOption(session, 'model', 'synthetic-other-model')
+
+    expect(session.options.get('serviceTier')).toBe('synthetic-fast-request-id')
+  })
+
+  it('migrates a saved legacy false preference to explicit Standard', () => {
+    expect(restoredCodexSessionOptions({ fastMode: 'false' }).get('serviceTier')).toBe('default')
+  })
+
+  it('preserves canonical speed precedence over a conflicting saved legacy toggle', () => {
+    expect(restoredCodexSessionOptions({
+      serviceTier: 'synthetic-ultra-request-id', fastMode: 'false'
+    }).get('serviceTier')).toBe('synthetic-ultra-request-id')
+  })
+
   it.each([
     ['model', 'gpt-next'],
     ['effort', 'high'],
