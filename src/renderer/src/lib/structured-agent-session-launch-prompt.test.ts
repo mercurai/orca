@@ -46,6 +46,12 @@ import {
   stageStructuredLaunchPrompt,
   takeBackLegacyStructuredLaunchPrompts
 } from './structured-agent-session-launch-prompt'
+import {
+  deleteStructuredAgentLaunchRecord,
+  readStructuredAgentLaunchRecord,
+  resetStructuredAgentLaunchPersistenceForTests,
+  writeStructuredAgentLaunchRecord
+} from './structured-agent-session-launch-persistence'
 
 const SESSION = 'session-1'
 const target = { kind: 'local' } as const
@@ -409,6 +415,81 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       expect(storage.drafts.size).toBe(0)
       expect(getStructuredAgentSessionPendingSends(SESSION)).toEqual([])
       expect(sends()).toEqual([])
+    })
+
+    it('restores multiple held prompts as separate paragraphs', async () => {
+      const storage = createMemoryNativeChatComposerDraftStorage()
+      setNativeChatComposerDraftStorageForTests(storage)
+      await hydrateNativeChatComposerDrafts()
+
+      expect(recover([
+        { clientMessageId: 'first-held-reservation', text: 'first held prompt' },
+        { clientMessageId: 'second-held-reservation', text: 'second held prompt' }
+      ])).toBe(true)
+      await nativeChatComposerDraftWritesSettled()
+
+      expect(draft()).toBe(`first held prompt
+
+second held prompt`)
+      expect(storage.drafts.get(structuredAgentSessionDraftScopeKey(SESSION))?.text).toBe(draft())
+      expect(sends()).toEqual([])
+    })
+
+    it('does not duplicate recovered text after source clearing fails and the user types before replay', async () => {
+      const storage = createMemoryNativeChatComposerDraftStorage()
+      setNativeChatComposerDraftStorageForTests(storage)
+      await hydrateNativeChatComposerDrafts()
+      const heldPromptDrafts = [{ clientMessageId: 'stable-legacy-reservation', text: 'recovered opening text' }]
+      resetStructuredAgentLaunchPersistenceForTests()
+      writeStructuredAgentLaunchRecord({
+        sessionId: SESSION, executionHostId: 'local', agent: 'codex', lifecycle: 'visibility-unknown',
+        clientOperationId: 'original-create', payloadFingerprint: 'original-fingerprint',
+        expectedRuntimeFence: null, createMessageSupport: false, heldPromptDrafts
+      })
+      expect(recover(heldPromptDrafts)).toBe(true)
+      await nativeChatComposerDraftWritesSettled()
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const removeItem = localStorage.removeItem.bind(localStorage)
+      const refuseSourceClear = vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => {
+        if (key === 'orca:structuredAgentLaunches:v1') {
+          throw new DOMException('Synthetic source-clear refusal', 'QuotaExceededError')
+        }
+        removeItem(key)
+      })
+      deleteStructuredAgentLaunchRecord(SESSION)
+      resetStructuredAgentLaunchPersistenceForTests()
+      const staleSource = readStructuredAgentLaunchRecord(SESSION)
+      expect(staleSource?.heldPromptDrafts).toEqual(heldPromptDrafts)
+      refuseSourceClear.mockRestore()
+
+      // A fresh renderer must deduplicate by recovery identity, even after later draft edits.
+      vi.resetModules()
+      const reloadedStorage = await import('@/components/native-chat/native-chat-composer-draft-storage')
+      reloadedStorage.setNativeChatComposerDraftStorageForTests(storage)
+      const reloadedStore = await import('@/components/native-chat/native-chat-composer-draft-store')
+      const reloadedCache = await import('@/components/native-chat/native-chat-draft-cache')
+      const reloadedRecovery = await import('./structured-agent-session-launch-prompt-recovery')
+      try {
+        await reloadedStore.hydrateNativeChatComposerDrafts()
+        const scope = structuredAgentSessionDraftScopeKey(SESSION)
+        const edited = `${reloadedCache.readNativeChatDraftCache(scope)}\n\ntext typed after recovery`
+        reloadedCache.writeNativeChatDraftCache(scope, edited)
+        reloadedStore.flushNativeChatComposerDrafts()
+        await reloadedStore.nativeChatComposerDraftWritesSettled()
+
+        expect(reloadedRecovery.recoverStructuredLaunchPromptDrafts(
+          SESSION, staleSource?.heldPromptDrafts ?? []
+        )).toBe(true)
+        await reloadedStore.nativeChatComposerDraftWritesSettled()
+
+        expect(reloadedCache.readNativeChatDraftCache(scope)).toBe(edited)
+        expect(reloadedCache.readNativeChatDraftCache(scope).split('recovered opening text')).toHaveLength(2)
+        expect(storage.drafts.get(scope)?.text).toBe(edited)
+        expect(sends()).toEqual([])
+      } finally {
+        reloadedStore.clearNativeChatComposerDraftsForTests()
+        resetStructuredAgentLaunchPersistenceForTests()
+      }
     })
   })
 })
