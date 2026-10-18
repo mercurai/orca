@@ -1,25 +1,55 @@
 import { describe, expect, it } from 'vitest'
-import { estimateCostUsd } from './claude-model-pricing'
+import { MODEL_PRICING, estimateCostUsd, normalizeModelForPricing } from './claude-model-pricing'
 
 describe('model pricing name matching', () => {
+  it.each(Object.keys(MODEL_PRICING))('resolves the table key %s to its own row', (key) => {
+    expect(normalizeModelForPricing(key)).toBe(key)
+  })
+
   it.each([
-    [' ANTHROPIC/claude-opus-4.1-thinking ', 15],
-    ['claude-opus-4.10', 5],
-    ['claude-opus-4-20250514', 15],
-    ['claude-opus-4.20250514', 15],
-    ['claude.opus.4.9', null],
-    ['claude-opus-4.9', 5],
-    ['claude-sonnet-50', null],
-    ['claude-sonnet-5-thinking', 2],
-    ['claude-sonnet-5-opus-5', 5],
-    ['claude-opus-5-5', 4],
-    ['claude-opus-5.5[1m]', 4],
-    ['claude-opus-5-50', 5],
-    ['claude-fable-5-1', 10],
-    ['claude-opus-5-5-thinking', 4],
-    ['claude-3.5-sonnet-20241022', 3]
-  ])('preserves version boundaries and match priority for %s', (model, inputPrice) => {
-    expect(estimateCostUsd(model, 1_000_000, 0, 0, 0)).toBe(inputPrice)
+    [' ANTHROPIC/claude-opus-4.1-thinking ', 'claude-opus-4-1'],
+    ['claude-opus-4-20250514', 'claude-opus-4'],
+    ['claude-opus-4.20250514', 'claude-opus-4'],
+    ['claude-opus-4@20250514', 'claude-opus-4'],
+    ['claude-opus-4-5@20251101', 'claude-opus-4-5'],
+    ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'claude-sonnet-4-5'],
+    ['claude-sonnet-5-thinking', 'claude-sonnet-5'],
+    ['claude-sonnet-5-5', 'claude-sonnet-5-5'],
+    ['claude-sonnet-5.5[1m]', 'claude-sonnet-5-5'],
+    ['claude-opus-5.5[1m]', 'claude-opus-5-5'],
+    ['claude-opus-5-5-thinking', 'claude-opus-5-5'],
+    ['claude-fable-5-1[1m]', 'claude-fable-5-1'],
+    ['claude-fable-5-1m', 'claude-fable-5'],
+    ['claude-opus-4.8-thinking', 'claude-opus-4-8'],
+    ['claude-3-5-sonnet-20241022', 'claude-sonnet-3-5'],
+    ['claude-3.5-sonnet', 'claude-sonnet-3-5'],
+    ['claude-3-7-sonnet-20250219', 'claude-sonnet-3-7'],
+    ['claude-3-5-haiku-20241022', 'claude-haiku-3-5'],
+    ['claude-3-haiku-20240307', 'claude-haiku-3'],
+    ['claude-4.5-sonnet-thinking', 'claude-sonnet-4-5'],
+    ['model_placeholder_m26', 'claude-opus-4-6']
+  ])('reads the family and version out of %s', (model, key) => {
+    expect(normalizeModelForPricing(model)).toBe(key)
+  })
+
+  // Why: an unknown version must stay unpriced (and flagged), never borrow an older model's rates.
+  it.each([
+    'claude-opus-5-6',
+    'claude-sonnet-5-6',
+    'claude-fable-5-2',
+    'claude-opus-6',
+    'claude-opus-4.9',
+    'claude-opus-5-50',
+    'claude-sonnet-50',
+    'claude-3-opus-20240229',
+    'sonnet',
+    'gpt-5'
+  ])('leaves %s unpriced', (model) => {
+    expect(normalizeModelForPricing(model)).toBeNull()
+  })
+
+  it('leaves Haiku 5.5 unpriced until per-request prompt sizes are tracked', () => {
+    expect(normalizeModelForPricing('claude-haiku-5-5')).toBeNull()
   })
 })
 
@@ -27,6 +57,14 @@ describe('point-release rates that differ from their major', () => {
   it('bills Opus 5.5 below Opus 5 across every bucket', () => {
     expect(estimateCostUsd('claude-opus-5-5', 1_000_000, 1_000_000, 1_000_000, 0)).toBeCloseTo(24.2)
     expect(estimateCostUsd('claude-opus-5-5', 0, 0, 0, 1_000_000, 400_000)).toBeCloseTo(6.2)
+  })
+
+  it('bills Sonnet 5.5 cache reads at half of Sonnet 5', () => {
+    expect(estimateCostUsd('claude-sonnet-5-5', 0, 0, 1_000_000, 0)).toBeCloseTo(0.1)
+    expect(estimateCostUsd('claude-sonnet-5-5', 1_000_000, 1_000_000, 0, 1_000_000, 0)).toBeCloseTo(
+      14.5
+    )
+    expect(estimateCostUsd('claude-sonnet-5-5', 0, 0, 0, 1_000_000, 1_000_000)).toBeCloseTo(4)
   })
 
   it('bills Fable 5.1 cache reads at a quarter of Fable 5', () => {

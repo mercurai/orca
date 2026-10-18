@@ -54,6 +54,8 @@ jobs:
           src/main/codex/codex-structured-speed-legacy-migration.test.ts
           src/main/codex/codex-structured-speed-state.test.ts
           src/main/orca-profiles/profile-cloud-session-store.test.ts
+          src/main/orca-profiles/profile-cloud-sign-in-progress.test.ts
+          src/main/orca-profiles/profile-cloud-service-connect-overlap.test.ts
           src/main/orcad/orcad-host-cleanup.test.ts
           src/shared/structured-agent-session-speed.test.ts
           src/shared/structured-agent-session-speed-state.test.ts

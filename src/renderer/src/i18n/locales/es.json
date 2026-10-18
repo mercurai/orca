@@ -581,7 +581,8 @@
             "76deec8f58": "Error al cambiar organización",
             "7d4bc516ee": "Error al cambiar perfil",
             "f518e89aa5": "El proyecto ya existe en ese perfil",
-            "f03ae7f27b": "Error al transferir proyecto"
+            "f03ae7f27b": "Error al transferir proyecto",
+            "signInTimedOut": "Se agotó el tiempo de inicio de sesión"
           }
         },
         "runtime": {
@@ -17943,6 +17944,14 @@
         "a62f9db53d": "Cancel",
         "c77189bc0c": "Update filter",
         "19af906d12": "Save filter"
+      },
+      "OrcaSignInProgress": {
+        "waiting": "Esperando el inicio de sesión en tu navegador",
+        "copyLink": "Copiar enlace de inicio de sesión",
+        "copied": "Enlace de inicio de sesión copiado",
+        "copyFailed": "No se pudo copiar el enlace.",
+        "signingIn": "Iniciando sesión…",
+        "cancel": "Cancelar"
       }
     },
     "i18n": {

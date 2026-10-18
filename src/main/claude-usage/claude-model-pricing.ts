@@ -24,18 +24,37 @@ const SONNET_LONG_CONTEXT_PRICING = {
   cacheWrite1hAboveThreshold: 12
 } satisfies Partial<ClaudeModelPricing>
 
-const MODEL_PRICING: Record<string, ClaudeModelPricing> = {
-  // Why: Fable 5.1 keeps Fable 5's rates except cache reads, which drop to $0.25.
-  'claude-fable-5-1': {
-    input: 10,
-    output: 50,
-    cacheRead: 0.25,
-    cacheWrite: 12.5,
-    cacheWrite1h: 20
-  },
-  'claude-fable-5': { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5, cacheWrite1h: 20 },
+// Mythos models are billed at their Fable counterparts' rates.
+const FABLE_5_1_PRICING: ClaudeModelPricing = {
+  input: 10,
+  output: 50,
+  cacheRead: 0.25,
+  cacheWrite: 12.5,
+  cacheWrite1h: 20
+}
+const FABLE_5_PRICING: ClaudeModelPricing = {
+  input: 10,
+  output: 50,
+  cacheRead: 1,
+  cacheWrite: 12.5,
+  cacheWrite1h: 20
+}
+
+/**
+ * Keyed by `claude-<family>-<major>[-<minor>]`; `normalizeModelForPricing` resolves only exact
+ * keys, so a new model stays unpriced (and flagged in the UI) until its row lands here.
+ * Why no `claude-haiku-5-5`: it reprices a whole request whose prompt exceeds 100K tokens, and
+ * these estimates run on daily totals that cannot tell which requests crossed that line.
+ */
+export const MODEL_PRICING: Record<string, ClaudeModelPricing> = {
+  'claude-fable-5-1': FABLE_5_1_PRICING,
+  'claude-mythos-5-1': FABLE_5_1_PRICING,
+  'claude-fable-5': FABLE_5_PRICING,
+  'claude-mythos-5': FABLE_5_PRICING,
   'claude-opus-5-5': { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, cacheWrite1h: 8 },
   'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25, cacheWrite1h: 10 },
+  // Why: Sonnet 5.5 cache reads are 0.05x base input, half of Sonnet 5's.
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 },
   // Why: Sonnet 5 bills its full 1M window at flat rates, so no long-context tier here.
   // Why: $2/$10 needs no date dimension — it launched as introductory pricing through
   // 2026-08-31 but is now the standard price; the 2026-09-01 rise to $3/$15 was cancelled.
@@ -83,113 +102,40 @@ const MODEL_PRICING: Record<string, ClaudeModelPricing> = {
   }
 }
 
+// Opaque IDs that carry no family or version to parse.
 const MODEL_ALIASES: Record<string, string> = {
   model_placeholder_m26: 'claude-opus-4-6',
-  model_placeholder_m35: 'claude-sonnet-4-6',
-  'claude-opus-4.8': 'claude-opus-4-8',
-  'claude-opus-4.6': 'claude-opus-4-6',
-  'claude-sonnet-4.6': 'claude-sonnet-4-6',
-  'claude-opus-4.8-thinking': 'claude-opus-4-8',
-  'claude-opus-4.6-thinking': 'claude-opus-4-6',
-  'claude-sonnet-4.6-thinking': 'claude-sonnet-4-6',
-  'claude-opus-4-8-thinking': 'claude-opus-4-8',
-  'claude-opus-4-6-thinking': 'claude-opus-4-6',
-  'claude-sonnet-4-6-thinking': 'claude-sonnet-4-6'
+  model_placeholder_m35: 'claude-sonnet-4-6'
 }
 
-function isLegacyBaseOpus4Model(normalized: string): boolean {
-  return /opus-4(?:$|-thinking$|-20\d{6}(?:-thinking)?$|@20\d{6}$)/.test(normalized)
+const MODEL_FAMILIES = 'fable|mythos|opus|sonnet|haiku'
+// `claude-opus-5-5[1m]`, `us.anthropic.claude-sonnet-4-5-20250929-v1:0`, `claude-opus-4@20250514`.
+// Why: a minor is at most two digits and not followed by a letter, so date stamps and the
+// `-1m` context suffix are not read as point releases.
+const FAMILY_FIRST_ID = new RegExp(
+  `(?:^|[^a-z])(?<family>${MODEL_FAMILIES})-(?<major>\\d{1,2})(?:-(?<minor>\\d{1,2})(?![0-9a-z]))?(?![0-9])`
+)
+// Legacy version-first IDs such as `claude-3-5-sonnet-20241022`, still in historical logs.
+const VERSION_FIRST_ID = new RegExp(
+  `(?:^|[^0-9a-z])(?<major>\\d{1,2})(?:-(?<minor>\\d{1,2}))?-(?<family>${MODEL_FAMILIES})(?![a-z])`
+)
+
+function parseModelKey(normalized: string): string | null {
+  const groups = (FAMILY_FIRST_ID.exec(normalized) ?? VERSION_FIRST_ID.exec(normalized))?.groups
+  if (!groups) {
+    return null
+  }
+  const { family, major, minor } = groups
+  return minor === undefined ? `claude-${family}-${major}` : `claude-${family}-${major}-${minor}`
 }
 
-function normalizeModelForPricing(model: string | null): string | null {
+export function normalizeModelForPricing(model: string | null): string | null {
   if (!model) {
     return null
   }
-  const lower = model
-    .toLowerCase()
-    .trim()
-    .replace(/^anthropic[/:]/, '')
-  const alias = MODEL_ALIASES[lower]
-  if (alias) {
-    return alias
-  }
-  const normalized = lower.replace(/\./g, '-')
-  // Why: point releases must match before their major, whose pattern also accepts `-5-1`/`-5-5`;
-  // a trailing letter (e.g. `-1m`) is not a point release.
-  if (/fable-5-1(?:$|[^0-9a-z])/.test(normalized)) {
-    return 'claude-fable-5-1'
-  }
-  if (/fable-5(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-fable-5'
-  }
-  if (/opus-5-5(?:$|[^0-9a-z])/.test(normalized)) {
-    return 'claude-opus-5-5'
-  }
-  if (/opus-5(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-opus-5'
-  }
-  if (/opus-4-8(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-opus-4-8'
-  }
-  if (/opus-4-7(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-opus-4-7'
-  }
-  if (/opus-4-6(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-opus-4-6'
-  }
-  if (/opus-4-5(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-opus-4-5'
-  }
-  if (/opus-4-1(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-opus-4-1'
-  }
-  if (isLegacyBaseOpus4Model(normalized)) {
-    return 'claude-opus-4'
-  }
-  if (lower.includes('opus-4')) {
-    // Why: new Opus 4 point releases now share the current low Opus pricing;
-    // avoid overbilling unknown future Claude Code model IDs as legacy Opus 4.
-    return 'claude-opus-4-8'
-  }
-  if (/sonnet-5(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-sonnet-5'
-  }
-  if (/sonnet-4-6(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-sonnet-4-6'
-  }
-  if (/sonnet-4-5(?:$|[^0-9])/.test(normalized)) {
-    return 'claude-sonnet-4-5'
-  }
-  if (lower.includes('sonnet-4')) {
-    return 'claude-sonnet-4-6'
-  }
-  if (lower.includes('sonnet-3-7') || lower.includes('sonnet-3.7')) {
-    return 'claude-sonnet-3-7'
-  }
-  // Why: legacy version-first IDs like `claude-3-5-sonnet-20241022` are still
-  // present in historical Claude Code/SDK logs read off disk. Match them so
-  // their cost is not silently dropped from the breakdown.
-  if (
-    lower.includes('sonnet-3-5') ||
-    lower.includes('sonnet-3.5') ||
-    lower.includes('3-5-sonnet') ||
-    lower.includes('3.5-sonnet')
-  ) {
-    return 'claude-sonnet-3-5'
-  }
-  if (lower.includes('haiku-4-5')) {
-    return 'claude-haiku-4-5'
-  }
-  if (lower.includes('haiku-3-5') || lower.includes('haiku-3.5')) {
-    return 'claude-haiku-3-5'
-  }
-  if (lower.includes('3-5-haiku') || lower.includes('3.5-haiku')) {
-    return 'claude-haiku-3-5'
-  }
-  if (lower.includes('haiku-3')) {
-    return 'claude-haiku-3'
-  }
-  return null
+  const lower = model.toLowerCase().trim()
+  const key = MODEL_ALIASES[lower] ?? parseModelKey(lower.replace(/\./g, '-'))
+  return key !== null && Object.hasOwn(MODEL_PRICING, key) ? key : null
 }
 
 function calculateTieredCost(

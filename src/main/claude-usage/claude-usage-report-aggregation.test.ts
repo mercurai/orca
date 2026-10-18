@@ -69,3 +69,27 @@ describe('buildSummary Claude Sonnet 5 pricing over time', () => {
     expect(summary.estimatedCostUsd).toBeCloseTo(24)
   })
 })
+
+describe('buildSummary unpriced models', () => {
+  it('keeps the priced total and flags the rows it had to leave out', () => {
+    const summary = buildSummary(
+      stateWithDaily([
+        dailyRow('2026-10-15', 'claude-sonnet-5-5'),
+        dailyRow('2026-10-15', 'claude-opus-9')
+      ]),
+      'all',
+      'all'
+    )
+
+    expect(summary.estimatedCostUsd).toBeCloseTo(12)
+    expect(summary.hasUnpricedModels).toBe(true)
+  })
+
+  it('does not flag rows that carry no model name', () => {
+    const row = { ...dailyRow('2026-10-15', 'claude-sonnet-5-5'), model: null }
+    const summary = buildSummary(stateWithDaily([row]), 'all', 'all')
+
+    expect(summary.estimatedCostUsd).toBeNull()
+    expect(summary.hasUnpricedModels).toBe(false)
+  })
+})

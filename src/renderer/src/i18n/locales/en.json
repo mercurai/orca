@@ -762,7 +762,8 @@
             "76deec8f58": "Failed to switch organization",
             "7d4bc516ee": "Failed to switch profile",
             "f518e89aa5": "Project already exists in that profile",
-            "f03ae7f27b": "Failed to transfer project"
+            "f03ae7f27b": "Failed to transfer project",
+            "signInTimedOut": "Sign-in timed out"
           }
         },
         "runtime": {
@@ -6191,6 +6192,8 @@
           "sshAliasRequiredDetail": "Add a Host alias for {{host}}:{{port}} to your local SSH config, reconnect the workspace, then try again.",
           "remoteEditorUnsupported": "This app cannot open SSH workspaces.",
           "remoteEditorUnsupportedDetail": "Choose VS Code or use the app locally.",
+          "remoteEditorHint": "Only VS Code can open folders on an SSH host.",
+          "remoteRuntimeEditorHint": "Apps on this computer can open this server’s files only when Orca reaches it over SSH.",
           "remotePathInvalid": "Path is not valid for the SSH host.",
           "remotePathInvalidDetail": "Refresh the workspace before trying again.",
           "remoteLaunchFailed": "Could not open the path in VS Code.",
@@ -18164,6 +18167,14 @@
         "a62f9db53d": "Cancel",
         "c77189bc0c": "Update filter",
         "19af906d12": "Save filter"
+      },
+      "OrcaSignInProgress": {
+        "waiting": "Waiting for sign-in in your browser",
+        "copyLink": "Copy sign-in link",
+        "copied": "Sign-in link copied",
+        "copyFailed": "Could not copy the link.",
+        "signingIn": "Signing in…",
+        "cancel": "Cancel"
       }
     },
     "i18n": {

@@ -498,7 +498,7 @@ describe('ClaudeUsageStore', () => {
     ).toBeCloseTo(11.025)
   })
 
-  it('prices unknown newer Opus 4 point releases with current Opus rates', async () => {
+  it('leaves unknown Opus point releases unpriced instead of borrowing another model', async () => {
     const store = createStoreWithState({
       dailyAggregates: [
         {
@@ -536,7 +536,8 @@ describe('ClaudeUsageStore', () => {
 
     const summary = await store.getSummary('orca', '30d')
 
-    expect(summary.estimatedCostUsd).toBeCloseTo(73.5)
+    expect(summary.estimatedCostUsd).toBeNull()
+    expect(summary.hasUnpricedModels).toBe(true)
   })
 
   it('does not collapse older Opus 4.1 or base Opus 4 usage into current Opus pricing', async () => {
