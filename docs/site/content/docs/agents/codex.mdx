@@ -26,6 +26,9 @@ a non-Standard selection requires fresh support from that execution account's ca
 is unknown or unavailable, refresh the model catalog or explicitly choose Standard and send again.
 Orca does not silently replace the selection with a different speed.
 
+Changing or reauthenticating an account invalidates its catalog, including a saved successful listing.
+A discovery request started before that change cannot establish support for the new account.
+
 Saved Fast-off preferences become Standard. Saved Fast-on preferences stay pending until the
 current account/model catalog identifies Fast's exact request ID. A saved canonical tier takes
 precedence over the old boolean preference. Unknown support never silently becomes Standard.

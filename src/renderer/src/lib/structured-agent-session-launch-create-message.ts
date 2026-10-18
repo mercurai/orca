@@ -30,12 +30,15 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
   return {
     params,
     commit: () => {
+      // A joiner may hand off the CLI source while speed authorization awaits.
+      const { options: _currentOptions, ...currentFields } = intent.params
+      const currentParams = { ...currentFields, ...(params.options ? { options: params.options } : {}) }
       if (intent.createMessageSupport !== true) {
         prepareLegacyStructuredLaunchPrompts(intent.sessionId)
-        return params
+        return currentParams
       }
       const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
-      return { ...params, ...(firstMessage ? { firstMessage } : {}) }
+      return { ...currentParams, ...(firstMessage ? { firstMessage } : {}) }
     }
   }
 }

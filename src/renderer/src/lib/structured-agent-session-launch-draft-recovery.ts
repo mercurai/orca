@@ -53,3 +53,13 @@ export function recoverStructuredLaunchDrafts(state: StructuredLaunchState): Pro
   state.draftRecovery = recovery
   return recovery
 }
+
+/** Retry cannot replace the launch identity until unsent text has durable ownership. */
+export async function requireStructuredLaunchDraftRecovery(state: StructuredLaunchState): Promise<void> {
+  if (!(await recoverStructuredLaunchDrafts(state))) {
+    throw new Error('Unsent message recovery needs durable storage')
+  }
+  if (state.cancelled) {
+    throw new Error('Launch cancelled during message recovery')
+  }
+}

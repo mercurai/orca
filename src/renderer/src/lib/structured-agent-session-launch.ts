@@ -1,4 +1,4 @@
-import { recoverStructuredLaunchDrafts } from './structured-agent-session-launch-draft-recovery'
+import { requireStructuredLaunchDraftRecovery } from './structured-agent-session-launch-draft-recovery'
 import { useAppStore } from '@/store'
 import { reserveStructuredLaunchSlot } from './structured-agent-session-launch-surface'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -134,19 +134,13 @@ function resetStructuredLaunchCallers(state: StructuredLaunchState): void {
 
 function restartStructuredLaunchState(state: StructuredLaunchState): void {
   const wasVisibilityUnknown = state.visibilityUnknown || Boolean(state.heldPromptDrafts?.length)
-  const recovery = recoverStructuredLaunchDrafts(state)
+  const recovery = requireStructuredLaunchDraftRecovery(state)
   resetStructuredLaunchCallers(state)
   delete state.failure
   state.callers.outcome = 'pending'
   state.selection = { ...state.selection, seed: state.intent.seedOptions }
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
-  state.promise = recovery.then((recovered) => {
-    if (!recovered) {
-      throw new Error('Unsent message recovery needs durable storage')
-    }
-    if (state.cancelled) {
-      throw new Error('Launch cancelled during message recovery')
-    }
+  state.promise = recovery.then(() => {
     if (!wasVisibilityUnknown) {
       const surfaceAddress = state.intent.surfaceAddress
       state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)

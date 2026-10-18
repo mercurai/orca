@@ -48,12 +48,10 @@ async function refresh(input: BackgroundCatalogInput): Promise<void> {
         throw error
       }
     }
-    if (access) {
-      // Joining the store also fences a cold-cache listing across account changes.
-      await access.store.refresh(access.fingerprint, 'codex', access, listModels)
-    } else {
-      await listModels()
-    }
+    // Joining the store also fences a cold-cache listing across account changes.
+    await (access
+      ? access.store.refresh(access.fingerprint, 'codex', access, listModels)
+      : listModels())
   } catch (error) {
     if (!isCurrent()) {
       return
