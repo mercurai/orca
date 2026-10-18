@@ -6,7 +6,7 @@
 //
 //   node check-orcad-template.mjs --repo <checkout of the release tag> \
 //     --resources <dir holding orcad-template> --targets linux-x64-glibc [--require <filename>]...
-import { existsSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -32,9 +32,22 @@ export async function checkOrcadTemplate({ repoRoot, resourcesDir, targets, requ
     problems.push(error instanceof Error ? error.message : String(error))
   }
   const templateDir = join(resourcesDir, 'orcad-template')
-  const common = new Set(artifacts.orcadTemplateCommonFilenames())
+  // Modern tags derive content-addressed page assets from the packaged slot's own manifest.
+  // Older tags have no parser and ignore the additional empty-array arguments below.
+  let mobileWebAssets = []
+  if (typeof artifacts.orcadMobileWebAssetFilenames === 'function') {
+    try {
+      mobileWebAssets = artifacts.orcadMobileWebAssetFilenames(
+        readFileSync(join(templateDir, artifacts.ORCAD_MOBILE_WEB_MANIFEST), 'utf8')
+      )
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : String(error))
+      return problems
+    }
+  }
+  const common = new Set(artifacts.orcadTemplateCommonFilenames(mobileWebAssets))
   for (const target of targets) {
-    for (const filename of artifacts.orcadArtifactFilenames(target)) {
+    for (const filename of artifacts.orcadArtifactFilenames(target, mobileWebAssets)) {
       const path = common.has(filename)
         ? join(templateDir, ...filename.split('/'))
         : join(templateDir, artifacts.ORCAD_TEMPLATE_TARGETS_DIR, target, ...filename.split('/'))

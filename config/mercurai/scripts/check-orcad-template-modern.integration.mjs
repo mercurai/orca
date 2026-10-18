@@ -66,6 +66,12 @@ test('validates every asset from the packaged slot manifest with the modern tag 
   assert.deepEqual(await check(f), [])
 })
 
+test('rejects a missing modern page manifest instead of assuming an empty asset list', async () => {
+  const f = await fixture()
+  await rm(join(f.templateDir, artifacts.ORCAD_MOBILE_WEB_MANIFEST))
+  assert.match(await failureText(f), /manifest\.json/)
+})
+
 test('rejects a missing hashed page asset', async () => {
   const f = await fixture()
   await rm(join(f.templateDir, artifacts.ORCAD_MOBILE_WEB_DIR, 'assets/app.abc123.js'))
