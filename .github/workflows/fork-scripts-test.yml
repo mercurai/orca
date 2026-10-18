@@ -56,4 +56,17 @@ jobs:
         run: bash config/mercurai/scripts/test-fork-series-scripts.sh
 
       - name: Node scripts
-        run: node --test "config/mercurai/scripts/*.test.mjs"
+        run: node --test --test-concurrency=2 "config/mercurai/scripts/*.test.mjs"
+
+      - name: Check out the pinned modern template API contract
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: mercurai/orca
+          ref: 1377393b74d5659c387bd00fe02eb351244b8add
+          path: .template-product
+          persist-credentials: false
+
+      - name: Verify the checker against modern packaged templates
+        env:
+          ORCA_TEMPLATE_PRODUCT_REPO: ${{ github.workspace }}/.template-product
+        run: node --test --test-concurrency=2 config/mercurai/scripts/check-orcad-template-modern.integration.mjs
