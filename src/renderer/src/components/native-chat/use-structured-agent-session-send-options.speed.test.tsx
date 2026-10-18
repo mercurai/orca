@@ -45,7 +45,8 @@ function composer(agent = 'codex', takesSendOptions = true) {
       createStructuredAgentSessionOptionState(agent, seed), seed, {
         models: [{
           id: MODEL, label: 'Synthetic', isDefault: true,
-          efforts: [{ value: 'high', label: 'High' }],
+          // A single advertised effort intentionally has no picker in discoveredModel.
+          efforts: [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }],
           serviceTiers: [{ value: FAST, label: 'Fast' }, { value: ULTRA, label: 'Ultrafast' }]
         }],
         current: { model: MODEL, effort: 'high', serviceTier: FAST }

@@ -53,7 +53,7 @@ const RECEIPT_FENCE = 7
 function submission(clientMessageId: string): AgentJournalSubmission {
   return { clientMessageId, fence: RECEIPT_FENCE, payloadFingerprint: 'a'.repeat(64),
     dispatchState: 'accepted', handoverRecorded: true, providerItemId: null, reason: null,
-    submittedAt: 1_000, resolvedAt: 1_000 }
+    submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000 }
 }
 
 function created(params: ReturnType<typeof CreateIntentParams.parse>) {
@@ -100,7 +100,7 @@ async function begin(agent: 'codex' | 'claude' = 'codex') {
 
 beforeEach(() => {
   vi.useFakeTimers()
-  vi.setSystemTime(1_000)
+  vi.setSystemTime(1_760_000_000_000)
   vi.clearAllMocks()
   localStorage.clear()
   resetStructuredAgentLaunchRegistryForTests()
@@ -113,7 +113,7 @@ beforeEach(() => {
       sessionId, worktreeId: WORKTREE, executionHostId: 'local', target: { kind: 'local' }, agent,
       seedOptions: options,
       params: structuredAgentSessionCreateParams({ sessionId, worktree: `id:${WORKTREE}`, agent,
-        options, randomUuid: () => 'synthetic-create', now: 1_000 })
+        options, randomUuid: () => '01234567-89ab-cdef-0123-456789abcdef', now: 1_760_000_000_000 })
     }
     return intent
   })

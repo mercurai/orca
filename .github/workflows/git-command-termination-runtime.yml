@@ -64,6 +64,8 @@ jobs:
           src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
           src/renderer/src/lib/structured-agent-session-launch-held-speed-refusal.test.ts
           src/renderer/src/components/native-chat/use-structured-agent-session-send-options.speed.test.tsx
+          src/renderer/src/components/native-chat/use-structured-agent-session-sends.test.tsx
+          src/shared/structured-agent-session-option-view.test.ts
           src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
           src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
           src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
