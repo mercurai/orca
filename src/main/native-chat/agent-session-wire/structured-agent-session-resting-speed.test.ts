@@ -1,3 +1,4 @@
+import { closeTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
 import { afterEach, describe, expect, it } from 'vitest'
 import { agentSessionLeaseFixture, agentSessionRecordFixture } from '../../../shared/agent-session-record.test-fixture'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
@@ -17,6 +18,11 @@ const rigs: RestTestRig[] = []
 
 afterEach(async () => {
   for (const rig of rigs.splice(0)) {
+    await rig.host.close(SESSION, 'evict')
+    rig.host.collaboratorsForTests().lifetime.idleSweep.dispose()
+    rig.host.stopDelivery()
+    await rig.host.flushAllStreamedEvents()
+    closeTestJournalHostDatabase(rig.root)
     await rig.dispose()
   }
 })
