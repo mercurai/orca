@@ -4,6 +4,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
       - 'src/main/git/command-runner/**'
+      - 'src/main/native-chat/agent-model-catalog/**'
       - 'src/packages/process-host/**'
       - 'src/main/codex/codex-structured-session-options.test.ts'
       - 'src/main/codex/codex-structured-speed-*.test.ts'
@@ -65,6 +66,7 @@ jobs:
           src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
           src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
           src/shared/agent-session-failure-words.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
   fork-costs:
     name: Deterministic fork costs (${{ matrix.os }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
