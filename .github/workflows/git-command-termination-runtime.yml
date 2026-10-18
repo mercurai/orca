@@ -25,4 +25,4 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/install-node-dependencies
       - name: Verify process termination and worker stderr progress
-        run: node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 src/main/git/command-runner/spawned-command-tree-kill.test.ts src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
+        run: node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2 src/main/git/command-runner/spawned-command-tree-kill.test.ts src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts src/main/git/command-runner/git-spawn-worker-client.test.ts

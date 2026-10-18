@@ -172,6 +172,11 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
       spawnMs: performance.now() - startedAt
     })
     wireLifecycle(entry, child)
+    if (request.observeStderr) {
+      child.stderr?.on('data', (chunk: string | Buffer) =>
+        forwardChunk(entry, 'stderr', typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
+      )
+    }
     if (request.stdin !== undefined) {
       endSubprocessStdin(child.stdin, request.stdin)
     }

@@ -53,6 +53,7 @@ export type SpawnWorkerRequest =
       maxBuffer: number
       timeoutMs?: number
       stdin?: string
+      observeStderr?: boolean
     }
   | {
       type: 'stream'

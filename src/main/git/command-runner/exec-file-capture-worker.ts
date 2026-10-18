@@ -63,10 +63,12 @@ export function execFileCaptureOnWorker(
       encoding: options.encoding,
       maxBuffer: options.maxBuffer ?? DEFAULT_GIT_MAX_BUFFER,
       ...(options.timeout && options.timeout > 0 ? { timeoutMs: options.timeout } : {}),
-      ...(options.stdin === undefined ? {} : { stdin: options.stdin })
+      ...(options.stdin === undefined ? {} : { stdin: options.stdin }),
+      ...(options.onStderr ? { observeStderr: true } : {})
     },
     () => options.onChildTerminated?.(),
-    options.onSpawned
+    options.onSpawned,
+    options.onStderr
   )
   if (!handle) {
     return null

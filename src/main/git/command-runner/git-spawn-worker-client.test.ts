@@ -36,6 +36,30 @@ function newClient(workers: FakeWorker[]): GitSpawnWorkerClient {
 }
 
 describe('GitSpawnWorkerClient', () => {
+  it('detaches a throwing capture observer without losing output or chunk acknowledgments', async () => {
+    const workers: FakeWorker[] = []
+    const client = newClient(workers)
+    const observer = vi.fn(() => {
+      throw new Error('observer failure')
+    })
+    const handle = client.capture({ ...SPEC, observeStderr: true }, () => {}, undefined, observer)
+    const progress = Buffer.from('progress')
+    workers[0]?.reply({ type: 'chunk', id: 1, channel: 'stderr', data: progress })
+    workers[0]?.reply({ type: 'chunk', id: 1, channel: 'stderr', data: progress })
+    await Promise.resolve()
+    expect(observer).toHaveBeenCalledOnce()
+    expect(workers[0]?.requests.at(-1)).toEqual({ type: 'ack', id: 1, chunks: 2 })
+    workers[0]?.reply({
+      type: 'result', id: 1, error: null, stdout: 'complete',
+      stderr: 'progressprogress', terminating: false
+    })
+    await expect(handle?.outcome).resolves.toMatchObject({
+      kind: 'result', stdout: 'complete', stderr: 'progressprogress'
+    })
+    workers[0]?.reply({ type: 'closed', id: 1, code: 0, signal: null })
+    client.dispose()
+  })
+
   it('settles a capture from the worker result and reports termination on close', async () => {
     const workers: FakeWorker[] = []
     const client = newClient(workers)

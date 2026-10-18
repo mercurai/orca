@@ -65,6 +65,7 @@ type Entry = {
     settle: (outcome: CaptureOutcome) => void
     onTerminated: () => void
     onSpawned?: (spawnMs: number) => void
+    onStderr?: (chunk: string) => void
   }
   stream?: StreamEvents
 }
@@ -119,14 +120,15 @@ export class GitSpawnWorkerClient {
   capture(
     spec: CaptureSpec,
     onTerminated: () => void,
-    onSpawned?: (spawnMs: number) => void
+    onSpawned?: (spawnMs: number) => void,
+    onStderr?: (chunk: string) => void
   ): CaptureHandle | null {
     let settle: (outcome: CaptureOutcome) => void = () => {}
     const outcome = new Promise<CaptureOutcome>((resolve) => {
       settle = resolve
     })
     const entry = this.register(spec.command, spec.args)
-    entry.capture = { settle, onTerminated, onSpawned }
+    entry.capture = { settle, onTerminated, onSpawned, onStderr }
     if (!this.send({ type: 'capture', id: entry.id, ...spec }, entry)) {
       return null
     }
@@ -258,6 +260,15 @@ export class GitSpawnWorkerClient {
   }
 
   private handleChunk(entry: Entry, channel: 'stdout' | 'stderr', data: Uint8Array): void {
+    if (channel === 'stderr' && entry.capture?.onStderr) {
+      try {
+        const chunk = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8')
+        entry.capture.onStderr(chunk)
+      } catch {
+        entry.capture.onStderr = undefined
+        this.log('Git stderr observer failed; detached it')
+      }
+    }
     entry.stream?.onChunk(channel, Buffer.from(data.buffer, data.byteOffset, data.byteLength))
     entry.unackedChunks += 1
     if (!entry.ackScheduled) {
