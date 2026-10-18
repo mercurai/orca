@@ -129,3 +129,26 @@ test('fails closed when the version cannot be read', () => {
     assert.equal(run.outputs, '', JSON.stringify(options))
   }
 })
+
+test('mobile dependencies are installed and checked before building the template page', () => {
+  const installAt = workflow.indexOf('      - name: Install mobile dependencies\n')
+  const pageAt = workflow.indexOf('      - name: Build the mobile web bundle\n')
+  assert.ok(installAt !== -1 && pageAt > installAt)
+  const install = workflow.slice(installAt, pageAt)
+  assert.match(install, /if: steps\.support\.outputs\.ships == 'true'/)
+  assert.match(install, /working-directory: mobile\n/)
+  assert.match(install, /pnpm install --frozen-lockfile\n/)
+  assert.doesNotMatch(install, /--ignore-scripts/)
+  assert.match(install, /git diff --exit-code -- package\.json pnpm-lock\.yaml pnpm-workspace\.yaml/)
+})
+
+test('the verified mobile page is built before orcad stages it', () => {
+  const pageAt = workflow.indexOf('      - name: Build the mobile web bundle\n')
+  const serverAt = workflow.indexOf(
+    '      - name: Build orcad and run the headless server tests against the artifact\n'
+  )
+  assert.ok(pageAt !== -1 && serverAt > pageAt)
+  const page = workflow.slice(pageAt, serverAt)
+  assert.match(page, /if: steps\.support\.outputs\.ships == 'true'/)
+  assert.match(page, /run: pnpm run build:mobile-web\n/)
+})

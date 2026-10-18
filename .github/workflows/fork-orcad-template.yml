@@ -163,6 +163,20 @@ jobs:
           pnpm build:orcad-prebuilds --require-slots "$(node config/scripts/build-orcad-prebuilds.mjs --print-slot)"
           pnpm build:orcad-prebuilds --smoke
 
+      # Mobile is a separate workspace; its postinstall generates modules the page imports.
+      # Mirror the upstream bundle action without its repository actions or caches.
+      - name: Install mobile dependencies
+        if: steps.support.outputs.ships == 'true'
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+
+      - name: Build the mobile web bundle
+        if: steps.support.outputs.ships == 'true'
+        run: pnpm run build:mobile-web
+
       # Upstream qualifies the slot with a real server before it may enter a template.
       - name: Build orcad and run the headless server tests against the artifact
         if: steps.support.outputs.ships == 'true'
