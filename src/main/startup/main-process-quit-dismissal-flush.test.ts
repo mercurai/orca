@@ -55,9 +55,16 @@ afterEach(() => {
 it('awaits the mobile dismissal flush inside the will-quit teardown barrier', async () => {
   vi.resetModules()
   const app = Object.assign(new EventEmitter(), { quit: vi.fn() })
-  const flushNotificationDismissals = vi.fn(() => Promise.resolve())
+  const flush = Promise.withResolvers<void>()
+  const barrierEntered = Promise.withResolvers<void>()
+  const flushNotificationDismissals = vi.fn(() => flush.promise)
+  const closeNotificationDismissals = vi.fn(() => Promise.resolve())
   const settleTeardownWithinDeadline = vi.fn(
-    (_members: { name: string; promise: Promise<unknown> }[]) => Promise.resolve([])
+    async (members: { name: string; promise: Promise<unknown> }[]) => {
+      barrierEntered.resolve()
+      await Promise.allSettled(members.map((member) => member.promise))
+      return []
+    }
   )
   const state = {
     isQuitting: true,
@@ -67,7 +74,8 @@ it('awaits the mobile dismissal flush inside the will-quit teardown barrier', as
       getAgentBrowserBridge: () => null,
       getEmulatorBridge: () => null,
       disposeSkillUploadSessions: () => Promise.resolve(),
-      flushNotificationDismissals
+      flushNotificationDismissals,
+      closeNotificationDismissals
     }
   }
   vi.doMock('electron', () => ({ app }))
@@ -100,7 +108,11 @@ it('awaits the mobile dismissal flush inside the will-quit teardown barrier', as
   expect(flushNotificationDismissals).toHaveBeenCalledOnce()
   const [barrier] = settleTeardownWithinDeadline.mock.calls[0] ?? []
   expect(barrier?.map((member) => member.name)).toContain('mobile-dismissals')
+  await barrierEntered.promise
+  expect(app.quit).not.toHaveBeenCalled()
+  flush.resolve()
   await vi.waitFor(() => expect(app.quit).toHaveBeenCalled())
+  expect(closeNotificationDismissals).toHaveBeenCalledOnce()
   for (const listener of process.listeners('exit')) {
     if (!exitListenersBefore.includes(listener)) {
       process.removeListener('exit', listener)
