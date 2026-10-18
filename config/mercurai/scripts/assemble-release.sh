@@ -29,7 +29,7 @@ prove_official_main() {
   [[ "$main_sha" =~ $full_sha ]] || fail "UPSTREAM_MAIN_SHA is not a lowercase 40-character commit sha; nothing was assembled"
   git fetch -q --no-tags "https://github.com/stablyai/orca.git" "+refs/heads/main:$official_main_ref" ||
     fail "could not fetch stablyai/orca main to check UPSTREAM_MAIN_SHA; nothing was assembled"
-  { git cat-file -e "$main_sha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$main_sha" "$official_main_ref"; } ||
+  { [ "$(git cat-file -t "$main_sha" 2>/dev/null)" = commit ] && git merge-base --is-ancestor "$main_sha" "$official_main_ref"; } ||
     fail "UPSTREAM_MAIN_SHA is not a commit of stablyai/orca main; nothing was assembled"
 }
 
@@ -50,7 +50,7 @@ git config user.name 'mercurai-fork-bot'
 git config user.email 'fork-bot@users.noreply.github.com'
 # The fork's tags only: fork-sync-upstream mirrors each release tag once and never moves it, and
 # the mercurai.N numbering below must count the fork's releases, not names upstream invents.
-git fetch origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' --tags
+git fetch --prune origin '+refs/heads/patch/*:refs/remotes/origin/patch/*' --tags
 echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::$TAG is not a stable upstream tag"; exit 1; }
 git rev-parse --verify "refs/tags/$TAG^{commit}" >/dev/null ||
   { echo "::error::the fork has no tag $TAG; fork-sync-upstream mirrors it first"; exit 1; }
