@@ -63,8 +63,8 @@ function intent(tier: string): StructuredAgentSessionLaunchIntent {
       worktree: 'id:synthetic-worktree',
       agent: 'codex',
       options: { serviceTier: tier },
-      randomUuid: () => 'synthetic-create-operation',
-      now: 1_000
+      randomUuid: () => '00000000-0000-4000-8000-000000000001',
+      now: 1_760_000_000_000
     })
   }
 }

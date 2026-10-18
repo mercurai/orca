@@ -10,6 +10,7 @@ on:
       - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
       - 'src/main/orcad/orcad-host-cleanup.test.ts'
       - 'src/shared/structured-agent-session-speed*.test.ts'
+      - 'src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx'
       - 'src/renderer/src/runtime/codex-speed*.ts'
       - 'src/renderer/src/lib/structured-agent-session-launch*.ts'
       - 'src/renderer/src/components/native-chat/structured-agent-session-send-attempt.ts'
@@ -58,3 +59,4 @@ jobs:
           src/renderer/src/lib/structured-agent-session-launch-record.test.ts
           src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
           src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
+          src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx

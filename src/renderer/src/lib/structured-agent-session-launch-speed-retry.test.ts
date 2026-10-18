@@ -50,7 +50,7 @@ const SESSION = 'codex_synthetic_authorization_retry'
 
 beforeEach(() => {
   vi.useFakeTimers()
-  vi.setSystemTime(1_000)
+  vi.setSystemTime(1_760_000_000_000)
   vi.clearAllMocks()
 })
 afterEach(() => {
@@ -71,8 +71,8 @@ describe('create prompt ownership waits for speed authorization', () => {
         worktree: 'id:synthetic-worktree',
         agent: 'codex',
         options: { serviceTier: 'synthetic-exact-tier' },
-        randomUuid: () => 'synthetic-operation',
-        now: 1_000
+        randomUuid: () => '00000000-0000-4000-8000-000000000001',
+        now: 1_760_000_000_000
       })
     }
     const state: StructuredLaunchState = {

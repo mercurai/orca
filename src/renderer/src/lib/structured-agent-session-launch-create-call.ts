@@ -88,7 +88,6 @@ function authorizeCreateSpeed(
   return prepareCodexSpeedWireOptions({
     target: intent.target,
     agent: intent.agent,
-    sessionId: intent.sessionId,
     worktree: intent.params.worktree,
     options,
     ...(intent.createPrepared ? { frozenOptions: intent.params.options } : {})
