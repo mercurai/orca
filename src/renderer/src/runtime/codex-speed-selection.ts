@@ -111,6 +111,7 @@ async function verifiedLegacyFastTier(
       authority
     )
     if (catalog.origin === 'unknown' || catalog.listingInProgress || catalog.unavailable ||
+      (catalog.catalogState !== undefined && catalog.catalogState !== 'available') ||
       !Number.isFinite(catalog.fetchedAt) || catalog.fetchedAt > Date.now() ||
       Date.now() - catalog.fetchedAt >= AGENT_MODEL_CATALOG_FRESH_MS) {
       return false
