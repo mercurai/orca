@@ -1,7 +1,7 @@
 // Each chat's sends the host has not answered yet, in memory only: what the sender keeps and the
 // chat's view reads.
 
-import type { CodexSpeedWireAuthority } from '@/runtime/codex-speed-selection'
+import type { CodexSpeedWireAuthority } from '../../runtime/codex-speed-selection'
 import type {
   structuredAgentSessionMessageSendMutation,
   structuredAgentSessionSendBody

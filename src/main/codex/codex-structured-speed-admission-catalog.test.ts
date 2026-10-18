@@ -36,6 +36,7 @@ function recordListing(store: AgentModelCatalogStore, accountHomePath = ACCOUNT)
         {
           id: MODEL,
           label: 'Synthetic model',
+          isDefault: false,
           efforts: [],
           serviceTiers: [{ value: TIER, label: 'Synthetic speed' }]
         }

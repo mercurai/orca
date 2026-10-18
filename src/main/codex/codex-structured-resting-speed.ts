@@ -34,7 +34,7 @@ export function readCodexRestingSpeed(input: {
   const { saved, catalog } = input
   const canonical = saved.serviceTier
   const legacyFast = canonical === undefined && saved.fastMode === 'true'
-  let tierId = canonical ?? (saved.fastMode === 'false' ? CODEX_DEFAULT_SERVICE_TIER : undefined)
+  let tierId: string | undefined = canonical ?? (saved.fastMode === 'false' ? CODEX_DEFAULT_SERVICE_TIER : undefined)
   let support: AgentSessionSpeed['support'] = catalog.catalogState === 'loading' ||
     catalog.listingInProgress ? 'loading' : 'unknown'
   if (catalog.catalogState === 'available' && catalog.origin !== 'unknown' &&

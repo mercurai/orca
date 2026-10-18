@@ -54,7 +54,7 @@ describe('account-scoped catalog confidence', () => {
     const advertised = (value: string): AgentModelCatalogSuccess => ({
       ...listing(),
       models: [{
-        id: 'synthetic-model', label: 'Synthetic', efforts: [],
+        id: 'synthetic-model', label: 'Synthetic', efforts: [], isDefault: false,
         serviceTiers: [{ value, label: 'Fast' }]
       }]
     })

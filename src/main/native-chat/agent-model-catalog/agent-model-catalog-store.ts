@@ -1,5 +1,8 @@
+import type {
+  AgentModelCatalogLister,
+  AgentModelCatalogInFlightListings as InFlightListings
+} from './agent-model-catalog-store-types'
 import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
-import type { AgentSessionAccountHome } from '../../../shared/agent-session-account-home'
 import type { AgentModelCatalogPersistence } from './agent-model-catalog-persistence'
 import { startSpan } from '../../observability/tracer'
 import {
@@ -14,11 +17,14 @@ import {
 
 export type {
   AgentModelCatalogEntry,
+  AgentModelCatalogLister,
   AgentModelCatalogListing,
   AgentModelCatalogLiveListing,
+  AgentModelCatalogProbe,
+  AgentModelCatalogSessionAccess,
   AgentModelCatalogSource,
   AgentModelCatalogSuccess
-} from './agent-model-catalog-entry'
+} from './agent-model-catalog-store-types'
 export { withLiveCatalogListing } from './agent-model-catalog-entry'
 import {
   AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
@@ -48,28 +54,6 @@ export type { AgentModelCatalogFailure }
 
 export { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 export const AGENT_MODEL_CATALOG_MAX_ENTRIES = 256
-
-/** Lists an agent's models before a chat, under the account a launch would pin. `signal` stops
- *  the listing and its child once the host that asked is going away; `workspacePath` is the folder
- *  of the chat that asked, where a listing that opens a session runs. */
-export type AgentModelCatalogProbe = (
-  accountHome: AgentSessionAccountHome,
-  options?: { signal?: AbortSignal; workspacePath?: string }
-) => Promise<AgentModelCatalogSuccess>
-
-/** Who lists, by identity: a live session's per-spawn handle, or the session-less probe. */
-export type AgentModelCatalogLister = AgentModelCatalogSessionAccess | AgentModelCatalogProbe
-
-type InFlightListings = Map<AgentModelCatalogLister, Promise<AgentModelCatalogEntry | null>>
-
-/** A live session's handle into the store, pinned at spawn to the account home
- *  THAT child launched under — an account switched afterwards must never
- *  receive or poison this session's listing. */
-export type AgentModelCatalogSessionAccess = {
-  store: AgentModelCatalogStore
-  fingerprint: string
-  accountHomePath: string
-}
 
 export class AgentModelCatalogStore {
   private readonly entries = new Map<string, AgentModelCatalogEntry>()
@@ -159,11 +143,20 @@ export class AgentModelCatalogStore {
     this.failures.expire(fingerprint)
   }
 
-  /** The agent's command or launch env changed: each of its catalogs and held reasons is due. */
+  /** Account identity, command or environment changed; old work cannot certify the new account. */
   expireAgent(agent: string): void {
     for (const entry of this.entries.values()) {
       if (entry.agent === agent) {
         this.dueEntries.add(entry.fingerprint)
+        // A pre-change background listing holds the previous entry identity.
+        this.entries.set(entry.fingerprint, { ...entry })
+      }
+    }
+    for (const [fingerprint, refresh] of this.refreshes) {
+      if (refresh.agent === agent) {
+        this.refreshes.delete(fingerprint)
+        this.latestWrittenOrder.delete(fingerprint)
+        this.listingWaiters.notify(fingerprint)
       }
     }
     this.failures.expireAgent(agent)
@@ -256,14 +249,15 @@ export class AgentModelCatalogStore {
     lister: AgentModelCatalogLister,
     listModels: () => Promise<AgentModelCatalogSuccess>
   ): Promise<AgentModelCatalogEntry | null> {
-    const listers: InFlightListings = this.refreshes.get(fingerprint) ?? new Map()
+    const refresh: InFlightListings = this.refreshes.get(fingerprint) ?? { agent, listings: new Map() }
+    const listers = refresh.listings
     const inFlight = listers.get(lister)
     if (inFlight) {
       return inFlight
     }
     const settle = (): void => {
       listers.delete(lister)
-      if (listers.size === 0 && this.refreshes.get(fingerprint) === listers) {
+      if (listers.size === 0 && this.refreshes.get(fingerprint) === refresh) {
         this.refreshes.delete(fingerprint)
         this.latestWrittenOrder.delete(fingerprint)
       }
@@ -278,6 +272,10 @@ export class AgentModelCatalogStore {
       (success) => {
         span.setAttribute('models', success.models.length)
         span.end()
+        if (this.refreshes.get(fingerprint) !== refresh) {
+          settle()
+          return null
+        }
         // An older lister still receives its own result, but cannot replace a newer discovery.
         const superseded =
           (this.latestWrittenOrder.get(fingerprint) ?? 0) > order && this.entries.has(fingerprint)
@@ -292,12 +290,17 @@ export class AgentModelCatalogStore {
       },
       (error: unknown) => {
         span.fail(error instanceof Error ? error : String(error))
+        if (this.refreshes.get(fingerprint) !== refresh) {
+          settle()
+          return null
+        }
         settle()
+        if (error instanceof AgentModelCatalogListingStoppedError) {
+          return null
+        }
         // Probes are functions; a live session lists through its access object.
         if (typeof lister === 'function') {
-          if (!(error instanceof AgentModelCatalogListingStoppedError)) {
-            this.failures.probeFailed(fingerprint, agent, error)
-          }
+          this.failures.probeFailed(fingerprint, agent, error)
         } else {
           this.recordFailure(
             fingerprint,
@@ -309,7 +312,7 @@ export class AgentModelCatalogStore {
       }
     )
     listers.set(lister, run)
-    this.refreshes.set(fingerprint, listers)
+    this.refreshes.set(fingerprint, refresh)
     return run
   }
 

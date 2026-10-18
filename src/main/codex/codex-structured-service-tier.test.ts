@@ -13,6 +13,7 @@ import {
   AgentModelCatalogStore
 } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
+import { createAgentModelCatalogSettingsExpiry } from '../native-chat/agent-model-catalog/agent-model-catalog-account-expiry'
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
 import { nativeSessionOptionsFromReport } from '../native-chat/agent-session-wire/structured-agent-session-option-restoration'
@@ -207,6 +208,46 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       )
     )
   })
+
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a cold-cache background listing that %ss after same-home account reauthentication',
+    async (outcome) => {
+      const pending = Promise.withResolvers<unknown>()
+      const codex = fakeCodex({ 'model/list': () => pending.promise })
+      const modelCatalog = new AgentModelCatalogStore()
+      const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
+      await acquire(adapter)
+      const session = adapter['sessions'].get('session-1')
+      if (!session?.catalogAccess) {
+        throw new Error('Expected the acquired session and pinned catalog access')
+      }
+      const { fingerprint } = session.catalogAccess
+      await vi.waitFor(() => expect(codex.connections[0].calls
+        .filter((call) => call.method === 'model/list')).toHaveLength(1))
+      expect(session.catalogListingInProgress).toBe(true)
+      expect(modelCatalog.get(fingerprint)).toBeNull()
+      const expire = createAgentModelCatalogSettingsExpiry(modelCatalog, {})
+      expire({ codexManagedAccounts: [{
+        id: 'same-account', email: 'reauthenticated@example.test',
+        managedHomePath: '/codex/home', providerAccountId: 'new-principal',
+        workspaceLabel: null, workspaceAccountId: null,
+        createdAt: 1, updatedAt: 2, lastAuthenticatedAt: 2
+      }] }, {})
+      if (outcome === 'resolve') {
+        pending.resolve(listing('old-account-paid-id'))
+      } else {
+        pending.reject(new Error('old account listing rejected'))
+      }
+      await vi.waitFor(() => expect(session.catalogListingInProgress).toBe(false))
+      expect(modelCatalog.get(fingerprint)).toBeNull()
+      expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(false)
+      expect(modelCatalog.failure(fingerprint)).toBeNull()
+      expect(modelCatalog.isListing(fingerprint)).toBe(false)
+      expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+        .toMatchObject({ serviceTier: 'priority' })
+      expect(codex.connections).toHaveLength(1)
+    }
+  )
 
   it('restores the saved model and tier over the resumed thread’s', async () => {
     const codex = fakeCodex({ 'model/list': () => ({

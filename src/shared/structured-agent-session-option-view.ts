@@ -167,7 +167,7 @@ export function structuredAgentSessionSendSelection(
     const legacy = snapshot.find((descriptor) => descriptor.id === 'fastMode')
     const legacyIntent = legacy?.valueSource === 'applied' || legacy?.valueSource === 'dispatched' ||
       legacy?.valueSource === 'reported'
-    const speed = serviceTier !== undefined
+    const speed: Record<string, string> | undefined = serviceTier !== undefined
       ? { serviceTier }
       : legacyIntent && legacy?.kind.type === 'boolean'
         ? { fastMode: String(legacy.kind.currentValue) } : undefined

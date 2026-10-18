@@ -13,8 +13,8 @@ const ACCOUNT_SETTINGS = {
 
 /** A chosen, re-signed or removed account changes what the probe found, so the next catalog
  *  read re-probes instead of serving the old account's answer. */
-export function expireAgentModelCatalogFailuresForSettings(
-  store: Pick<AgentModelCatalogStore, 'expireFailures'>,
+export function expireAgentModelCatalogsForSettings(
+  store: Pick<AgentModelCatalogStore, 'expireAgent'>,
   updates: Partial<GlobalSettings>
 ): void {
   const agents = new Set(
@@ -23,7 +23,7 @@ export function expireAgentModelCatalogFailuresForSettings(
       .map(([, agent]) => agent)
   )
   for (const agent of agents) {
-    store.expireFailures(agent)
+    store.expireAgent(agent)
   }
 }
 
@@ -58,9 +58,9 @@ export function agentsWithChangedLaunchSettings(
 }
 
 /** A settings listener that expires the catalogs a change made stale: an account change expires
- *  the agent's held reasons; a command or env change also marks its catalogs due for a listing. */
+ *  successful catalogs and held reasons; command or env changes do the same. */
 export function createAgentModelCatalogSettingsExpiry(
-  store: Pick<AgentModelCatalogStore, 'expireFailures' | 'expireAgent'>,
+  store: Pick<AgentModelCatalogStore, 'expireAgent'>,
   initial: AgentLaunchSettings
 ): (updates: Partial<GlobalSettings>, settings: AgentLaunchSettings) => void {
   let launch: AgentLaunchSettings = {
@@ -68,7 +68,7 @@ export function createAgentModelCatalogSettingsExpiry(
     agentDefaultEnv: initial.agentDefaultEnv
   }
   return (updates, settings) => {
-    expireAgentModelCatalogFailuresForSettings(store, updates)
+    expireAgentModelCatalogsForSettings(store, updates)
     if (!('agentCmdOverrides' in updates) && !('agentDefaultEnv' in updates)) {
       return
     }

@@ -5,7 +5,7 @@ import { createAgentModelCatalogService } from './agent-model-catalog-service'
 import {
   agentsWithChangedLaunchSettings,
   createAgentModelCatalogSettingsExpiry,
-  expireAgentModelCatalogFailuresForSettings
+  expireAgentModelCatalogsForSettings
 } from './agent-model-catalog-account-expiry'
 import {
   AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
@@ -122,9 +122,9 @@ describe('a reason the probe found', () => {
   it('is expired, not dropped, by a change to that agent’s account settings', async () => {
     const { store, probed } = rig()
     await probed()
-    expireAgentModelCatalogFailuresForSettings(store, { activeClaudeManagedAccountId: 'other' })
+    expireAgentModelCatalogsForSettings(store, { activeClaudeManagedAccountId: 'other' })
     expect(store.hasActiveFailure(FINGERPRINT)).toBe(true)
-    expireAgentModelCatalogFailuresForSettings(store, { activeCodexManagedAccountId: 'other' })
+    expireAgentModelCatalogsForSettings(store, { activeCodexManagedAccountId: 'other' })
     expect(store.hasActiveFailure(FINGERPRINT)).toBe(false)
     expect(store.failure(FINGERPRINT)?.unavailable).toEqual(SIGNED_OUT)
   })
@@ -178,7 +178,7 @@ describe('an expired failure that carries no reason', () => {
     expect(store.hasActiveFailure(FINGERPRINT)).toBe(false)
     expect(store.failure(FINGERPRINT)).toBeNull()
     store.recordFailure(FINGERPRINT, 'listing timed out', 'codex')
-    expireAgentModelCatalogFailuresForSettings(store, { activeCodexManagedAccountId: 'other' })
+    expireAgentModelCatalogsForSettings(store, { activeCodexManagedAccountId: 'other' })
     expect(store.failure(FINGERPRINT)).toBeNull()
   })
 })
@@ -189,6 +189,7 @@ describe('a catalog read that finds a held reason', () => {
     await probed()
     expect(await service.read({ agent: 'codex', waitForListing: true })).toEqual({
       origin: 'unknown',
+      catalogState: 'unknown',
       unavailable: SIGNED_OUT
     })
     expect(probe).toHaveBeenCalledTimes(1)
@@ -232,7 +233,7 @@ describe('a catalog read that finds a held reason', () => {
     const { store, probe, probed, answerWith, service } = rig()
     await probed()
     answerWith(async () => listing('gpt-new-account', 'probe'))
-    expireAgentModelCatalogFailuresForSettings(store, { codexManagedAccounts: [] })
+    expireAgentModelCatalogsForSettings(store, { codexManagedAccounts: [] })
     const answer = await service.read({ agent: 'codex', waitForListing: true })
     expect(probe).toHaveBeenCalledTimes(2)
     expect(answer).not.toHaveProperty('unavailable')
@@ -245,6 +246,7 @@ describe('a catalog read that finds a held reason', () => {
     answerWith(() => new Promise<AgentModelCatalogSuccess>(() => {}))
     expect(await service.read({ agent: 'codex' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true,
       unavailable: SIGNED_OUT
     })

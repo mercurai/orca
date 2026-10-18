@@ -1,3 +1,4 @@
+import { AgentModelCatalogListingStoppedError } from '../native-chat/agent-model-catalog/agent-model-catalog-failures'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import { fetchCodexModelCatalogListing } from './codex-structured-model-catalog'
 import type { CodexSession } from './codex-structured-session-state'
@@ -26,39 +27,36 @@ async function refresh(input: BackgroundCatalogInput): Promise<void> {
   const isCurrent = (): boolean => sessions.get(sessionId) === session && !session.ended
   session.catalogListingInProgress = true
   try {
-    const listing = await fetchCodexModelCatalogListing({
-      connection: session.connection,
-      timeoutMs: input.timeoutMs,
-      deadlineMs: Math.min(input.timeoutMs ?? 30_000, 30_000)
-    })
-    if (listing.models.length === 0) {
-      throw new Error('codex app-server returned no available models')
+    const listModels = async () => {
+      try {
+        const listing = await fetchCodexModelCatalogListing({
+          connection: session.connection,
+          timeoutMs: input.timeoutMs,
+          deadlineMs: Math.min(input.timeoutMs ?? 30_000, 30_000)
+        })
+        if (!isCurrent()) {
+          throw new AgentModelCatalogListingStoppedError()
+        }
+        if (listing.models.length === 0) {
+          throw new Error('codex app-server returned no available models')
+        }
+        return { models: listing.models, origin: 'live-session' as const }
+      } catch (error) {
+        if (!isCurrent()) {
+          throw new AgentModelCatalogListingStoppedError()
+        }
+        throw error
+      }
     }
-    if (!isCurrent()) {
-      return
-    }
-    const latest = fingerprint ? store?.get(fingerprint) : undefined
-    if (latest && latest !== prior) {
-      return
-    }
-    if (fingerprint && store) {
-      // `model/list` is Codex's account-level listing, the one its probe also runs.
-      store.recordSuccess(
-        fingerprint,
-        'codex',
-        {
-          models: listing.models,
-          origin: 'live-session'
-        },
-        'discovery'
-      )
+    if (access) {
+      // Joining the store also fences a cold-cache listing across account changes.
+      await access.store.refresh(access.fingerprint, 'codex', access, listModels)
+    } else {
+      await listModels()
     }
   } catch (error) {
     if (!isCurrent()) {
       return
-    }
-    if (fingerprint && store && store.get(fingerprint) === prior) {
-      store.recordFailure(fingerprint, error instanceof Error ? error.message : String(error))
     }
     input.logger?.warn('Codex model catalog refresh failed', {
       scope: 'codex-background-catalog',
