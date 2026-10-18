@@ -16,6 +16,7 @@ on:
       - 'src/renderer/src/components/native-chat/structured-agent-session-send-attempt.ts'
       - 'src/renderer/src/components/native-chat/use-structured-agent-session-mutate.ts'
       - 'src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts'
+      - 'src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts'
       - '.github/workflows/git-command-termination-runtime.yml'
   workflow_dispatch:
 permissions:
@@ -60,3 +61,38 @@ jobs:
           src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
           src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
           src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
+          src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
+          src/shared/agent-session-failure-words.test.ts
+  fork-costs:
+    name: Deterministic fork costs (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install-node-dependencies
+      - name: Verify scan, probe, write and packaged worker costs
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/runtime/worktree-scan-admin-fingerprint-gate.test.ts
+          src/main/runtime/repo-worktree-admin-fingerprint-shared.test.ts
+          src/main/git/worktree-scan-cache-sharing.test.ts
+          src/main/git/worktree-scan-cache-annotation-reuse.test.ts
+          src/main/git/repo-username.test.ts
+          src/main/git/git-username-signature.test.ts
+          src/shared/secure-file-async-spawn-count.test.ts
+          src/main/credentials/credential-writers-win32-spawn.test.ts
+          src/shared/secure-file-async-write-serialization.test.ts
+          src/main/git/command-runner/git-spawn-admission-lifetime.test.ts
+          src/main/diagnostics/event-loop-delay-probe.test.ts
+          src/main/orcad/orcad-runtime-entry-artifacts.test.ts
+          src/shared/orcad-artifacts.test.ts

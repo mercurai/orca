@@ -19,8 +19,12 @@ beforeEach(() => {
   vi.setSystemTime(1_000)
   mocks.call.mockReset()
   mocks.call.mockImplementation(async (_target, method) => {
-    if (method === 'status.get') return { runtimeId: 'synthetic-runtime', capabilities: [] }
-    if (method === 'agentSession.options') return { current: { model: 'model-other' } }
+    if (method === 'status.get') {
+      return { runtimeId: 'synthetic-runtime', capabilities: [] }
+    }
+    if (method === 'agentSession.options') {
+      return { current: { model: 'model-other' } }
+    }
     return catalog
   })
 })

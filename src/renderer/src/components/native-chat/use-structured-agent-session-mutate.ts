@@ -75,6 +75,8 @@ function notDone(
   }
 }
 
+type SessionMutationActionContext = { sessionId: string; target: RuntimeClientTarget }
+
 export function useStructuredAgentSessionMutate(args: {
   sessionId: string
   target: RuntimeClientTarget
@@ -93,10 +95,10 @@ export function useStructuredAgentSessionMutate(args: {
     new Map<string, Promise<StructuredAgentSessionWriteOutcome<unknown>>>()
   )
   const enabledRef = useRef(enabled)
-  const actionContext = useRef<object | null>(null)
+  const actionContext = useRef<SessionMutationActionContext | null>(null)
   const targetKey = target.kind === 'local' ? 'local' : target.environmentId
   useEffect(() => {
-    const context = {}
+    const context = { sessionId, target }
     actionContext.current = context
     inFlightStops.current.clear()
     return () => {
@@ -121,7 +123,7 @@ export function useStructuredAgentSessionMutate(args: {
       fields: Record<string, unknown>,
       /** The fence when the press happened, read before any await, so a write never retargets. */
       pressedFence: number | null = stateRef.current.fence,
-      pressedContext: object | null = actionContext.current
+      pressedContext: SessionMutationActionContext | null = actionContext.current
     ): Promise<StructuredAgentSessionWriteOutcome<T>> => {
       if (!enabled || !enabledRef.current || pressedFence === null ||
         pressedContext === null || actionContext.current !== pressedContext) {

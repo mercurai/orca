@@ -29,6 +29,21 @@ export const DISPATCH_REJECTED_CODEX_QUEUE_FULL = 'codex structured dispatch que
 /** The provider confirmed a queued frame was withdrawn before execution. */
 export const DISPATCH_REJECTED_CANCELLED = 'provider_cancelled_before_start'
 
+/** The durable marker older clients hide, where this refusal historically had one. */
+export function legacyDispatchRejectionMarker(kind: SubmissionRejectionKind, provider?: string): string | undefined {
+  if (kind === 'cancelled') {
+    return DISPATCH_REJECTED_CANCELLED
+  }
+  if (kind === 'writeFailed') {
+    return DISPATCH_REJECTED_WRITE_FAILED
+  }
+  if (kind === 'queueFull') {
+    return provider === 'codex' ? DISPATCH_REJECTED_CODEX_QUEUE_FULL :
+      provider === 'claude' ? DISPATCH_REJECTED_QUEUE_FULL : undefined
+  }
+  return undefined
+}
+
 /** Legacy marker: accepted by a host process that ended before handing it to any provider.
  *  Read only; released clients print it raw, so new rows carry a sentence. */
 export const DISPATCH_REJECTED_HOST_RESTARTED = 'host_restarted_before_delivery'

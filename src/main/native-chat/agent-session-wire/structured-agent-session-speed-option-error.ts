@@ -9,3 +9,12 @@ export class StructuredAgentSessionSpeedOptionError extends Error {
     this.name = 'StructuredAgentSessionSpeedOptionError'
   }
 }
+
+/** Preserve actionable speed facts through the delivery loop's existing failure journal path. */
+export function speedOptionDeliveryFailure(error: unknown) {
+  return {
+    startKey: null,
+    cause: error instanceof StructuredAgentSessionSpeedOptionError
+      ? { failure: error.failure } : { hostFault: true as const }
+  }
+}
