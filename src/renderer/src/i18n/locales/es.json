@@ -3427,7 +3427,9 @@
             "copiedLink": "Enlace copiado",
             "copyLinkFailed": "No se pudo copiar el enlace",
             "downloadOpenWithDefaultApp": "Descargar y abrir con la aplicación predeterminada",
-            "downloadOpenFailed": "No se pudo descargar '{{value0}}'."
+            "downloadOpenFailed": "No se pudo descargar '{{value0}}'.",
+            "openInThisGroup": "Abrir en este grupo",
+            "openInThisGroupRefused": "No se pudo abrir {{value0}} en este grupo"
           },
           "TerminalQuickCommandsSubmenu": {
             "3ccc7981bb": "Anfitrión no disponible",

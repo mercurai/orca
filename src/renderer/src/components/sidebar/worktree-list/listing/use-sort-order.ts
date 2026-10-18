@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useAppStore } from '@/store'
 import { getAllWorktreesFromState } from '@/store/selectors'
-import { track } from '@/lib/telemetry'
 import { persistWorktreeSortOrderByHost } from '@/lib/worktree-sort-order-persistence'
 import type { Repo } from '../../../../../../shared/repo-types'
 import {
@@ -9,10 +8,6 @@ import {
   rankWorktreesForSort,
   type SortBy
 } from '../../../../../../shared/sidebar-list/smart-sort'
-import type {
-  SmartClass,
-  WorktreeAttention
-} from '../../../../../../shared/sidebar-list/smart-attention'
 import {
   ranksFollowPersistedOrder,
   smartSortPhase
@@ -20,35 +15,6 @@ import {
 import { useReusedArrayIdentity } from './use-reused-array-identity'
 import { useSidebarListSession } from '@/lib/sidebar-list-session'
 import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../../../../shared/sidebar-inputs-switch'
-
-function trackSmartClassDistribution(attention: ReadonlyMap<string, WorktreeAttention>): void {
-  let class1 = 0
-  let class2 = 0
-  let class3 = 0
-  let class4 = 0
-  let class5 = 0
-  for (const info of attention.values()) {
-    if (info.cls === 1) {
-      class1++
-    } else if (info.cls === 2) {
-      class2++
-    } else if (info.cls === 3) {
-      class3++
-    } else if (info.cls === 4) {
-      class4++
-    } else {
-      class5++
-    }
-  }
-  track('smart_sort_class_distribution', {
-    class_1: class1,
-    class_2: class2,
-    class_3: class3,
-    class_4: class4,
-    class_5: class5,
-    total_worktrees: attention.size
-  })
-}
 
 // ── Stable sort order ──────────────────────────────────────────
 // Why sortEpoch (not selection): selection side-effects (clearing isUnread, PR-cache refresh) must not reorder the sidebar under the user.
@@ -83,7 +49,6 @@ function useSettledSidebarWorktreeSortOrder(args: {
     })
     return {
       sortedIds: ranking.sorted.map((w) => w.id),
-      attentionByWorktree: ranking.attentionByWorktree,
       detectedLiveSmartSignal: ranking.detectedLiveSmartSignal
     }
     // settledSortEpoch is an intentional trigger not read in the memo; its change signals a recompute.
@@ -102,49 +67,6 @@ function useSettledSidebarWorktreeSortOrder(args: {
     }
   }, [recomputedSort.detectedLiveSmartSignal])
 
-  // Why a ref of prior class: fire class_1_promotion only on transitions into Class 1, not every recompute that stays there.
-  const prevClassByWorktreeIdRef = useRef<Map<string, SmartClass>>(new Map())
-  // Why gate the first observation: an empty prev-class map makes every existing Class-1 worktree look freshly promoted; treat the first pass as a silent baseline.
-  const hasObservedSmartOnceRef = useRef<boolean>(false)
-
-  useEffect(() => {
-    const attention = recomputedSort.attentionByWorktree
-    if (sortBy !== 'smart' || !attention) {
-      // Why reset: leaving Smart drops the prior-class map (and first-observation gate) so re-entry doesn't fire stale promotions.
-      prevClassByWorktreeIdRef.current = new Map()
-      hasObservedSmartOnceRef.current = false
-      return
-    }
-    const next = new Map<string, SmartClass>()
-    const isFirstObservation = !hasObservedSmartOnceRef.current
-    for (const [worktreeId, info] of attention) {
-      const prev = prevClassByWorktreeIdRef.current.get(worktreeId)
-      if (!isFirstObservation && info.cls === 1 && prev !== 1 && info.cause) {
-        track('smart_sort_class_1_promotion', { cause: info.cause })
-      }
-      next.set(worktreeId, info.cls)
-    }
-    prevClassByWorktreeIdRef.current = next
-    hasObservedSmartOnceRef.current = true
-  }, [sortBy, recomputedSort.attentionByWorktree, recomputedSort.sortedIds])
-
-  // Why retry on recomputation: Smart may activate before attention hydrates; fire once, then stay quiet until the user leaves Smart.
-  const hasTrackedSmartDistributionRef = useRef(false)
-  useEffect(() => {
-    if (sortBy !== 'smart') {
-      hasTrackedSmartDistributionRef.current = false
-      return
-    }
-    const attention = recomputedSort.attentionByWorktree
-    if (hasTrackedSmartDistributionRef.current || !attention || attention.size === 0) {
-      return
-    }
-    trackSmartClassDistribution(attention)
-    hasTrackedSmartDistributionRef.current = true
-  }, [sortBy, recomputedSort.attentionByWorktree, recomputedSort.sortedIds])
-
-  useTrackSmartToRecentSwitch(sortBy)
-
   // Why: only persist during live sessions so cold start reads the persisted order instead of overwriting it.
   useEffect(() => {
     if (
@@ -158,18 +80,6 @@ function useSettledSidebarWorktreeSortOrder(args: {
   }, [sortedIds, sortBy])
 
   return sortedIds
-}
-
-// Why fire on the transition: switching away from Smart is the signal; compare via ref so a round-trip doesn't double-fire.
-function useTrackSmartToRecentSwitch(sortBy: SortBy): void {
-  const prevSortByRef = useRef(sortBy)
-  useEffect(() => {
-    const prev = prevSortByRef.current
-    prevSortByRef.current = sortBy
-    if (prev === 'smart' && sortBy === 'recent') {
-      track('smart_to_recent_switch', {})
-    }
-  }, [sortBy])
 }
 
 /**
@@ -200,7 +110,6 @@ function useStampSidebarWorktreeSortOrder(args: {
   const sortedIds = useReusedArrayIdentity(ranked)
   // Why: main's sleeping retention lives as long as this list.
   useSidebarListSession()
-  useTrackSmartToRecentSwitch(sortBy)
   return sortedIds
 }
 

@@ -2,6 +2,7 @@
 import type * as LaunchIntentModule from './launch-structured-agent-session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
+import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
 import { CreateIntentParams } from '../../../shared/rpc-contract/structured-agent-session-params'
 import type { StructuredAgentSessionLaunchIntent } from './launch-structured-agent-session'
 import type { StructuredLaunchState } from './structured-agent-session-launch-registry'
@@ -46,8 +47,12 @@ import {
   stageStructuredLaunchPrompt
 } from './structured-agent-session-launch-prompt'
 import { structuredAgentLaunchRecordFor } from './structured-agent-session-launch-record'
-import { retryStructuredAgentSessionLaunch } from './structured-agent-session-launch'
 import {
+  retryStructuredAgentSessionLaunch,
+  startStructuredAgentLaunch
+} from './structured-agent-session-launch'
+import {
+  getStructuredLaunchStateBySessionId,
   resetStructuredAgentLaunchRegistryForTests,
   setStructuredLaunchState
 } from './structured-agent-session-launch-registry'
@@ -56,6 +61,7 @@ import {
   getStructuredAgentSessionPendingSends
 } from '../components/native-chat/structured-agent-session-pending-sends'
 import { resetStructuredAgentSessionSendsForTests } from '../components/native-chat/structured-agent-session-message-sender'
+import { holdStructuredAgentSessionLaunchOption } from './structured-agent-session-launch-options'
 
 const SESSION = 'codex_synthetic_authorization_retry'
 
@@ -193,5 +199,72 @@ describe('create prompt ownership waits for speed authorization', () => {
     expect(intent.params.envelope).toEqual(originalEnvelope)
     expect(prompt.createOwned).toBe(true)
     expect(state.intent.createCanonicalOptions).toEqual(params.options)
+  })
+
+  it('keeps an ID-only joiner independent of a retired CLI pane while speed authorization is pending', async () => {
+    const worktreeId = 'synthetic-cli-source-race'
+    const providerSessionId = 'synthetic-existing-conversation'
+    const options = { model: 'synthetic-model', serviceTier: 'synthetic-exact-tier' }
+    const authorizationStarted = Promise.withResolvers<Readonly<Record<string, string>> | undefined>()
+    const authorization = Promise.withResolvers<{ options?: Readonly<Record<string, string>> }>()
+    mocks.authorize.mockImplementation(async (input) => {
+      authorizationStarted.resolve(input.options)
+      return authorization.promise
+    })
+    mocks.call.mockImplementation(async (_target, method, raw) => {
+      if (method !== 'agentSession.create') {
+        throw new Error(`Unexpected source-handoff mutation ${method}`)
+      }
+      const params = CreateIntentParams.parse(raw)
+      return { ok: true, value: {
+        sessionId: params.envelope.sessionId, fence: 7, page: { submissions: [] }
+      } }
+    })
+    let paneLive = true
+    const handoff = vi.fn(() => paneLive)
+    const first = startStructuredAgentLaunch(worktreeId, 'codex', {
+      requestId: 'synthetic-cli-source-action', executionHostId: 'local', beforeCreate: handoff,
+      resumeFrom: {
+        providerSessionId, cliSource: { workspaceId: worktreeId, paneKey: 'synthetic-pane' }
+      }
+    })
+    expect(holdStructuredAgentSessionLaunchOption(first.sessionId, 'serviceTier', options.serviceTier))
+      .not.toBeNull()
+    expect(holdStructuredAgentSessionLaunchOption(first.sessionId, 'model', options.model))
+      .not.toBeNull()
+    expect(await authorizationStarted.promise).toEqual(options)
+    expect(mocks.call).not.toHaveBeenCalled()
+    const state = getStructuredLaunchStateBySessionId(first.sessionId)
+    if (!state) {
+      throw new Error('Expected launch to remain pending speed authorization')
+    }
+    expect(state.intent.params.resumeFrom?.cliSource).toEqual({
+      workspaceId: worktreeId, paneKey: 'synthetic-pane'
+    })
+    const originalOperationId = state.intent.params.envelope.clientOperationId
+
+    const joiner = startStructuredAgentLaunch(worktreeId, 'codex', {
+      requestId: 'synthetic-history-action', executionHostId: 'local', resumeFrom: { providerSessionId }
+    })
+    expect(joiner.joined).toBe(true)
+    expect(joiner.sessionId).toBe(first.sessionId)
+    expect(joiner.launchResult).toBe(first.launchResult)
+    expect(handoff).toHaveBeenCalledOnce()
+    expect(state.intent.beforeCreate).toBeUndefined()
+    expect(state.intent.params.resumeFrom).toEqual({ providerSessionId })
+    paneLive = false
+    authorization.resolve({ options })
+
+    await expect(joiner.launchResult).resolves.toMatchObject({ sessionId: first.sessionId, fence: 7 })
+    expect(handoff).toHaveBeenCalledOnce()
+    expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
+    const params = CreateIntentParams.parse(mocks.call.mock.calls[0]?.[2])
+    expect(params.resumeFrom).toEqual({ providerSessionId })
+    expect(params.options).toEqual(options)
+    expect(params.envelope.clientOperationId).toBe(originalOperationId)
+    expect(params.envelope.payloadFingerprint).toBe(structuredAgentSessionCreateFingerprint({
+      sessionId: first.sessionId, worktree: `id:${worktreeId}`, agent: 'codex',
+      resumeFrom: { providerSessionId }, options
+    }))
   })
 })

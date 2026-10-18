@@ -369,6 +369,16 @@ jobs:
             echo "VM runtime persistence is unchanged."
             exit 0
           fi
+          # The rollback oracle needs historical trees outside the shallow checkout.
+          ROLLBACK_ORACLE_COMMITS=(
+            bf0c77d5bc800e19117084c27fd1441eda9134ad
+            25abb9368d98ad84a174f530e02f4228d2269062
+          )
+          git -c credential.helper= fetch --no-tags --depth=1 \
+            https://github.com/stablyai/orca.git "${ROLLBACK_ORACLE_COMMITS[@]}"
+          for oracle_sha in "${ROLLBACK_ORACLE_COMMITS[@]}"; do
+            git cat-file -e "${oracle_sha}^{commit}"
+          done
           node config/scripts/run-ephemeral-vm-runtime-store-rollback-repro.mjs \
             config/scripts/ephemeral-vm-runtime-store-cross-version.test.ts
 

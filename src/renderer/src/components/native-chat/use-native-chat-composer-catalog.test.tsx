@@ -1,7 +1,10 @@
 // @vitest-environment happy-dom
 import { renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { buildNativeChatPickerItems, classifyPickerCommands } from './native-chat-picker-items'
+import {
+  buildNativeChatPickerItems,
+  classifyPickerCommands
+} from '../../../../shared/native-chat-picker-items'
 import { useNativeChatComposerKeyDown } from './use-native-chat-composer-keydown'
 import { useNativeChatComposerCatalog } from './use-native-chat-composer-catalog'
 import type { NativeChatStructuredComposerTransport } from './native-chat-composer-types'
@@ -21,10 +24,10 @@ describe('composer catalog authority', () => {
   it('keeps PTY and unsupported structured providers on their original catalogs', () => {
     const pty = renderHook(() => useNativeChatComposerCatalog('claude'))
     expect(pty.result.current.agentCommands).toEqual(getVerifiedNativeChatCommands('claude'))
-    expect(pty.result.current.sessionSkillNames).toBeUndefined()
+    expect(pty.result.current.sessionSkills).toBeUndefined()
     const oldHost = renderHook(() => useNativeChatComposerCatalog('claude', transport()))
     expect(oldHost.result.current.agentCommands).toEqual(structuredSlashCommands())
-    expect(oldHost.result.current.sessionSkillNames).toBeUndefined()
+    expect(oldHost.result.current.sessionSkills).toBeUndefined()
   })
   it('offers supported conversation commands when the host has no reported catalog', () => {
     const { result, rerender } = renderHook(
@@ -79,11 +82,11 @@ describe('composer catalog authority', () => {
         }
       }
     )
-    expect(result.current).toEqual({ agentCommands: [], sessionSkillNames: [] })
+    expect(result.current).toEqual({ agentCommands: [], sessionSkills: [] })
     rerender({ reported: [{ name: 'custom-command', kind: 'command' }] })
     expect(result.current).toEqual({
       agentCommands: [{ name: 'custom-command' }],
-      sessionSkillNames: []
+      sessionSkills: []
     })
   })
 })
@@ -117,7 +120,7 @@ it('Enter completes a known pre-init skill while still dispatching a built-in co
         ],
         '',
         '/',
-        catalog.sessionSkillNames
+        catalog.sessionSkills
       )
       return useNativeChatComposerKeyDown({
         autocomplete: {
@@ -191,7 +194,7 @@ describe('OpenCode chat skills', () => {
       reportMayListSkills: agent !== 'claude',
       isSendCommand: (name) => isStructuredAgentSessionComposerCommand(`/${name}`, agent)
     })
-    return buildNativeChatPickerItems(commands, skills, '', '/', result.current.sessionSkillNames)
+    return buildNativeChatPickerItems(commands, skills, '', '/', result.current.sessionSkills)
   }
   const rows = (...args: Parameters<typeof items>) =>
     items(...args).map((item) => `${item.kind}:${item.name}`)

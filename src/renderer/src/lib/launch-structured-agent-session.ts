@@ -1,4 +1,5 @@
 import type { CodexSpeedWireAuthority } from '@/runtime/codex-speed-selection'
+import type { StructuredLaunchSurfaceAddress } from './structured-agent-session-launch-record'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import {
   createStructuredAgentSessionId,
@@ -54,6 +55,8 @@ export type StructuredAgentSessionLaunchIntent = {
   /** Canonical picks retained separately from capability-translated frozen wire options. */
   createCanonicalOptions?: Readonly<Record<string, string>>
   createSpeedAuthority?: CodexSpeedWireAuthority
+  beforeCreate?: () => boolean
+  surfaceAddress?: StructuredLaunchSurfaceAddress
   /** The saved selection create seeds, read when the intent is built. */
   seedOptions?: Readonly<Record<string, string>>
 }

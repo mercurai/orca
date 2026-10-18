@@ -13,7 +13,39 @@ import type { StructuredAgentSessionLaunchIntent } from './launch-structured-age
 
 export type StructuredAgentLaunchPersistedLifecycle = 'pending' | 'visibility-unknown' | 'failed'
 
+export type StructuredLaunchSurfaceAddress = {
+  worktreeId: string
+  targetGroupId?: string
+  precedingTabIds: readonly string[]
+}
+
+export function parseStructuredLaunchSurfaceAddress(
+  value: unknown
+): StructuredLaunchSurfaceAddress | undefined {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('worktreeId' in value) ||
+    typeof value.worktreeId !== 'string' ||
+    !value.worktreeId ||
+    !('precedingTabIds' in value) ||
+    !Array.isArray(value.precedingTabIds) ||
+    !value.precedingTabIds.every((id: unknown) => typeof id === 'string') ||
+    ('targetGroupId' in value && typeof value.targetGroupId !== 'string')
+  ) {
+    return undefined
+  }
+  return {
+    worktreeId: value.worktreeId,
+    precedingTabIds: value.precedingTabIds,
+    ...('targetGroupId' in value && typeof value.targetGroupId === 'string'
+      ? { targetGroupId: value.targetGroupId }
+      : {})
+  }
+}
+
 export type StructuredAgentLaunchPersistedRecord = {
+  surfaceAddress?: StructuredLaunchSurfaceAddress
   sessionId: string
   /** The host the chat was created on. Records written before paired hosts could hold a chat lack
    *  it and load as local, the only host a chat could then be launched on. */
@@ -48,6 +80,7 @@ export function structuredAgentLaunchRecordFor(
   const pairedSeed = intent.target.kind === 'local' ? undefined : intent.seedOptions
   return {
     ...recovery,
+    ...(intent.surfaceAddress ? { surfaceAddress: intent.surfaceAddress } : {}),
     sessionId: intent.sessionId,
     executionHostId: intent.executionHostId,
     agent: intent.agent,

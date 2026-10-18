@@ -25,6 +25,7 @@ import {
 import type { StructuredAgentLaunchReceipt } from './structured-agent-session-launch-recovery'
 import {
   StructuredAgentSessionCreateError,
+  StructuredAgentSessionCreateAbandonedError,
   StructuredAgentSessionCreateRefusalError,
   StructuredAgentSessionCreateUnknownOutcomeError
 } from './structured-agent-session-launch-errors'
@@ -172,6 +173,13 @@ export async function launchStructuredAgentSession(
   }
   const prepared = await prepareCreateWireOptions(intent)
   let result: AgentSessionMutationResult<AgentSessionAttachResult>
+  if (intent.beforeCreate?.() === false) {
+    abandonStructuredAgentSessionLaunchIntent(intent)
+    throw new StructuredAgentSessionCreateAbandonedError(
+      'Conversation source retired before create.'
+    )
+  }
+  delete intent.beforeCreate
   try {
     result = await callStructuredAgentSession<AgentSessionMutationResult<AgentSessionAttachResult>>(
       intent.target,
