@@ -96,9 +96,12 @@ export function useStructuredAgentSessionMutate(args: {
   )
   const enabledRef = useRef(enabled)
   const actionContext = useRef<SessionMutationActionContext | null>(null)
-  const targetKey = target.kind === 'local' ? 'local' : target.environmentId
+  const targetKey = target.kind === 'local' ? null : target.environmentId
   useEffect(() => {
-    const context = { sessionId, target }
+    const context: SessionMutationActionContext = {
+      sessionId,
+      target: targetKey === null ? { kind: 'local' } : { kind: 'environment', environmentId: targetKey }
+    }
     actionContext.current = context
     inFlightStops.current.clear()
     return () => {

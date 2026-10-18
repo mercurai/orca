@@ -15,18 +15,21 @@ const {
   revokeOrcaCloudSessionMock,
   safeStorageMock,
   sessionWriteHook
-} = vi.hoisted(() => ({
-  beginOrcaCloudPkceFlowMock: vi.fn(),
-  exchangeOrcaCloudAuthCodeMock: vi.fn(),
-  revokeOrcaCloudSessionMock: vi.fn(),
-  safeStorageMock: {
-    decryptString: vi.fn((value: Buffer) => value.toString('utf-8')),
-    encryptString: vi.fn((value: string) => Buffer.from(value, 'utf-8')),
-    isEncryptionAvailable: vi.fn(() => true)
-  },
-  // Runs once, right after a session write has been requested and before it lands.
-  sessionWriteHook: { once: null as (() => void) | null }
-}))
+} = vi.hoisted(() => {
+  const sessionWriteHook: { once: (() => void) | null } = { once: null }
+  return {
+    beginOrcaCloudPkceFlowMock: vi.fn(),
+    exchangeOrcaCloudAuthCodeMock: vi.fn(),
+    revokeOrcaCloudSessionMock: vi.fn(),
+    safeStorageMock: {
+      decryptString: vi.fn((value: Buffer) => value.toString('utf-8')),
+      encryptString: vi.fn((value: string) => Buffer.from(value, 'utf-8')),
+      isEncryptionAvailable: vi.fn(() => true)
+    },
+    // Runs once, right after a session write has been requested and before it lands.
+    sessionWriteHook
+  }
+})
 
 let userDataPath = ''
 
