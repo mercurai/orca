@@ -28,7 +28,7 @@ async function readyChild(provider: 'codex' | 'claude' = 'codex'): Promise<void>
       link: {
         linkId: `claude-message-options-${fence}`,
         handle: claudeProviderHandle(CLAUDE_SESSION, 'synthetic-leaf'),
-        origin: 'resumed',
+        origin: 'created',
         mintedAtFence: fence,
         observedAt: NOW
       }
@@ -72,10 +72,13 @@ describe('message-carried speed mutations', () => {
     setOption.mockRejectedValueOnce(new AgentSessionOptionRejectedError('Synthetic speed refusal'))
 
     await sendWith({ [key]: value })
-    await rejectedSubmission()
+    await vi.waitFor(() => expect(setOption).toHaveBeenCalledWith(
+      expect.objectContaining({ key, value })
+    ))
+    await hostTestState().host.collaboratorsForTests().serialize(SESSION, async () => {})
 
-    expect(setOption).toHaveBeenCalledWith(expect.objectContaining({ key, value }))
     expect(dispatch).not.toHaveBeenCalled()
+    await rejectedSubmission()
     expect(store.getRecord(SESSION)?.options?.[key]).not.toBe(value)
   })
 
@@ -86,9 +89,13 @@ describe('message-carried speed mutations', () => {
     setOption.mockRejectedValueOnce(failure)
 
     await sendWith({ [key]: value })
-    await rejectedSubmission()
+    await vi.waitFor(() => expect(setOption).toHaveBeenCalledWith(
+      expect.objectContaining({ key, value })
+    ))
+    await hostTestState().host.collaboratorsForTests().serialize(SESSION, async () => {})
 
     expect(dispatch).not.toHaveBeenCalled()
+    await rejectedSubmission()
     expect(store.getRecord(SESSION)?.options?.[key]).not.toBe(value)
     expect(log.entries).toEqual(expect.arrayContaining([
       expect.objectContaining({
@@ -109,7 +116,7 @@ describe('message-carried speed mutations', () => {
 
     await sendWith({ [key]: value })
     await vi.waitFor(async () => {
-      expect((await host.journalSnapshot(SESSION)).submissions[0]?.dispatchState).toBe('accepted')
+      expect((await host.journalSnapshot(SESSION)).submissions[0]?.handedOverAt).toBeDefined()
     })
 
     expect(setOption).toHaveBeenCalledOnce()

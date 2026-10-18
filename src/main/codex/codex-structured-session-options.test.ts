@@ -54,6 +54,7 @@ async function primePicker(session: CodexSession): Promise<void> {
     accountHomePath: '/test-account'
   }
   await readLiveCodexSessionOptions(session, undefined)
+  await session.catalogAccess.store.pendingListing(session.catalogAccess.fingerprint)
 }
 
 describe('structured Codex session options', () => {
