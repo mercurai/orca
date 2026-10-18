@@ -98,8 +98,16 @@ it('folds a call that lands mid-write into one follow-up stamp carrying the newe
   const { userDataPath, id } = await seededStore()
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
-  markEnvironmentUsedDetached(userDataPath, id, { pairedDeviceId: 'device-9' })
-  markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-2' })
+  markEnvironmentUsedDetached(userDataPath, id, {
+    runtimeId: 'runtime-intermediate',
+    pairedDeviceId: 'device-8',
+    pairingDeviceToken: 'device-token'
+  })
+  markEnvironmentUsedDetached(userDataPath, id, {
+    runtimeId: 'runtime-2',
+    pairedDeviceId: 'device-9',
+    pairingDeviceToken: 'device-token'
+  })
   await idle()
 
   expect(writes).toHaveLength(2)
@@ -108,6 +116,21 @@ it('folds a call that lands mid-write into one follow-up stamp carrying the newe
     pairedDeviceId: 'device-9'
   })
 })
+
+it.each([undefined, 'previous-pairing-token'])(
+  'refuses paired identity without the current authenticated token (%s)', async (pairingDeviceToken) => {
+    const { userDataPath, id } = await seededStore()
+    markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
+    markEnvironmentUsedDetached(userDataPath, id, {
+      pairedDeviceId: 'untrusted-device',
+      ...(pairingDeviceToken === undefined ? {} : { pairingDeviceToken })
+    })
+    await idle()
+
+    expect(listEnvironments(userDataPath)[0]).toMatchObject({ runtimeId: 'runtime-1' })
+    expect(listEnvironments(userDataPath)[0]?.pairedDeviceId).toBeUndefined()
+  }
+)
 
 it('does not resurrect an environment removed while the stamp was writing', async () => {
   const { userDataPath, id } = await seededStore()

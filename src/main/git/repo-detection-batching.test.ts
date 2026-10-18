@@ -6,10 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as runner from './runner'
 import { GitCommandTimeoutError } from './command-runner/git-command-timeout'
 import {
-  getGitRepoRoot,
+  getGitRepoRootAsync,
   getLinkedWorktreeMainRepoRoot,
-  inspectGitRepoForRegistration,
-  isGitRepo
+  inspectGitRepoForRegistrationAsync,
+  isGitRepoAsync
 } from './repo-detection'
 
 function git(cwd: string, args: string[]): string {
@@ -34,7 +34,7 @@ describe('repository registration probe batching', () => {
 
   it('answers registration validity, root and main-checkout identity with two probes', async () => {
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
-    expect(await inspectGitRepoForRegistration(repo)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(repo)).toEqual({
       isRepo: true,
       rootPath: git(repo, ['rev-parse', '--show-toplevel']).trim().replace(/\\/g, '/'),
       mainRepoPath: null
@@ -58,7 +58,7 @@ describe('repository registration probe batching', () => {
     const linked = join(directory, 'linked')
     git(repo, ['worktree', 'add', '-q', '-b', 'linked', linked])
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
-    const inspected = await inspectGitRepoForRegistration(linked)
+    const inspected = await inspectGitRepoForRegistrationAsync(linked)
     expect(inspected.isRepo).toBe(true)
     expect(inspected.rootPath).toBe(
       git(linked, ['rev-parse', '--show-toplevel']).trim().replace(/\\/g, '/')
@@ -68,7 +68,7 @@ describe('repository registration probe batching', () => {
     if (!inspected.mainRepoPath) {
       throw new Error('Linked checkout did not identify its main checkout')
     }
-    expect(await getGitRepoRoot(inspected.mainRepoPath)).toBe(
+    expect(await getGitRepoRootAsync(inspected.mainRepoPath)).toBe(
       git(repo, ['rev-parse', '--show-toplevel']).trim().replace(/\\/g, '/')
     )
     expect(probe).toHaveBeenCalledTimes(3)
@@ -98,7 +98,7 @@ describe('repository registration probe batching', () => {
       }
       return output
     })
-    expect(await inspectGitRepoForRegistration(alias)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(alias)).toEqual({
       isRepo: true,
       rootPath: git(linked, ['rev-parse', '--show-toplevel']).trim().replace(/\\/g, '/'),
       mainRepoPath: realpathSync(repo)
@@ -110,7 +110,7 @@ describe('repository registration probe batching', () => {
     const bare = join(directory, 'bare.git')
     git(directory, ['init', '--bare', '-q', bare])
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
-    expect(await inspectGitRepoForRegistration(bare)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(bare)).toEqual({
       isRepo: true,
       rootPath: bare,
       mainRepoPath: null
@@ -122,7 +122,7 @@ describe('repository registration probe batching', () => {
   it('rejects an administrative directory after one clean negative pair', async () => {
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
     const admin = join(repo, '.git')
-    expect(await inspectGitRepoForRegistration(admin)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(admin)).toEqual({
       isRepo: false,
       rootPath: admin,
       mainRepoPath: null
@@ -136,7 +136,7 @@ describe('repository registration probe batching', () => {
     const probe = vi
       .spyOn(runner, 'gitExecFileAsync')
       .mockRejectedValue(new Error('Git could not run'))
-    expect(await inspectGitRepoForRegistration(nested)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(nested)).toEqual({
       isRepo: true,
       rootPath: repo.replace(/\\/g, '/'),
       mainRepoPath: null
@@ -151,8 +151,8 @@ describe('repository registration probe batching', () => {
       .spyOn(runner, 'gitExecFileAsync')
       .mockRejectedValue(new GitCommandTimeoutError(15_000))
 
-    expect(await isGitRepo(nested)).toBe(true)
-    expect(await getGitRepoRoot(nested)).toBe(repo.replace(/\\/g, '/'))
+    expect(await isGitRepoAsync(nested)).toBe(true)
+    expect(await getGitRepoRootAsync(nested)).toBe(repo.replace(/\\/g, '/'))
     expect(probe).toHaveBeenCalled()
   })
 
@@ -160,9 +160,9 @@ describe('repository registration probe batching', () => {
     const bare = join(directory, 'bare.git')
     git(directory, ['init', '--bare', '-q', bare])
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
-    expect(await isGitRepo(bare)).toBe(true)
+    expect(await isGitRepoAsync(bare)).toBe(true)
     expect(probe).toHaveBeenCalledOnce()
-    expect((await inspectGitRepoForRegistration(join(directory, 'missing'))).isRepo).toBe(false)
+    expect((await inspectGitRepoForRegistrationAsync(join(directory, 'missing'))).isRepo).toBe(false)
     expect(probe).toHaveBeenCalledOnce()
   })
 })
@@ -190,8 +190,8 @@ describe.skipIf(process.platform === 'win32')('repository paths with newlines', 
       const nested = join(repo, 'nested')
       mkdirSync(nested, { recursive: true })
       git(repo, ['init', '-q'])
-      expect(await getGitRepoRoot(nested)).toBe(realpathSync(repo))
-      expect(await inspectGitRepoForRegistration(nested)).toEqual({
+      expect(await getGitRepoRootAsync(nested)).toBe(realpathSync(repo))
+      expect(await inspectGitRepoForRegistrationAsync(nested)).toEqual({
         isRepo: true,
         rootPath: realpathSync(repo),
         mainRepoPath: null
@@ -205,7 +205,7 @@ describe.skipIf(process.platform === 'win32')('repository paths with newlines', 
     mkdirSync(repo)
     git(repo, ['init', '-q', '--separate-git-dir', admin])
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
-    expect(await inspectGitRepoForRegistration(repo)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(repo)).toEqual({
       isRepo: true,
       rootPath: realpathSync(repo),
       mainRepoPath: null
@@ -234,7 +234,7 @@ describe.skipIf(process.platform === 'win32')('repository paths with newlines', 
     ])
     const linked = join(directory, 'linked\nrepo')
     git(repo, ['worktree', 'add', '-q', '-b', 'linked', linked])
-    expect(await inspectGitRepoForRegistration(linked)).toEqual({
+    expect(await inspectGitRepoForRegistrationAsync(linked)).toEqual({
       isRepo: true,
       rootPath: realpathSync(linked),
       mainRepoPath: realpathSync(repo)
