@@ -10,7 +10,10 @@ on:
       - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
       - 'src/main/orcad/orcad-host-cleanup.test.ts'
       - 'src/shared/structured-agent-session-speed*.test.ts'
-      - 'src/renderer/src/runtime/codex-speed-compatibility-mutations.test.ts'
+      - 'src/renderer/src/runtime/codex-speed*.ts'
+      - 'src/renderer/src/lib/structured-agent-session-launch*.ts'
+      - 'src/renderer/src/components/native-chat/structured-agent-session-send-attempt.ts'
+      - 'src/renderer/src/components/native-chat/use-structured-agent-session-mutate.ts'
       - 'src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts'
       - '.github/workflows/git-command-termination-runtime.yml'
   workflow_dispatch:
@@ -50,3 +53,6 @@ jobs:
           src/shared/structured-agent-session-speed-state.test.ts
           src/renderer/src/runtime/codex-speed-compatibility-mutations.test.ts
           src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts
+          src/renderer/src/runtime/codex-speed-selection.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-persistence.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-record.test.ts
