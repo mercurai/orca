@@ -1,86 +1,34 @@
-# The mercurai patch series: what gets applied on top of an upstream release tag to make a
-# mercurai build. `base:` (top-level and per patch) is maintained by
-# .github/workflows/fork-rebase-patches.yml; lanes maintain the rest. Status vocabulary: planned | upstream-open | ours-only | merged-upstream.
-# Jobs act only on upstream-open and ours-only patches; planned entries document the series,
-# merged-upstream entries are dropped at the next tag that contains them.
+# The mercurai patch series applied to an immutable official-main snapshot or upstream tag.
+# Status vocabulary: planned | upstream-open | ours-only | merged-upstream.
+# Jobs act only on upstream-open and ours-only patches; planned entries document the series.
+# PREPARATION ONLY: the active entry below is provisional and must not be merged or used
+# for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: v1.4.223
+base: 30a66ac083e5e09efc77ae54932ee9efe7019fa9
 release_branch: release/mercurai
 patches:
-  - slug: fork-canary
-    branch: patch/fork-canary
+  - slug: current-main-release-20261018
+    branch: patch/current-main-release-20261018
     status: ours-only
-    base: v1.4.223
+    base: 30a66ac083e5e09efc77ae54932ee9efe7019fa9
+    commit: 64d93b832be83d8fbb2b5c7d1266262ca07460ae
     owner: harness
-    added: 2026-10-08
-    tests: []
-    notes: pipeline canary, one file under config/mercurai/; proves rebase and assembly on every tag, never upstreamed
-  - slug: orca-release-channel
-    branch: patch/orca-release-channel
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1088
-    owner: harness
-    added: 2026-10-08
+    added: 2026-10-18
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
-    notes: mercurai update channel (Windows, unsigned, mercurai/orca-mercurai); upstream will not take a fork channel, so it stays ours
-  - slug: orca-loop-probes
-    branch: patch/orca-loop-probes
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1081
-    owner: harness
-    added: 2026-10-08
-    tests:
       - src/main/diagnostics/main-loop-span.test.ts
       - src/main/diagnostics/main-thread-churn-probe.test.ts
       - src/main/observability/git-caller-attribution.test.ts
-    notes: always-on main-loop span, main_loop_stall breadcrumb, git.caller attribution
-  - slug: orca-username-signature
-    branch: patch/orca-username-signature
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1082
-    owner: harness
-    added: 2026-10-08
-    tests:
       - src/main/repo-git-username-enrichment.test.ts
       - src/main/git/git-username-signature.test.ts
       - src/main/repo-git-username-signature-store.test.ts
       - src/main/git/repo-username.test.ts
       - src/main/git/remote-name-listing.test.ts
-    notes: skip git username enrichment while the repo's config signature is unchanged
-  - slug: orca-worktree-list-fingerprint
-    branch: patch/orca-worktree-list-fingerprint
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1083
-    owner: harness
-    added: 2026-10-08
-    tests:
       - src/main/ipc/worktrees/listing/detected-worktree-scan-fingerprint.test.ts
       - src/main/runtime/repo-worktree-admin-fingerprint-shared.test.ts
       - src/main/runtime/repo-worktree-admin-fingerprint.test.ts
-    notes: fingerprint-gate the IPC worktree listing
-  - slug: orca-remote-listing-cache
-    branch: patch/orca-remote-listing-cache
-    status: planned
-    issue: mercurai/claude-code-config#1084
-    owner: harness
-    added: 2026-10-08
-    tests: []
-    notes: raw git remote callers use listCachedRemoteNames
-  - slug: orca-spawn-worker
-    branch: patch/orca-spawn-worker
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1085
-    owner: harness
-    added: 2026-10-08
-    tests:
       - src/main/git/command-runner/git-spawn-worker.test.ts
       - src/main/git/command-runner/git-spawn-worker-client.test.ts
       - src/main/git/command-runner/git-spawn-worker-handler.test.ts
@@ -93,17 +41,8 @@ patches:
       - src/main/git/command-runner/git-spawn-worker-run-barrier.test.ts
       - src/main/git/command-runner/git-spawn-worker-run-process.test.ts
       - src/main/git/runner-wsl-direct-read.test.ts
-    notes: git spawns on a worker thread behind ORCA_GIT_SPAWN_WORKER
-  - slug: orca-secure-file-async
-    branch: patch/orca-secure-file-async
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1090
-    owner: harness
-    added: 2026-10-09
-    tests:
-      - src/main/ipc/runtime-environments-status-diagnostics.test.ts
-      - src/main/ipc/runtime-environments-subscription-lifecycle.test.ts
+      - src/main/ipc/runtime-environments/runtime-environments-status-diagnostics.test.ts
+      - src/main/ipc/runtime-environments/runtime-environments-subscription-lifecycle.test.ts
       - src/main/runtime/mobile-notification-dismissal-read-failure.test.ts
       - src/main/runtime/mobile-notification-dismissal-store.test.ts
       - src/main/runtime/structured-agent-session-mobile-restore.test.ts
@@ -115,22 +54,12 @@ patches:
       - src/shared/secure-path-windows-acl.win32.test.ts
       - tests/e2e/structured-attention-host-read-retirement.unit.test.ts
       - tests/e2e/structured-attention-prompt-relay.unit.test.ts
-      - tests/e2e/structured-attention-relay-settlement.unit.test.ts
-      - src/main/ipc/runtime-environments-call-routing.test.ts
+      - src/main/ipc/runtime-environments/runtime-environments-call-routing.test.ts
       - src/main/runtime/rpc/mobile-auth-acl-critical-path.test.ts
       - src/main/runtime/runtime-mobile-notification-controller-persist.test.ts
       - src/main/startup/main-process-quit-dismissal-flush.test.ts
       - src/shared/runtime-environment-store.test.ts
       - src/shared/secure-path-windows-acl-write-lane.test.ts
-    notes: hot secure-file writers on an async lane with two icacls per write, cached async whoami, debounced dismissal store and usage stamp (upstream stablyai/orca#26027)
-  - slug: orca-sync-spawn-sites
-    branch: patch/orca-sync-spawn-sites
-    status: ours-only
-    base: v1.4.223
-    issue: mercurai/claude-code-config#1096
-    owner: harness
-    added: 2026-10-10
-    tests:
       - src/main/git/repo-detection-batching.test.ts
       - src/main/git/repo-detection.test.ts
       - src/main/ipc/app.test.ts
@@ -139,7 +68,7 @@ patches:
       - src/main/ipc/repos-nested-import.test.ts
       - src/main/ipc/repos-nested-scan.test.ts
       - src/main/ipc/repos/local-repo-registration-spawn.test.ts
-      - src/main/providers/ssh-git-provider-status.test.ts
+      - src/main/providers/execution-host-provider-dispatch.test.ts
       - src/main/pwsh.test.ts
       - src/main/runtime/rpc/methods/host-capabilities.test.ts
       - src/main/startup/windows-user-data-acl-no-username.test.ts
@@ -148,16 +77,118 @@ patches:
       - src/main/wsl-distro-list-single-flight.test.ts
       - src/main/wsl-running-distros.test.ts
       - src/main/wsl.test.ts
-    notes: async repo detection, runner script and provider contract; wsl, whoami and icacls probes through runProcess; startup grant resolves its identity asynchronously (ported by hand from upstream PR 20498, issue 20497)
-  - slug: orca-partial-orcad-template
-    branch: patch/orca-partial-orcad-template
-    # planned until the base moves to v1.4.224: the v1.4.223 line ships no template, so nothing there needs it.
-    status: planned
-    issue: mercurai/claude-code-config#1128
-    owner: harness
-    added: 2026-10-11
-    tests:
       - config/scripts/packaged-orcad-template-targets.test.mjs
       - config/scripts/packaged-orcad-template.test.mjs
       - config/scripts/verify-packaged-orcad-template.test.mjs
-    notes: packaging accepts a partial orcad template named by ORCA_ORCAD_TEMPLATE_TARGETS (the fork ships linux-x64-glibc only)
+      - src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
+      - src/main/git/command-runner/exec-file-capture.test.ts
+      - src/main/codex/codex-structured-session-options.test.ts
+      - src/main/codex/codex-structured-speed-admission.test.ts
+      - src/main/codex/codex-structured-speed-admission-catalog.test.ts
+      - src/main/codex/codex-structured-speed-legacy-migration.test.ts
+      - src/main/codex/codex-structured-speed-state.test.ts
+      - src/main/orca-profiles/profile-cloud-session-store.test.ts
+      - src/main/orcad/orcad-host-cleanup.test.ts
+      - src/shared/structured-agent-session-speed.test.ts
+      - src/shared/structured-agent-session-speed-state.test.ts
+      - src/renderer/src/runtime/codex-speed-compatibility-mutations.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts
+      - src/renderer/src/runtime/codex-speed-selection.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-persistence.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-record.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-reload.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-prompt.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-publication.test.ts
+      - src/renderer/src/components/native-chat/native-chat-composer-draft-recovery.test.ts
+      - src/renderer/src/components/native-chat/native-chat-composer-draft-indexeddb.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-held-speed-refusal.test.ts
+      - src/renderer/src/components/native-chat/use-structured-agent-session-send-options.speed.test.tsx
+      - src/renderer/src/components/native-chat/use-structured-agent-session-sends.test.tsx
+      - src/shared/structured-agent-session-option-view.test.ts
+      - src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
+      - src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
+      - src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
+      - src/shared/agent-session-failure-words.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
+      - src/main/runtime/worktree-scan-admin-fingerprint-gate.test.ts
+      - src/main/git/worktree-scan-cache-sharing.test.ts
+      - src/main/git/worktree-scan-cache-annotation-reuse.test.ts
+      - src/main/credentials/credential-writers-win32-spawn.test.ts
+      - src/main/git/command-runner/git-spawn-admission-lifetime.test.ts
+      - src/main/diagnostics/event-loop-delay-probe.test.ts
+      - src/main/orcad/orcad-runtime-entry-artifacts.test.ts
+      - src/shared/orcad-artifacts.test.ts
+      - config/scripts/build-windows-cli-launcher.test.mjs
+      - config/scripts/orcad-windows-cli-launcher.test.mjs
+      - config/scripts/orcad-artifact-version.test.mjs
+      - src/main/codex/codex-structured-service-tier.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-unavailable.test.ts
+      - tests/e2e/cross-version-wire/cross-version-device-key-registry.unit.test.ts
+      - tests/e2e/cross-version-wire/cross-version-web-device-key.unit.test.ts
+      - tests/e2e/cross-version-wire/cross-version-web-session-pairing.unit.test.ts
+    notes: >-
+      Test union checked against candidate 591469e40ac204ae9057d891eb94de08e8d75776:
+      112 registered paths cover all 51 targeted workflow paths and the three corrected
+      cross-version pairing suites; every path exists.
+      This provisional pin is for CI-only dry-run assembly; default registration and publication
+      remain blocked on full exact-head CI and review.
+      PROVISIONAL REGISTRATION ONLY: candidate 64d93b832b has not passed the required full CI
+      gates.
+      The patch/current-main-release-20261018 ref does not exist yet. Before merging or
+      using
+      this manifest, replace commit with the final passing immutable candidate SHA,
+      create
+      that patch ref at the same SHA, and verify the exact base/head tuple and assembled
+      tree.
+      Frozen official-main base is 30a66ac083e5e09efc77ae54932ee9efe7019fa9;
+      the release version floor is v1.4.229, not the upstream base version.
+      Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
+      005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
+      they are not replayed independently over this combined exact-tree candidate.
+      Original owner harness; entries added 2026-10-08 unless dated below.
+      patch/fork-canary, added 2026-10-08: pipeline canary, one file under
+      config/mercurai/; proves rebase and assembly on every tag, never upstreamed.
+      patch/orca-release-channel (mercurai/claude-code-config#1088), added 2026-10-08:
+      mercurai update channel (Windows, unsigned, mercurai/orca-mercurai); upstream will
+      not take a fork channel, so it stays ours.
+      patch/orca-loop-probes (mercurai/claude-code-config#1081), added 2026-10-08:
+      always-on main-loop span, main_loop_stall breadcrumb, git.caller attribution.
+      patch/orca-username-signature (mercurai/claude-code-config#1082), added
+      2026-10-08: skip git username enrichment while the repo's config signature is
+      unchanged.
+      patch/orca-worktree-list-fingerprint (mercurai/claude-code-config#1083), added
+      2026-10-08: fingerprint-gate the IPC worktree listing.
+      patch/orca-spawn-worker (mercurai/claude-code-config#1085), added 2026-10-08: git
+      spawns on a worker thread behind ORCA_GIT_SPAWN_WORKER.
+      patch/orca-secure-file-async (mercurai/claude-code-config#1090), added 2026-10-09:
+      hot secure-file writers on an async lane with two icacls per write, cached async
+      whoami, debounced dismissal store and usage stamp (upstream stablyai/orca#26027).
+      patch/orca-sync-spawn-sites (mercurai/claude-code-config#1096), added 2026-10-10:
+      async repo detection, runner script and provider contract; wsl, whoami and icacls
+      probes through runProcess; startup grant resolves its identity asynchronously
+      (ported by hand from upstream PR 20498, issue 20497).
+      Includes orca-partial-orcad-template (mercurai/claude-code-config#1128, added
+      2026-10-11):
+      ORCA_ORCAD_TEMPLATE_TARGETS partial packaging, linux-x64-glibc fork template,
+      plus integrated native/process-host and Codex speed admission, compatibility and
+      UI work.
+      Preserves original regression coverage with current runtime-environments paths;
+      upstream 8ba353a1a7 folded relay settlement into
+      structured-attention-prompt-relay.
+      Upstream c5224f70d8cdb76359cc179e2e5f89c46ef6f670 removed ssh-git-provider-status;
+      execution-host-provider-dispatch covers the replacement routing, not an exact
+      rename.
+      Tests also include both capped targeted workflow jobs and template/CLI packaging
+      suites.
+      orca-remote-listing-cache remains planned; this consolidation does not claim it
+      complete.
+  - slug: orca-remote-listing-cache
+    branch: patch/orca-remote-listing-cache
+    status: planned
+    issue: mercurai/claude-code-config#1084
+    owner: harness
+    added: 2026-10-08
+    tests: []
+    notes: raw git remote callers use listCachedRemoteNames
