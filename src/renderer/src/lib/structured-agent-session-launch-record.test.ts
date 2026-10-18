@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { validRecord } from './structured-agent-session-launch-record'
+import { MAX_PROMPT_BYTES } from '../../../shared/rpc-contract/structured-agent-session-params'
 
 const record = {
   sessionId: 'codex_11111111_2222_3333_4444_555555555555',
@@ -41,5 +42,32 @@ describe('persisted speed authorization', () => {
     { createSpeedAuthority: { expectedEnvironmentPairingRevision: 'different-host' } }
   ])('refuses malformed canonical choices or host bindings', (fields) => {
     expect(validRecord({ ...record, ...fields })).toBe(false)
+  })
+
+  it.each([
+    { heldOptions: { serviceTier: 42 } },
+    { heldOptions: { model: 'model-held', serviceTier: '' } },
+    { heldOptions: { model: 'model-held', serviceTier: 'x'.repeat(513) } },
+    { heldOptions: ['model-held', 'tier-held'] }
+  ])('refuses malformed held speed recovery options', ({ heldOptions }) => {
+    expect(validRecord({ ...record, heldOptions })).toBe(false)
+  })
+
+  it('accepts bounded optional held prompt drafts without changing older records', () => {
+    expect(validRecord(record)).toBe(true)
+    expect(validRecord({
+      ...record,
+      heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 'unsent legacy prompt' }]
+    })).toBe(true)
+  })
+
+  it.each([
+    { heldPromptDrafts: { clientMessageId: 'legacy-held-message', text: 'not-an-array' } },
+    { heldPromptDrafts: [{ clientMessageId: '', text: 'unsent legacy prompt' }] },
+    { heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 42 }] },
+    { heldPromptDrafts: [{ clientMessageId: 'x'.repeat(513), text: 'unsent legacy prompt' }] },
+    { heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 'x'.repeat(MAX_PROMPT_BYTES + 1) }] }
+  ])('refuses malformed held prompt recovery records', ({ heldPromptDrafts }) => {
+    expect(validRecord({ ...record, heldPromptDrafts })).toBe(false)
   })
 })

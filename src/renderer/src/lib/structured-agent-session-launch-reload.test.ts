@@ -61,8 +61,18 @@ vi.mock('@/lib/agent-catalog', () => ({
 }))
 
 import { retryStructuredAgentSessionLaunch } from './structured-agent-session-launch'
-import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
-import { resetStructuredAgentLaunchRegistryForTests } from './structured-agent-session-launch-registry'
+import {
+  readStructuredAgentLaunchRecord,
+  resetStructuredAgentLaunchPersistenceForTests
+} from './structured-agent-session-launch-persistence'
+import {
+  notifyStructuredLaunchListeners,
+  resetStructuredAgentLaunchRegistryForTests,
+  setStructuredLaunchState,
+  type StructuredLaunchState
+} from './structured-agent-session-launch-registry'
+import { createStructuredLaunchCallerGroup } from './structured-agent-session-launch-callers'
+import { restorePersistedStructuredLaunchState } from './structured-agent-session-launch-reload'
 
 function launchIntent(worktreeId: string, sessionId: string): StructuredAgentSessionLaunchIntent {
   return {
@@ -181,5 +191,89 @@ describe('structured agent launch reload recovery', () => {
       expect.any(Function),
       true
     )
+  })
+
+  it('persists a held speed and its model separately from the immutable create request', () => {
+    const intent = launchIntent('wt-held-speed', 'codex-held-speed')
+    intent.createPrepared = true
+    intent.createMessageSupport = false
+    intent.params.options = { model: 'model-original', serviceTier: 'default' }
+    intent.createCanonicalOptions = { ...intent.params.options }
+    const frozenParams = structuredClone(intent.params)
+    const state: StructuredLaunchState = {
+      identity: 'codex:wt-held-speed',
+      intent,
+      promptDelivery: 'auto-submit',
+      callers: createStructuredLaunchCallerGroup({ kind: 'retry' }),
+      promise: Promise.resolve({ sessionId: intent.sessionId, fence: 4 }),
+      visibilityUnknown: true,
+      cancelled: false,
+      selection: { seed: intent.params.options, held: {} }
+    }
+    setStructuredLaunchState(state)
+    state.selection = {
+      ...state.selection,
+      held: { model: 'model-held', serviceTier: 'tier-ultra-exact-request-id' }
+    }
+    notifyStructuredLaunchListeners()
+    resetStructuredAgentLaunchPersistenceForTests()
+
+    const persisted = readStructuredAgentLaunchRecord(intent.sessionId)
+    expect(persisted).toMatchObject({
+      sessionId: intent.sessionId,
+      lifecycle: 'visibility-unknown',
+      clientOperationId: frozenParams.envelope.clientOperationId,
+      payloadFingerprint: frozenParams.envelope.payloadFingerprint,
+      options: frozenParams.options,
+      createCanonicalOptions: frozenParams.options,
+      heldOptions: state.selection.held
+    })
+    expect(intent.params).toEqual(frozenParams)
+    expect(mocks.launch).not.toHaveBeenCalled()
+    expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('restores held speed intent without retrying or rewriting the original create authority', () => {
+    const worktreeId = 'wt-held-speed-reload'
+    const sessionId = 'codex-held-speed-reload'
+    const heldOptions = { model: 'model-held', serviceTier: 'tier-ultra-exact-request-id' }
+    const original = {
+      sessionId,
+      executionHostId: 'runtime:server-1',
+      agent: 'codex',
+      lifecycle: 'pending',
+      clientOperationId: 'create-before-held-speed',
+      payloadFingerprint: 'original-fingerprint-before-held-speed',
+      expectedRuntimeFence: null,
+      options: { model: 'model-original', fastMode: 'false' },
+      createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
+      createMessageSupport: false,
+      createSpeedAuthority: {
+        expectedEnvironmentPairingRevision: 7,
+        expectedEnvironmentRuntimeId: 'original-runtime'
+      },
+      heldOptions
+    }
+    localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
+
+    const restored = restorePersistedStructuredLaunchState(worktreeId, sessionId)
+
+    expect(restored?.selection.held).toEqual(heldOptions)
+    expect(restored?.visibilityUnknown).toBe(true)
+    expect(restored?.promptDelivery).toBe('draft')
+    expect(mocks.restoreIntent).toHaveBeenCalledWith(expect.objectContaining({
+      worktreeId,
+      sessionId,
+      executionHostId: original.executionHostId,
+      clientOperationId: original.clientOperationId,
+      payloadFingerprint: original.payloadFingerprint,
+      expectedRuntimeFence: original.expectedRuntimeFence,
+      options: original.options,
+      createCanonicalOptions: original.createCanonicalOptions,
+      createSpeedAuthority: original.createSpeedAuthority
+    }))
+    expect(mocks.retryIntent).not.toHaveBeenCalled()
+    expect(mocks.launch).not.toHaveBeenCalled()
+    expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
   })
 })

@@ -1,3 +1,9 @@
+import {
+  isCodexLaunchSpeedKey,
+  isStructuredLaunchSpeedBlocked,
+  noteStructuredLaunchSpeedReplacement,
+  waitForStructuredLaunchSpeedChange
+} from './structured-agent-session-launch-blocked-speed'
 import { prepareCodexSpeedWireOptions } from '@/runtime/codex-speed-selection'
 import { useSyncExternalStore } from 'react'
 import type {
@@ -65,7 +71,8 @@ export function holdStructuredAgentSessionLaunchOption(
   encoded: string
 ): Promise<StructuredLaunchOptionOutcome> | null {
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (!state || state.cancelled || state.callers.outcome === 'published') {
+  if (!state || state.cancelled ||
+    (state.callers.outcome === 'published' && !isStructuredLaunchSpeedBlocked(sessionId, id))) {
     return null
   }
   const replies = repliesFor(state)
@@ -77,15 +84,17 @@ export function holdStructuredAgentSessionLaunchOption(
           key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID &&
           !(state.intent.agent === 'codex' && (key === 'serviceTier' || key === 'fastMode'))
         )
-      : [id]
+      : isCodexLaunchSpeedKey(state, id) ? ['serviceTier', 'fastMode'] : [id]
   for (const key of dropped) {
     replies.get(key)?.({ kind: 'superseded' })
     replies.delete(key)
     delete held[key]
   }
   state.selection = { ...state.selection, held: { ...held, [id]: encoded } }
+  const pending = new Promise<StructuredLaunchOptionOutcome>((resolve) => replies.set(id, resolve))
+  noteStructuredLaunchSpeedReplacement(state, id)
   notifyStructuredLaunchListeners()
-  return new Promise((resolve) => replies.set(id, resolve))
+  return pending
 }
 
 async function setLaunchOption(
@@ -146,17 +155,18 @@ function settleHeldOption(
   state: StructuredLaunchState,
   id: string,
   encoded: string,
-  outcome: StructuredLaunchOptionOutcome
+  outcome: StructuredLaunchOptionOutcome,
+  settlement: { stillCurrent?: boolean; retainIntent?: boolean } = {}
 ): void {
   const {
     held: { [id]: current, ...rest },
     seed
   } = state.selection
   // A pick made while this one was in flight superseded it and stays held for the next pass.
-  const settled = current === encoded
+  const settled = settlement.stillCurrent !== false && current === encoded
   state.selection = {
     seed: outcome.kind === 'accepted' ? { ...seed, ...outcome.options } : seed,
-    held: settled ? rest : state.selection.held
+    held: settled && !settlement.retainIntent ? rest : state.selection.held
   }
   if (settled) {
     const replies = repliesFor(state)
@@ -180,7 +190,8 @@ export function settleStructuredLaunchCreateOptions(
 /**
  * Applies the picks held during launch against the create receipt's fence, model first so an
  * effort lands under the model it was picked against, until none is left. A refused pick is
- * reported to its picker and never keeps the launch from publishing.
+ * reported once. A refused Codex speed retains intent and blocks legacy prompt delivery until
+ * an explicit replacement lands against this same receipt.
  */
 export async function applyStructuredLaunchHeldOptions(
   state: StructuredLaunchState,
@@ -196,13 +207,15 @@ export async function applyStructuredLaunchHeldOptions(
     if (!id || encoded === undefined) {
       return receipt
     }
-    const outcome = await setLaunchOption(
-      state,
-      receipt.fence,
-      id,
-      encoded
-    )
-    settleHeldOption(state, id, encoded, outcome)
+    const reply = repliesFor(state).get(id)
+    const outcome = await setLaunchOption(state, receipt.fence, id, encoded)
+    const stillCurrent = state.selection.held[id] === encoded && repliesFor(state).get(id) === reply
+    const refusedSpeed = stillCurrent && isCodexLaunchSpeedKey(state, id) && outcome.kind === 'refused'
+    const changed = refusedSpeed ? waitForStructuredLaunchSpeedChange(state) : null
+    settleHeldOption(state, id, encoded, outcome, { stillCurrent, retainIntent: refusedSpeed })
+    if (changed) {
+      await changed
+    }
   }
 }
 

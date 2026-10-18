@@ -1,3 +1,4 @@
+import { maybeCleanupLaunchState } from './structured-agent-session-launch-outcome-tracking'
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CreateIntentParams, SendParams, SetOptionParams } from '../../../shared/rpc-contract/structured-agent-session-params'
@@ -134,6 +135,19 @@ async function flush() {
     await Promise.resolve()
   }
 }
+function acceptOptionsAndSend() {
+  mocks.call.mockImplementation(async (_target, method, params) => {
+    if (method === 'agentSession.setOption') {
+      const fields = SetOptionParams.parse(params)
+      return { ok: true, value: { ...fields, options: { [fields.key]: fields.value } } }
+    }
+    if (method === 'agentSession.send') {
+      const send = SendParams.parse(params)
+      return { ok: true, value: { submission: submission(send.envelope.clientOperationId) } }
+    }
+    throw new Error(`Unexpected repeated mutation ${method}`)
+  })
+}
 const REFUSED = {
   ok: false,
   refusal: { code: 'agent_session_operation_invalid', message: 'Synthetic speed unavailable', details: { reason: 'optionRejected' } }
@@ -195,6 +209,66 @@ describe('a refused speed held after create froze', () => {
     expect(getStructuredLaunchStateBySessionId(sessionId)?.intent.params).toEqual(fixture.snapshot)
     expect(calls('agentSession.create')).toHaveLength(1)
     expect(calls('agentSession.send')).toEqual([])
+  })
+
+  it('retains a modern blocked speed after the original caller releases its launch', async () => {
+    mocks.firstMessageSupport = true
+    const fixture = await begin()
+    const { sessionId } = fixture.launch
+    const state = getStructuredLaunchStateBySessionId(sessionId)
+    if (!state) throw new Error('Expected original launch state')
+    const pick = holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', PAID)
+    fixture.createReply.resolve(created(fixture.snapshot))
+    await vi.waitFor(() => expect(calls('agentSession.setOption')).toHaveLength(1))
+    fixture.optionReply.resolve(REFUSED)
+    await expect(pick).resolves.toMatchObject({ kind: 'refused' })
+    await fixture.launch.promptDeliveryResult
+    state.callers.entries.clear()
+    await flush()
+    maybeCleanupLaunchState(state)
+    expect(getStructuredLaunchStateBySessionId(sessionId)).toBe(state)
+    expect(state.selection.held).toMatchObject({ serviceTier: PAID })
+    expect(calls('agentSession.create')).toHaveLength(1)
+    expect(calls('agentSession.send')).toEqual([])
+  })
+
+  it.each([
+    ['fastMode', 'true', 'serviceTier', 'default'],
+    ['serviceTier', PAID, 'fastMode', 'false']
+  ])('supersedes blocked %s=%s with %s=%s without another create', async (oldKey, oldValue, key, value) => {
+    const fixture = await begin()
+    const { sessionId } = fixture.launch
+    const original = holdStructuredAgentSessionLaunchOption(sessionId, oldKey, oldValue)
+    fixture.createReply.resolve(created(fixture.snapshot))
+    await vi.waitFor(() => expect(calls('agentSession.setOption')).toHaveLength(1))
+    fixture.optionReply.resolve(REFUSED)
+    await expect(original).resolves.toMatchObject({ kind: 'refused' })
+    await flush()
+    expect(calls('agentSession.send')).toEqual([])
+    acceptOptionsAndSend()
+    const replacement = holdStructuredAgentSessionLaunchOption(sessionId, key, value)
+    expect(getStructuredAgentSessionLaunchSelection(sessionId)?.held).not.toHaveProperty(oldKey)
+    await expect(replacement).resolves.toMatchObject({ kind: 'accepted' })
+    await expect(fixture.launch.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+    expect(calls('agentSession.create')).toHaveLength(1)
+    expect(calls('agentSession.send')).toHaveLength(1)
+    expect(mocks.retryIntent).not.toHaveBeenCalled()
+  })
+
+  it('does not let an old refused acknowledgement block a newer explicit selection', async () => {
+    const fixture = await begin()
+    const { sessionId } = fixture.launch
+    const original = holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', PAID)
+    fixture.createReply.resolve(created(fixture.snapshot))
+    await vi.waitFor(() => expect(calls('agentSession.setOption')).toHaveLength(1))
+    acceptOptionsAndSend()
+    const replacement = holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', 'default')
+    fixture.optionReply.resolve(REFUSED)
+    await expect(original).resolves.toMatchObject({ kind: 'superseded' })
+    await expect(replacement).resolves.toMatchObject({ kind: 'accepted' })
+    await expect(fixture.launch.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+    expect(calls('agentSession.create')).toHaveLength(1)
+    expect(calls('agentSession.send')).toHaveLength(1)
   })
 
   it.each([

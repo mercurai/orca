@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ call: vi.fn() }))
 
@@ -22,9 +22,19 @@ import {
 } from '@/components/native-chat/structured-agent-session-message-sender'
 import {
   clearNativeChatDraftCacheForTests,
-  readNativeChatDraftCache
+  readNativeChatDraftCache,
+  writeNativeChatDraftCache
 } from '@/components/native-chat/native-chat-draft-cache'
-import { structuredAgentSessionDraftScopeKey } from '@/components/native-chat/native-chat-composer-draft-store'
+import {
+  hydrateNativeChatComposerDrafts,
+  nativeChatComposerDraftWritesSettled,
+  structuredAgentSessionDraftScopeKey
+} from '@/components/native-chat/native-chat-composer-draft-store'
+import {
+  createMemoryNativeChatComposerDraftStorage,
+  setNativeChatComposerDraftStorageForTests
+} from '@/components/native-chat/native-chat-composer-draft-storage'
+import * as LaunchPrompt from './structured-agent-session-launch-prompt'
 import {
   getStructuredAgentSessionPendingSends,
   subscribeToStructuredAgentSessionPendingSends
@@ -318,5 +328,87 @@ describe('settleStructuredAgentLaunchPrompt', () => {
         stagedPrompt: null
       })
     ).toBeUndefined()
+  })
+
+  describe('held legacy prompt recovery', () => {
+    beforeEach(() => {
+      vi.useFakeTimers()
+      vi.setSystemTime(1_760_000_000_000)
+    })
+    afterEach(() => {
+      discardStructuredLaunchPrompts(SESSION)
+      resetStructuredAgentSessionSendsForTests()
+      clearNativeChatDraftCacheForTests()
+      vi.restoreAllMocks()
+      vi.useRealTimers()
+    })
+
+    // Optional lookup keeps the pre-implementation RED an assertion failure, not a missing-export error.
+    const capture = () => {
+      const implementation = 'captureStructuredLaunchPromptDrafts' in LaunchPrompt
+        ? LaunchPrompt.captureStructuredLaunchPromptDrafts : undefined
+      return typeof implementation === 'function' ? implementation(SESSION) : undefined
+    }
+    const recover = (drafts: readonly { clientMessageId: string; text: string }[]) => {
+      const implementation = 'recoverStructuredLaunchPromptDrafts' in LaunchPrompt
+        ? LaunchPrompt.recoverStructuredLaunchPromptDrafts : undefined
+      return typeof implementation === 'function' ? implementation(SESSION, drafts) : undefined
+    }
+
+    it('captures only legacy text still owned by the launch', () => {
+      const eligible = stageStructuredLaunchPrompt(SESSION, 'held legacy text')
+      const pending = getStructuredAgentSessionPendingSends(SESSION)[0]
+      stageStructuredLaunchPrompt(SESSION, 'text retained by notes', { callerKeepsText: true })
+      const createOwned = stageStructuredLaunchPrompt(SESSION, 'frozen create-owned text')
+      createOwned.createOwned = true
+
+      expect(pending).toBeDefined()
+      expect(capture()).toEqual([{ clientMessageId: pending?.clientMessageId, text: eligible.text }])
+      expect(draft()).toBe('')
+      expect(sends()).toEqual([])
+    })
+
+    it('recovers held text durably after an existing draft without automatically sending it', async () => {
+      const storage = createMemoryNativeChatComposerDraftStorage()
+      setNativeChatComposerDraftStorageForTests(storage)
+      await hydrateNativeChatComposerDrafts()
+      writeNativeChatDraftCache(structuredAgentSessionDraftScopeKey(SESSION), 'typed meanwhile')
+      const held = [{ clientMessageId: 'legacy-before-reload', text: 'held legacy text' }]
+      const original = structuredClone(held)
+
+      expect(recover(held)).toBe(true)
+      await nativeChatComposerDraftWritesSettled()
+
+      expect(draft()).toContain('typed meanwhile')
+      expect(draft()).toContain('held legacy text')
+      expect(draft().indexOf('typed meanwhile')).toBeLessThan(draft().indexOf('held legacy text'))
+      expect(storage.drafts.get(structuredAgentSessionDraftScopeKey(SESSION))?.text).toBe(draft())
+      expect(recover(held)).toBe(true)
+      expect(draft().split('held legacy text')).toHaveLength(2)
+      expect(held).toEqual(original)
+      expect(getStructuredAgentSessionPendingSends(SESSION)).toEqual([])
+      expect(sends()).toEqual([])
+    })
+
+    it('refuses to consume recovery text when both draft storage and its journal refuse writes', async () => {
+      const storage = createMemoryNativeChatComposerDraftStorage()
+      setNativeChatComposerDraftStorageForTests(storage)
+      await hydrateNativeChatComposerDrafts()
+      storage.refuseWrites = true
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+        throw new DOMException('Synthetic journal storage refusal', 'QuotaExceededError')
+      })
+      const held = [{ clientMessageId: 'retain-after-quota', text: 'recoverable held text' }]
+      const original = structuredClone(held)
+
+      expect(recover(held)).toBe(false)
+      await nativeChatComposerDraftWritesSettled()
+
+      expect(held).toEqual(original)
+      expect(storage.drafts.size).toBe(0)
+      expect(getStructuredAgentSessionPendingSends(SESSION)).toEqual([])
+      expect(sends()).toEqual([])
+    })
   })
 })
