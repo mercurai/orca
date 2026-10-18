@@ -415,6 +415,9 @@ export type AgentSessionFastModeSupport = {
  * surface: an older host simply lacks the method.
  */
 export type AgentSessionModelCatalogResult = {
+  /** Confidence for this account's current listing. Retained model rows alone do not prove
+   *  support; absent on older hosts, whose confidence remains unknown. */
+  catalogState?: 'loading' | 'unknown' | 'available'
   /** The host is running the listing this answer is waiting on (its first for the account, or
    *  the probe re-checking `unavailable`); a `waitForListing` read answers when it lands. Absent
    *  from a host that predates it; such a host sends it only with `unknown`. */

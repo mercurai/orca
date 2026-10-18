@@ -251,9 +251,9 @@ describe('Codex service tier across clients and rest', () => {
     expect(turn).not.toHaveProperty('fastMode')
   })
 
-  it('takes a tier at rest but not an older client Fast toggle', () => {
+  it('takes a tier and an older client Fast toggle at rest', () => {
     expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('serviceTier')).toBe(true)
-    expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('fastMode')).toBe(false)
+    expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('fastMode')).toBe(true)
   })
 
   it('keeps only the reported tier, not the Fast it implies, on the record', () => {

@@ -67,6 +67,7 @@ jobs:
           src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
           src/shared/agent-session-failure-words.test.ts
           src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
   fork-costs:
     name: Deterministic fork costs (${{ matrix.os }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft != true

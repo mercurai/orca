@@ -37,6 +37,16 @@ to the current session acquisition and are not persisted as conversation prefere
 A requested or acknowledged speed does not prove the server's actual processing tier; actual
 processing remains unknown without an explicit server report.
 
+The Speed control shows next-turn intent, support status, the last host-applied speed when known,
+and actual processing separately. Loading means a catalog request is pending; unknown means the
+host cannot establish support. An unavailable selection remains saved until you explicitly change it.
+A fresh valid catalog remains usable while its background refresh runs.
+
+You can change speed while the provider is stopped without launching a child process. A new
+explicit Fast toggle replaces an older saved tier; a new explicit tier replaces an older toggle.
+This differs from restoring a record containing both values, where the canonical tier takes precedence.
+Standard remains safe to request when catalog support is unknown; that does not make support known.
+
 ## Account hot-swap
 
 Many Codex users run multiple accounts to stretch rate limits. Orca's account switcher swaps the active account without re-login or config edits. See [Hot-swap Codex accounts](/docs/agents/codex-hot-swap).

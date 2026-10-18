@@ -47,6 +47,39 @@ describe('account-scoped catalog confidence', () => {
     expect(r.probe).not.toHaveBeenCalled()
   })
 
+  it('returns replacement tier rows when the catalog changes during workspace resolution', async () => {
+    const r = rig()
+    const entered = Promise.withResolvers<void>()
+    const workspace = Promise.withResolvers<boolean>()
+    const advertised = (value: string): AgentModelCatalogSuccess => ({
+      ...listing(),
+      models: [{
+        id: 'synthetic-model', label: 'Synthetic', efforts: [],
+        serviceTiers: [{ value, label: 'Fast' }]
+      }]
+    })
+    r.store.recordSuccess(r.selectedKey(), 'codex', advertised('retired-fast-id'), 'discovery')
+    const service = createAgentModelCatalogService({
+      store: r.store,
+      getRecord: () => undefined,
+      drivesRecord: () => true,
+      resolveAccountHome: async () => home('/synthetic/account-a'),
+      workspaceMayOverrideDefaultModel: () => {
+        entered.resolve()
+        return workspace.promise
+      }
+    })
+    const reading = service.read({ agent: 'codex', savedOnly: true, workspacePath: '/synthetic/workspace' })
+    await entered.promise
+    r.store.recordSuccess(r.selectedKey(), 'codex', advertised('current-fast-id'), 'discovery')
+    workspace.resolve(false)
+
+    expect(await reading).toMatchObject({
+      catalogState: 'available',
+      models: [{ id: 'synthetic-model', serviceTiers: [{ value: 'current-fast-id', label: 'Fast' }] }]
+    })
+  })
+
   it('keeps fresh choices available during a background refresh', async () => {
     const r = rig()
     r.store.recordSuccess(r.selectedKey(), 'codex', listing(), 'discovery')
