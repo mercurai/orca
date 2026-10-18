@@ -18202,6 +18202,7 @@
       },
       "composer": {
         "speedStatus": {
+          "waitForChange": "Espera a que termine el cambio de velocidad antes de enviar, o actualiza Orca en el host de ejecución.",
           "nextTurn": "Próximo turno: {{speed}}",
           "loading": "Comprobando la compatibilidad de velocidad…",
           "unknown": "Compatibilidad de velocidad desconocida. Actualiza el catálogo o elige Estándar.",

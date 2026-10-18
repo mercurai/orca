@@ -47,6 +47,11 @@ explicit Fast toggle replaces an older saved tier; a new explicit tier replaces 
 This differs from restoring a record containing both values, where the canonical tier takes precedence.
 Standard remains safe to request when catalog support is unknown; that does not make support known.
 
+Each message carries the selected speed with its model when the execution host supports send options.
+This includes a pick whose separate settings update is still pending. On an older host without
+send-option support, wait for the speed update before sending; a refusal keeps the text in the composer.
+Untouched legacy Fast controls do not override the provider's configured default.
+
 ## Account hot-swap
 
 Many Codex users run multiple accounts to stretch rate limits. Orca's account switcher swaps the active account without re-login or config edits. See [Hot-swap Codex accounts](/docs/agents/codex-hot-swap).

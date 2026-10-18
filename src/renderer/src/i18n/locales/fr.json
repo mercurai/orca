@@ -18311,6 +18311,7 @@
       },
       "composer": {
         "speedStatus": {
+          "waitForChange": "Attendez la fin du changement de vitesse avant d’envoyer, ou mettez à jour Orca sur l’hôte d’exécution.",
           "nextTurn": "Prochain tour : {{speed}}",
           "loading": "Vérification des vitesses disponibles…",
           "unknown": "Disponibilité de la vitesse inconnue. Actualisez le catalogue ou choisissez Standard.",
