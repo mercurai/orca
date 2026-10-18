@@ -37,8 +37,8 @@ describe('standalone runtime artifacts', () => {
   )
 
   it.each(SERVER_TARGETS)('ships the git spawn worker the %s runtime starts', (target) => {
-    expect(orcadArtifactFilenames(target)).toContain('git-spawn-worker-entry.js')
-    expect(orcadTemplateCommonFilenames()).toContain('git-spawn-worker-entry.js')
+    expect(orcadArtifactFilenames(target, [])).toContain('git-spawn-worker-entry.js')
+    expect(orcadTemplateCommonFilenames([])).toContain('git-spawn-worker-entry.js')
   })
 
   it('names a search binary for every SSH host platform', () => {

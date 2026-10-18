@@ -39,16 +39,17 @@ import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-reque
 
 let directory: string
 let envId: string
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   resetRuntimeEnvironmentCapabilityEvidence()
   directory = mkdtempSync(join(tmpdir(), 'orca-status-retirement-'))
-  envId = addEnvironmentFromPairingCode(directory, {
+  const environment = await addEnvironmentFromPairingCode(directory, {
     name: 'Host',
     now: 1,
     pairingCode: pairingCode(),
     connectionDependency: 'ssh-tunnel'
-  }).id
+  })
+  envId = environment.id
   mocks.diagnostics.mockReturnValue(null)
 })
 afterEach(() => {

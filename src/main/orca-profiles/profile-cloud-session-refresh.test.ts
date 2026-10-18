@@ -215,7 +215,13 @@ describe('session changes that save asynchronously', () => {
       expiresAt: 4_000_000,
       organizations: [],
       capabilities: { flags: {}, refreshedAt: 2 },
-      cloud: { userId: 'user-1', cloudProfileId: 'cloud-profile-1', activeOrgId: 'org-1' }
+      cloud: {
+        userId: 'user-1',
+        cloudProfileId: 'cloud-profile-1',
+        activeOrgId: 'org-1',
+        email: 'u@example.com',
+        linkedAt: 1
+      }
     })
     const capabilities = commitCloudSessionCapabilities('profile-1', '/data', ticket, {
       capabilities: { flags: { 'relay.use': true }, refreshedAt: 3 }
@@ -257,7 +263,13 @@ describe('refresh-token replay after an ambiguous attempt', () => {
     expiresAt: 4_000_000,
     organizations: [],
     capabilities: { flags: { 'relay.use': true }, refreshedAt: 2 },
-    cloud: { userId: 'user-1', cloudProfileId: 'cloud-profile-1', activeOrgId: 'org-1' }
+    cloud: {
+        userId: 'user-1',
+        cloudProfileId: 'cloud-profile-1',
+        activeOrgId: 'org-1',
+        email: 'u@example.com',
+        linkedAt: 1
+      }
   }
 
   beforeEach(async () => {

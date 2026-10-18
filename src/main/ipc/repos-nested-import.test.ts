@@ -176,7 +176,7 @@ describe('projectGroups IPC validation', () => {
       await mkdir(join(firstWorktreePath, '.git'), { recursive: true })
       await mkdir(join(secondWorktreePath, '.git'), { recursive: true })
       await mkdir(mainPath, { recursive: true })
-      vi.mocked(isGitRepo).mockImplementation(async (path: string) =>
+      vi.mocked(isGitRepo).mockImplementation((path: string) =>
         [firstWorktreePath, secondWorktreePath, mainPath].includes(path)
       )
       listWorktreeGraphMock.mockResolvedValue([
