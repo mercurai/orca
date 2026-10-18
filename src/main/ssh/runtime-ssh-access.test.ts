@@ -71,14 +71,16 @@ describe('independent runtime SSH access coordinator', () => {
         }
       }
     )
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetAllMocks()
     events = []
     userDataPath = mkdtempSync(join(tmpdir(), 'runtime-access-test-'))
-    environmentId = addEnvironmentFromPairingCode(userDataPath, {
-      name: 'server',
-      pairingCode: encodePairingOffer(pairing)
-    }).id
+    environmentId = (
+      await addEnvironmentFromPairingCode(userDataPath, {
+        name: 'server',
+        pairingCode: encodePairingOffer(pairing)
+      })
+    ).id
     target = {
       id: 'target',
       label: 'host',

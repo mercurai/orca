@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react'
+import { persistStructuredLaunchState } from './structured-agent-session-launch-state-persistence'
+import type { StructuredLaunchPromptDraft } from './structured-agent-session-launch-prompt-recovery'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { StructuredLaunchFailure } from './structured-agent-session-launch-failure'
 import type { StructuredAgentSessionResumeSource } from '../../../shared/structured-agent-session-create'
@@ -13,8 +15,6 @@ import {
   deleteStructuredAgentLaunchRecord,
   hasStructuredAgentLaunchCancellationTombstonePersisted,
   readStructuredAgentLaunchRecord,
-  structuredAgentLaunchRecordFor,
-  writeStructuredAgentLaunchRecord,
   type StructuredAgentLaunchPersistedRecord
 } from './structured-agent-session-launch-persistence'
 import {
@@ -38,6 +38,8 @@ export type StructuredLaunchState = StructuredLaunchRecoveryState & {
   /** The host's refusal behind the last failed attempt, worded beside Retry. Absent when the
    *  failure named none. */
   failure?: StructuredLaunchFailure
+  heldPromptDrafts?: readonly StructuredLaunchPromptDraft[]
+  draftRecovery?: Promise<boolean>
   selection: StructuredLaunchSelection
 }
 
@@ -60,7 +62,7 @@ export function resetStructuredAgentLaunchRegistryForTests(): void {
 
 export function notifyStructuredLaunchListeners(): void {
   for (const state of structuredLaunchesBySessionId.values()) {
-    persistStructuredLaunchState(state)
+    persistStructuredLaunchState(state, launchStateLifecycle(state))
   }
   for (const listener of structuredLaunchListeners) {
     listener()
@@ -92,7 +94,7 @@ export function getStructuredLaunchStateBySessionId(
 
 export function setStructuredLaunchState(state: StructuredLaunchState): void {
   structuredLaunchesBySessionId.set(state.intent.sessionId, state)
-  persistStructuredLaunchState(state)
+  persistStructuredLaunchState(state, launchStateLifecycle(state))
 }
 
 export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchState): boolean {
@@ -104,17 +106,6 @@ export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchStat
   return true
 }
 
-function persistStructuredLaunchState(state: StructuredLaunchState): void {
-  const lifecycle = launchStateLifecycle(state)
-  if (lifecycle === 'published' || lifecycle === 'cancelled') {
-    deleteStructuredAgentLaunchRecord(state.intent.sessionId)
-    return
-  }
-  writeStructuredAgentLaunchRecord({
-    ...structuredAgentLaunchRecordFor(state.intent, lifecycle),
-    ...(lifecycle === 'failed' ? { failedAt: state.callers.failedAt } : {})
-  })
-}
 
 export function getPersistedStructuredAgentLaunchRecord(
   sessionId: string

@@ -38,6 +38,12 @@ export function readCodexServiceTiers(
   return Array.isArray(row.serviceTiers) || Array.isArray(row.additionalSpeedTiers) ? [] : undefined
 }
 
+/** Canonical speed replaces pending legacy intent and is the only speed sent on a turn. */
+export function setCodexServiceTier(options: Map<string, string>, tier: string): void {
+  options.set('serviceTier', tier)
+  options.delete('fastMode')
+}
+
 /** The tier an older client's Fast toggle stands for. */
 export function codexFastServiceTier(
   model: Pick<AgentSessionModelOption, 'serviceTiers'> | undefined
@@ -104,17 +110,4 @@ export function codexOffersServiceTier(
     (tier === session.reportedOptions.serviceTier &&
       !models.some((entry) => codexListsServiceTier(entry, tier)))
   )
-}
-
-/** The chat's tier, picked or reported, falls back to standard where the model does not offer it. */
-export function dropUnlistedCodexServiceTier(
-  session: CodexSession,
-  modelId: string | undefined,
-  models: readonly AgentSessionModelOption[]
-): void {
-  const tier = session.options.get('serviceTier') ?? session.reportedOptions.serviceTier
-  const model = models.find((entry) => entry.id === modelId)
-  if (tier && model?.serviceTiers && !codexOffersServiceTier(session, model, models, tier)) {
-    session.options.set('serviceTier', CODEX_DEFAULT_SERVICE_TIER)
-  }
 }

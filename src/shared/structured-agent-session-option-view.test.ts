@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CLAUDE_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
 import type { AgentSessionModelCatalogResult } from './agent-session-wire'
+import type { SessionOptionDescriptor, SessionOptionValueSource } from './native-chat-session-options'
 import {
   applyStructuredAgentSessionModelCatalog,
   applyStructuredAgentSessionOptions,
@@ -228,5 +229,46 @@ describe('nearestAgentEffort', () => {
     expect(nearestAgentEffort('medium', ['low', 'high'])).toBe('high')
     expect(nearestAgentEffort('max', ['low', 'xhigh'])).toBe('xhigh')
     expect(nearestAgentEffort('turbo', ['low', 'high'])).toBeUndefined()
+  })
+})
+
+
+describe('Codex legacy Fast provenance on sends', () => {
+  function legacy(valueSource: SessionOptionValueSource, currentValue: boolean): SessionOptionDescriptor {
+    return {
+      id: 'fastMode', label: 'Fast',
+      kind: { type: 'boolean', currentValue },
+      valueSource, transport: 'agent-session', settable: true
+    }
+  }
+
+  it.each(['unknown', 'default'] as const)(
+    'does not turn an %s false display into an explicit Standard request',
+    (source) => {
+      expect(structuredAgentSessionSendSelection('codex', [legacy(source, false)])).toBeUndefined()
+    }
+  )
+
+  it.each(['applied', 'dispatched', 'reported'] as const)(
+    'preserves explicit false and true from %s',
+    (source) => {
+      expect(structuredAgentSessionSendSelection('codex', [legacy(source, false)])).toEqual({
+        fastMode: 'false'
+      })
+      expect(structuredAgentSessionSendSelection('codex', [legacy(source, true)])).toEqual({
+        fastMode: 'true'
+      })
+    }
+  )
+
+  it('keeps the model attached to an explicit legacy false preference', () => {
+    const model: SessionOptionDescriptor = {
+      id: 'model', label: 'Model',
+      kind: { type: 'select', currentValue: 'synthetic-model', choices: [] },
+      valueSource: 'reported', transport: 'agent-session', settable: true
+    }
+    expect(structuredAgentSessionSendSelection('codex', [model, legacy('dispatched', false)])).toEqual({
+      model: 'synthetic-model', fastMode: 'false'
+    })
   })
 })

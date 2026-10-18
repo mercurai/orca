@@ -1,3 +1,6 @@
+import { CodexSpeedSelectionError, prepareCodexSpeedWireOptions } from '@/runtime/codex-speed-selection'
+import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
+import { notifyStructuredLaunchListeners } from './structured-agent-session-launch-registry'
 import type {
   AgentSessionAttachResult,
   AgentSessionMutationResult
@@ -76,6 +79,85 @@ async function requireHostCreateSupport(
   return support.seedOptions
 }
 
+type PreparedSpeedOptions = Awaited<ReturnType<typeof prepareCodexSpeedWireOptions>>
+const preparingCreates = new WeakMap<StructuredAgentSessionLaunchIntent, Promise<PreparedSpeedOptions>>()
+
+function authorizeCreateSpeed(
+  intent: StructuredAgentSessionLaunchIntent,
+  options = intent.createCanonicalOptions ?? intent.params.options ?? intent.seedOptions
+) {
+  return prepareCodexSpeedWireOptions({
+    target: intent.target,
+    agent: intent.agent,
+    worktree: intent.params.worktree,
+    options,
+    ...(intent.createPrepared ? { frozenOptions: intent.params.options } : {})
+  })
+}
+
+async function prepareCreateWireOptions(
+  intent: StructuredAgentSessionLaunchIntent
+): Promise<PreparedSpeedOptions> {
+  const pending = preparingCreates.get(intent)
+  if (pending) {
+    return pending
+  }
+  if (intent.createPrepared) {
+    // A retry reauthorizes the selection but cannot reinterpret its frozen wire payload.
+    const prepared = await authorizeCreateSpeed(intent)
+    const original = intent.createSpeedAuthority
+    if (
+      (original?.expectedEnvironmentPairingRevision !== undefined &&
+        original.expectedEnvironmentPairingRevision !== prepared.authority?.expectedEnvironmentPairingRevision) ||
+      (original?.expectedEnvironmentRuntimeId !== undefined &&
+        original.expectedEnvironmentRuntimeId !== prepared.authority?.expectedEnvironmentRuntimeId)
+    ) {
+      throw new CodexSpeedSelectionError('The execution host changed. Reconnect and retry the speed selection.')
+    }
+    return { ...prepared, authority: original ?? prepared.authority }
+  }
+  const prepare = (async () => {
+    let supported = false
+    try {
+      supported = await supportsStructuredAgentSessionCreateMessage(intent.target)
+    } catch {
+      // Unknown first-message support retains the legacy prompt path.
+    }
+    const preparation = intent.prepareCreate?.()
+    const staged = preparation?.params ?? intent.params
+    const canonical = staged.options ?? intent.seedOptions
+    const prepared = await authorizeCreateSpeed(intent, canonical)
+    // No prompt ownership or persisted negotiation marker changes before authorization.
+    intent.createMessageSupport = supported
+    const committed = preparation?.commit?.() ?? staged
+    if (canonical) {
+      intent.createCanonicalOptions = { ...canonical }
+    }
+    intent.createSpeedAuthority = prepared.authority
+    const { options: _priorOptions, ...fields } = committed
+    const params = { ...fields, ...(prepared.options ? { options: prepared.options } : {}) }
+    intent.params = {
+      ...params,
+      envelope: {
+        ...params.envelope,
+        payloadFingerprint: structuredAgentSessionCreateFingerprint({
+          sessionId: intent.sessionId,
+          ...params
+        })
+      }
+    }
+    intent.createPrepared = true
+    notifyStructuredLaunchListeners()
+    return prepared
+  })()
+  preparingCreates.set(intent, prepare)
+  try {
+    return await prepare
+  } finally {
+    preparingCreates.delete(intent)
+  }
+}
+
 /** Told the seed a paired server says this create will use, which may differ from an earlier
  *  attempt's; a local launch reads its own settings instead. */
 export type StructuredLaunchHostSeedListener = (seedOptions: LaunchSeed) => void
@@ -89,19 +171,7 @@ export async function launchStructuredAgentSession(
   if (intent.target.kind !== 'local') {
     onHostSeed?.(hostSeed)
   }
-  if (!intent.createPrepared) {
-    let supported = false
-    try {
-      supported = await supportsStructuredAgentSessionCreateMessage(intent.target)
-    } catch {
-      // Unknown capability stays on the compatible create path.
-    }
-    if (!intent.createPrepared) {
-      intent.createMessageSupport = supported
-      intent.prepareCreate?.()
-      intent.createPrepared = true
-    }
-  }
+  const prepared = await prepareCreateWireOptions(intent)
   let result: AgentSessionMutationResult<AgentSessionAttachResult>
   if (intent.beforeCreate?.() === false) {
     abandonStructuredAgentSessionLaunchIntent(intent)
@@ -114,7 +184,8 @@ export async function launchStructuredAgentSession(
     result = await callStructuredAgentSession<AgentSessionMutationResult<AgentSessionAttachResult>>(
       intent.target,
       'agentSession.create',
-      intent.params
+      intent.params,
+      prepared.authority
     )
   } catch (error) {
     const code = definitiveStructuredAgentSessionCreateErrorCode(error)

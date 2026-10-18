@@ -262,3 +262,20 @@ describe('structured agent launch persistence', () => {
     expect(hasStructuredAgentLaunchCancellationTombstonePersisted('fresh_remote')).toBe(true)
   })
 })
+
+it('keeps canonical speed separate from frozen legacy wire settings across a reload', () => {
+  const authority = { expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'synthetic-runtime' }
+  writeStructuredAgentLaunchRecord({
+    sessionId: 'codex_speed_replay', executionHostId: SERVER, agent: 'codex',
+    lifecycle: 'visibility-unknown', clientOperationId: 'speed-create-operation',
+    payloadFingerprint: 'speed-fingerprint', expectedRuntimeFence: null,
+    options: { fastMode: 'false' }, createCanonicalOptions: { serviceTier: 'default' },
+    createSpeedAuthority: authority, createMessageSupport: false
+  })
+  reload()
+  expect(readStructuredAgentLaunchRecord('codex_speed_replay')).toMatchObject({
+    clientOperationId: 'speed-create-operation', payloadFingerprint: 'speed-fingerprint',
+    options: { fastMode: 'false' }, createCanonicalOptions: { serviceTier: 'default' },
+    createSpeedAuthority: authority
+  })
+})

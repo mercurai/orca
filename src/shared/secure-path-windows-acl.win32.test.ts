@@ -11,12 +11,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { __resetSecureFileHardenedPathsForTests, writeSecureFile } from './secure-file'
+import { __resetSecureFileHardenedPathsForTests } from './secure-file'
+import { writeSecureFileAsync } from './secure-file-async-write'
 import {
   setSecurePathHardeningReporter,
   type SecurePathHardeningReport
 } from './secure-path-hardening-report'
-import { restrictWindowsPathSync } from './secure-path-windows-acl'
+import { restrictNewFileAsync, restrictWindowsPathSync } from './secure-path-windows-acl'
 import {
   loadWindowsSecurity,
   resetWindowsSecurityLoadForTests,
@@ -109,6 +110,18 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     expect(sidsOf(file)).toEqual(ORCA_PRINCIPALS())
   })
 
+  it('restricts a real file off the event loop, dropping inherited and planted foreign rules', async () => {
+    const file = join(relocatedRoot, 'credential-async.json')
+    writeFileSync(file, '{"token":"secret"}')
+    addon.grantAccess(file, 'S-1-1-0', 0x120089, { inheritable: false, replace: false })
+    expect(sidsOf(file)).toContain('S-1-1-0')
+
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
+
+    expect(daclOf(file)?.protected).toBe(true)
+    expect(sidsOf(file)).toEqual(ORCA_PRINCIPALS())
+  })
+
   it('gives a directory inheritable rules so files created inside start restricted', () => {
     const dir = join(relocatedRoot, 'secure-dir')
     mkdirSync(dir)
@@ -125,12 +138,12 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
   it.each([
     ['(OI) without (CI), leaving subdirectories unprotected', 'OI'],
     ['(OI)(CI)(IO), which grants nobody anything on the directory itself', 'OICIIO']
-  ])('repairs a directory whose rules are %s', (_label, flags) => {
+  ])('repairs a directory whose rules are %s', async (_label, flags) => {
     const dir = join(root, `wrong-flags-${flags}`)
     mkdirSync(dir)
     addon.setDaclSddl(dir, `D:P(A;${flags};FA;;;SY)(A;${flags};FA;;;BA)(A;${flags};FA;;;${sid})`)
 
-    expect(restrictWindowsPathSync(dir, true)).toBe(true)
+    expect(await restrictNewFileAsync(dir, true)).toBe(true)
 
     expect(daclOf(dir)?.aces.every((ace) => ace.flags === INHERITABLE)).toBe(true)
     expect(() => writeFileSync(join(dir, 'child.json'), '{}')).not.toThrow()
@@ -167,17 +180,17 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     ['semicolon and ampersand', 'semi;colon & amp'],
     ['caret and percent', 'car^et %PATH%'],
     ['non-ASCII', 'résumé 資料']
-  ])('hardens a path containing %s', (_label, segment) => {
+  ])('hardens a path containing %s', async (_label, segment) => {
     const dir = join(root, segment)
     mkdirSync(dir, { recursive: true })
     const file = join(dir, 'secret.json')
     writeFileSync(file, '{}')
 
-    expect(restrictWindowsPathSync(file, false)).toBe(true)
+    expect(await restrictNewFileAsync(file, false)).toBe(true)
     expect(sidsOf(file)).toEqual(ORCA_PRINCIPALS())
   })
 
-  it('hardens a path longer than MAX_PATH', () => {
+  it('hardens a path longer than MAX_PATH', async () => {
     let dir = join(root, 'long')
     while (dir.length < 280) {
       dir = join(dir, 'x'.repeat(40))
@@ -190,11 +203,12 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     expect(sidsOf(`\\\\?\\${file}`)).toEqual(ORCA_PRINCIPALS())
   })
 
-  it('reports failure, not success, for a path that does not exist', () => {
+  it('reports failure, not success, for a path that does not exist', async () => {
     const reports: SecurePathHardeningReport[] = []
     setSecurePathHardeningReporter((entry) => reports.push(entry))
 
     expect(restrictWindowsPathSync(join(root, 'missing.json'), false)).toBe(false)
+    expect(await restrictNewFileAsync(join(root, 'absent.json'), false)).toBe(false)
     expect(reports).toContainEqual(expect.objectContaining({ stage: 'apply' }))
   })
 
@@ -218,7 +232,10 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     const startedAt = performance.now()
     while (performance.now() - startedAt < 1000) {
       try {
-        restricted += writeSecureFile(target, JSON.stringify({ secretKey: 'x'.repeat(64) })) ? 1 : 0
+        restricted +=
+          (await writeSecureFileAsync(target, JSON.stringify({ secretKey: 'x'.repeat(64) })))
+            ? 1
+            : 0
       } catch (error) {
         // The observer's own open handle can make a replace-rename fail; that is the racer, not us.
         expect(error).toMatchObject({ code: 'EPERM', syscall: 'rename' })
@@ -251,9 +268,9 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     const writes = countingAddon()
 
     const writeStartedAt = performance.now()
-    expect(writeSecureFile(join(dir, 'secret.json'), '{}')).toBe(true)
+    expect(await writeSecureFileAsync(join(dir, 'secret.json'), '{}')).toBe(true)
     const writeMs = performance.now() - writeStartedAt
-    writeSecureFile(join(dir, 'second.json'), '{}')
+    await writeSecureFileAsync(join(dir, 'second.json'), '{}')
 
     const relockStartedAt = performance.now()
     // The parent turns protected before propagation reaches its children, so wait on both ends.
@@ -275,7 +292,7 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     // A new process finds the directory already locked and leaves it alone.
     __resetSecureFileHardenedPathsForTests()
     const nextLaunch = countingAddon()
-    writeSecureFile(join(dir, 'third.json'), '{}')
+    await writeSecureFileAsync(join(dir, 'third.json'), '{}')
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(nextLaunch.asyncCount + nextLaunch.count).toBe(0)
     expect(readFileSync(join(dir, 'third.json'), 'utf-8')).toBe('{}')

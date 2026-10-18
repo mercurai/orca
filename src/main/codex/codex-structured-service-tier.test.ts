@@ -13,6 +13,7 @@ import {
   AgentModelCatalogStore
 } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
+import { createAgentModelCatalogSettingsExpiry } from '../native-chat/agent-model-catalog/agent-model-catalog-account-expiry'
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
 import { nativeSessionOptionsFromReport } from '../native-chat/agent-session-wire/structured-agent-session-option-restoration'
@@ -30,12 +31,14 @@ function listing(tier = 'priority') {
   }
 }
 
-async function acquire(adapter: CodexStructuredSessionAdapter, sessionId = 'session-1') {
+async function acquire(
+  adapter: CodexStructuredSessionAdapter, sessionId = 'session-1', serviceTier = 'priority'
+) {
   return adapter.acquire({
     identity: identityFor(sessionId),
     fence: 7,
     spawnToken: `spawn-${sessionId}`,
-    options: { serviceTier: 'priority' }
+    options: { serviceTier }
   })
 }
 
@@ -51,7 +54,7 @@ function finishTurn(codex: ReturnType<typeof fakeCodex>, turnId: string) {
 }
 
 describe('Codex structured service tier without send-path catalog waits', () => {
-  it('starts the chat and sends the saved tier when its own listing rejects', async () => {
+  it('retains the saved tier but refuses it when its own listing rejects', async () => {
     const codex = fakeCodex({
       'model/list': () => {
         throw new Error('model listing unavailable')
@@ -64,13 +67,17 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
       serviceTier: 'priority'
     })
-    await send(adapter, 'first')
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ serviceTier: 'priority' })
+    expect(await send(adapter, 'first')).toMatchObject({
+      state: 'rejected', rejection: { neverReachedAgent: true }
+    })
+    expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
+    await adapter.setOption({ sessionId: 'session-1', fence: 7, key: 'serviceTier', value: 'default' })
+    expect(await send(adapter, 'standard')).toMatchObject({ state: 'admitted' })
+    expect(codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params)
+      .toMatchObject({ serviceTier: 'default' })
   })
 
-  it('sends the saved tier while its own bounded listing is still pending', async () => {
+  it('refuses the saved tier while its own bounded listing is still pending', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'first-turn')
@@ -81,10 +88,12 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     await vi.waitFor(() =>
       expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(true)
     )
-    await send(adapter, 'first')
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ serviceTier: 'priority' })
+    expect(await send(adapter, 'first')).toMatchObject({
+      state: 'rejected', rejection: { neverReachedAgent: true }
+    })
+    expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+      .toMatchObject({ serviceTier: 'priority' })
     pending.resolve(listing())
   })
 
@@ -94,37 +103,47 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'running-turn')
     codex.routes['turn/steer'] = () => ({ turn: { id: 'running-turn' } })
     const adapter = adapterFor(codex)
-    await acquire(adapter)
+    await acquire(adapter, 'session-1', 'default')
     await send(adapter, 'first')
-    await send(adapter, 'follow-up')
-    expect(codex.connections[0].calls.some((call) => call.method === 'turn/steer')).toBe(true)
+    await adapter.setOption({ sessionId: 'session-1', fence: 7, key: 'serviceTier', value: 'priority' })
+    expect(await send(adapter, 'follow-up')).toMatchObject({ state: 'admitted' })
+    const steer = codex.connections[0].calls.find((call) => call.method === 'turn/steer')
+    expect(steer).toBeDefined()
+    expect(steer?.params).not.toHaveProperty('serviceTier')
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+      .toMatchObject({ serviceTier: 'priority' })
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
       1
     )
     pending.resolve(listing())
   })
 
-  it('stops a running turn and starts its replacement on the saved tier while listing stalls', async () => {
+  it('stops a Standard turn but refuses its paid replacement while listing stalls', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'running-turn')
     const adapter = adapterFor(codex)
-    await acquire(adapter)
+    await acquire(adapter, 'session-1', 'default')
     await send(adapter, 'first')
+    await adapter.setOption({ sessionId: 'session-1', fence: 7, key: 'serviceTier', value: 'priority' })
 
     await expect(adapter.cancelTurn({ sessionId: 'session-1', fence: 7 })).resolves.toMatchObject({
       cancelled: true
     })
     finishTurn(codex, 'running-turn')
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'replacement-turn')
-    await send(adapter, 'replacement')
+    expect(await send(adapter, 'replacement')).toMatchObject({
+      state: 'rejected', rejection: { neverReachedAgent: true }
+    })
     const starts = codex.connections[0].calls.filter((call) => call.method === 'turn/start')
-    expect(starts).toHaveLength(2)
-    expect(starts[1]?.params).toMatchObject({ serviceTier: 'priority' })
+    expect(starts).toHaveLength(1)
+    expect(starts[0]?.params).toMatchObject({ serviceTier: 'default' })
+    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+      .toMatchObject({ serviceTier: 'priority' })
     pending.resolve(listing())
   })
 
-  it('records a background failure without delaying a send and retries after the failure TTL', async () => {
+  it('refuses paid speed during a background failure and retries after the failure TTL', async () => {
     let now = 1_000
     const clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
     const modelCatalog = new AgentModelCatalogStore({ now: () => now })
@@ -145,15 +164,19 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     try {
       await acquire(adapter)
       await vi.waitFor(() => expect(modelCatalog.hasActiveFailure(access.fingerprint)).toBe(true))
-      await send(adapter, 'first')
-      expect(
-        codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-      ).toMatchObject({ serviceTier: 'priority' })
+      expect(await send(adapter, 'first')).toMatchObject({
+        state: 'rejected', rejection: { neverReachedAgent: true }
+      })
+      expect(codex.connections[0].calls.some((call) => call.method === 'turn/start')).toBe(false)
       await acquire(adapter, 'session-2')
       expect(listModels).toHaveBeenCalledOnce()
       now += AGENT_MODEL_CATALOG_FAILURE_TTL_MS
       await acquire(adapter, 'session-3')
       await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(modelCatalog.hasActiveFailure(access.fingerprint)).toBe(false))
+      expect(await send(adapter, 'after-refresh', 'session-3')).toMatchObject({ state: 'admitted' })
+      expect(codex.connections.at(-1)?.calls.find((call) => call.method === 'turn/start')?.params)
+        .toMatchObject({ serviceTier: 'priority' })
     } finally {
       clock.mockRestore()
     }
@@ -186,26 +209,78 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     )
   })
 
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a cold-cache background listing that %ss after same-home account reauthentication',
+    async (outcome) => {
+      const pending = Promise.withResolvers<unknown>()
+      const codex = fakeCodex({ 'model/list': () => pending.promise })
+      const modelCatalog = new AgentModelCatalogStore()
+      const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
+      await acquire(adapter)
+      const session = adapter['sessions'].get('session-1')
+      if (!session?.catalogAccess) {
+        throw new Error('Expected the acquired session and pinned catalog access')
+      }
+      const { fingerprint } = session.catalogAccess
+      await vi.waitFor(() => expect(codex.connections[0].calls
+        .filter((call) => call.method === 'model/list')).toHaveLength(1))
+      expect(session.catalogListingInProgress).toBe(true)
+      expect(modelCatalog.get(fingerprint)).toBeNull()
+      const expire = createAgentModelCatalogSettingsExpiry(modelCatalog, {})
+      expire({ codexManagedAccounts: [{
+        id: 'same-account', email: 'reauthenticated@example.test',
+        managedHomePath: '/codex/home', providerAccountId: 'new-principal',
+        workspaceLabel: null, workspaceAccountId: null,
+        createdAt: 1, updatedAt: 2, lastAuthenticatedAt: 2
+      }] }, {})
+      if (outcome === 'resolve') {
+        pending.resolve(listing('old-account-paid-id'))
+      } else {
+        pending.reject(new Error('old account listing rejected'))
+      }
+      await vi.waitFor(() => expect(session.catalogListingInProgress).toBe(false))
+      expect(modelCatalog.get(fingerprint)).toBeNull()
+      expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(false)
+      expect(modelCatalog.failure(fingerprint)).toBeNull()
+      expect(modelCatalog.isListing(fingerprint)).toBe(false)
+      expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+        .toMatchObject({ serviceTier: 'priority' })
+      expect(codex.connections).toHaveLength(1)
+    }
+  )
+
   it('restores the saved model and tier over the resumed thread’s', async () => {
-    const codex = fakeCodex()
+    const codex = fakeCodex({ 'model/list': () => ({
+      data: [{ model: 'synthetic-resume-model', supportedReasoningEfforts: [],
+        serviceTiers: [{ id: 'synthetic-ultra-request-id', name: 'Ultrafast' }] }],
+      nextCursor: null
+    }) })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-tier')
-    const adapter = adapterFor(codex, { codexHome: '/codex/home', resumeThreadId: THREAD_ID })
+    const modelCatalog = new AgentModelCatalogStore()
+    const access = agentModelCatalogSessionAccess(
+      modelCatalog, CODEX_STRUCTURED_AGENT, '/codex/home'
+    )!
+    const adapter = adapterFor(codex, {
+      codexHome: '/codex/home', resumeThreadId: THREAD_ID
+    }, [], { modelCatalog })
     await adapter.acquire({
       identity: identityFor('session-1'),
       fence: 7,
       spawnToken: 'spawn-resume',
-      options: { model: 'gpt-next', serviceTier: 'ultrafast' }
+      options: { model: 'synthetic-resume-model', serviceTier: 'synthetic-ultra-request-id' }
     })
 
     expect(codex.connections[0].calls.some((call) => call.method === 'thread/resume')).toBe(true)
     expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toEqual({
-      model: 'gpt-next',
-      serviceTier: 'ultrafast'
+      model: 'synthetic-resume-model',
+      serviceTier: 'synthetic-ultra-request-id'
     })
-    await send(adapter, 'first')
+    await vi.waitFor(() => expect(modelCatalog.get(access.fingerprint)?.models[0]?.id)
+      .toBe('synthetic-resume-model'))
+    expect(await send(adapter, 'first')).toMatchObject({ state: 'admitted' })
     expect(
       codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ model: 'gpt-next', serviceTier: 'ultrafast' })
+    ).toMatchObject({ model: 'synthetic-resume-model', serviceTier: 'synthetic-ultra-request-id' })
   })
 })
 
@@ -251,9 +326,9 @@ describe('Codex service tier across clients and rest', () => {
     expect(turn).not.toHaveProperty('fastMode')
   })
 
-  it('takes a tier at rest but not an older client Fast toggle', () => {
+  it('takes a tier and an older client Fast toggle at rest', () => {
     expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('serviceTier')).toBe(true)
-    expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('fastMode')).toBe(false)
+    expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('fastMode')).toBe(true)
   })
 
   it('keeps only the reported tier, not the Fast it implies, on the record', () => {

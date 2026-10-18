@@ -1,6 +1,5 @@
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
+import type { StructuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 import type { StructuredLaunchState } from './structured-agent-session-launch-registry'
-import { notifyStructuredLaunchListeners } from './structured-agent-session-launch-registry'
 import {
   prepareStructuredLaunchPromptForCreate,
   prepareLegacyStructuredLaunchPrompts
@@ -17,37 +16,31 @@ import {
   settleStructuredLaunchCreateOptions
 } from './structured-agent-session-launch-options'
 
-/** Freeze what create carries once; an ambiguous reply always replays the same payload. */
-export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchState): void {
+/** Preview options without taking ownership of the first message before authorization. */
+export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchState): {
+  params: StructuredAgentSessionCreateParams
+  commit?: () => StructuredAgentSessionCreateParams
+} {
   const { intent } = state
   if (intent.createPrepared) {
-    return
+    return { params: intent.params }
   }
-  if (intent.createMessageSupport !== true) {
-    prepareLegacyStructuredLaunchPrompts(intent.sessionId)
-    intent.createPrepared = true
-    notifyStructuredLaunchListeners()
-    return
-  }
-  const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
   const options = structuredLaunchCreateOptions(state)
-  const params = {
-    ...intent.params,
-    ...(firstMessage ? { firstMessage } : {}),
-    ...(options ? { options } : {})
-  }
-  intent.params = {
-    ...params,
-    envelope: {
-      ...params.envelope,
-      payloadFingerprint: structuredAgentSessionCreateFingerprint({
-        sessionId: intent.sessionId,
-        ...params
-      })
+  const params = { ...intent.params, ...(options ? { options } : {}) }
+  return {
+    params,
+    commit: () => {
+      // A joiner may hand off the CLI source while speed authorization awaits.
+      const { options: _currentOptions, ...currentFields } = intent.params
+      const currentParams = { ...currentFields, ...(params.options ? { options: params.options } : {}) }
+      if (intent.createMessageSupport !== true) {
+        prepareLegacyStructuredLaunchPrompts(intent.sessionId)
+        return currentParams
+      }
+      const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
+      return { ...currentParams, ...(firstMessage ? { firstMessage } : {}) }
     }
   }
-  intent.createPrepared = true
-  notifyStructuredLaunchListeners()
 }
 
 /** Picks held so far, and the model and effort the chat shows: a first message starts its turn
@@ -61,7 +54,6 @@ function structuredLaunchCreateOptions(
     worktree: intent.params.worktree,
     seedsModel: intent.seedOptions?.model !== undefined
   })
-  // Create has always carried options, so any host takes what the chat shows.
   const view = structuredAgentSessionOptionView(
     firstFrame,
     intent.seedOptions,
@@ -83,7 +75,7 @@ export function publishStructuredLaunchCreateOptions(
   if (state.intent.createMessageSupport !== true) {
     return applyStructuredLaunchHeldOptions(state, receipt)
   }
-  settleStructuredLaunchCreateOptions(state, state.intent.params.options ?? {})
+  settleStructuredLaunchCreateOptions(state, state.intent.createCanonicalOptions ?? {})
   void applyStructuredLaunchHeldOptions(state, receipt).catch((error: unknown) => {
     console.warn('[native-chat] applying a launch option failed', error)
   })

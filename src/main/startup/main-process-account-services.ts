@@ -78,11 +78,16 @@ export function initializeMainProcessAccountServices(): void {
       prewarmStructuredAgentModelCatalogs()
     }
   })
-  store.migrateLegacyOpenCodeGoApiKey({
-    has: hasOpenCodeGoApiKey,
-    read: readOpenCodeGoApiKey,
-    save: saveOpenCodeGoApiKey
-  })
+  // Why: the key save is an async secure write; the migration is a one-time legacy move, so startup does not wait on it.
+  void store
+    .migrateLegacyOpenCodeGoApiKey({
+      has: hasOpenCodeGoApiKey,
+      read: readOpenCodeGoApiKey,
+      save: saveOpenCodeGoApiKey
+    })
+    .catch((error: unknown) => {
+      console.warn('[opencode-go] Could not migrate the saved API key out of settings.', error)
+    })
   state.keybindings = new KeybindingService({
     homePath: app.getPath('home'),
     getLegacyOverrides: () => store.getSettings().keybindings,

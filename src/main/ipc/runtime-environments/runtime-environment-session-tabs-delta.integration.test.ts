@@ -98,18 +98,22 @@ describe('session.tabs tab delta across mixed client versions', () => {
     })
     await server.start()
     cleanups.push(() => server.stop())
-    const pair = (name: string): string => {
-      const offer = server.createPairingOffer({ address: '127.0.0.1', name, scope: 'runtime' })
+    const pair = async (name: string): Promise<string> => {
+      const offer = await server.createPairingOffer({ address: '127.0.0.1', name, scope: 'runtime' })
       if (!offer.available) {
         throw new Error('pairing_unavailable')
       }
-      return addEnvironmentFromPairingCode(userDataPath, { name, pairingCode: offer.pairingUrl }).id
+      const environment = await addEnvironmentFromPairingCode(userDataPath, {
+        name,
+        pairingCode: offer.pairingUrl
+      })
+      return environment.id
     }
 
     // A desktop released before the delta: same handshake, minus the one capability.
     const legacy = recorder()
     const legacySubscription = await subscribeRemoteRuntimeRequest(
-      getPreferredPairedRuntimeConnection(resolveEnvironment(userDataPath, pair('old-desktop'))),
+      getPreferredPairedRuntimeConnection(resolveEnvironment(userDataPath, await pair('old-desktop'))),
       'session.tabs.subscribe',
       { worktree: `id:${SESSION_WORKTREE_ID}` },
       10_000,
@@ -125,7 +129,7 @@ describe('session.tabs tab delta across mixed client versions', () => {
     // What a new desktop's socket carries before main decodes it.
     const wire = recorder()
     const wireSubscription = await subscribeRemoteRuntimeRequest(
-      getPreferredPairedRuntimeConnection(resolveEnvironment(userDataPath, pair('new-wire'))),
+      getPreferredPairedRuntimeConnection(resolveEnvironment(userDataPath, await pair('new-wire'))),
       'session.tabs.subscribe',
       { worktree: `id:${SESSION_WORKTREE_ID}` },
       10_000,
@@ -138,7 +142,7 @@ describe('session.tabs tab delta across mixed client versions', () => {
     const current = recorder()
     const currentSubscription = await subscribeRuntimeEnvironment(
       userDataPath,
-      pair('new-desktop'),
+      await pair('new-desktop'),
       'session.tabs.subscribe',
       { worktree: `id:${SESSION_WORKTREE_ID}` },
       10_000,

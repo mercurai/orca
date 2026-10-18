@@ -148,12 +148,12 @@ export function structuredAgentSessionListedPicks(
   return { model: target.id, ...(carried ? { effort: carried } : {}) }
 }
 
-/** The Claude model and effort the composer shows (`snapshot`), which every send carries. */
+/** Carry the composer's selected settings with the message, including a pending speed pick. */
 export function structuredAgentSessionSendSelection(
   agent: string,
   snapshot: readonly SessionOptionDescriptor[]
 ): Record<string, string> | undefined {
-  if (agent !== 'claude') {
+  if (agent !== 'claude' && agent !== 'codex') {
     return undefined
   }
   const shown = (id: string): string | undefined => {
@@ -162,5 +162,16 @@ export function structuredAgentSessionSendSelection(
   }
   const model = shown('model')
   const effort = shown('effort')
+  if (agent === 'codex') {
+    const serviceTier = shown('serviceTier')
+    const legacy = snapshot.find((descriptor) => descriptor.id === 'fastMode')
+    const legacyIntent = legacy?.valueSource === 'applied' || legacy?.valueSource === 'dispatched' ||
+      legacy?.valueSource === 'reported'
+    const speed: Record<string, string> | undefined = serviceTier !== undefined
+      ? { serviceTier }
+      : legacyIntent && legacy?.kind.type === 'boolean'
+        ? { fastMode: String(legacy.kind.currentValue) } : undefined
+    return speed ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed } : undefined
+  }
   return model ? { model, ...(effort ? { effort } : {}) } : undefined
 }
