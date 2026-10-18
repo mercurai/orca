@@ -52,6 +52,19 @@ export function withStructuredSpeedCatalog(
   })
 }
 
+/** A local pick can outlive a failed refresh; the old support verdict is not its admission. */
+function speedForSelection(speed: AgentSessionSpeed, tierId: string | undefined): AgentSessionSpeed {
+  if (
+    tierId === undefined ||
+    (speed.requested && 'tierId' in speed.requested && speed.requested.tierId === tierId) ||
+    (speed.requested === undefined && tierId === 'default')
+  ) {
+    return speed
+  }
+  // Applied/processing remain historical facts, not acceptance of this newly selected tier.
+  return { ...speed, requested: { tierId }, support: 'unknown' }
+}
+
 /** Never carry the previous model's acceptance or processing facts onto a held model pick. */
 export function withStructuredSpeedSnapshot(
   snapshot: SessionOptionDescriptor[],
@@ -63,10 +76,14 @@ export function withStructuredSpeedSnapshot(
   }
   const model = snapshot.find((descriptor) => descriptor.id === 'model')?.kind
   const matchesModel = model?.type === 'select' && model.currentValue === speedModelId
-  const shown: AgentSessionSpeed = matchesModel
-    ? speed
-    : { support: 'unknown', processing: { status: 'unknown' } }
-  return snapshot.map((descriptor) =>
-    descriptor.id === 'serviceTier' ? { ...descriptor, speed: shown } : descriptor
-  )
+  return snapshot.map((descriptor) => {
+    if (descriptor.id !== 'serviceTier') {
+      return descriptor
+    }
+    const tierId = descriptor.kind.type === 'select' ? descriptor.kind.currentValue : undefined
+    const shown: AgentSessionSpeed = matchesModel
+      ? speedForSelection(speed, tierId)
+      : { support: 'unknown', processing: { status: 'unknown' } }
+    return { ...descriptor, speed: shown }
+  })
 }

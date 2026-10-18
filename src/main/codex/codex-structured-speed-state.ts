@@ -6,6 +6,7 @@ import { CODEX_DEFAULT_SERVICE_TIER, codexFastServiceTier } from './codex-struct
 /** Request facts belong to one acquisition, never saved preferences or a thread config echo. */
 export type CodexSpeedRequestState = {
   speedDispatchSequence?: number
+  speedAcknowledgedSequence?: number
   speedApplied?: { sequence: number; tierId: string; turnId: string | null }
   catalogListingInProgress?: boolean
 }
@@ -16,9 +17,11 @@ export function acknowledgeCodexSpeed(
   tierId: string | undefined,
   turnId: string | null
 ): void {
-  if (tierId !== undefined && sequence > (host.speedApplied?.sequence ?? 0)) {
-    host.speedApplied = { sequence, tierId, turnId }
+  if (sequence <= (host.speedAcknowledgedSequence ?? 0)) {
+    return
   }
+  host.speedAcknowledgedSequence = sequence
+  host.speedApplied = tierId === undefined ? undefined : { sequence, tierId, turnId }
 }
 
 export function readCodexSessionSpeed(

@@ -40,8 +40,9 @@ async function setup(
       ...(reported ? { serviceTier: FIRST } : {})
     })
   })
+  const modelCatalog = new AgentModelCatalogStore({ now: () => 1_000 })
   const adapter = adapterFor(codex, { codexHome: '/synthetic/speed-state' }, [], {
-    modelCatalog: new AgentModelCatalogStore({ now: () => 1_000 })
+    modelCatalog
   })
   const acquire = () => adapter.acquire({
     ...IDENTITY,
@@ -51,6 +52,7 @@ async function setup(
   })
   await acquire()
   if (primeCatalog) {
+    await vi.waitFor(() => expect(modelCatalog.hasEntryForAgent('codex')).toBe(true))
     await adapter.readOptions(IDENTITY)
   }
   return {

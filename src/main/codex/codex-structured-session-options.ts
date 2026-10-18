@@ -15,10 +15,13 @@ import {
   composeCodexSessionOptionCatalog,
   fetchCodexModelCatalogListing,
   readCodexStructuredSessionOptionCatalog,
-  type CodexModelCatalogListing,
-  type CodexSessionOptionCatalog
+  type CodexModelCatalogListing
 } from './codex-structured-model-catalog'
-import { codexAcquireCatalogListing, listingFromEntry } from './codex-structured-catalog-entry'
+import {
+  codexAcquireCatalogListing,
+  initialCodexSessionPickerListing,
+  listingFromEntry
+} from './codex-structured-catalog-entry'
 export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 
 /** Canonical overrides plus legacy Fast intent that must never be sent as a turn parameter. */
@@ -77,7 +80,8 @@ export async function codexSessionCatalogListingForPicker(
     }
     return listingFromEntry(entry)
   }
-  return fetchCodexListingThroughStore(session, timeoutMs)
+  return initialCodexSessionPickerListing(session, () => fetchCodexListingThroughStore(session, timeoutMs))
+    ?? fetchCodexListingThroughStore(session, timeoutMs)
 }
 
 export async function readCodexStructuredSessionOptions(input: {
@@ -93,11 +97,14 @@ export async function readCodexStructuredSessionOptions(input: {
 function composeLiveCodexCatalog(
   session: CodexSession,
   listing: CodexModelCatalogListing
-): CodexSessionOptionCatalog {
+): AgentSessionOptionsResult {
   const model = session.options.get('model') ?? session.reportedOptions.model
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const serviceTier = session.options.get('serviceTier')
   const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
+  if (!model && listing.models.length === 0) {
+    return { models: [], current: {}, speed: readCodexSessionSpeed(session, listing) }
+  }
   const result = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
