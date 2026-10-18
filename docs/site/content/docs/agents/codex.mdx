@@ -31,7 +31,11 @@ current account/model catalog identifies Fast's exact request ID. A saved canoni
 precedence over the old boolean preference. Unknown support never silently becomes Standard.
 
 A missing catalog tier does not establish that the account lacks subscription entitlement.
-A requested speed also does not prove the server's actual processing tier.
+The session keeps the requested next-turn selection separate from the tier acknowledged for a
+submitted turn. Failed starts do not count as applied settings. These acknowledgements are local
+to the current session acquisition and are not persisted as conversation preferences.
+A requested or acknowledged speed does not prove the server's actual processing tier; actual
+processing remains unknown without an explicit server report.
 
 ## Account hot-swap
 

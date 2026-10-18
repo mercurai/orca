@@ -16,9 +16,14 @@ const FIRST = 'synthetic-first-exact-tier'
 const SECOND = 'synthetic-second-exact-tier'
 const IDENTITY = { sessionId: 'session-1', fence: 7 }
 
-async function setup(options: Record<string, string> = { serviceTier: FIRST }, reported = false) {
+async function setup(
+  options: Record<string, string> = { serviceTier: FIRST },
+  reported = false,
+  listModels?: Route,
+  primeCatalog = true
+) {
   const codex = fakeCodex({
-    'model/list': () => ({
+    'model/list': listModels ?? (() => ({
       data: [{
         model: MODEL,
         supportedReasoningEfforts: [],
@@ -28,7 +33,7 @@ async function setup(options: Record<string, string> = { serviceTier: FIRST }, r
         ]
       }],
       nextCursor: null
-    }),
+    })),
     'thread/start': () => ({
       thread: { id: THREAD_ID },
       model: MODEL,
@@ -45,7 +50,9 @@ async function setup(options: Record<string, string> = { serviceTier: FIRST }, r
     options: { model: MODEL, ...options }
   })
   await acquire()
-  await adapter.readOptions(IDENTITY)
+  if (primeCatalog) {
+    await adapter.readOptions(IDENTITY)
+  }
   return {
     adapter,
     codex,
@@ -70,6 +77,92 @@ async function waitForStarts(codex: ReturnType<typeof fakeCodex>, count = 1) {
 }
 
 describe('Codex requested speed and acknowledged host settings', () => {
+  it('reports loading before an initial deferred catalog finishes', async () => {
+    const gate = Promise.withResolvers<unknown>()
+    const fixture = await setup({ serviceTier: FIRST }, false, () => gate.promise, false)
+    let observed: unknown
+    const reading = fixture.read().then(
+      (result) => { observed = result },
+      (error: unknown) => { observed = error }
+    )
+    try {
+      await vi.waitFor(() => expect(observed).toMatchObject({ speed: {
+        requested: { tierId: FIRST },
+        support: 'loading',
+        processing: { status: 'unknown' }
+      } }))
+    } finally {
+      gate.resolve({ data: [], nextCursor: null })
+      await reading
+      await fixture.close()
+    }
+  })
+
+  it('reports unknown after initial catalog failure instead of throwing from options', async () => {
+    const fixture = await setup({ serviceTier: FIRST }, false, () => {
+      throw new Error('Synthetic initial catalog rejection')
+    }, false)
+    try {
+      const access = fixture.adapter['sessions'].get(IDENTITY.sessionId)?.catalogAccess
+      if (!access) {
+        throw new Error('Expected synthetic session catalog access')
+      }
+      await vi.waitFor(() => expect(access.store.hasActiveFailure(access.fingerprint)).toBe(true))
+      await expect(fixture.read()).resolves.toMatchObject({ speed: {
+        requested: { tierId: FIRST },
+        support: 'unknown',
+        processing: { status: 'unknown' }
+      } })
+    } finally {
+      await fixture.close()
+    }
+  })
+
+  it.each([false, true])(
+    'clears earlier applied settings for a newer omitted-tier success (reverse acknowledgements: %s)',
+    async (reverse) => {
+      const fixture = await setup()
+      const first = Promise.withResolvers<unknown>()
+      const second = Promise.withResolvers<unknown>()
+      let started = 0
+      fixture.codex.routes['turn/start'] = () => (++started === 1 ? first.promise : second.promise)
+      const session = fixture.adapter['sessions'].get(IDENTITY.sessionId)
+      if (!session) {
+        throw new Error('Expected acquired synthetic Codex session')
+      }
+      try {
+        const older = startCodexTurn(session, { clientMessageId: 'explicit-older', body: USER_MESSAGE })
+        await waitForStarts(fixture.codex)
+        if (!reverse) {
+          first.resolve({ turn: { id: 'explicit-older-turn' } })
+          await older
+          expect(await fixture.read()).toMatchObject({ speed: {
+            applied: { tierId: FIRST, turnId: 'explicit-older-turn' }
+          } })
+        }
+        session.options.delete('serviceTier')
+        const newer = startCodexTurn(session, { clientMessageId: 'omitted-newer', body: USER_MESSAGE })
+        await waitForStarts(fixture.codex, 2)
+        const starts = fixture.codex.connections[0].calls.filter((call) => call.method === 'turn/start')
+        expect(starts[0]?.params).toHaveProperty('serviceTier', FIRST)
+        expect(starts[1]?.params).not.toHaveProperty('serviceTier')
+        second.resolve({ turn: { id: 'omitted-newer-turn' } })
+        await newer
+        if (reverse) {
+          first.resolve({ turn: { id: 'explicit-older-turn' } })
+          await older
+        }
+        const result = await fixture.read()
+        expect(result).toMatchObject({ speed: { processing: { status: 'unknown' } } })
+        expect(result).not.toHaveProperty('speed.applied')
+      } finally {
+        first.resolve({})
+        second.resolve({})
+        await fixture.close()
+      }
+    }
+  )
+
   it('shows requested speed before any turn without claiming applied or processing speed', async () => {
     const fixture = await setup()
     try {

@@ -1,3 +1,4 @@
+import { acknowledgeCodexSpeed, type CodexSpeedRequestState } from './codex-structured-speed-state'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import type {
@@ -45,7 +46,7 @@ export function isCodexTurnOptionKey(key: string): boolean {
 }
 
 /** The session state one turn needs. */
-export type CodexTurnHost = {
+export type CodexTurnHost = CodexSpeedRequestState & {
   account?: AgentSessionAccountKind
   connection: Pick<CodexAppServerConnection, 'request'>
   threadId: string
@@ -144,17 +145,22 @@ export async function startCodexTurn(
     return steered
   }
   assertCodexSpeedAdmitted(host)
+  const options = Object.fromEntries([...host.options].filter(([key]) => isCodexTurnOptionKey(key)))
+  const sequence = (host.speedDispatchSequence ?? 0) + 1
+  host.speedDispatchSequence = sequence
   const answer = await host.connection.request(
     'turn/start',
     {
       threadId: host.threadId,
       clientUserMessageId: input.clientMessageId,
       input: turnInputFor(input.body),
-      ...Object.fromEntries([...host.options].filter(([key]) => isCodexTurnOptionKey(key)))
+      ...options
     },
     { timeoutMs: input.timeoutMs, onReply: input.onReply }
   )
-  return { turnId: readCodexTurnId(answer), via: 'start' }
+  const turnId = readCodexTurnId(answer)
+  acknowledgeCodexSpeed(host, sequence, options.serviceTier, turnId)
+  return { turnId, via: 'start' }
 }
 
 /**

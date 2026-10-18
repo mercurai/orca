@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { CODEX_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
 import {
   applyStructuredAgentSessionOptions,
+  commitStructuredAgentSessionOptionValues,
   createStructuredAgentSessionOptionState,
   structuredAgentSessionOptionSnapshot
 } from './structured-agent-session-options'
@@ -45,6 +46,48 @@ describe('structured session speed state projection', () => {
         speed,
         kind: { currentValue: TIER }
       })
+  })
+
+  it('invalidates same-model speed support after a changed pick when no refreshed answer arrives', () => {
+    const nextTier = 'synthetic-next-exact-tier-id'
+    const applied = { tierId: TIER, turnId: 'synthetic-previous-turn' }
+    const result = {
+      models: [
+        {
+          ...listedModel,
+          serviceTiers: [...listedModel.serviceTiers, { value: nextTier, label: 'Next speed' }]
+        }
+      ],
+      current: { model: MODEL, serviceTier: TIER },
+      speed: {
+        requested: { tierId: TIER },
+        support: 'available' as const,
+        applied,
+        processing: { status: 'unknown' as const }
+      }
+    }
+    const live = applyStructuredAgentSessionOptions(
+      initialState(),
+      CODEX_SESSION_OPTION_CATALOG,
+      result
+    )
+    expect(structuredAgentSessionOptionSnapshot(live).find(({ id }) => id === 'serviceTier'))
+      .toMatchObject({ speed: { requested: { tierId: TIER }, support: 'available', applied } })
+
+    const changed = commitStructuredAgentSessionOptionValues(live, { serviceTier: nextTier })
+    // A failed detached refresh applies no new result; the committed pick must stand on its own.
+    const descriptor = structuredAgentSessionOptionSnapshot(changed)
+      .find(({ id }) => id === 'serviceTier')
+
+    expect(descriptor).toMatchObject({
+      kind: { currentValue: nextTier },
+      speed: {
+        requested: { tierId: nextTier },
+        support: 'unknown',
+        applied,
+        processing: { status: 'unknown' }
+      }
+    })
   })
 
   it('retains an unavailable requested exact id when the refreshed model no longer advertises it', () => {

@@ -24,6 +24,7 @@ async function refresh(input: BackgroundCatalogInput): Promise<void> {
     return
   }
   const isCurrent = (): boolean => sessions.get(sessionId) === session && !session.ended
+  session.catalogListingInProgress = true
   try {
     const listing = await fetchCodexModelCatalogListing({
       connection: session.connection,
@@ -64,6 +65,8 @@ async function refresh(input: BackgroundCatalogInput): Promise<void> {
       sessionId,
       error
     })
+  } finally {
+    session.catalogListingInProgress = false
   }
 }
 

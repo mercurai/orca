@@ -1,3 +1,4 @@
+import { readCodexSessionSpeed } from './codex-structured-speed-state'
 import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import type { CodexSession } from './codex-structured-session-state'
@@ -110,7 +111,11 @@ function composeLiveCodexCatalog(
         }
       : {})
   })
-  return pendingFast ? { ...result, current: { ...result.current, fastMode: true } } : result
+  return {
+    ...result,
+    ...(pendingFast ? { current: { ...result.current, fastMode: true } } : {}),
+    speed: readCodexSessionSpeed(session, listing)
+  }
 }
 
 export async function readLiveCodexSessionOptions(

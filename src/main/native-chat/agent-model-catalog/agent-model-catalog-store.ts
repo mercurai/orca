@@ -314,6 +314,10 @@ export class AgentModelCatalogStore {
 
   /** A picker follows the current account work until a catalog lands, all work ends,
    *  or its fixed deadline expires. */
+  isListing(fingerprint: string): boolean {
+    return this.refreshes.has(fingerprint)
+  }
+
   pendingListing(fingerprint: string): Promise<AgentModelCatalogEntry | null> | null {
     return this.listingWaiters.wait(fingerprint)
   }
