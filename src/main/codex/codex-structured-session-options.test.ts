@@ -414,7 +414,7 @@ describe('structured Codex session options', () => {
     expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'priority' })
   })
 
-  it('sends a restored tier before any listing names it', async () => {
+  it('retains a restored tier but blocks a turn before its support is known', async () => {
     const requests: { method: string; params?: Record<string, unknown> }[] = []
     const session = optionSession(
       vi.fn(async (method: string, params?: Record<string, unknown>) => {
@@ -430,13 +430,12 @@ describe('structured Codex session options', () => {
     expect(options.current).toMatchObject({ serviceTier: 'priority-saved' })
     expect(options.current).not.toHaveProperty('fastMode')
     expect(options.models[0]?.serviceTiers).toBeUndefined()
-    await startCodexTurn(session, {
+    await expect(startCodexTurn(session, {
       clientMessageId: 'message-unlisted',
       body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'unlisted' }] }
-    })
-    expect(requests.find((entry) => entry.method === 'turn/start')?.params).toMatchObject({
-      serviceTier: 'priority-saved'
-    })
+    })).rejects.toMatchObject({ kind: 'speedSupportUnknown' })
+    expect(requests.some((entry) => entry.method === 'turn/start')).toBe(false)
+    expect(session.options.get('serviceTier')).toBe('priority-saved')
   })
 
   it('allows explicit Fast off without positive model support', async () => {
@@ -644,7 +643,7 @@ describe('Codex reported tier', () => {
     ).resolves.toEqual({ model: 'gpt-6-luna' })
   })
 
-  it('keeps a re-picked reported Flex through a read, a model switch, and the next message', async () => {
+  it('retains a re-picked reported Flex but blocks an unadvertised next-turn override', async () => {
     const requests: { method: string; params?: Record<string, unknown> }[] = []
     const session = optionSession(
       vi.fn(async (method: string, params?: Record<string, unknown>) => {
@@ -665,13 +664,12 @@ describe('Codex reported tier', () => {
     await expect(
       applyCodexStructuredSessionOption(session, 'model', 'gpt-6-luna')
     ).resolves.toEqual({ model: 'gpt-6-luna', serviceTier: 'flex' })
-    await startCodexTurn(session, {
+    await expect(startCodexTurn(session, {
       clientMessageId: 'message-flex',
       body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'go' }] }
-    })
-    expect(requests.find((entry) => entry.method === 'turn/start')?.params).toMatchObject({
-      serviceTier: 'flex'
-    })
+    })).rejects.toMatchObject({ kind: 'speedUnavailable' })
+    expect(requests.some((entry) => entry.method === 'turn/start')).toBe(false)
+    expect(session.options.get('serviceTier')).toBe('flex')
   })
 
   it.each([
@@ -705,7 +703,7 @@ describe('Codex reported tier', () => {
 })
 
 describe('Codex option picks before the model list arrives', () => {
-  it('accepts launch-held model, effort and tier picks while its own listing is held', async () => {
+  it('retains launch-held picks and blocks an unverified tier while its own listing is held', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-1')
@@ -731,15 +729,16 @@ describe('Codex option picks before the model list arrives', () => {
       effort: 'low',
       serviceTier: 'priority'
     })
-    await adapter.dispatch({
+    await expect(adapter.dispatch({
       sessionId: 'session-1',
       clientMessageId: 'first',
       body: USER_MESSAGE,
       fence: 7
+    })).resolves.toMatchObject({
+      state: 'rejected',
+      rejection: { kind: 'speedSupportUnknown', neverReachedAgent: true }
     })
-    expect(
-      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
-    ).toMatchObject({ model: 'gpt-next', effort: 'low', serviceTier: 'priority' })
+    expect(codex.connections[0].calls.some((call) => call.method === 'turn/start')).toBe(false)
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
       1
     )
