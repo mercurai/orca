@@ -360,7 +360,7 @@ const MALFORMED = [
 ]
 
 for (const [label, malformed] of MALFORMED) {
-  test(`UPSTREAM_MAIN_SHA is refused as ${label}`, () => {
+  test(`UPSTREAM_MAIN_SHA is refused as ${String(label)}`, () => {
     const fx = createFixture()
     const value = malformed(fx)
     writeManifest(fx, { base: value, patches: seriesOn(fx, fx.frozen, value) })
@@ -381,7 +381,7 @@ const UNREACHABLE = [
 ]
 
 for (const [label, prepare] of UNREACHABLE) {
-  test(`UPSTREAM_MAIN_SHA is refused as ${label}, not reachable from upstream main`, () => {
+  test(`UPSTREAM_MAIN_SHA is refused as ${String(label)}, not reachable from upstream main`, () => {
     const fx = createFixture()
     const { sha, on } = prepare(fx)
     writeManifest(fx, { base: sha, patches: seriesOn(fx, on ?? fx.frozen, sha) })
@@ -394,7 +394,7 @@ for (const [label, wrong] of [
   ['the tag commit', (fx) => fx.tagSha],
   ['a newer main commit', (fx) => fx.tip]
 ]) {
-  test(`a manifest base of ${label} is refused when UPSTREAM_MAIN_SHA names another commit`, () => {
+  test(`a manifest base of ${String(label)} is refused when UPSTREAM_MAIN_SHA names another commit`, () => {
     const fx = createFixture()
     writeManifest(fx, { base: wrong(fx), patches: seriesOn(fx, fx.frozen) })
     assertMainRefused(fx, fx.frozen, [SHA_VAR])
@@ -444,7 +444,7 @@ for (const [label, malformed] of [
   ['an uppercase sha', (sha) => sha.toUpperCase()],
   ['a branch name', () => 'patch/alpha']
 ]) {
-  test(`an upstream-open patch pin that is ${label} is refused by name`, () => {
+  test(`an upstream-open patch pin that is ${String(label)} is refused by name`, () => {
     const fx = createFixture()
     const [beta, alpha] = seriesOn(fx, fx.frozen)
     writeManifest(fx, { base: fx.frozen, patches: [beta, { ...alpha, commit: malformed(alpha.commit) }] })
@@ -485,7 +485,7 @@ for (const [label, move] of [
   ['rewritten', (fx, name) => addPatch(fx, name, fx.frozen, { content: 'rewritten' })]
 ]) {
   for (const { name, status, index } of ACTIVE_STATUSES) {
-    test(`an ${status} patch branch ${label} after its commit was pinned is refused before any checkout`, () => {
+    test(`an ${status} patch branch ${String(label)} after its commit was pinned is refused before any checkout`, () => {
       const fx = createFixture()
       const patches = seriesOn(fx, fx.frozen)
       writeManifest(fx, { base: fx.frozen, patches })
