@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import type { ChildProcessHandle as ChildProcess } from '@orca/process-host/process-spec'
 import { runProcessInProcess } from '@orca/process-host'
 import type { ProcessTerminationBarrier } from '@orca/process-host/process-spec'
 import { createWslProcessGroupTermination } from '../wsl-process-group-termination'

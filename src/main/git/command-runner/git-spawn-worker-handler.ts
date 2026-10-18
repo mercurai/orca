@@ -1,4 +1,6 @@
-import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { spawnProcess } from '@orca/process-host'
+import { captureProcess } from '@orca/process-host/capture-process'
+import type { ChildProcessHandle as ChildProcess } from '@orca/process-host/process-spec'
 import { endSubprocessStdin } from '../../../shared/subprocess-stdin-write'
 import { isExecFileResultObject } from './exec-file-result'
 import { createRunProcessHost } from './git-spawn-worker-run'
@@ -138,14 +140,11 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
     let child: ChildProcess
     try {
       // Why: our abort and deadline paths own tree cleanup; Node's signal handler could kill wsl.exe before taskkill sees its children.
-      child = execFile(
+      child = captureProcess(
         request.command,
         request.args,
         {
           cwd: request.cwd,
-          // Why: git.exe is console-subsystem and Orca's main process owns no
-          // console, so every spawn without this flashes a conhost (#14543).
-          windowsHide: true,
           encoding: request.encoding,
           maxBuffer: request.maxBuffer,
           env: request.env
@@ -202,11 +201,12 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
     const startedAt = performance.now()
     let child: ChildProcess
     try {
-      child = spawn(request.command, request.args, {
+      child = spawnProcess({
+        program: request.command,
+        args: request.args,
         cwd: request.cwd,
         env: request.env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true
+        stdio: ['ignore', 'pipe', 'pipe']
       })
     } catch (error) {
       active.delete(entry.id)

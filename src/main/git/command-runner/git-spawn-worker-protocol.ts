@@ -4,7 +4,7 @@
 // command resolution, the Chromium tree-kill guard and error typing stay in main.
 // Kept free of Electron, node:worker_threads and node:child_process so either
 // side can import it without dragging the other side's dependencies across.
-import type { ExecFileOptions } from 'node:child_process'
+import type { CaptureProcessOptions } from '@orca/process-host/capture-process'
 import type { ProcessTreeKill } from '@orca/process-host/process-tree-kill-gate'
 import type {
   ProcessResult,
@@ -49,7 +49,7 @@ export type SpawnWorkerRequest =
       args: string[]
       cwd?: string
       env?: NodeJS.ProcessEnv
-      encoding?: ExecFileOptions['encoding']
+      encoding?: CaptureProcessOptions['encoding']
       maxBuffer: number
       timeoutMs?: number
       stdin?: string

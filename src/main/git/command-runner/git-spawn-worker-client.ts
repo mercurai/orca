@@ -1,3 +1,4 @@
+import { observeCaptureStderr } from './git-spawn-worker-stderr'
 import { recordSubprocessSpawn } from '../../diagnostics/main-thread-churn-probe'
 import { LazyWorkerThreadHost, type WorkerThreadFactory } from '../../lazy-worker-thread-host'
 import { admitSelfInitiatedTreeKill } from '../../own-chromium-tree-kill-guard'
@@ -260,14 +261,8 @@ export class GitSpawnWorkerClient {
   }
 
   private handleChunk(entry: Entry, channel: 'stdout' | 'stderr', data: Uint8Array): void {
-    if (channel === 'stderr' && entry.capture?.onStderr) {
-      try {
-        const chunk = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8')
-        entry.capture.onStderr(chunk)
-      } catch {
-        entry.capture.onStderr = undefined
-        this.log('Git stderr observer failed; detached it')
-      }
+    if (channel === 'stderr') {
+      observeCaptureStderr(entry.capture, data, this.log)
     }
     entry.stream?.onChunk(channel, Buffer.from(data.buffer, data.byteOffset, data.byteLength))
     entry.unackedChunks += 1

@@ -237,7 +237,7 @@ function retryUnsavedRotation(key: string): void {
 
 /** Starts the retries; the writes ride the path lanes, which quit drains. */
 export function flushUnsavedOrcaCloudSessions(): void {
-  for (const key of [...unsavedRotations.keys()]) {
+  for (const key of unsavedRotations.keys()) {
     retryUnsavedRotation(key)
   }
 }

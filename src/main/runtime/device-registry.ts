@@ -4,18 +4,17 @@
 // JSON file with hardened permissions matching the runtime metadata pattern.
 import { join } from 'node:path'
 import { serializePathWrite } from '../../shared/path-write-serializer'
-import {
-  writeDurableSecureJsonFileAsync,
-  writeSecureJsonFileAsync
-} from '../../shared/secure-file-async-write'
 import type { DeviceScope } from '../../shared/runtime-types'
-import { removeStaleDurableWriteTempFiles } from '../durable-file-write'
 import { DEVICE_REGISTRY_FILENAME } from './mobile-pairing-files'
-import { mintDeviceCredential } from './device-credential'
+import {
+  createPendingDeviceEntry,
+  findPendingDevice,
+  findPendingDeviceForGrants
+} from './device-registry-pending-device'
 import { DeviceKeyForkError, planDeviceKeyFork } from './device-key-fork'
 import { planIdleEphemeralPrune, withoutEphemeralRows } from './ephemeral-device-rows'
-import { quarantineCorruptRegistry } from './device-registry-corruption'
-import { readDeviceRegistryFile } from './device-registry-file-read'
+import { DeviceRegistryStorage } from './device-registry-storage'
+import { DeviceRegistryLastSeen } from './device-registry-last-seen'
 import { DeviceRevocationMarks } from './device-revocation-marks'
 import type { RelayDeviceBinding } from './mobile-cloud-relay/relay-revoke-outbox'
 import type { MobilePairingConnectionMode } from '../../shared/mobile-pairing-connection-mode'
@@ -26,14 +25,12 @@ import {
   type DelegatedMobileDeviceEntry
 } from './delegated-mobile-devices'
 import type { RuntimeDeviceGrant } from './rpc/rpc-method-permission'
-import { validGrants } from './device-registry-row-validation'
 import {
   isPendingTokenRow,
   mobilePairingConnectionModeOf,
   isStillAuthenticated,
   type AuthenticatedPrincipalBinding,
   lookupDeviceKeyRow,
-  sameGrants,
   type DeviceEntry,
   type DeviceKeyLookup,
   type TokenDeviceEntry
@@ -44,30 +41,18 @@ export type { DeviceScope }
 
 export type { DeviceEntry, DeviceKeyLookup, TokenDeviceEntry }
 
-// Why: a lastSeen refresh is pure bookkeeping, so coalesce reconnect bursts into one write instead of
-// paying a secure-file rewrite (an ACL pass on Windows) per connection.
-const LAST_SEEN_FLUSH_DELAY_MS = 250
-const STALE_WRITE_TEMP_AGE_MS = 24 * 60 * 60 * 1000
-
 export class DeviceRegistry {
   private readonly registryPath: string
   private devices: DeviceEntry[] = []
   private readonly revocations = new DeviceRevocationMarks()
-  /** Set when the registry exists but could not be read, which makes `devices` a lie to save from. */
-  private registryUnreadable = false
-  /** A parse failure, now or in an earlier run, means an unlisted device may still exist. */
-  private registryDoubtful = false
-  private corruptFilePending = false
-  private pendingLastSeenFlush: NodeJS.Timeout | null = null
-  /** Bumped by every deferred lastSeen refresh, so a write in flight can tell it missed one. */
-  private lastSeenRevision = 0
+  private readonly storage: DeviceRegistryStorage
+  private readonly lastSeen = new DeviceRegistryLastSeen(() =>
+    this.persistOrLog('persist device lastSeen')
+  )
 
   constructor(userDataPath: string) {
     this.registryPath = join(userDataPath, DEVICE_REGISTRY_FILENAME)
-    // Why: a write killed between writeFile and rename (e.g. a crash mid-write, #20497) orphans its temp forever.
-    void removeStaleDurableWriteTempFiles(this.registryPath, {
-      minimumAgeMs: STALE_WRITE_TEMP_AGE_MS
-    })
+    this.storage = new DeviceRegistryStorage(this.registryPath)
     this.load()
   }
 
@@ -94,16 +79,7 @@ export class DeviceRegistry {
     pairingReach: RuntimePairingReach,
     grants: readonly RuntimeDeviceGrant[]
   ): Promise<TokenDeviceEntry> {
-    const validatedGrants = validGrants(grants, scope)
-    const entry: TokenDeviceEntry = {
-      ...mintDeviceCredential(),
-      name,
-      scope,
-      pairedAt: Date.now(),
-      lastSeenAt: 0,
-      pairingReach,
-      ...(validatedGrants ? { grants: validatedGrants } : {})
-    }
+    const entry = createPendingDeviceEntry(name, scope, pairingReach, grants)
     const nextDevices = [...existingDevices, entry]
     // Why: a credential is not valid until its durable registry write succeeds.
     await this.commit(nextDevices)
@@ -124,12 +100,7 @@ export class DeviceRegistry {
   ): Promise<TokenDeviceEntry> {
     return this.serialized(async () => {
       // Why: a pending token is reused only for the same grants, so re-advertising never widens one.
-      const existing = this.devices.find(
-        (d): d is TokenDeviceEntry =>
-          isPendingTokenRow(d) &&
-          d.scope === scope &&
-          sameGrants(d, validGrants(grants, scope) ?? [])
-      )
+      const existing = findPendingDeviceForGrants(this.devices, scope, grants)
       if (!existing) {
         return await this.createAndPersistDevice(this.devices, name, scope, pairingReach, grants)
       }
@@ -221,11 +192,7 @@ export class DeviceRegistry {
   }
 
   getPendingDevice(scope: DeviceScope = 'mobile'): TokenDeviceEntry | null {
-    return (
-      this.devices.find(
-        (device): device is TokenDeviceEntry => isPendingTokenRow(device) && device.scope === scope
-      ) ?? null
-    )
+    return findPendingDevice(this.devices, scope)
   }
 
   setRelayBinding(deviceId: string, binding: RelayDeviceBinding): Promise<boolean> {
@@ -288,7 +255,7 @@ export class DeviceRegistry {
       return { kind: 'unavailable' }
     }
     const lookup = lookupDeviceKeyRow(this.getDevice(deviceId))
-    return lookup.kind === 'unknown' && (this.registryUnreadable || this.registryDoubtful)
+    return lookup.kind === 'unknown' && this.storage.isUnavailable
       ? { kind: 'unavailable' }
       : lookup
   }
@@ -341,19 +308,9 @@ export class DeviceRegistry {
   }
 
   updateLastSeen(deviceId: string): Promise<void> {
-    return this.serialized(async () => {
-      const index = this.devices.findIndex((d) => d.deviceId === deviceId)
-      if (index === -1) {
-        return
-      }
-      // Why: persist before memory swap so a failed write cannot leave a scanned
-      // device looking never-scanned on disk, where rotation would drop it.
-      const seenAt = Date.now()
-      const nextDevices = this.devices.map((device, candidateIndex) =>
-        candidateIndex === index ? { ...device, lastSeenAt: seenAt } : device
-      )
-      await this.commit(nextDevices)
-    })
+    return this.serialized(() =>
+      this.lastSeen.update(this.devices, deviceId, (devices) => this.commit(devices))
+    )
   }
 
   /**
@@ -363,40 +320,17 @@ export class DeviceRegistry {
    * never scanned, so only that 0 -> non-zero transition is load-bearing.
    */
   updateLastSeenDeferred(deviceId: string): void {
-    const existing = this.getDevice(deviceId)
-    if (!existing) {
-      return
-    }
-    if (existing.lastSeenAt === 0) {
-      void this.updateLastSeen(deviceId).catch((error) => {
-        console.warn('[mobile] Failed to persist first device sighting:', error)
-      })
-      return
-    }
-    const seenAt = Date.now()
-    this.lastSeenRevision += 1
-    this.devices = this.devices.map((device) =>
-      device.deviceId === deviceId ? { ...device, lastSeenAt: seenAt } : device
-    )
-    if (this.pendingLastSeenFlush) {
-      return
-    }
-    this.pendingLastSeenFlush = setTimeout(
-      () => void this.flushPendingLastSeen(),
-      LAST_SEEN_FLUSH_DELAY_MS
-    )
-    // Why: bookkeeping must never hold the process open.
-    this.pendingLastSeenFlush.unref?.()
+    this.lastSeen.defer(this.devices, deviceId, {
+      persistFirst: () => this.updateLastSeen(deviceId),
+      replaceRows: (devices) => {
+        this.devices = devices
+      }
+    })
   }
 
   /** Persists a deferred lastSeen refresh now; no-op when nothing is pending. */
-  async flushPendingLastSeen(): Promise<void> {
-    if (!this.pendingLastSeenFlush) {
-      return
-    }
-    this.cancelPendingLastSeenFlush()
-    // Why: a failed bookkeeping write must not take down the runtime.
-    await this.persistOrLog('persist device lastSeen')
+  flushPendingLastSeen(): Promise<void> {
+    return this.lastSeen.flush()
   }
 
   private async persistOrLog(action: string, options: { durable?: boolean } = {}): Promise<void> {
@@ -407,18 +341,8 @@ export class DeviceRegistry {
     }
   }
 
-  private cancelPendingLastSeenFlush(): void {
-    if (this.pendingLastSeenFlush) {
-      clearTimeout(this.pendingLastSeenFlush)
-      this.pendingLastSeenFlush = null
-    }
-  }
-
   private load(): void {
-    const read = readDeviceRegistryFile(this.registryPath)
-    this.registryUnreadable = read.unreadable
-    this.registryDoubtful = read.doubtful
-    this.corruptFilePending = read.corruptFilePending
+    const read = this.storage.read()
     this.devices = withoutEphemeralRows(read.devices)
     // Why: a session-only browser's key died with the last host process; its row must not outlive it.
     if (this.devices.length !== read.devices.length) {
@@ -445,38 +369,17 @@ export class DeviceRegistry {
     })
   }
 
-  private assertReadable(): void {
-    if (this.registryUnreadable) {
-      throw new Error(
-        `Cannot read the device registry at ${this.registryPath}: the read failed. Refusing to overwrite it, which would revoke every paired device.`
-      )
-    }
-    if (this.corruptFilePending) {
-      quarantineCorruptRegistry(this.registryPath)
-      this.corruptFilePending = false
-    }
-  }
-
   /** Persists `devices`, then makes them the in-memory list. Durable (fsync'd) for security transitions. */
-  private async commit(
-    devices: DeviceEntry[],
-    options: { durable?: boolean } = {}
-  ): Promise<void> {
-    this.assertReadable()
-    const revision = this.lastSeenRevision
-    const write = options.durable ? writeDurableSecureJsonFileAsync : writeSecureJsonFileAsync
-    await write(this.registryPath, devices)
-    if (revision === this.lastSeenRevision) {
+  private async commit(devices: DeviceEntry[], options: { durable?: boolean } = {}): Promise<void> {
+    const revision = this.lastSeen.revision
+    await this.storage.write(devices, options)
+    if (revision === this.lastSeen.revision) {
       this.devices = devices
       // Why: this write included the latest in-memory timestamps, so a pending timer would only rewrite it.
-      this.cancelPendingLastSeenFlush()
+      this.lastSeen.cancel()
       return
     }
-    // Why: a deferred refresh landed during the write; keep its newer timestamps and its pending timer.
-    const seen = new Map(this.devices.map((device) => [device.deviceId, device.lastSeenAt]))
-    this.devices = devices.map((device) => ({
-      ...device,
-      lastSeenAt: Math.max(device.lastSeenAt, seen.get(device.deviceId) ?? 0)
-    }))
+    // A deferred refresh landed during the write; preserve its newer timestamps.
+    this.devices = this.lastSeen.merge(devices, this.devices)
   }
 }

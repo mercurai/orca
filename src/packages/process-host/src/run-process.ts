@@ -326,9 +326,7 @@ export function runProcessInProcess(
       settle(() => reject(error))
     })
     child.once('exit', (code, signal) => {
-      if (!barrierStopping) {
-        rootExitedBeforeBarrier = true
-      }
+      rootExitedBeforeBarrier ||= !barrierStopping
       deferredExit = { code, signal }
       if (barrierStopping) {
         resolveBarrierIfSafe()
@@ -336,9 +334,7 @@ export function runProcessInProcess(
     })
     child.once('close', (code, signal) => {
       terminationReporter.report()
-      if (!barrierStopping) {
-        rootExitedBeforeBarrier = true
-      }
+      rootExitedBeforeBarrier ||= !barrierStopping
       if (barrierStopping) {
         deferredClose = { code, signal }
         resolveBarrierIfSafe()

@@ -49,4 +49,3 @@
 2 src/main/zsh-startup-hook-pty-harness.ts
 1 src/shared/fish-binary-requirement.ts
 1 src/shared/openssh-default-shell.ts
-1 src/shared/secure-file.ts

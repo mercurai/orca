@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import type { ChildProcessHandle as ChildProcess } from '@orca/process-host/process-spec'
 import {
   setProcessTreeKillGate,
   type ProcessTreeKill

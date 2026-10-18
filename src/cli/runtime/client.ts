@@ -43,8 +43,6 @@ import {
 
 const LONG_POLL_CLIENT_GRACE_MS = 10_000
 
-const loadWebSocketTransport = async () => await import('./websocket-transport.js')
-
 export class RuntimeClient {
   readonly userDataPath: string
   private readonly requestTimeoutMs: number
@@ -140,7 +138,7 @@ export class RuntimeClient {
       ...compatibilityEnvelope
     }
     if (this.remote) {
-      const transport = await loadWebSocketTransport()
+      const transport = await import('./websocket-transport.js')
       let response
       try {
         response = await this.remoteCompat.send<TResult>({
