@@ -1,5 +1,6 @@
 import { maybeCleanupLaunchState } from './structured-agent-session-launch-outcome-tracking'
 // @vitest-environment happy-dom
+import type * as LaunchIntentModule from './launch-structured-agent-session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CreateIntentParams, SendParams, SetOptionParams } from '../../../shared/rpc-contract/structured-agent-session-params'
 import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
@@ -23,7 +24,7 @@ vi.mock('@/runtime/codex-speed-selection', () => ({
   prepareCodexSpeedWireOptions: async (input: { options?: Readonly<Record<string, string>> }) => ({ options: input.options })
 }))
 vi.mock('./launch-structured-agent-session', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./launch-structured-agent-session')>(),
+  ...await importOriginal<typeof LaunchIntentModule>(),
   createStructuredAgentSessionLaunchIntent: mocks.createIntent,
   retryStructuredAgentSessionLaunchIntent: mocks.retryIntent
 }))
@@ -216,7 +217,9 @@ describe('a refused speed held after create froze', () => {
     const fixture = await begin()
     const { sessionId } = fixture.launch
     const state = getStructuredLaunchStateBySessionId(sessionId)
-    if (!state) throw new Error('Expected original launch state')
+    if (!state) {
+      throw new Error('Expected original launch state')
+    }
     const pick = holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', PAID)
     fixture.createReply.resolve(created(fixture.snapshot))
     await vi.waitFor(() => expect(calls('agentSession.setOption')).toHaveLength(1))

@@ -136,8 +136,12 @@ function restartStructuredLaunchState(state: StructuredLaunchState): void {
   state.selection = { ...state.selection, seed: state.intent.seedOptions }
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
   state.promise = recovery.then((recovered) => {
-    if (!recovered) throw new Error('Unsent message recovery needs durable storage')
-    if (state.cancelled) throw new Error('Launch cancelled during message recovery')
+    if (!recovered) {
+      throw new Error('Unsent message recovery needs durable storage')
+    }
+    if (state.cancelled) {
+      throw new Error('Launch cancelled during message recovery')
+    }
     if (!wasVisibilityUnknown) {
       state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
       state.selection = { ...state.selection, seed: state.intent.seedOptions }

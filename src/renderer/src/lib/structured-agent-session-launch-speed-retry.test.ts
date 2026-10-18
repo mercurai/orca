@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type * as LaunchIntentModule from './launch-structured-agent-session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 import { CreateIntentParams } from '../../../shared/rpc-contract/structured-agent-session-params'
@@ -26,7 +27,7 @@ vi.mock('./structured-agent-session-create-hydration', () => ({
   publishStructuredAgentSessionCreateHydration: vi.fn()
 }))
 vi.mock('./launch-structured-agent-session', async (importOriginal) => ({
-  ...await importOriginal<typeof import('./launch-structured-agent-session')>(),
+  ...await importOriginal<typeof LaunchIntentModule>(),
   abandonStructuredAgentSessionLaunchIntent: vi.fn()
 }))
 vi.mock('@/components/native-chat/use-structured-agent-session-option-state', async () => {
@@ -157,7 +158,9 @@ describe('create prompt ownership waits for speed authorization', () => {
     expect(pending).toBeDefined()
     mocks.authorize.mockImplementation(async ({ options }) => ({ options }))
     mocks.call.mockImplementation(async (_target, method, raw) => {
-      if (method !== 'agentSession.create') throw new Error(`Unexpected retry mutation ${method}`)
+      if (method !== 'agentSession.create') {
+        throw new Error(`Unexpected retry mutation ${method}`)
+      }
       const params = CreateIntentParams.parse(raw)
       const firstMessage = params.firstMessage ? {
         clientMessageId: params.firstMessage.clientMessageId, fence: 7,

@@ -7,7 +7,7 @@ export function readDraftRecoveryReceipts(value: unknown): readonly string[] {
     return []
   }
   if (!Array.isArray(value) || value.length > MAX_DRAFT_RECOVERY_RECEIPTS ||
-    value.some((id) => typeof id !== 'string' || !id.trim() || id.length > 256 || /[\x00-\x1f\x7f]/.test(id)) ||
+    value.some((id) => typeof id !== 'string' || !id.trim() || id.length > 256 || Array.from(id).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) ||
     new Set(value).size !== value.length) {
     throw new Error('Invalid composer recovery receipts')
   }

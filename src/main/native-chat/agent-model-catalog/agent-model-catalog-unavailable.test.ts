@@ -332,3 +332,59 @@ describe("an agent's command or environment change", () => {
     ])
   })
 })
+
+
+describe('a managed account reauthenticated in the same home', () => {
+  it('does not let a pre-change pending probe certify the reauthenticated account', async () => {
+    const oldProbe = deferred<AgentModelCatalogSuccess>()
+    const { store, service, probed } = rig(() => oldProbe.promise)
+    store.recordSuccess(FINGERPRINT, 'codex', listing('synthetic-old-model', 'probe'), 'discovery')
+    const pending = probed()
+    const expire = createAgentModelCatalogSettingsExpiry(store, {})
+    expire({ activeCodexManagedAccountId: 'reauthenticated-account' }, {})
+    oldProbe.resolve(listing('synthetic-old-model', 'probe'))
+    await pending
+    const entry = store.get(FINGERPRINT)
+    if (!entry) {
+      throw new Error('Expected the retained account catalog')
+    }
+    expect(store.isStale(entry, 'latest')).toBe(true)
+    expect(await service.read({ agent: 'codex', savedOnly: true }))
+      .toMatchObject({ catalogState: 'unknown' })
+  })
+
+  it('holds the old catalog unknown until a fresh account probe answers', async () => {
+    const { store, probe, service, answerWith } = rig()
+    const saved = listing('synthetic-model', 'probe')
+    saved.models[0].serviceTiers = [{ value: 'synthetic-paid-id', label: 'Fast' }]
+    store.recordSuccess(FINGERPRINT, 'codex', saved, 'discovery')
+    expect(await service.read({ agent: 'codex', savedOnly: true }))
+      .toMatchObject({ catalogState: 'available' })
+    const expire = createAgentModelCatalogSettingsExpiry(store, {})
+    expire({ codexManagedAccounts: [{
+      id: 'same-account', email: 'reauthenticated@example.test', managedHomePath: HOME,
+      providerAccountId: 'new-principal', workspaceLabel: null, workspaceAccountId: null,
+      createdAt: 1, updatedAt: 2, lastAuthenticatedAt: 2
+    }] }, {})
+    const entry = store.get(FINGERPRINT)
+    expect(entry).not.toBeNull()
+    if (!entry) {
+      throw new Error('Expected the retained same-home catalog')
+    }
+    expect(store.isStale(entry, 'latest')).toBe(true)
+    expect(await service.read({ agent: 'codex', savedOnly: true }))
+      .toMatchObject({ catalogState: 'unknown', models: [{ id: 'synthetic-model' }] })
+    const fresh = deferred<AgentModelCatalogSuccess>()
+    answerWith(() => fresh.promise)
+    const warming = service.prewarm()
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce())
+    expect(await service.read({ agent: 'codex', savedOnly: true }))
+      .toMatchObject({ catalogState: 'loading' })
+    fresh.resolve(listing('synthetic-new-principal-model', 'probe'))
+    await warming
+    expect(await service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+      catalogState: 'available', models: [{ id: 'synthetic-new-principal-model' }]
+    })
+    expect(probe.mock.calls[0]?.[0]).toEqual(ACCOUNT_HOME)
+  })
+})

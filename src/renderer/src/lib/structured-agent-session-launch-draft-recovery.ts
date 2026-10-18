@@ -13,9 +13,13 @@ import {
 
 /** Recovery shares one transaction and retains its source until storage confirms ownership. */
 export function recoverStructuredLaunchDrafts(state: StructuredLaunchState): Promise<boolean> {
-  if (state.draftRecovery) return state.draftRecovery
+  if (state.draftRecovery) {
+    return state.draftRecovery
+  }
   const drafts = state.heldPromptDrafts
-  if (!drafts?.length) return Promise.resolve(true)
+  if (!drafts?.length) {
+    return Promise.resolve(true)
+  }
   state.visibilityUnknown = true
   const notice = translate(
     'components.native-chat.composer.speedStatus.recoveryStorage',
@@ -31,7 +35,9 @@ export function recoverStructuredLaunchDrafts(state: StructuredLaunchState): Pro
         setStructuredAgentSessionSendNotice(state.intent.sessionId, notice)
         return false
       }
-      if (state.heldPromptDrafts !== drafts) return false
+      if (state.heldPromptDrafts !== drafts) {
+        return false
+      }
       delete state.heldPromptDrafts
       if (getStructuredAgentSessionSendNotice(state.intent.sessionId) === notice) {
         publishStructuredAgentSessionSends(state.intent.sessionId, { notice: null })
@@ -40,7 +46,9 @@ export function recoverStructuredLaunchDrafts(state: StructuredLaunchState): Pro
       return true
     })
     .finally(() => {
-      if (state.draftRecovery === recovery) delete state.draftRecovery
+      if (state.draftRecovery === recovery) {
+        delete state.draftRecovery
+      }
     })
   state.draftRecovery = recovery
   return recovery

@@ -30,7 +30,9 @@ export function confirmStructuredLaunchPublication(
   state.visibilityUnknown = false
   state.promise = recoverStructuredLaunchDrafts(state)
     .then((recovered) => {
-      if (!recovered) throw new Error('Unsent message recovery needs durable storage')
+      if (!recovered) {
+        throw new Error('Unsent message recovery needs durable storage')
+      }
       return recoverPublishedSessionReceipt(state, { replayMissingMessage: false })
     })
     .then((receipt) => {

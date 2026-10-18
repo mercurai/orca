@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type * as LaunchIntentModule from './launch-structured-agent-session'
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMobileSessionTabsResult } from '../../../shared/runtime-session-contracts'
@@ -332,7 +333,7 @@ describe('structured agent launch reload recovery', () => {
       heldPromptDrafts: [{ clientMessageId: 'original-legacy-reservation', text: 'held unsent text' }]
     }
     localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
-    const actual = await vi.importActual<typeof import('./launch-structured-agent-session')>(
+    const actual = await vi.importActual<typeof LaunchIntentModule>(
       './launch-structured-agent-session'
     )
     mocks.restoreIntent.mockImplementation(actual.restoreStructuredAgentSessionLaunchIntent)
@@ -344,7 +345,9 @@ describe('structured agent launch reload recovery', () => {
       const restored = restorePersistedStructuredLaunchState(worktreeId, sessionId)
       await nativeChatComposerDraftWritesSettled()
       expect(restored).toBeDefined()
-      if (!restored) throw new Error('Expected the blocked launch recovery state')
+      if (!restored) {
+        throw new Error('Expected the blocked launch recovery state')
+      }
       const frozenParams = structuredClone(restored.intent.params)
 
       expect(restored.heldPromptDrafts).toEqual(original.heldPromptDrafts)
@@ -379,7 +382,9 @@ describe('structured agent launch reload recovery', () => {
         throw new Error(`Unexpected recovery RPC: ${method}`)
       })
       mocks.callStructuredAgentSession.mockImplementation(async (_target, method, params) => {
-        if (method === 'agentSession.history') return { ok: true, page: { fence: 4 } }
+        if (method === 'agentSession.history') {
+          return { ok: true, page: { fence: 4 } }
+        }
         if (method === 'agentSession.setOption') {
           const pick = SetOptionParams.parse(params)
           return { ok: true, value: { ...pick, options: { ...original.heldOptions } } }
@@ -466,7 +471,7 @@ describe('structured agent launch reload recovery', () => {
       heldPromptDrafts: [{ clientMessageId: 'pending-backend-reservation', text: 'wait for durable recovery' }]
     }
     localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
-    const actual = await vi.importActual<typeof import('./launch-structured-agent-session')>(
+    const actual = await vi.importActual<typeof LaunchIntentModule>(
       './launch-structured-agent-session'
     )
     mocks.restoreIntent.mockImplementation(actual.restoreStructuredAgentSessionLaunchIntent)
@@ -481,14 +486,18 @@ describe('structured agent launch reload recovery', () => {
       await update(scope, apply)
     }
     mocks.runtimeCall.mockImplementation(async (_target, method) => {
-      if (method === 'session.tabs.listAll') return { snapshots: [publishedSnapshot(worktreeId, sessionId)] }
+      if (method === 'session.tabs.listAll') {
+        return { snapshots: [publishedSnapshot(worktreeId, sessionId)] }
+      }
       if (method === 'status.get') {
         return { runtimeId: 'original-runtime', capabilities: ['agent-session.codex-speed-selection.v1'] }
       }
       throw new Error(`Unexpected pending-recovery RPC: ${method}`)
     })
     mocks.callStructuredAgentSession.mockImplementation(async (_target, method, params) => {
-      if (method === 'agentSession.history') return { ok: true, page: { fence: 4 } }
+      if (method === 'agentSession.history') {
+        return { ok: true, page: { fence: 4 } }
+      }
       if (method === 'agentSession.setOption') {
         return { ok: true, value: { ...SetOptionParams.parse(params), options: { ...original.heldOptions } } }
       }
@@ -498,7 +507,9 @@ describe('structured agent launch reload recovery', () => {
     try {
       restored = restorePersistedStructuredLaunchState(worktreeId, sessionId)
       expect(restored).toBeDefined()
-      if (!restored) throw new Error('Expected registered launch while its draft commit is pending')
+      if (!restored) {
+        throw new Error('Expected registered launch while its draft commit is pending')
+      }
       expect(retryStructuredAgentSessionLaunch(worktreeId, sessionId)).toBe(true)
       const started = await Promise.race([
         updateStarted.promise.then(() => 'update-started'),

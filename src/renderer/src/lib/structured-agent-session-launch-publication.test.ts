@@ -157,7 +157,9 @@ describe('publication arriving before launch restoration', () => {
       if (method === 'session.tabs.listAll') {
         return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
       }
-      if (method === 'agentSession.history') return { ok: true, page }
+      if (method === 'agentSession.history') {
+        return { ok: true, page }
+      }
       throw new Error(`Publication must not issue a mutation: ${method}`)
     })
     vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -169,7 +171,9 @@ describe('publication arriving before launch restoration', () => {
       method === 'agentSession.history')).toHaveLength(1))
     const state = getStructuredLaunchStateBySessionId(sessionId)
     expect(state).toBeDefined()
-    if (!state) throw new Error('Expected restored modern publication state')
+    if (!state) {
+      throw new Error('Expected restored modern publication state')
+    }
     const outcome = await state.promise.then(() => 'confirmed', () => 'missing-receipt')
 
     expect(outcome).toBe(hasReceipt ? 'confirmed' : 'missing-receipt')
@@ -222,7 +226,9 @@ describe('publication arriving before launch restoration', () => {
     markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
     await historyStarted.promise
     const state = getStructuredLaunchStateBySessionId(sessionId)
-    if (!state) throw new Error('Expected restored launch awaiting publication history')
+    if (!state) {
+      throw new Error('Expected restored launch awaiting publication history')
+    }
     expect(state.selection.held).toEqual({})
     const outcome = state.promise.then(() => 'confirmed', () => 'unconfirmed')
     const heldOptions = { serviceTier: 'history-race-exact-held-tier' }
@@ -286,7 +292,9 @@ describe('publication arriving before launch restoration', () => {
         historyStarted.resolve()
         return { ok: true, page: missingPage }
       }
-      if (explicitRetry && method === 'agentSession.createSupport') return { supported: true }
+      if (explicitRetry && method === 'agentSession.createSupport') {
+        return { supported: true }
+      }
       if (explicitRetry && method === 'agentSession.create') {
         return { ok: true, value: {
           sessionId, fence: 7, firstMessage: opening,
@@ -304,7 +312,9 @@ describe('publication arriving before launch restoration', () => {
     markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
     await historyStarted.promise
     const state = getStructuredLaunchStateBySessionId(sessionId)
-    if (!state) throw new Error('Expected publication to retain the unconfirmed launch')
+    if (!state) {
+      throw new Error('Expected publication to retain the unconfirmed launch')
+    }
     await expect(state.promise).rejects.toBeInstanceOf(Error)
     expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
       'session.tabs.listAll', 'agentSession.history'

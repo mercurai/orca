@@ -55,7 +55,9 @@ function fakeDatabase(options: { manualRead?: boolean } = {}): {
           }
           reads.push(request)
           readStarted.resolve()
-          if (!options.manualRead) queueMicrotask(() => request.onsuccess?.())
+          if (!options.manualRead) {
+            queueMicrotask(() => request.onsuccess?.())
+          }
           return request
         }
       }
@@ -148,7 +150,9 @@ describe('the IndexedDB draft storage', () => {
     await readStarted
     const read = reads[0]
     expect(read).toBeDefined()
-    if (!read) throw new Error('Expected the IndexedDB read request')
+    if (!read) {
+      throw new Error('Expected the IndexedDB read request')
+    }
     read.result = DRAFT
 
     expect(() => read.onsuccess?.()).not.toThrow()

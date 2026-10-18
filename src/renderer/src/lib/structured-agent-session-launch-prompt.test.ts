@@ -50,8 +50,11 @@ import {
   deleteStructuredAgentLaunchRecord,
   readStructuredAgentLaunchRecord,
   resetStructuredAgentLaunchPersistenceForTests,
-  writeStructuredAgentLaunchRecord
+  writeStructuredAgentLaunchRecord,
+  type StructuredAgentLaunchPersistedRecord
 } from './structured-agent-session-launch-persistence'
+import { validRecord } from './structured-agent-session-launch-record'
+import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 
 const SESSION = 'session-1'
 const target = { kind: 'local' } as const
@@ -91,6 +94,21 @@ function pendingTexts(): string[] {
 
 function draft(): string {
   return readNativeChatDraftCache(structuredAgentSessionDraftScopeKey(SESSION))
+}
+
+function faultableLocalStorage(): Storage {
+  const backing = localStorage
+  // Happy DOM's Storage proxy cannot delete an instance method spy during restoration.
+  const boundary: Storage = {
+    get length() { return backing.length },
+    clear: () => backing.clear(),
+    key: (index) => backing.key(index),
+    getItem: (key) => backing.getItem(key),
+    setItem: (key, value) => backing.setItem(key, value),
+    removeItem: (key) => backing.removeItem(key)
+  }
+  vi.stubGlobal('localStorage', boundary)
+  return boundary
 }
 
 describe('settleStructuredAgentLaunchPrompt', () => {
@@ -346,6 +364,7 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       resetStructuredAgentSessionSendsForTests()
       clearNativeChatDraftCacheForTests()
       vi.restoreAllMocks()
+      vi.unstubAllGlobals()
       vi.useRealTimers()
     })
 
@@ -397,12 +416,13 @@ describe('settleStructuredAgentLaunchPrompt', () => {
     })
 
     it('refuses to consume recovery text when both draft storage and its journal refuse writes', async () => {
+      const localStorageBoundary = faultableLocalStorage()
       const storage = createMemoryNativeChatComposerDraftStorage()
       setNativeChatComposerDraftStorageForTests(storage)
       await hydrateNativeChatComposerDrafts()
       storage.refuseWrites = true
       vi.spyOn(console, 'warn').mockImplementation(() => {})
-      vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      vi.spyOn(localStorageBoundary, 'setItem').mockImplementation(() => {
         throw new DOMException('Synthetic journal storage refusal', 'QuotaExceededError')
       })
       const held = [{ clientMessageId: 'retain-after-quota', text: 'recoverable held text' }]
@@ -454,27 +474,46 @@ second held prompt`)
     })
 
     it('does not duplicate recovered text after source clearing fails and the user types before replay', async () => {
+      const localStorageBoundary = faultableLocalStorage()
+      const sourceKey = 'orca:structuredAgentLaunches:v1'
       const storage = createMemoryNativeChatComposerDraftStorage()
       setNativeChatComposerDraftStorageForTests(storage)
       await hydrateNativeChatComposerDrafts()
       const heldPromptDrafts = [{ clientMessageId: 'stable-legacy-reservation', text: 'recovered opening text' }]
-      resetStructuredAgentLaunchPersistenceForTests()
-      writeStructuredAgentLaunchRecord({
-        sessionId: SESSION, executionHostId: 'local', agent: 'codex', lifecycle: 'visibility-unknown',
-        clientOperationId: 'original-create', payloadFingerprint: 'original-fingerprint',
-        expectedRuntimeFence: null, createMessageSupport: false, heldPromptDrafts
+      const request = structuredAgentSessionCreateParams({
+        sessionId: SESSION, worktree: 'id:original-worktree', agent: 'codex',
+        randomUuid: () => '00000000-0000-4000-8000-000000000004', now: 1_760_000_000_000
       })
+      const source: StructuredAgentLaunchPersistedRecord = {
+        sessionId: SESSION, executionHostId: 'local', agent: 'codex', lifecycle: 'visibility-unknown',
+        clientOperationId: request.envelope.clientOperationId,
+        payloadFingerprint: request.envelope.payloadFingerprint,
+        expectedRuntimeFence: request.envelope.expectedRuntimeFence,
+        createMessageSupport: false, heldPromptDrafts
+      }
+      expect(validRecord(source)).toBe(true)
+      resetStructuredAgentLaunchPersistenceForTests()
+      writeStructuredAgentLaunchRecord(source)
+      const persistedSource = localStorageBoundary.getItem(sourceKey)
+      expect(JSON.parse(persistedSource ?? 'null')).toEqual([source])
+      resetStructuredAgentLaunchPersistenceForTests()
+      expect(readStructuredAgentLaunchRecord(SESSION)).toEqual(source)
       expect(await recover(heldPromptDrafts)).toBe(true)
       await nativeChatComposerDraftWritesSettled()
-      vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const removeItem = localStorage.removeItem.bind(localStorage)
-      const refuseSourceClear = vi.spyOn(localStorage, 'removeItem').mockImplementation((key) => {
-        if (key === 'orca:structuredAgentLaunches:v1') {
+      expect(localStorageBoundary.getItem(sourceKey)).toBe(persistedSource)
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const removeItem = localStorageBoundary.removeItem.bind(localStorageBoundary)
+      const refuseSourceClear = vi.spyOn(localStorageBoundary, 'removeItem').mockImplementation((key) => {
+        if (key === sourceKey) {
           throw new DOMException('Synthetic source-clear refusal', 'QuotaExceededError')
         }
         removeItem(key)
       })
       deleteStructuredAgentLaunchRecord(SESSION)
+      expect(refuseSourceClear).toHaveBeenCalledWith(sourceKey)
+      expect(warning).toHaveBeenCalledWith('[structured-agent-launch] could not persist launch state')
+      expect(readStructuredAgentLaunchRecord(SESSION)).toBeUndefined()
+      expect(localStorageBoundary.getItem(sourceKey)).toBe(persistedSource)
       resetStructuredAgentLaunchPersistenceForTests()
       const staleSource = readStructuredAgentLaunchRecord(SESSION)
       expect(staleSource?.heldPromptDrafts).toEqual(heldPromptDrafts)
