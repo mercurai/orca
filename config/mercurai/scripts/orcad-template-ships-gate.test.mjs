@@ -133,7 +133,7 @@ test('fails closed when the version cannot be read', () => {
 test('mobile dependencies are installed and checked before building the template page', () => {
   const installAt = workflow.indexOf('      - name: Install mobile dependencies\n')
   const pageAt = workflow.indexOf('      - name: Build the mobile web bundle\n')
-  assert.ok(installAt >= 0 && pageAt > installAt)
+  assert.ok(installAt !== -1 && pageAt > installAt)
   const install = workflow.slice(installAt, pageAt)
   assert.match(install, /if: steps\.support\.outputs\.ships == 'true'/)
   assert.match(install, /working-directory: mobile\n/)
@@ -147,7 +147,7 @@ test('the verified mobile page is built before orcad stages it', () => {
   const serverAt = workflow.indexOf(
     '      - name: Build orcad and run the headless server tests against the artifact\n'
   )
-  assert.ok(pageAt >= 0 && serverAt > pageAt)
+  assert.ok(pageAt !== -1 && serverAt > pageAt)
   const page = workflow.slice(pageAt, serverAt)
   assert.match(page, /if: steps\.support\.outputs\.ships == 'true'/)
   assert.match(page, /run: pnpm run build:mobile-web\n/)
