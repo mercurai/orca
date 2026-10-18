@@ -7,8 +7,7 @@ import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured
 import {
   CODEX_DEFAULT_SERVICE_TIER,
   codexFastServiceTier,
-  codexOffersServiceTier,
-  dropUnlistedCodexServiceTier
+  codexOffersServiceTier
 } from './codex-structured-service-tier'
 import {
   composeCodexSessionOptionCatalog,
@@ -23,7 +22,11 @@ export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 export function restoredCodexSessionOptions(
   options: Readonly<Record<string, string>> | undefined
 ): Map<string, string> {
-  return new Map(Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key)))
+  const restored = new Map(Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key)))
+  if (!restored.has('serviceTier') && options?.fastMode === 'false') {
+    restored.set('serviceTier', CODEX_DEFAULT_SERVICE_TIER)
+  }
+  return restored
 }
 
 export type { CodexSessionOptionCatalog } from './codex-structured-model-catalog'
@@ -104,24 +107,12 @@ function composeLiveCodexCatalog(
   })
 }
 
-function applyLiveCodexCatalog(
-  session: CodexSession,
-  listing: CodexModelCatalogListing
-): AgentSessionOptionsResult {
-  dropUnlistedCodexServiceTier(
-    session,
-    session.options.get('model') ?? session.reportedOptions.model,
-    listing.models
-  )
-  return composeLiveCodexCatalog(session, listing)
-}
-
 export async function readLiveCodexSessionOptions(
   session: CodexSession,
   timeoutMs: number | undefined
 ): Promise<AgentSessionOptionsResult> {
   const listing = await codexSessionCatalogListingForPicker(session, timeoutMs)
-  return applyLiveCodexCatalog(session, listing)
+  return composeLiveCodexCatalog(session, listing)
 }
 
 /** Fetch outside the session lane; apply against current options inside it. */
@@ -130,7 +121,7 @@ export async function prepareLiveCodexSessionOptions(
   timeoutMs: number | undefined
 ): Promise<() => AgentSessionOptionsResult> {
   const listing = await codexSessionCatalogListingForPicker(session, timeoutMs)
-  return () => applyLiveCodexCatalog(session, listing)
+  return () => composeLiveCodexCatalog(session, listing)
 }
 
 export async function applyCodexStructuredSessionOption(
@@ -229,7 +220,6 @@ function applyValidatedCodexStructuredSessionOption(
   } else {
     session.options.delete('effort')
   }
-  dropUnlistedCodexServiceTier(session, modelId, catalog.models)
   return Object.fromEntries(session.options)
 }
 

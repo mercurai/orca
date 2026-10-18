@@ -531,7 +531,7 @@ describe('structured Codex session options', () => {
     expect(result.fastModeSupport).toEqual({ supported: true })
   })
 
-  it('drops to Standard when switching to a model without the picked tier', async () => {
+  it('retains the requested tier when switching to a model without it', async () => {
     const session = optionSession(
       vi.fn(async () => ({
         data: [
@@ -550,7 +550,7 @@ describe('structured Codex session options', () => {
 
     await expect(
       applyCodexStructuredSessionOption(session, 'model', 'gpt-standard')
-    ).resolves.toMatchObject({ model: 'gpt-standard', serviceTier: 'default' })
+    ).resolves.toMatchObject({ model: 'gpt-standard', serviceTier: 'priority-x' })
   })
 })
 

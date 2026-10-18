@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { expectNoSyncSpawnOnWin32 } from '../../shared/windows-spawn-test-harness'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OrcaCloudSession } from './profile-cloud-session-store'
@@ -186,6 +186,59 @@ describe('Orca cloud session store', () => {
       status: 'decrypt-failed',
       persistence: 'none',
       error: 'Unsafe session format.'
+    })
+  })
+
+  it('does not retain a failed rotation after sign-out while its write was pending', async () => {
+    const store = await loadSessionStore()
+    const writer = await import('../../shared/secure-file-async-write')
+    const lane = await import('../../shared/path-write-serializer')
+    const failure = Promise.withResolvers<boolean>()
+    const write = vi.spyOn(writer, 'writeSecureJsonFileAsync').mockReturnValueOnce(failure.promise)
+    const pending = store.saveOrcaCloudSession('profile-1', userDataPath, makeSession(), {
+      spentOnFailure: true
+    })
+    store.clearOrcaCloudSession('profile-1', userDataPath)
+    failure.reject(Object.assign(new Error('synthetic disk failure'), { code: 'ENOSPC' }))
+    try {
+      await pending.catch(() => {})
+      write.mockRestore()
+      store.flushUnsavedOrcaCloudSessions()
+      await lane.drainPendingPathWrites()
+      expect(existsSync(store.getOrcaCloudSessionPath('profile-1', userDataPath))).toBe(false)
+      const reloaded = await loadSessionStore()
+      expect(reloaded.readOrcaCloudSession('profile-1', userDataPath)).toMatchObject({
+        status: 'missing'
+      })
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it('does not publish an obsolete rotation retry behind a newer session save', async () => {
+    const store = await loadSessionStore()
+    const writer = await import('../../shared/secure-file-async-write')
+    const lane = await import('../../shared/path-write-serializer')
+    const failedWrite = vi.spyOn(writer, 'writeSecureJsonFileAsync')
+      .mockRejectedValueOnce(new Error('synthetic disk failure'))
+    const previous = makeSession()
+    try {
+      await store.saveOrcaCloudSession('profile-1', userDataPath, previous, { spentOnFailure: true })
+    } finally {
+      failedWrite.mockRestore()
+    }
+    const gate = Promise.withResolvers<void>()
+    const path = store.getOrcaCloudSessionPath('profile-1', userDataPath)
+    const blocked = lane.serializePathWrite(path, () => gate.promise)
+    const latest = { ...makeSession(), refreshToken: 'synthetic-newer-refresh' }
+    const save = store.saveOrcaCloudSession('profile-1', userDataPath, latest)
+    store.readOrcaCloudSession('profile-1', userDataPath)
+    gate.resolve()
+    await Promise.all([blocked, save])
+    await lane.drainPendingPathWrites()
+    const reloaded = await loadSessionStore()
+    expect(reloaded.readOrcaCloudSession('profile-1', userDataPath)).toMatchObject({
+      status: 'found', session: latest
     })
   })
 

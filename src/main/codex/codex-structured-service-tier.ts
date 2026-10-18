@@ -105,16 +105,3 @@ export function codexOffersServiceTier(
       !models.some((entry) => codexListsServiceTier(entry, tier)))
   )
 }
-
-/** The chat's tier, picked or reported, falls back to standard where the model does not offer it. */
-export function dropUnlistedCodexServiceTier(
-  session: CodexSession,
-  modelId: string | undefined,
-  models: readonly AgentSessionModelOption[]
-): void {
-  const tier = session.options.get('serviceTier') ?? session.reportedOptions.serviceTier
-  const model = models.find((entry) => entry.id === modelId)
-  if (tier && model?.serviceTiers && !codexOffersServiceTier(session, model, models, tier)) {
-    session.options.set('serviceTier', CODEX_DEFAULT_SERVICE_TIER)
-  }
-}

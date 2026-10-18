@@ -1,8 +1,29 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { serializePathWrite } from '../../shared/path-write-serializer'
 import { runOrcadHostCleanup } from './orcad-lifecycle'
+import { PATH_WRITE_QUIT_DEADLINE_MS } from '../startup/path-write-quit-drain'
 
 let lane = 0
+
+it('keeps ownership fences when the secure-write drain times out', async () => {
+  vi.useFakeTimers()
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const gate = Promise.withResolvers<void>()
+  const events: string[] = []
+  const write = serializePathWrite('orcad-host-cleanup-timeout', () => gate.promise)
+  try {
+    const rejected = expect(runOrcadHostCleanup(steps(events))).rejects.toThrow()
+    await vi.advanceTimersByTimeAsync(PATH_WRITE_QUIT_DEADLINE_MS)
+    await rejected
+    expect(events).not.toContain('admission-released')
+    expect(events).not.toContain('lock-released')
+  } finally {
+    gate.resolve()
+    await write
+    warn.mockRestore()
+    vi.useRealTimers()
+  }
+})
 
 // A secure-file write still in its path lane when shutdown reaches the host cleanup.
 function pendingWrite(events: string[], label: string, landAfterMs = 50): Promise<void> {
