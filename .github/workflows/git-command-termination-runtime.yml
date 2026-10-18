@@ -64,6 +64,7 @@ jobs:
           src/renderer/src/lib/structured-agent-session-launch-reload.test.ts
           src/renderer/src/lib/structured-agent-session-launch-prompt.test.ts
           src/renderer/src/lib/structured-agent-session-launch-publication.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-recovery.test.ts
           src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
           src/renderer/src/lib/structured-agent-session-launch-held-speed-refusal.test.ts
           src/renderer/src/components/native-chat/use-structured-agent-session-send-options.speed.test.tsx
