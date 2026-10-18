@@ -192,6 +192,16 @@ jobs:
             exit 1
           fi
 
+      # Match upstream: this build no longer compiles the obsolete SSH relay addons.
+      - name: Refuse a ref that still ships the SSH relay
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -e config/tsconfig.relay.json ]]; then
+            echo "::error::This ref predates #27215 and still ships the SSH relay; build a commit at or after 2b4b60a87e."
+            exit 1
+          fi
+
       # Nothing cached reaches the build: the Electron download and electron-builder's tools go to
       # empty directories of this run, and no native build output exists before the install.
       - name: Start from empty build caches
@@ -248,19 +258,11 @@ jobs:
         shell: bash
         run: node config/scripts/verify-dev-channel-packaging.mjs --channel=mercurai --platform=win32
 
-      # Same relay addons the upstream dev Windows leg builds before packaging.
-      - name: Build Windows process-table addon for the relay
-        shell: bash
-        run: |
-          node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=x64
-          node config/scripts/build-windows-process-tree-relay-addon.mjs --arch=arm64
-
-      # build:release is what the upstream dev Windows leg runs: relay, native CLI launcher, CLI, app and mobile web bundle.
+      # Current upstream Windows builds prepare desktop addons through ensure-native-runtime;
+      # build:release builds the native CLI launcher and hook, CLI, app and mobile web bundle.
       - name: Build app
         shell: bash
         run: pnpm run build:release
-        env:
-          ORCA_REQUIRE_RELAY_NATIVE_ADDONS: 'x64,arm64'
 
       - name: Download the orcad deployment template
         if: needs.orcad-template.outputs.ships == 'true'

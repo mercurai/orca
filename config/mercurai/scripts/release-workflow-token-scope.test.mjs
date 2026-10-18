@@ -354,3 +354,17 @@ test('a shipping template is required at packaging and checked in the unpacked a
   assert.match(check, /\n\s+grep -q '\^orcad template ok: ' <<<"\$report"\n/)
   assert.doesNotMatch(check, /continue-on-error/)
 })
+
+test('Windows builds refuse relay-era refs and use the current native preparation', () => {
+  const build = code(releaseJobs.get('build-win'))
+  const refuseAt = build.indexOf('- name: Refuse a ref that still ships the SSH relay')
+  const installAt = build.indexOf('- name: Install dependencies')
+  assert.ok(refuseAt !== -1 && installAt > refuseAt)
+  const refuse = build.slice(refuseAt, build.indexOf('\n      - ', refuseAt + 1))
+  assert.match(refuse, /if \[\[ -e config\/tsconfig\.relay\.json \]\]; then\n[^\n]*\n\s+exit 1\n/)
+  assert.doesNotMatch(refuse, /^\s+(if|continue-on-error):/m)
+  assert.doesNotMatch(build, /build-windows-process-tree-relay-addon|ORCA_REQUIRE_RELAY_NATIVE_ADDONS/)
+  const commands = build.match(/node config\/scripts\/ensure-native-runtime\.mjs --runtime=electron/g)
+  assert.equal(commands?.length, 2)
+  assert.match(build, /run: pnpm run build:release\n/)
+})
