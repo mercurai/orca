@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type * as SecureFileAsyncWrite from '../../shared/secure-file-async-write'
 import type {
   OrcaCloudCapabilities,
   OrcaCloudOrgSummary,
@@ -12,7 +13,8 @@ const {
   beginOrcaCloudPkceFlowMock,
   exchangeOrcaCloudAuthCodeMock,
   revokeOrcaCloudSessionMock,
-  safeStorageMock
+  safeStorageMock,
+  sessionWriteHook
 } = vi.hoisted(() => ({
   beginOrcaCloudPkceFlowMock: vi.fn(),
   exchangeOrcaCloudAuthCodeMock: vi.fn(),
@@ -21,7 +23,9 @@ const {
     decryptString: vi.fn((value: Buffer) => value.toString('utf-8')),
     encryptString: vi.fn((value: string) => Buffer.from(value, 'utf-8')),
     isEncryptionAvailable: vi.fn(() => true)
-  }
+  },
+  // Runs once, right after a session write has been requested and before it lands.
+  sessionWriteHook: { once: null as (() => void) | null }
 }))
 
 let userDataPath = ''
@@ -32,6 +36,22 @@ vi.mock('electron', () => ({
   },
   safeStorage: safeStorageMock
 }))
+
+vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
+  const original = await importOriginal<typeof SecureFileAsyncWrite>()
+  return {
+    ...original,
+    writeSecureJsonFileAsync: (path: string, value: unknown) => {
+      const write = original.writeSecureJsonFileAsync(path, value)
+      if (path.endsWith('account-session.json.enc') && sessionWriteHook.once) {
+        const hook = sessionWriteHook.once
+        sessionWriteHook.once = null
+        hook()
+      }
+      return write
+    }
+  }
+})
 
 vi.mock('./profile-cloud-pkce', () => ({
   beginOrcaCloudPkceFlow: beginOrcaCloudPkceFlowMock
@@ -49,6 +69,11 @@ import {
   getCurrentOrcaProfileAuthStatus,
   signOutCurrentOrcaProfile
 } from './profile-cloud-service'
+import {
+  readCloudSession,
+  signInCloudSession,
+  signOutCloudSession
+} from './profile-cloud-session-owner'
 
 const earlierCloud: OrcaProfileCloudSummary = {
   cloudProfileId: 'cloud-profile-1',
@@ -75,6 +100,7 @@ const organizations: OrcaCloudOrgSummary[] = [{ orgId: 'org-1', name: 'Acme', ro
 describe('Orca cloud overlapping connect', () => {
   beforeEach(() => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-cloud-connect-overlap-'))
+    sessionWriteHook.once = null
     beginOrcaCloudPkceFlowMock.mockReset()
     exchangeOrcaCloudAuthCodeMock.mockReset()
     revokeOrcaCloudSessionMock.mockReset()
@@ -287,5 +313,58 @@ describe('Orca cloud overlapping connect', () => {
     await expect(later).resolves.toMatchObject({ status: 'cancelled' })
     expect(exchangeOrcaCloudAuthCodeMock).toHaveBeenCalledTimes(1)
     expect(getCurrentOrcaProfileAuthStatus(userDataPath)).toMatchObject({ state: 'local' })
+  })
+
+  it('cancels a connect whose session write is overtaken by a sign-out, and leaves no session file', async () => {
+    beginOrcaCloudPkceFlowMock.mockResolvedValue({
+      code: 'earlier-code',
+      codeVerifier: 'earlier-verifier',
+      nonce: 'earlier-nonce',
+      redirectUri: 'http://127.0.0.1:4100/auth/callback',
+      state: 'earlier-state'
+    })
+    exchangeOrcaCloudAuthCodeMock.mockResolvedValue({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresAt: Date.now() + 3_600_000,
+      cloud: earlierCloud,
+      organizations,
+      capabilities
+    })
+    let signingOut: ReturnType<typeof signOutCurrentOrcaProfile> | null = null
+    sessionWriteHook.once = () => {
+      signingOut = signOutCurrentOrcaProfile(userDataPath)
+    }
+
+    await expect(connectCurrentOrcaProfile(userDataPath)).resolves.toMatchObject({
+      status: 'cancelled'
+    })
+    await expect(signingOut).resolves.toMatchObject({ status: 'signed-out' })
+
+    expect(getCurrentOrcaProfileAuthStatus(userDataPath)).toMatchObject({
+      state: 'local',
+      persistence: 'none'
+    })
+    expect(
+      existsSync(join(userDataPath, 'profiles', 'local-default', 'account-session.json.enc'))
+    ).toBe(false)
+  })
+
+  it('refuses a sign-in that was requested before a sign-out, even while it is still queued', async () => {
+    const signingIn = signInCloudSession('local-default', userDataPath, {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresAt: Date.now() + 3_600_000,
+      cloud: earlierCloud,
+      organizations,
+      capabilities
+    })
+    signOutCloudSession('local-default', userDataPath)
+
+    await expect(signingIn).rejects.toThrow('Signed out while signing in.')
+    expect(readCloudSession('local-default', userDataPath).status).toBe('missing')
+    expect(
+      existsSync(join(userDataPath, 'profiles', 'local-default', 'account-session.json.enc'))
+    ).toBe(false)
   })
 })

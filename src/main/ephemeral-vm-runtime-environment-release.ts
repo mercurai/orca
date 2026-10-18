@@ -17,7 +17,7 @@ export async function releaseEphemeralVmRuntimeEnvironments(
   )
   for (const environment of environments) {
     if (!environment.orcadDeployment) {
-      removeEnvironment(userDataPath, environment.id)
+      await removeEnvironment(userDataPath, environment.id)
       continue
     }
     const { closeOrcadManagedTunnel } =

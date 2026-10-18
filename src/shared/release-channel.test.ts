@@ -7,6 +7,7 @@ import {
   hasDedicatedReleaseRepo,
   hasInstallableArtifactForPlatform,
   isAdhocVersion,
+  isMercuraiVersion,
   isChannelSupportedOnPlatform,
   isDailyVersion,
   isHourlyVersion,
@@ -30,6 +31,8 @@ describe('release channel', () => {
     expect(getVersionChannel('1.4.160-hourly.202607281400')).toBe('hourly')
     expect(getVersionChannel('1.4.160-daily.202607281300')).toBe('daily')
     expect(getVersionChannel('1.4.160-adhoc.20260728140533')).toBe('adhoc')
+    expect(getVersionChannel('1.4.222-mercurai.1')).toBe('mercurai')
+    expect(getVersionChannel('v1.4.222-mercurai.12')).toBe('mercurai')
     expect(getVersionChannel('not-a-version')).toBeNull()
   })
 
@@ -242,10 +245,64 @@ describe('release channel', () => {
     }
   })
 
+  // The fork's channel: counter versions, its own org's repo, Windows only.
+  it('recognizes the mercurai channel by its counter version', () => {
+    expect(isMercuraiVersion('1.4.222-mercurai.1')).toBe(true)
+    expect(isMercuraiVersion('v1.4.222-mercurai.3')).toBe(true)
+    expect(isMercuraiVersion('1.4.222-mercurai')).toBe(false)
+    expect(isMercuraiVersion('1.4.222-mercurai.1.2')).toBe(false)
+    expect(isMercuraiVersion('1.4.222-mercurai.20260728140533x')).toBe(false)
+    expect(isMercuraiVersion('not-a-version-mercurai.1')).toBe(false)
+    expect(isMercuraiVersion('1.4.222-adhoc.20260728140533')).toBe(false)
+    expect(getVersionChannel('1.4.222-mercurai.0.1')).toBe('rc')
+  })
+
+  it('routes the mercurai channel to mercurai/orca-mercurai on Windows only', () => {
+    expect(getReleaseRepoForChannel('mercurai')).toBe('mercurai/orca-mercurai')
+    expect(hasDedicatedReleaseRepo('mercurai')).toBe(true)
+    expect(getReleaseNotesUrlForVersion('1.4.222-mercurai.1')).toBe(
+      'https://github.com/mercurai/orca-mercurai/releases/tag/v1.4.222-mercurai.1'
+    )
+    expect(isChannelSupportedOnPlatform('mercurai', 'win32')).toBe(true)
+    expect(isChannelSupportedOnPlatform('mercurai', 'darwin')).toBe(false)
+    expect(isChannelSupportedOnPlatform('mercurai', 'linux')).toBe(false)
+    // Unsigned, like the other Windows dev channels: a signed upstream install must be bridged by hand.
+    expect(
+      requiresManualDevChannelInstall({
+        platform: 'win32',
+        runningChannel: 'stable',
+        targetChannel: 'mercurai'
+      })
+    ).toBe(true)
+    expect(
+      requiresManualDevChannelInstall({
+        platform: 'win32',
+        runningChannel: 'mercurai',
+        targetChannel: 'stable'
+      })
+    ).toBe(false)
+  })
+
+  it('orders mercurai builds by counter, newest first', () => {
+    const build = (n: number): ReleaseBuild => ({
+      tag: `v1.4.222-mercurai.${n}`,
+      version: `1.4.222-mercurai.${n}`,
+      channel: 'mercurai',
+      name: null,
+      publishedAt: null,
+      releaseUrl: '',
+      installerUrl: null
+    })
+    expect(sortReleaseBuildsNewestFirst([build(1), build(10), build(2)]).map((b) => b.tag)).toEqual(
+      ['v1.4.222-mercurai.10', 'v1.4.222-mercurai.2', 'v1.4.222-mercurai.1']
+    )
+  })
+
   it('accepts only known channels', () => {
     expect(isReleaseChannel('hourly')).toBe(true)
     expect(isReleaseChannel('daily')).toBe(true)
     expect(isReleaseChannel('adhoc')).toBe(true)
+    expect(isReleaseChannel('mercurai')).toBe(true)
     expect(isReleaseChannel('stable')).toBe(true)
     expect(isReleaseChannel('nightly')).toBe(false)
     expect(isReleaseChannel(null)).toBe(false)

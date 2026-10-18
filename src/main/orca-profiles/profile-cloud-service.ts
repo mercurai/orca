@@ -65,7 +65,7 @@ export async function connectCurrentOrcaProfile(
 ): Promise<ConnectCurrentOrcaProfileResult> {
   const active = ensureActiveOrcaProfile(userDataPath)
   if (isOrcaCloudDevAuthEnabled()) {
-    const list = connectDevOrcaCloudProfile(active, userDataPath)
+    const list = await connectDevOrcaCloudProfile(active, userDataPath)
     return {
       status: 'connected',
       auth: getCurrentOrcaProfileAuthStatus(userDataPath),
@@ -101,9 +101,16 @@ export async function connectCurrentOrcaProfile(
         auth: getCurrentOrcaProfileAuthStatus(userDataPath)
       }
     }
-    signInCloudSession(active.profile.id, userDataPath, exchange)
-    const list = linkOrcaProfileToCloud(active.profile.id, exchange.cloud, userDataPath)
-    linkedCloudConnectAttempt = attempt
+    await signInCloudSession(active.profile.id, userDataPath, exchange)
+    // Why: a sign-out can land while the session saves; it must not be relinked behind its back.
+    if (attempt < linkedCloudConnectAttempt) {
+      return {
+        status: 'cancelled',
+        auth: getCurrentOrcaProfileAuthStatus(userDataPath)
+      }
+    }
+    const list = await linkOrcaProfileToCloud(active.profile.id, exchange.cloud, userDataPath)
+    linkedCloudConnectAttempt = Math.max(linkedCloudConnectAttempt, attempt)
     return {
       status: 'connected',
       auth: getCurrentOrcaProfileAuthStatus(userDataPath),
@@ -112,7 +119,9 @@ export async function connectCurrentOrcaProfile(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (isUserCancelledAuthError(message)) {
+    // Why: the session write is async now, so a sign-out or newer connect can land mid-write;
+    // that attempt lost a race, it did not fail.
+    if (isUserCancelledAuthError(message) || attempt < linkedCloudConnectAttempt) {
       return {
         status: 'cancelled',
         auth: getCurrentOrcaProfileAuthStatus(userDataPath)
@@ -152,7 +161,7 @@ export async function signOutCurrentOrcaProfile(
     }
   }
   signOutCloudSession(active.profile.id, userDataPath)
-  const list = unlinkOrcaProfileFromCloud(active.profile.id, userDataPath)
+  const list = await unlinkOrcaProfileFromCloud(active.profile.id, userDataPath)
   try {
     clearRelayRegionPreferenceCache(userDataPath)
   } catch {
@@ -172,7 +181,7 @@ export async function createCloudLinkedOrcaProfile(
 ): Promise<CreateCloudLinkedOrcaProfileResult> {
   const active = ensureActiveOrcaProfile(userDataPath)
   if (isOrcaCloudDevAuthEnabled()) {
-    const result = createDevCloudLinkedOrcaProfile(active, userDataPath, args)
+    const result = await createDevCloudLinkedOrcaProfile(active, userDataPath, args)
     if (result.status !== 'created') {
       return { status: 'reconnect-required', auth: activeAuth(active, userDataPath) }
     }
@@ -205,7 +214,7 @@ export async function createCloudLinkedOrcaProfile(
       { name: args.name },
       userDataPath
     )
-    signInCloudSession(list.profile.id, userDataPath, created)
+    await signInCloudSession(list.profile.id, userDataPath, created)
     return {
       status: 'created',
       auth: getCurrentOrcaProfileAuthStatus(userDataPath),
@@ -228,7 +237,7 @@ export async function selectCurrentOrcaProfileOrg(
 ): Promise<SelectOrcaProfileOrgResult> {
   const active = ensureActiveOrcaProfile(userDataPath)
   if (isOrcaCloudDevAuthEnabled()) {
-    const result = selectDevOrcaCloudOrg(active, userDataPath, orgId)
+    const result = await selectDevOrcaCloudOrg(active, userDataPath, orgId)
     if (result.status !== 'updated') {
       return { status: 'reconnect-required', auth: activeAuth(active, userDataPath) }
     }

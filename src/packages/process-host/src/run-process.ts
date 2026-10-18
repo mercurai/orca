@@ -75,6 +75,37 @@ export function runProcess(
     spec.onChildTerminated?.()
     return Promise.resolve({ code: null, signal: null, stdout: '', stderr: '', timedOut: false })
   }
+  // Why: libuv runs CreateProcess on the calling thread, so main hands the spawn to the worker.
+  const inProcess = (): Promise<ProcessResult> => runProcessInProcess(spec, outputCapture)
+  return runProcessRoute?.(spec, outputCapture, inProcess) ?? inProcess()
+}
+
+/**
+ * Runs a capture on the spawn worker thread. Null means the spec cannot cross the thread or no
+ * worker is usable, so the caller spawns here. `inProcess` re-runs the same capture locally for a
+ * request the worker never started.
+ *
+ * Why a seam: runProcess also runs in the terminal daemon, the relay and the CLI, none of which
+ * have the spawn worker. Electron main registers the route once at startup; everywhere else
+ * nothing is registered and every capture spawns in-process.
+ */
+export type RunProcessRoute = (
+  spec: ProcessSpec,
+  outputCapture: 'head' | 'tail',
+  inProcess: () => Promise<ProcessResult>
+) => Promise<ProcessResult> | null
+
+let runProcessRoute: RunProcessRoute | null = null
+
+export function setRunProcessRoute(next: RunProcessRoute | null): void {
+  runProcessRoute = next
+}
+
+/** runProcess without the worker route: what the spawn worker itself runs, and main's fallback. */
+export function runProcessInProcess(
+  spec: ProcessSpec,
+  outputCapture: 'head' | 'tail'
+): Promise<ProcessResult> {
   const maxOutputBytes = spec.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
 
   return new Promise<ProcessResult>((resolve, reject) => {
@@ -87,6 +118,7 @@ export function runProcess(
       reject(error)
       return
     }
+    spec.onSpawn?.(child)
 
     const stdout = createOutputSink(maxOutputBytes, outputCapture)
     const stderr = createOutputSink(maxOutputBytes, outputCapture)

@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SecureWriteDiscardedError } from '../../shared/secure-file-async-write'
 import type { OrcaCloudAuthConfig } from './profile-cloud-auth-config'
 import type * as ProfileCloudClient from './profile-cloud-client'
 import type { ActiveOrcaProfileState } from './profile-index-store'
 
 const { readMock, saveMock, clearMock, refreshMock, linkMock } = vi.hoisted(() => ({
   readMock: vi.fn(),
-  saveMock: vi.fn(() => 'memory-only'),
+  saveMock: vi.fn(async (..._args: unknown[]): Promise<string> => 'memory-only'),
   clearMock: vi.fn(),
   refreshMock: vi.fn(),
   linkMock: vi.fn()
@@ -15,6 +16,9 @@ vi.mock('./profile-cloud-session-store', () => ({
   readOrcaCloudSession: readMock,
   saveOrcaCloudSession: saveMock,
   orcaCloudSessionKey: (profileId: string, userDataPath: string) => `${userDataPath}\0${profileId}`,
+  getOrcaCloudSessionPath: (profileId: string, userDataPath: string) =>
+    `${userDataPath}/${profileId}/account-session.json.enc`,
+  flushUnsavedOrcaCloudSessions: vi.fn(),
   clearOrcaCloudSession: clearMock
 }))
 
@@ -36,11 +40,17 @@ import { readFreshOrcaCloudSession } from './profile-cloud-session-refresh'
 import { OrcaCloudRequestError } from './profile-cloud-client'
 import { onOrcaCloudSessionInvalidated } from './profile-cloud-session-invalidation'
 import { forgetAmbiguousRefreshAttempt } from './profile-cloud-refresh-replay-guard'
-import { signInCloudSession, signOutCloudSession } from './profile-cloud-session-owner'
+import {
+  commitCloudSessionCapabilities,
+  commitCloudSessionRotation,
+  signInCloudSession,
+  signOutCloudSession,
+  takeCloudSessionTicket
+} from './profile-cloud-session-owner'
 
 // Owner state outlives a test; a fresh sign-in resets it for the next.
-function resetSessionOwner(): void {
-  signInCloudSession('profile-1', '/data', {
+async function resetSessionOwner(): Promise<void> {
+  await signInCloudSession('profile-1', '/data', {
     ...staleSession,
     cloud: {
       userId: 'user-1',
@@ -72,11 +82,11 @@ const staleSession = {
 }
 
 describe('profile cloud session refresh', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     vi.restoreAllMocks()
     forgetAmbiguousRefreshAttempt('/data\0profile-1')
-    resetSessionOwner()
+    await resetSessionOwner()
     readMock.mockReturnValue({ status: 'found', session: staleSession, persistence: 'memory-only' })
   })
 
@@ -107,7 +117,7 @@ describe('profile cloud session refresh', () => {
 
     const first = readFreshOrcaCloudSession(config, active, '/data')
     const second = readFreshOrcaCloudSession(config, active, '/data')
-    expect(refreshMock).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1))
 
     resolveRefresh({
       accessToken: 'new-access',
@@ -172,6 +182,72 @@ describe('profile cloud session refresh', () => {
   })
 })
 
+describe('session changes that save asynchronously', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    await resetSessionOwner()
+    readMock.mockReturnValue({ status: 'found', session: staleSession, persistence: 'memory-only' })
+  })
+
+  afterEach(() => {
+    saveMock.mockImplementation(async () => 'memory-only')
+  })
+
+  it('lands a capability reply on the rotated session, never on the spent one', async () => {
+    const ticket = takeCloudSessionTicket('profile-1', '/data')
+    let releaseRotationWrite!: () => void
+    const remember = (session: unknown): void => {
+      readMock.mockReturnValue({ status: 'found', session, persistence: 'memory-only' })
+    }
+    saveMock.mockImplementationOnce(async (...args: unknown[]) => {
+      await new Promise<void>((resolve) => (releaseRotationWrite = resolve))
+      remember(args[2])
+      return 'memory-only'
+    })
+    saveMock.mockImplementation(async (...args: unknown[]) => {
+      remember(args[2])
+      return 'memory-only'
+    })
+
+    const rotation = commitCloudSessionRotation('profile-1', '/data', ticket, staleSession, {
+      accessToken: 'new-access',
+      refreshToken: 'new-refresh',
+      expiresAt: 4_000_000,
+      organizations: [],
+      capabilities: { flags: {}, refreshedAt: 2 },
+      cloud: { userId: 'user-1', cloudProfileId: 'cloud-profile-1', activeOrgId: 'org-1' }
+    })
+    const capabilities = commitCloudSessionCapabilities('profile-1', '/data', ticket, {
+      capabilities: { flags: { 'relay.use': true }, refreshedAt: 3 }
+    })
+    await vi.waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1))
+    // The second change must not read the session while the rotation's write is still out.
+    expect(readMock).toHaveBeenCalledTimes(1)
+    releaseRotationWrite()
+    await Promise.all([rotation, capabilities])
+
+    expect(saveMock).toHaveBeenCalledTimes(2)
+    expect(saveMock.mock.calls[1]?.[2]).toMatchObject({
+      refreshToken: 'new-refresh',
+      capabilities: { refreshedAt: 3 }
+    })
+  })
+
+  it('drops a reply whose write a sign-out discarded', async () => {
+    const ticket = takeCloudSessionTicket('profile-1', '/data')
+    saveMock.mockImplementationOnce(async () => {
+      signOutCloudSession('profile-1', '/data')
+      throw new SecureWriteDiscardedError('/data/profile-1/account-session.json.enc')
+    })
+
+    await expect(
+      commitCloudSessionCapabilities('profile-1', '/data', ticket, {
+        capabilities: { flags: {}, refreshedAt: 3 }
+      })
+    ).resolves.toBeNull()
+  })
+})
+
 describe('refresh-token replay after an ambiguous attempt', () => {
   const timeout = (): Error =>
     Object.assign(new Error('The operation timed out.'), { name: 'TimeoutError' })
@@ -184,11 +260,11 @@ describe('refresh-token replay after an ambiguous attempt', () => {
     cloud: { userId: 'user-1', cloudProfileId: 'cloud-profile-1', activeOrgId: 'org-1' }
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     vi.restoreAllMocks()
     forgetAmbiguousRefreshAttempt('/data\0profile-1')
-    resetSessionOwner()
+    await resetSessionOwner()
     readMock.mockReturnValue({ status: 'found', session: staleSession, persistence: 'memory-only' })
   })
 
