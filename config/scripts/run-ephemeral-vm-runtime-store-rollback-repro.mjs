@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -54,6 +54,7 @@ function extractSource(commit, name) {
   mkdirSync(destination)
   run('git', ['archive', '--format=tar', `--output=${archive}`, commit, 'src/main', 'src/shared'])
   run('tar', ['-xf', archive, '-C', destination])
+  symlinkSync(join(root, 'node_modules'), join(destination, 'node_modules'), 'junction')
   return destination
 }
 
@@ -81,7 +82,7 @@ function makeDataDir(name) {
 
 function runOracle(label, targetRoot, operation, userDataPath, options = {}) {
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-  const result = spawnSync(pnpm, ['exec', 'vitest', 'run', driver, '--config', config], {
+  const result = spawnSync(pnpm, ['exec', 'vitest', 'run', driver, '--config', config, '--maxWorkers=2'], {
     cwd: root,
     encoding: 'utf8',
     env: {

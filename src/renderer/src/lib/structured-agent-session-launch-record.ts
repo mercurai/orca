@@ -1,6 +1,6 @@
 import type { StructuredLaunchPromptDraft } from './structured-agent-session-launch-prompt-recovery'
 import { MAX_PROMPT_BYTES, SendBodyStructure } from '../../../shared/rpc-contract/structured-agent-session-message-params'
-import type { CodexSpeedWireAuthority } from '@/runtime/codex-speed-selection'
+import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import { isTuiAgent } from '../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type {

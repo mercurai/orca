@@ -1,4 +1,4 @@
-import type { CodexSpeedWireAuthority } from '@/runtime/codex-speed-selection'
+import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import type { StructuredLaunchSurfaceAddress } from './structured-agent-session-launch-record'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import {

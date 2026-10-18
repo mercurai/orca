@@ -1,3 +1,4 @@
+import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 import type { AgentSessionModelCatalogResult, AgentSessionOptionsResult } from '../../../shared/agent-session-wire'
 import { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } from '../../../shared/agent-session-create-capabilities'
@@ -13,10 +14,7 @@ export class CodexSpeedSelectionError extends Error {
   }
 }
 
-export type CodexSpeedWireAuthority = {
-  expectedEnvironmentPairingRevision?: number
-  expectedEnvironmentRuntimeId?: string
-}
+export type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 
 type SpeedWireInput = {
   target: RuntimeClientTarget
