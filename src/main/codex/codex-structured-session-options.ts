@@ -7,7 +7,8 @@ import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured
 import {
   CODEX_DEFAULT_SERVICE_TIER,
   codexFastServiceTier,
-  codexOffersServiceTier
+  codexOffersServiceTier,
+  setCodexServiceTier
 } from './codex-structured-service-tier'
 import {
   composeCodexSessionOptionCatalog,
@@ -19,12 +20,15 @@ import {
 import { codexAcquireCatalogListing, listingFromEntry } from './codex-structured-catalog-entry'
 export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 
+/** Canonical overrides plus legacy Fast intent that must never be sent as a turn parameter. */
 export function restoredCodexSessionOptions(
   options: Readonly<Record<string, string>> | undefined
 ): Map<string, string> {
   const restored = new Map(Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key)))
   if (!restored.has('serviceTier') && options?.fastMode === 'false') {
     restored.set('serviceTier', CODEX_DEFAULT_SERVICE_TIER)
+  } else if (!restored.has('serviceTier') && options?.fastMode === 'true') {
+    restored.set('fastMode', 'true')
   }
   return restored
 }
@@ -92,19 +96,21 @@ function composeLiveCodexCatalog(
   const model = session.options.get('model') ?? session.reportedOptions.model
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const serviceTier = session.options.get('serviceTier')
-  return composeCodexSessionOptionCatalog(listing, {
+  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
+  const result = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(serviceTier ? { serviceTier } : {})
     },
-    ...(session.reportedOptions.serviceTierKnown
+    ...(session.reportedOptions.serviceTierKnown && !pendingFast
       ? {
           reportedServiceTier: session.reportedOptions.serviceTier ?? null,
           reportedServiceTierKnown: true
         }
       : {})
   })
+  return pendingFast ? { ...result, current: { ...result.current, fastMode: true } } : result
 }
 
 export async function readLiveCodexSessionOptions(
@@ -138,7 +144,7 @@ export async function applyCodexStructuredSessionOption(
 
 /**
  * With no listing known, a pick is kept as the next turn's intent rather than refused: catalog
- * bookkeeping must not gate it. Codex judges the model and tier on `turn/start`.
+ * bookkeeping does not discard it. New-turn admission validates speed support before sending.
  */
 function applyUnlistedCodexSessionOption(
   session: CodexSession,
@@ -152,7 +158,11 @@ function applyUnlistedCodexSessionOption(
     // An effort saved under another model is unverified for this one; its default applies.
     session.options.delete('effort')
   }
-  session.options.set(key, value)
+  if (key === 'serviceTier') {
+    setCodexServiceTier(session.options, value)
+  } else {
+    session.options.set(key, value)
+  }
   return Object.fromEntries(session.options)
 }
 
@@ -182,7 +192,7 @@ function applyValidatedCodexStructuredSessionOption(
     return Object.fromEntries(session.options)
   }
   if (key === 'serviceTier' && value === CODEX_DEFAULT_SERVICE_TIER) {
-    session.options.set(key, value)
+    setCodexServiceTier(session.options, value)
     return Object.fromEntries(session.options)
   }
   if (!catalog) {
@@ -197,7 +207,7 @@ function applyValidatedCodexStructuredSessionOption(
     if (!codexOffersServiceTier(session, model, catalog.models, value)) {
       throw new Error(`codex app-server model ${modelId} does not offer the ${value} tier`)
     }
-    session.options.set(key, value)
+    setCodexServiceTier(session.options, value)
     return Object.fromEntries(session.options)
   }
   const priorEffort = session.options.get('effort') ?? session.reportedOptions.effort

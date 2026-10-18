@@ -146,7 +146,7 @@ describe('structured Codex session options', () => {
     expect(session.options.has('serviceTier')).toBe(false)
   })
 
-  it('filters restored records to recognized turn options', () => {
+  it('filters restored records to recognized options and pending legacy Fast intent', () => {
     expect(
       Object.fromEntries(
         restoredCodexSessionOptions({
@@ -161,8 +161,10 @@ describe('structured Codex session options', () => {
     expect(Object.fromEntries(restoredCodexSessionOptions({ serviceTier: 'priority' }))).toEqual({
       serviceTier: 'priority'
     })
-    // Fast on/off saved before tiers is not carried over.
-    expect(Object.fromEntries(restoredCodexSessionOptions({ fastMode: 'true' }))).toEqual({})
+    // Pending Fast intent survives until the applicable catalog supplies its request ID.
+    expect(Object.fromEntries(restoredCodexSessionOptions({ fastMode: 'true' }))).toEqual({
+      fastMode: 'true'
+    })
   })
 
   it('hydrates paged provider models and their supported efforts', async () => {

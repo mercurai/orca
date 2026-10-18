@@ -38,6 +38,12 @@ export function readCodexServiceTiers(
   return Array.isArray(row.serviceTiers) || Array.isArray(row.additionalSpeedTiers) ? [] : undefined
 }
 
+/** Canonical speed replaces pending legacy intent and is the only speed sent on a turn. */
+export function setCodexServiceTier(options: Map<string, string>, tier: string): void {
+  options.set('serviceTier', tier)
+  options.delete('fastMode')
+}
+
 /** The tier an older client's Fast toggle stands for. */
 export function codexFastServiceTier(
   model: Pick<AgentSessionModelOption, 'serviceTiers'> | undefined

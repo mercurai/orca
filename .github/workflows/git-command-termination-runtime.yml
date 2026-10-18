@@ -9,6 +9,7 @@ on:
       - 'src/main/codex/codex-structured-speed-*.test.ts'
       - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
       - 'src/main/orcad/orcad-host-cleanup.test.ts'
+      - 'src/shared/structured-agent-session-speed.test.ts'
       - '.github/workflows/git-command-termination-runtime.yml'
   workflow_dispatch:
 permissions:
@@ -42,3 +43,4 @@ jobs:
           src/main/codex/codex-structured-speed-legacy-migration.test.ts
           src/main/orca-profiles/profile-cloud-session-store.test.ts
           src/main/orcad/orcad-host-cleanup.test.ts
+          src/shared/structured-agent-session-speed.test.ts

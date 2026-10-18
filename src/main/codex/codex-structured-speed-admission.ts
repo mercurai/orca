@@ -1,5 +1,9 @@
 import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
-import { CODEX_DEFAULT_SERVICE_TIER } from './codex-structured-service-tier'
+import {
+  CODEX_DEFAULT_SERVICE_TIER,
+  codexFastServiceTier,
+  setCodexServiceTier
+} from './codex-structured-service-tier'
 
 export class CodexSpeedAdmissionError extends Error {
   constructor(readonly kind: 'speedSupportUnknown' | 'speedUnavailable') {
@@ -8,14 +12,15 @@ export class CodexSpeedAdmissionError extends Error {
   }
 }
 
-/** A requested paid tier needs the execution account's current catalog before a new turn. */
+/** A requested non-Standard tier needs the execution account's current catalog before a new turn. */
 export function assertCodexSpeedAdmitted(host: {
-  options: ReadonlyMap<string, string>
+  options: Map<string, string>
   reportedOptions?: { model?: string }
   catalogAccess?: CodexSessionCatalogAccess
 }): void {
   const tier = host.options.get('serviceTier')
-  if (tier === undefined || tier === CODEX_DEFAULT_SERVICE_TIER) {
+  const pendingFast = tier === undefined && host.options.get('fastMode') === 'true'
+  if ((!pendingFast && tier === undefined) || tier === CODEX_DEFAULT_SERVICE_TIER) {
     return
   }
   const access = host.catalogAccess
@@ -33,7 +38,11 @@ export function assertCodexSpeedAdmitted(host: {
   if (!model || model.serviceTiers === undefined) {
     throw new CodexSpeedAdmissionError('speedSupportUnknown')
   }
-  if (!model.serviceTiers.some((candidate) => candidate.value === tier)) {
+  const admittedTier = pendingFast ? codexFastServiceTier(model) : tier
+  if (!admittedTier || !model.serviceTiers.some((candidate) => candidate.value === admittedTier)) {
     throw new CodexSpeedAdmissionError('speedUnavailable')
+  }
+  if (pendingFast) {
+    setCodexServiceTier(host.options, admittedTier)
   }
 }

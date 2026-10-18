@@ -150,7 +150,7 @@ export async function startCodexTurn(
       threadId: host.threadId,
       clientUserMessageId: input.clientMessageId,
       input: turnInputFor(input.body),
-      ...Object.fromEntries(host.options)
+      ...Object.fromEntries([...host.options].filter(([key]) => isCodexTurnOptionKey(key)))
     },
     { timeoutMs: input.timeoutMs, onReply: input.onReply }
   )
