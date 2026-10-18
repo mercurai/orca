@@ -30,6 +30,9 @@ import {
   createMemoryNativeChatComposerDraftStorage,
   setNativeChatComposerDraftStorageForTests
 } from '@/components/native-chat/native-chat-composer-draft-storage'
+import type { AgentJournalSubmission } from '../../../shared/agent-session-journal-types'
+import type { AgentSessionHistoryPage } from '../../../shared/agent-session-wire'
+import { resetStructuredAgentSessionReadOwnersForTests } from '@/components/native-chat/structured-agent-session-read-owner'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -44,6 +47,7 @@ afterEach(() => {
   resetStructuredAgentLaunchRegistryForTests()
   resetStructuredAgentLaunchPersistenceForTests()
   clearNativeChatDraftCacheForTests()
+  resetStructuredAgentSessionReadOwnersForTests()
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
@@ -104,5 +108,63 @@ describe('publication arriving before launch restoration', () => {
     expect(restored?.intent.createSpeedAuthority).toEqual(original.createSpeedAuthority)
     expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
     expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('confirms a modern publication read-only with held speed when opening receipt present=%s', async (hasReceipt) => {
+    const worktreeId = 'wt-modern-publication-held'
+    const sessionId = 'codex-modern-publication-held'
+    const original: StructuredAgentLaunchPersistedRecord = {
+      sessionId, executionHostId: 'runtime:original-host', agent: 'codex', lifecycle: 'visibility-unknown',
+      clientOperationId: 'lost-reply-create-operation', payloadFingerprint: 'lost-reply-create-fingerprint',
+      expectedRuntimeFence: null, createMessageSupport: true,
+      options: { model: 'model-original', serviceTier: 'default' },
+      createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
+      createSpeedAuthority: {
+        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+      },
+      firstMessage: {
+        clientMessageId: 'immutable-opening-message',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'immutable opening text' }] }
+      },
+      heldOptions: { serviceTier: 'next-turn-exact-held-tier' }
+    }
+    const opening: AgentJournalSubmission = {
+      clientMessageId: 'immutable-opening-message', fence: 7, payloadFingerprint: 'opening-fingerprint',
+      dispatchState: 'accepted', handoverRecorded: true, providerItemId: null, reason: null,
+      submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000
+    }
+    const cursor = { epoch: 'modern-publication-epoch', sequence: hasReceipt ? 1 : 0 }
+    const page: AgentSessionHistoryPage = {
+      sessionId, epoch: cursor.epoch, fence: 7, direction: 'tail', items: [], removedItemIds: [],
+      submissions: hasReceipt ? [opening] : [],
+      window: { oldest: null, newest: null, nextCursor: cursor }, liveCursor: cursor,
+      hasOlder: false, hasNewer: false, latestTurn: null
+    }
+    rpc.mockImplementation(async (_target, method) => {
+      if (method === 'session.tabs.listAll') {
+        return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
+      }
+      if (method === 'agentSession.history') return { ok: true, page }
+      throw new Error(`Publication must not issue a mutation: ${method}`)
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeStructuredAgentLaunchRecord(original)
+    expect(getStructuredLaunchStateBySessionId(sessionId)).toBeUndefined()
+
+    markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
+    await vi.waitFor(() => expect(rpc.mock.calls.filter(([, method]) =>
+      method === 'agentSession.history')).toHaveLength(1))
+    const state = getStructuredLaunchStateBySessionId(sessionId)
+    expect(state).toBeDefined()
+    if (!state) throw new Error('Expected restored modern publication state')
+    const outcome = await state.promise.then(() => 'confirmed', () => 'missing-receipt')
+
+    expect(outcome).toBe(hasReceipt ? 'confirmed' : 'missing-receipt')
+    expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
+      'session.tabs.listAll', 'agentSession.history'
+    ])
+    expect(state.selection.held).toEqual(original.heldOptions)
+    expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
+    expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
   })
 })

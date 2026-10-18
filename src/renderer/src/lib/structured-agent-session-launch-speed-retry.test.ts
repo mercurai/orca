@@ -25,7 +25,8 @@ vi.mock('./structured-agent-session-host-admission', () => ({
 vi.mock('./structured-agent-session-create-hydration', () => ({
   publishStructuredAgentSessionCreateHydration: vi.fn()
 }))
-vi.mock('./launch-structured-agent-session', () => ({
+vi.mock('./launch-structured-agent-session', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./launch-structured-agent-session')>(),
   abandonStructuredAgentSessionLaunchIntent: vi.fn()
 }))
 vi.mock('@/components/native-chat/use-structured-agent-session-option-state', async () => {
@@ -39,8 +40,17 @@ vi.mock('@/store', () => ({
 import { launchStructuredAgentSession } from './structured-agent-session-launch-create-call'
 import { prepareStructuredLaunchCreateMessage } from './structured-agent-session-launch-create-message'
 import { createStructuredLaunchCallerGroup } from './structured-agent-session-launch-callers'
-import { stageStructuredLaunchPrompt } from './structured-agent-session-launch-prompt'
+import {
+  discardStructuredLaunchPrompts,
+  stageStructuredLaunchPrompt
+} from './structured-agent-session-launch-prompt'
 import { structuredAgentLaunchRecordFor } from './structured-agent-session-launch-record'
+import { retryStructuredAgentSessionLaunch } from './structured-agent-session-launch'
+import {
+  resetStructuredAgentLaunchRegistryForTests,
+  setStructuredLaunchState
+} from './structured-agent-session-launch-registry'
+import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
 import {
   getStructuredAgentSessionPendingSends
 } from '../components/native-chat/structured-agent-session-pending-sends'
@@ -52,9 +62,15 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(1_760_000_000_000)
   vi.clearAllMocks()
+  localStorage.clear()
+  resetStructuredAgentLaunchRegistryForTests()
+  resetStructuredAgentLaunchPersistenceForTests()
 })
 afterEach(() => {
+  discardStructuredLaunchPrompts(SESSION)
   resetStructuredAgentSessionSendsForTests()
+  resetStructuredAgentLaunchRegistryForTests()
+  resetStructuredAgentLaunchPersistenceForTests()
   vi.useRealTimers()
 })
 
@@ -110,5 +126,69 @@ describe('create prompt ownership waits for speed authorization', () => {
     expect(prompt.createOwned).toBe(true)
     expect(prompt.delivery).toBeDefined()
     expect(mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.send')).toEqual([])
+  })
+
+  it('rebuilds a definitively failed create with its newly staged opening and held speed', async () => {
+    const worktreeId = 'synthetic-definitive-retry'
+    const intent: StructuredAgentSessionLaunchIntent = {
+      sessionId: SESSION, worktreeId, executionHostId: 'local', target: { kind: 'local' }, agent: 'codex',
+      seedOptions: { serviceTier: 'default' },
+      params: structuredAgentSessionCreateParams({
+        sessionId: SESSION, worktree: `id:${worktreeId}`, agent: 'codex',
+        options: { serviceTier: 'default' },
+        randomUuid: () => '00000000-0000-4000-8000-000000000002', now: 1_760_000_000_000
+      })
+    }
+    const originalEnvelope = { ...intent.params.envelope }
+    const state: StructuredLaunchState = {
+      identity: `codex:${worktreeId}`, intent, promptDelivery: 'auto-submit',
+      callers: createStructuredLaunchCallerGroup({ kind: 'retry' }),
+      promise: Promise.resolve({ sessionId: SESSION, fence: 0 }),
+      visibilityUnknown: false, cancelled: false,
+      selection: { seed: intent.seedOptions, held: {
+        model: 'synthetic-selected-model', serviceTier: 'synthetic-held-exact-tier'
+      } }
+    }
+    // A definitive refusal permits a new operation; a new explicit send stages this opening.
+    state.callers.outcome = 'failed'
+    setStructuredLaunchState(state)
+    const prompt = stageStructuredLaunchPrompt(SESSION, 'new explicit retry opening')
+    const pending = getStructuredAgentSessionPendingSends(SESSION)[0]
+    expect(pending).toBeDefined()
+    mocks.authorize.mockImplementation(async ({ options }) => ({ options }))
+    mocks.call.mockImplementation(async (_target, method, raw) => {
+      if (method !== 'agentSession.create') throw new Error(`Unexpected retry mutation ${method}`)
+      const params = CreateIntentParams.parse(raw)
+      const firstMessage = params.firstMessage ? {
+        clientMessageId: params.firstMessage.clientMessageId, fence: 7,
+        payloadFingerprint: 'synthetic-opening-receipt', dispatchState: 'accepted',
+        handoverRecorded: true, providerItemId: null, reason: null,
+        submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000
+      } : undefined
+      return { ok: true, value: {
+        sessionId: SESSION, fence: 7, page: { submissions: firstMessage ? [firstMessage] : [] },
+        ...(firstMessage ? { firstMessage } : {})
+      } }
+    })
+
+    expect(retryStructuredAgentSessionLaunch(worktreeId, SESSION)).toBe(true)
+    await expect(state.promise).resolves.toMatchObject({ sessionId: SESSION, fence: 7 })
+
+    expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
+    const params = CreateIntentParams.parse(mocks.call.mock.calls[0]?.[2])
+    expect(params.options).toEqual({
+      model: 'synthetic-selected-model', serviceTier: 'synthetic-held-exact-tier'
+    })
+    expect(params.firstMessage).toMatchObject({
+      clientMessageId: pending?.clientMessageId,
+      body: { blocks: [{ type: 'text', text: 'new explicit retry opening' }] }
+    })
+    expect(state.intent).not.toBe(intent)
+    expect(state.intent.prepareCreate).toEqual(expect.any(Function))
+    expect(params.envelope.clientOperationId).not.toBe(originalEnvelope.clientOperationId)
+    expect(params.envelope.sessionId).toBe(SESSION)
+    expect(intent.params.envelope).toEqual(originalEnvelope)
+    expect(prompt.createOwned).toBe(true)
+    expect(state.intent.createCanonicalOptions).toEqual(params.options)
   })
 })
