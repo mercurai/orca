@@ -33,6 +33,7 @@ import {
 import type { AgentJournalSubmission } from '../../../shared/agent-session-journal-types'
 import type { AgentSessionHistoryPage } from '../../../shared/agent-session-wire'
 import { resetStructuredAgentSessionReadOwnersForTests } from '@/components/native-chat/structured-agent-session-read-owner'
+import { holdStructuredAgentSessionLaunchOption } from './structured-agent-session-launch-options'
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -166,5 +167,66 @@ describe('publication arriving before launch restoration', () => {
     expect(state.selection.held).toEqual(original.heldOptions)
     expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
     expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
+  })
+
+  it('does not replay a missing opening receipt after speed is selected during the history read', async () => {
+    const worktreeId = 'wt-publication-history-race'
+    const sessionId = 'codex-publication-history-race'
+    const original: StructuredAgentLaunchPersistedRecord = {
+      sessionId, executionHostId: 'runtime:original-host', agent: 'codex', lifecycle: 'visibility-unknown',
+      clientOperationId: 'history-race-create-operation', payloadFingerprint: 'history-race-create-fingerprint',
+      expectedRuntimeFence: null, createMessageSupport: true,
+      options: { model: 'model-original', serviceTier: 'default' },
+      createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
+      createSpeedAuthority: {
+        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+      },
+      firstMessage: {
+        clientMessageId: 'history-race-opening',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'immutable opening' }] }
+      }
+    }
+    const cursor = { epoch: 'history-race-epoch', sequence: 0 }
+    const page: AgentSessionHistoryPage = {
+      sessionId, epoch: cursor.epoch, fence: 7, direction: 'tail', items: [], removedItemIds: [],
+      submissions: [], window: { oldest: null, newest: null, nextCursor: cursor }, liveCursor: cursor,
+      hasOlder: false, hasNewer: false, latestTurn: null
+    }
+    const historyStarted = Promise.withResolvers<void>()
+    const historyReply = Promise.withResolvers<{ ok: true; page: AgentSessionHistoryPage }>()
+    rpc.mockImplementation(async (_target, method) => {
+      if (method === 'session.tabs.listAll') {
+        return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
+      }
+      if (method === 'agentSession.history') {
+        historyStarted.resolve()
+        return historyReply.promise
+      }
+      throw new Error(`Publication must remain read-only after a concurrent speed pick: ${method}`)
+    })
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeStructuredAgentLaunchRecord(original)
+
+    markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
+    await historyStarted.promise
+    const state = getStructuredLaunchStateBySessionId(sessionId)
+    if (!state) throw new Error('Expected restored launch awaiting publication history')
+    expect(state.selection.held).toEqual({})
+    const outcome = state.promise.then(() => 'confirmed', () => 'unconfirmed')
+    const heldOptions = { serviceTier: 'history-race-exact-held-tier' }
+    expect(holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', heldOptions.serviceTier))
+      .not.toBeNull()
+    expect(readStructuredAgentLaunchRecord(sessionId)?.heldOptions).toEqual(heldOptions)
+    historyReply.resolve({ ok: true, page })
+
+    expect(await outcome).toBe('unconfirmed')
+    expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
+      'session.tabs.listAll', 'agentSession.history'
+    ])
+    expect(state.visibilityUnknown).toBe(true)
+    expect(state.selection.held).toEqual(heldOptions)
+    expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
+    expect(state.intent.createSpeedAuthority).toEqual(original.createSpeedAuthority)
+    expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject({ ...original, heldOptions })
   })
 })
