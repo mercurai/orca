@@ -342,6 +342,7 @@ describe('structured agent launch reload recovery', () => {
     })
     try {
       const restored = restorePersistedStructuredLaunchState(worktreeId, sessionId)
+      await nativeChatComposerDraftWritesSettled()
       expect(restored).toBeDefined()
       if (!restored) throw new Error('Expected the blocked launch recovery state')
       const frozenParams = structuredClone(restored.intent.params)
@@ -440,5 +441,107 @@ describe('structured agent launch reload recovery', () => {
     expect(intent.params).toEqual(frozen)
     expect(mocks.launch).not.toHaveBeenCalled()
     expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
+  })
+
+  it('shares pending backend recovery with Retry before retiring the source or contacting the host', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(1_760_000_000_000)
+    clearNativeChatDraftCacheForTests()
+    const storage = createMemoryNativeChatComposerDraftStorage()
+    setNativeChatComposerDraftStorageForTests(storage)
+    await hydrateNativeChatComposerDrafts()
+    const worktreeId = 'wt-pending-backend-recovery'
+    const sessionId = 'codex-pending-backend-recovery'
+    const original = {
+      sessionId, executionHostId: 'runtime:pending-host', agent: 'codex',
+      lifecycle: 'visibility-unknown', clientOperationId: 'frozen-pending-create',
+      payloadFingerprint: 'frozen-pending-fingerprint', expectedRuntimeFence: null,
+      options: { model: 'model-original', fastMode: 'false' },
+      createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
+      createMessageSupport: false,
+      createSpeedAuthority: {
+        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+      },
+      heldOptions: { model: 'model-held', serviceTier: 'default' },
+      heldPromptDrafts: [{ clientMessageId: 'pending-backend-reservation', text: 'wait for durable recovery' }]
+    }
+    localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
+    const actual = await vi.importActual<typeof import('./launch-structured-agent-session')>(
+      './launch-structured-agent-session'
+    )
+    mocks.restoreIntent.mockImplementation(actual.restoreStructuredAgentSessionLaunchIntent)
+    const updateStarted = Promise.withResolvers<void>()
+    const commit = Promise.withResolvers<void>()
+    const update = storage.update.bind(storage)
+    let updates = 0
+    storage.update = async (scope, apply) => {
+      updates += 1
+      updateStarted.resolve()
+      await commit.promise
+      await update(scope, apply)
+    }
+    mocks.runtimeCall.mockImplementation(async (_target, method) => {
+      if (method === 'session.tabs.listAll') return { snapshots: [publishedSnapshot(worktreeId, sessionId)] }
+      if (method === 'status.get') {
+        return { runtimeId: 'original-runtime', capabilities: ['agent-session.codex-speed-selection.v1'] }
+      }
+      throw new Error(`Unexpected pending-recovery RPC: ${method}`)
+    })
+    mocks.callStructuredAgentSession.mockImplementation(async (_target, method, params) => {
+      if (method === 'agentSession.history') return { ok: true, page: { fence: 4 } }
+      if (method === 'agentSession.setOption') {
+        return { ok: true, value: { ...SetOptionParams.parse(params), options: { ...original.heldOptions } } }
+      }
+      throw new Error(`Unexpected pending-recovery mutation: ${method}`)
+    })
+    let restored: StructuredLaunchState | undefined
+    try {
+      restored = restorePersistedStructuredLaunchState(worktreeId, sessionId)
+      expect(restored).toBeDefined()
+      if (!restored) throw new Error('Expected registered launch while its draft commit is pending')
+      expect(retryStructuredAgentSessionLaunch(worktreeId, sessionId)).toBe(true)
+      const started = await Promise.race([
+        updateStarted.promise.then(() => 'update-started'),
+        restored.promise.then(() => 'retry-completed', () => 'retry-rejected')
+      ])
+      expect(started).toBe('update-started')
+      expect(storage.drafts.size).toBe(0)
+      expect(restored.heldPromptDrafts).toEqual(original.heldPromptDrafts)
+      expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
+      let retrySettled = false
+      void restored.promise.then(() => { retrySettled = true }, () => { retrySettled = true })
+      await flushLaunchSettlement()
+
+      expect(retrySettled).toBe(false)
+      expect(updates).toBe(1)
+      expect(getStructuredLaunchStateBySessionId(sessionId)).toBe(restored)
+      expect(restored.heldPromptDrafts).toEqual(original.heldPromptDrafts)
+      expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
+      expect(mocks.runtimeCall).not.toHaveBeenCalled()
+      expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
+      expect(mocks.retryIntent).not.toHaveBeenCalled()
+      expect(mocks.launch).not.toHaveBeenCalled()
+
+      commit.resolve()
+      await expect(restored.promise).resolves.toMatchObject({ sessionId, fence: 4 })
+      expect(restored.heldPromptDrafts).toBeUndefined()
+      expect(storage.drafts.get(structuredAgentSessionDraftScopeKey(sessionId))?.text).toBe(
+        original.heldPromptDrafts[0].text
+      )
+      expect(restored.intent.params.envelope.clientOperationId).toBe(original.clientOperationId)
+      expect(restored.intent.params.envelope.payloadFingerprint).toBe(original.payloadFingerprint)
+      expect(restored.intent.createSpeedAuthority).toEqual(original.createSpeedAuthority)
+      expect(mocks.callStructuredAgentSession.mock.calls.map(([, method]) => method)).toEqual([
+        'agentSession.history', 'agentSession.setOption', 'agentSession.setOption'
+      ])
+      expect(mocks.launch).not.toHaveBeenCalled()
+    } finally {
+      commit.resolve()
+      await nativeChatComposerDraftWritesSettled()
+      await restored?.promise.catch(() => undefined)
+      resetStructuredAgentLaunchRegistryForTests()
+      clearNativeChatDraftCacheForTests()
+      vi.useRealTimers()
+    }
   })
 })

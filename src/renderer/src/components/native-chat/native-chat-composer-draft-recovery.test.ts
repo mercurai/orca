@@ -32,17 +32,15 @@ async function reload(using: NativeChatComposerDraftStorage = storage, hydrate =
 }
 
 /** Missing implementation must fail a behavioral assertion, not module loading. */
-function recover(modules: Modules, messages: readonly Message[]) {
+async function recover(modules: Modules, messages: readonly Message[]) {
   const implementation = 'recoverNativeChatComposerDraftMessages' in modules.store
     ? modules.store.recoverNativeChatComposerDraftMessages : undefined
-  return typeof implementation === 'function' ? implementation(SCOPE, messages) : undefined
+  return typeof implementation === 'function' ? await implementation(SCOPE, messages) : undefined
 }
 function text(modules: Modules): string {
   return modules.cache.readNativeChatDraftCache(SCOPE)
 }
-async function settled(modules: Modules): Promise<void> {
-  await modules.store.nativeChatComposerDraftWriteSettled(SCOPE)
-}
+const settled = (modules: Modules) => modules.store.nativeChatComposerDraftWriteSettled(SCOPE)
 
 beforeEach(() => {
   localStorage.clear()
@@ -63,7 +61,7 @@ describe('durable composer recovery receipts', () => {
   it('accepts older stored drafts without receipt metadata and appends after existing text', async () => {
     storage.drafts.set(SCOPE, { text: 'older draft', images: [], savedAt: 1 })
     const modules = await reload()
-    expect(recover(modules, [MESSAGE])).toBe(true)
+    expect(await recover(modules, [MESSAGE])).toBe(true)
     await settled(modules)
     expect(text(modules)).toBe(`older draft\n\n${MESSAGE.text}`)
     expect(text(await reload())).toBe(text(modules))
@@ -72,14 +70,14 @@ describe('durable composer recovery receipts', () => {
   it.each(['typing', 'clearing'] as const)(
     'never replays a recovered message after %s and a renderer reload', async (edit) => {
       const modules = await reload()
-      expect(recover(modules, [MESSAGE])).toBe(true)
+      expect(await recover(modules, [MESSAGE])).toBe(true)
       await settled(modules)
       const changed = edit === 'typing' ? `${text(modules)}\n\nnew user text` : ''
       modules.cache.writeNativeChatDraftCache(SCOPE, changed)
       await settled(modules)
       const restored = await reload()
       expect(text(restored)).toBe(changed)
-      expect(recover(restored, [MESSAGE])).toBe(true)
+      expect(await recover(restored, [MESSAGE])).toBe(true)
       await settled(restored)
       expect(text(restored)).toBe(changed)
       expect(text(await reload())).toBe(changed)
@@ -89,29 +87,29 @@ describe('durable composer recovery receipts', () => {
   it('keeps distinct message IDs even when their text is identical', async () => {
     const modules = await reload()
     const duplicateText = { clientMessageId: 'synthetic-message-b', text: MESSAGE.text }
-    expect(recover(modules, [MESSAGE])).toBe(true)
-    expect(recover(modules, [duplicateText])).toBe(true)
+    expect(await recover(modules, [MESSAGE])).toBe(true)
+    expect(await recover(modules, [duplicateText])).toBe(true)
     await settled(modules)
     expect(text(modules)).toBe(`${MESSAGE.text}\n\n${MESSAGE.text}`)
     const restored = await reload()
-    expect(recover(restored, [MESSAGE, duplicateText])).toBe(true)
+    expect(await recover(restored, [MESSAGE, duplicateText])).toBe(true)
     expect(text(restored)).toBe(`${MESSAGE.text}\n\n${MESSAGE.text}`)
   })
 
   it('appends only new IDs in a partially overlapping batch without mutating its input', async () => {
     const modules = await reload()
-    expect(recover(modules, [MESSAGE])).toBe(true)
+    expect(await recover(modules, [MESSAGE])).toBe(true)
     await settled(modules)
     modules.cache.writeNativeChatDraftCache(SCOPE, `${MESSAGE.text}\n\nuser addition`)
     await settled(modules)
     const batch = [MESSAGE, { clientMessageId: 'synthetic-message-b', text: 'second recovery' }]
     const original = structuredClone(batch)
-    expect(recover(modules, batch)).toBe(true)
+    expect(await recover(modules, batch)).toBe(true)
     await settled(modules)
     expect(text(modules)).toBe(`${MESSAGE.text}\n\nuser addition\n\nsecond recovery`)
     expect(batch).toEqual(original)
     const restored = await reload()
-    expect(recover(restored, batch)).toBe(true)
+    expect(await recover(restored, batch)).toBe(true)
     expect(text(restored)).toBe(text(modules))
   })
 
@@ -122,36 +120,38 @@ describe('durable composer recovery receipts', () => {
         clientMessageId: `synthetic-capacity-${start + offset}`,
         text: `recovery ${start + offset}`
       }))
-      expect(recover(modules, batch)).toBe(true)
+      expect(await recover(modules, batch)).toBe(true)
       await settled(modules)
     }
     const before = text(modules)
     const persisted = structuredClone(storage.drafts.get(SCOPE))
     const overflow = [{ clientMessageId: 'synthetic-overflow', text: 'must remain in source' }]
     const original = structuredClone(overflow)
-    expect(recover(modules, overflow)).toBe(false)
+    expect(await recover(modules, overflow)).toBe(false)
     expect(text(modules)).toBe(before)
     await settled(modules)
     expect(storage.drafts.get(SCOPE)).toEqual(persisted)
     expect(overflow).toEqual(original)
     const restored = await reload()
-    expect(recover(restored, [{ clientMessageId: 'synthetic-capacity-0', text: 'recovery 0' }])).toBe(true)
+    expect(await recover(restored, [{ clientMessageId: 'synthetic-capacity-0', text: 'recovery 0' }])).toBe(true)
     expect(text(restored)).toBe(before)
   })
 
-  it('journals text and receipt together when the backend refuses and deduplicates after recovery', async () => {
+  it('retains the source when the backend refuses even if the local journal is writable', async () => {
     const modules = await reload()
     storage.refuseWrites = true
-    expect(recover(modules, [MESSAGE])).toBe(true)
-    await settled(modules)
-    modules.store.clearNativeChatComposerDraftsForTests()
+    const source = [MESSAGE]
+    const original = structuredClone(source)
+    expect(await recover(modules, source)).toBe(false)
+    expect(source).toEqual(original)
+    expect(storage.drafts.size).toBe(0)
     storage.refuseWrites = false
+    expect(await recover(modules, source)).toBe(true)
+    await settled(modules)
     const restored = await reload()
     expect(text(restored)).toBe(MESSAGE.text)
-    restored.cache.writeNativeChatDraftCache(SCOPE, `${MESSAGE.text}\n\ntyped after recovery`)
-    await settled(restored)
-    expect(recover(restored, [MESSAGE])).toBe(true)
-    expect(text(restored)).toBe(`${MESSAGE.text}\n\ntyped after recovery`)
+    expect(await recover(restored, source)).toBe(true)
+    expect(text(restored)).toBe(MESSAGE.text)
   })
 
   it('retains the source when both journal and backend refuse, then recovers once after repair', async () => {
@@ -162,13 +162,13 @@ describe('durable composer recovery receipts', () => {
     })
     const batch = [MESSAGE]
     const original = structuredClone(batch)
-    expect(recover(modules, batch)).toBe(false)
+    expect(await recover(modules, batch)).toBe(false)
     await settled(modules)
     expect(storage.drafts.size).toBe(0)
     expect(batch).toEqual(original)
     refusal.mockRestore()
     storage.refuseWrites = false
-    expect(recover(modules, batch)).toBe(true)
+    expect(await recover(modules, batch)).toBe(true)
     await settled(modules)
     expect(text(await reload())).toBe(MESSAGE.text)
   })
@@ -176,21 +176,21 @@ describe('durable composer recovery receipts', () => {
   it('preserves receipts when a stale window overwrites ordinary text without seeing the recovery', async () => {
     const stale = await reload()
     const fresh = await reload()
-    expect(recover(fresh, [MESSAGE])).toBe(true)
+    expect(await recover(fresh, [MESSAGE])).toBe(true)
     await settled(fresh)
     expect(text(stale)).toBe('')
     stale.cache.writeNativeChatDraftCache(SCOPE, 'new text from stale window')
     await settled(stale)
     const restored = await reload()
     expect(text(restored)).toBe('new text from stale window')
-    expect(recover(restored, [MESSAGE])).toBe(true)
+    expect(await recover(restored, [MESSAGE])).toBe(true)
     await settled(restored)
     expect(text(restored)).toBe('new text from stale window')
   })
 
   it('keeps stored recovery receipts when ordinary typing happens before hydration finishes', async () => {
     const initial = await reload()
-    expect(recover(initial, [MESSAGE])).toBe(true)
+    expect(await recover(initial, [MESSAGE])).toBe(true)
     await settled(initial)
     const storedBeforeEdit = new Map(storage.drafts)
     let resolve!: (value: ReadonlyMap<string, unknown>) => void
@@ -203,9 +203,120 @@ describe('durable composer recovery receipts', () => {
     await settled(delayed)
     expect(text(delayed)).toBe('typed before hydration finished')
     const restored = await reload()
-    expect(recover(restored, [MESSAGE])).toBe(true)
+    expect(await recover(restored, [MESSAGE])).toBe(true)
     await settled(restored)
     expect(text(restored)).toBe('typed before hydration finished')
+  })
+
+  it('rejects a stale-window recovery when another window filled the final receipt slot', async () => {
+    const seed = await reload()
+    for (let start = 0; start < CAPACITY - 1; start += 32) {
+      const batch = Array.from({ length: Math.min(32, CAPACITY - 1 - start) }, (_, offset) => ({
+        clientMessageId: `synthetic-race-${start + offset}`, text: `receipt ${start + offset}`
+      }))
+      expect(await recover(seed, batch)).toBe(true)
+    }
+    const stale = await reload()
+    const fresh = await reload()
+    const last = { clientMessageId: 'synthetic-final-slot', text: 'last committed recovery' }
+    expect(await recover(fresh, [last])).toBe(true)
+    const before = text(stale)
+    const source = [{ clientMessageId: 'synthetic-racing-overflow', text: 'source must remain' }]
+    const original = structuredClone(source)
+    expect(await recover(stale, source)).toBe(false)
+    expect(text(stale)).toBe(before)
+    expect(source).toEqual(original)
+    const restored = await reload()
+    const committed = text(restored)
+    expect(await recover(restored, [last])).toBe(true)
+    expect(text(restored)).toBe(committed)
+    expect(text(restored)).not.toContain('source must remain')
+  })
+
+  it('serializes simultaneous overlapping recoveries by message identity', async () => {
+    const first = await reload()
+    const second = await reload()
+    const shared = { clientMessageId: 'synthetic-shared', text: 'shared recovery' }
+    const tail = { clientMessageId: 'synthetic-tail', text: 'tail recovery' }
+    expect(await Promise.all([
+      recover(first, [MESSAGE, shared]), recover(second, [shared, tail])
+    ])).toEqual([true, true])
+    const restored = await reload()
+    for (const message of [MESSAGE, shared, tail]) {
+      expect(text(restored).split(message.text)).toHaveLength(2)
+    }
+    const before = text(restored)
+    expect(await recover(restored, [MESSAGE, shared, tail])).toBe(true)
+    expect(text(restored)).toBe(before)
+  })
+
+  it('keeps user text typed during a deferred recovery commit', async () => {
+    let release!: () => void
+    let entered!: () => void
+    const gate = new Promise<void>((done) => { release = done })
+    const started = new Promise<void>((done) => { entered = done })
+    const delayed: NativeChatComposerDraftStorage = {
+      ...storage,
+      update: async (scopeKey, apply) => {
+        entered()
+        await gate
+        return storage.update(scopeKey, apply)
+      }
+    }
+    const modules = await reload(delayed)
+    expect('recoverNativeChatComposerDraftMessages' in modules.store).toBe(true)
+    const recovery = recover(modules, [MESSAGE])
+    expect(await Promise.race([started.then(() => true), recovery.then(() => false)])).toBe(true)
+    modules.cache.writeNativeChatDraftCache(SCOPE, 'typed during recovery')
+    release()
+    expect(await recovery).toBe(true)
+    await settled(modules)
+    expect(text(modules)).toContain('typed during recovery')
+    expect(text(modules).split(MESSAGE.text)).toHaveLength(2)
+    const restored = await reload()
+    expect(text(restored)).toContain('typed during recovery')
+    expect(text(restored).split(MESSAGE.text)).toHaveLength(2)
+  })
+
+  it('preserves typing after the backend committed but before its acknowledgement resumes recovery', async () => {
+    let release!: () => void
+    let entered!: () => void
+    const acknowledgement = new Promise<void>((done) => { release = done })
+    const committed = new Promise<void>((done) => { entered = done })
+    const delayed: NativeChatComposerDraftStorage = {
+      ...storage,
+      update: async (scopeKey, apply) => {
+        await storage.update(scopeKey, apply)
+        entered()
+        await acknowledgement
+      }
+    }
+    const modules = await reload(delayed)
+    expect('recoverNativeChatComposerDraftMessages' in modules.store).toBe(true)
+    const recovery = recover(modules, [MESSAGE])
+    expect(await Promise.race([committed.then(() => true), recovery.then(() => false)])).toBe(true)
+    expect(storage.drafts.get(SCOPE)?.text).toBe(MESSAGE.text)
+    modules.cache.writeNativeChatDraftCache(SCOPE, 'typed while acknowledgement waited')
+    release()
+    expect(await recovery).toBe(true)
+    await settled(modules)
+    expect(text(modules)).toContain('typed while acknowledgement waited')
+    expect(text(modules).split(MESSAGE.text)).toHaveLength(2)
+    const restored = await reload()
+    expect(text(restored)).toContain('typed while acknowledgement waited')
+    expect(text(restored).split(MESSAGE.text)).toHaveLength(2)
+  })
+
+  it('deduplicates a retained source after commit followed by a crash before source clearing', async () => {
+    const modules = await reload()
+    const durableSource = [MESSAGE]
+    expect(await recover(modules, durableSource)).toBe(true)
+    modules.store.clearNativeChatComposerDraftsForTests()
+    const restored = await reload()
+    expect(await recover(restored, durableSource)).toBe(true)
+    expect(durableSource).toEqual([MESSAGE])
+    expect(text(restored)).toBe(MESSAGE.text)
+    expect(text(await reload())).toBe(MESSAGE.text)
   })
 
 })

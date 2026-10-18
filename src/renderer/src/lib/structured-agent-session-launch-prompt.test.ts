@@ -382,14 +382,14 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       const held = [{ clientMessageId: 'legacy-before-reload', text: 'held legacy text' }]
       const original = structuredClone(held)
 
-      expect(recover(held)).toBe(true)
+      expect(await recover(held)).toBe(true)
       await nativeChatComposerDraftWritesSettled()
 
       expect(draft()).toContain('typed meanwhile')
       expect(draft()).toContain('held legacy text')
       expect(draft().indexOf('typed meanwhile')).toBeLessThan(draft().indexOf('held legacy text'))
       expect(storage.drafts.get(structuredAgentSessionDraftScopeKey(SESSION))?.text).toBe(draft())
-      expect(recover(held)).toBe(true)
+      expect(await recover(held)).toBe(true)
       expect(draft().split('held legacy text')).toHaveLength(2)
       expect(held).toEqual(original)
       expect(getStructuredAgentSessionPendingSends(SESSION)).toEqual([])
@@ -408,7 +408,25 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       const held = [{ clientMessageId: 'retain-after-quota', text: 'recoverable held text' }]
       const original = structuredClone(held)
 
-      expect(recover(held)).toBe(false)
+      expect(await recover(held)).toBe(false)
+      await nativeChatComposerDraftWritesSettled()
+
+      expect(held).toEqual(original)
+      expect(storage.drafts.size).toBe(0)
+      expect(getStructuredAgentSessionPendingSends(SESSION)).toEqual([])
+      expect(sends()).toEqual([])
+    })
+
+    it('keeps the source when the draft backend refuses recovery despite journal availability', async () => {
+      const storage = createMemoryNativeChatComposerDraftStorage()
+      setNativeChatComposerDraftStorageForTests(storage)
+      await hydrateNativeChatComposerDrafts()
+      storage.refuseWrites = true
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const held = [{ clientMessageId: 'backend-refused-reservation', text: 'backend must confirm this' }]
+      const original = structuredClone(held)
+
+      expect(await recover(held)).toBe(false)
       await nativeChatComposerDraftWritesSettled()
 
       expect(held).toEqual(original)
@@ -422,7 +440,7 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       setNativeChatComposerDraftStorageForTests(storage)
       await hydrateNativeChatComposerDrafts()
 
-      expect(recover([
+      expect(await recover([
         { clientMessageId: 'first-held-reservation', text: 'first held prompt' },
         { clientMessageId: 'second-held-reservation', text: 'second held prompt' }
       ])).toBe(true)
@@ -446,7 +464,7 @@ second held prompt`)
         clientOperationId: 'original-create', payloadFingerprint: 'original-fingerprint',
         expectedRuntimeFence: null, createMessageSupport: false, heldPromptDrafts
       })
-      expect(recover(heldPromptDrafts)).toBe(true)
+      expect(await recover(heldPromptDrafts)).toBe(true)
       await nativeChatComposerDraftWritesSettled()
       vi.spyOn(console, 'warn').mockImplementation(() => {})
       const removeItem = localStorage.removeItem.bind(localStorage)
@@ -477,7 +495,7 @@ second held prompt`)
         reloadedStore.flushNativeChatComposerDrafts()
         await reloadedStore.nativeChatComposerDraftWritesSettled()
 
-        expect(reloadedRecovery.recoverStructuredLaunchPromptDrafts(
+        expect(await reloadedRecovery.recoverStructuredLaunchPromptDrafts(
           SESSION, staleSource?.heldPromptDrafts ?? []
         )).toBe(true)
         await reloadedStore.nativeChatComposerDraftWritesSettled()
