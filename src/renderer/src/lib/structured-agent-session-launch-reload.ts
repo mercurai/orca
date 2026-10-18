@@ -1,3 +1,4 @@
+import { recoverStructuredLaunchDrafts } from './structured-agent-session-launch-draft-recovery'
 import {
   restoreStructuredAgentSessionLaunchIntent,
   StructuredAgentSessionOwnerUnresolvedError,
@@ -60,10 +61,12 @@ export function restorePersistedStructuredLaunchState(
     cancelled: false,
     onVisibilityChanged: undefined,
     callers,
-    selection: { seed: intent.seedOptions, held: {} }
+    ...(record.heldPromptDrafts ? { heldPromptDrafts: record.heldPromptDrafts } : {}),
+    selection: { seed: intent.seedOptions, held: record.heldOptions ?? {} }
   }
   callers.outcome = record.lifecycle === 'failed' ? 'failed' : 'unknown'
   callers.failedAt = record.failedAt
   setStructuredLaunchState(state)
+  void recoverStructuredLaunchDrafts(state)
   return state
 }

@@ -1,3 +1,6 @@
+import type { StructuredLaunchPromptDraft } from './structured-agent-session-launch-prompt-recovery'
+export { recoverStructuredLaunchPromptDrafts } from './structured-agent-session-launch-prompt-recovery'
+export type { StructuredLaunchPromptDraft } from './structured-agent-session-launch-prompt-recovery'
 import { structuredAgentSessionSendBody } from '../../../shared/structured-agent-session-send-mutation'
 import type { StructuredAgentLaunchReceipt } from './structured-agent-session-launch-recovery'
 import type { StructuredAgentSessionFirstMessage } from '../../../shared/structured-agent-session-create'
@@ -102,6 +105,17 @@ export function stageStructuredLaunchPrompt(
     prompt.settleCreate(result)
   })
   return prompt
+}
+
+/** Only unsent legacy reservations remain this launch's text to recover. */
+export function captureStructuredLaunchPromptDrafts(sessionId: string): StructuredLaunchPromptDraft[] {
+  return [...(staged.get(sessionId) ?? [])].flatMap((prompt) => {
+    const clientMessageId = prompt.slot?.clientMessageId
+    return !prompt.createOwned && !prompt.callerKeepsText && !prompt.discarded &&
+      !prompt.delivery && clientMessageId
+      ? [{ clientMessageId, text: prompt.text }]
+      : []
+  })
 }
 
 function unstage(prompt: StagedStructuredLaunchPrompt): void {

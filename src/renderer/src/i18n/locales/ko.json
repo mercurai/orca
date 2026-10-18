@@ -18242,6 +18242,7 @@
       },
       "composer": {
         "speedStatus": {
+          "recoveryStorage": "보내지 않은 메시지를 복원할 수 없습니다. 저장 공간을 확보한 후 다시 시도하세요. 저장된 복구 사본은 유지됩니다.",
           "waitForChange": "보내기 전에 속도 변경이 완료될 때까지 기다리거나 실행 호스트의 Orca를 업데이트하세요.",
           "nextTurn": "다음 턴: {{speed}}",
           "loading": "속도 지원 여부 확인 중…",

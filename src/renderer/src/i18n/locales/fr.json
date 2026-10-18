@@ -18311,6 +18311,7 @@
       },
       "composer": {
         "speedStatus": {
+          "recoveryStorage": "Impossible de restaurer le message non envoyé. Libérez de l’espace de stockage et réessayez ; sa copie de récupération enregistrée est conservée.",
           "waitForChange": "Attendez la fin du changement de vitesse avant d’envoyer, ou mettez à jour Orca sur l’hôte d’exécution.",
           "nextTurn": "Prochain tour : {{speed}}",
           "loading": "Vérification des vitesses disponibles…",

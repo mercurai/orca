@@ -18207,6 +18207,7 @@
       },
       "composer": {
         "speedStatus": {
+          "recoveryStorage": "无法恢复未发送的消息。请释放存储空间后重试；已保存的恢复副本仍会保留。",
           "waitForChange": "请等待速度更改完成后再发送，或更新执行主机上的 Orca。",
           "nextTurn": "下一轮：{{speed}}",
           "loading": "正在检查速度支持情况…",

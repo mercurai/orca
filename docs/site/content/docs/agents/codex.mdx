@@ -52,6 +52,19 @@ This includes a pick whose separate settings update is still pending. On an olde
 send-option support, wait for the speed update before sending; a refusal keeps the text in the composer.
 Untouched legacy Fast controls do not override the provider's configured default.
 
+If a speed pick is refused while a chat starts, Orca retains the requested next-turn setting and
+unsent opening text. Choose a supported speed or cancel the launch; the refusal does not create a
+replacement conversation. An opening message already accepted by the host keeps its original settings.
+
+After a renderer reload, retained unsent text returns to the composer for explicit sending. Recovery
+waits for draft storage to commit before releasing its saved copy. If storage refuses the write,
+free storage and use Retry; Orca retains the recovery copy and does not send the text automatically.
+Message receipts prevent a retained recovery copy from duplicating text after later composer edits.
+
+Seeing the chat in a host snapshot only confirms that the conversation exists. Orca checks its
+opening receipt without replaying create or applying held settings. If that receipt is missing,
+use Retry to reconcile the original request; observing the tab does not send a message.
+
 ## Account hot-swap
 
 Many Codex users run multiple accounts to stretch rate limits. Orca's account switcher swaps the active account without re-login or config edits. See [Hot-swap Codex accounts](/docs/agents/codex-hot-swap).

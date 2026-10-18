@@ -2,7 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const rpc = vi.hoisted(() => vi.fn())
-vi.mock('@/runtime/structured-agent-session-client', () => ({ callStructuredAgentSession: rpc }))
+const authorizeSpeed = vi.hoisted(() => vi.fn())
+vi.mock('@/runtime/structured-agent-session-client', () => ({
+  callStructuredAgentSession: rpc,
+  supportsStructuredAgentSessionCreateMessage: async () => true
+}))
+vi.mock('@/runtime/codex-speed-selection', () => ({
+  prepareCodexSpeedWireOptions: authorizeSpeed,
+  CodexSpeedSelectionError: class extends Error {}
+}))
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: rpc }))
 vi.mock('@/store', () => ({ useAppStore: {
   getState: () => ({ settings: {}, unifiedTabsByWorktree: {} }),
@@ -34,11 +42,15 @@ import type { AgentJournalSubmission } from '../../../shared/agent-session-journ
 import type { AgentSessionHistoryPage } from '../../../shared/agent-session-wire'
 import { resetStructuredAgentSessionReadOwnersForTests } from '@/components/native-chat/structured-agent-session-read-owner'
 import { holdStructuredAgentSessionLaunchOption } from './structured-agent-session-launch-options'
+import { retryStructuredAgentSessionLaunch } from './structured-agent-session-launch'
+import { CreateIntentParams } from '../../../shared/rpc-contract/structured-agent-session-params'
+import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 
 beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(1_760_000_000_000)
   vi.clearAllMocks()
+  authorizeSpeed.mockReset()
   localStorage.clear()
   resetStructuredAgentLaunchRegistryForTests()
   resetStructuredAgentLaunchPersistenceForTests()
@@ -228,5 +240,95 @@ describe('publication arriving before launch restoration', () => {
     expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
     expect(state.intent.createSpeedAuthority).toEqual(original.createSpeedAuthority)
     expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject({ ...original, heldOptions })
+  })
+
+  it('observes a missing opening receipt without held picks and replays only on explicit Retry', async () => {
+    const worktreeId = 'wt-publication-explicit-retry'
+    const sessionId = 'codex_publication_explicit_retry'
+    const request = structuredAgentSessionCreateParams({
+      sessionId, worktree: `id:${worktreeId}`, agent: 'codex',
+      options: { model: 'model-original', serviceTier: 'default' },
+      firstMessage: {
+        clientMessageId: 'explicit-retry-original-opening',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'original explicit opening' }] }
+      },
+      randomUuid: () => '00000000-0000-4000-8000-000000000003', now: 1_760_000_000_000
+    })
+    const original: StructuredAgentLaunchPersistedRecord = {
+      sessionId, executionHostId: 'runtime:original-host', agent: 'codex', lifecycle: 'visibility-unknown',
+      clientOperationId: request.envelope.clientOperationId,
+      payloadFingerprint: request.envelope.payloadFingerprint,
+      expectedRuntimeFence: request.envelope.expectedRuntimeFence, createMessageSupport: true,
+      options: request.options, createCanonicalOptions: request.options,
+      createSpeedAuthority: {
+        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+      },
+      firstMessage: request.firstMessage
+    }
+    const opening: AgentJournalSubmission = {
+      clientMessageId: 'explicit-retry-original-opening', fence: 7, payloadFingerprint: 'b'.repeat(64),
+      dispatchState: 'accepted', handoverRecorded: true, providerItemId: null, reason: null,
+      submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000
+    }
+    const cursor = { epoch: 'explicit-retry-epoch', sequence: 0 }
+    const missingPage: AgentSessionHistoryPage = {
+      sessionId, epoch: cursor.epoch, fence: 7, direction: 'tail', items: [], removedItemIds: [],
+      submissions: [], window: { oldest: null, newest: null, nextCursor: cursor }, liveCursor: cursor,
+      hasOlder: false, hasNewer: false, latestTurn: null
+    }
+    const historyStarted = Promise.withResolvers<void>()
+    let explicitRetry = false
+    rpc.mockImplementation(async (_target, method) => {
+      if (method === 'session.tabs.listAll') {
+        return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
+      }
+      if (method === 'agentSession.history') {
+        historyStarted.resolve()
+        return { ok: true, page: missingPage }
+      }
+      if (explicitRetry && method === 'agentSession.createSupport') return { supported: true }
+      if (explicitRetry && method === 'agentSession.create') {
+        return { ok: true, value: {
+          sessionId, fence: 7, firstMessage: opening,
+          page: { ...missingPage, submissions: [opening] }
+        } }
+      }
+      throw new Error(`Mutation requires an explicit Retry: ${method}`)
+    })
+    authorizeSpeed.mockImplementation(async (input: { options?: Readonly<Record<string, string>> }) => ({
+      options: input.options, authority: original.createSpeedAuthority
+    }))
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    writeStructuredAgentLaunchRecord(original)
+
+    markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
+    await historyStarted.promise
+    const state = getStructuredLaunchStateBySessionId(sessionId)
+    if (!state) throw new Error('Expected publication to retain the unconfirmed launch')
+    await expect(state.promise).rejects.toBeInstanceOf(Error)
+    expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
+      'session.tabs.listAll', 'agentSession.history'
+    ])
+    expect(authorizeSpeed).not.toHaveBeenCalled()
+    expect(state.visibilityUnknown).toBe(true)
+    expect(state.selection.held).toEqual({})
+    expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
+    expect(state.intent.params).toEqual(request)
+    const frozenParams = structuredClone(request)
+
+    explicitRetry = true
+    expect(retryStructuredAgentSessionLaunch(worktreeId, sessionId)).toBe(true)
+    await expect(state.promise).resolves.toMatchObject({ sessionId, fence: 7, firstMessage: opening })
+
+    expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
+      'session.tabs.listAll', 'agentSession.history',
+      'session.tabs.listAll', 'agentSession.history', 'agentSession.createSupport', 'agentSession.create'
+    ])
+    const creates = rpc.mock.calls.filter(([, method]) => method === 'agentSession.create')
+    expect(creates).toHaveLength(1)
+    expect(CreateIntentParams.parse(creates[0]?.[2])).toEqual(frozenParams)
+    expect(creates[0]?.[3]).toEqual(original.createSpeedAuthority)
+    expect(state.intent.params.envelope.clientOperationId).toBe(original.clientOperationId)
+    expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
   })
 })

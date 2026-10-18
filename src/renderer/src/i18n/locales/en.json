@@ -18627,7 +18627,8 @@
           "processingReported": "Actual processing: {{speed}}",
           "pendingFast": "Fast (awaiting catalog)",
           "providerDefault": "Provider default",
-          "waitForChange": "Wait for the speed change to finish before sending, or update Orca on the execution host."
+          "waitForChange": "Wait for the speed change to finish before sending, or update Orca on the execution host.",
+          "recoveryStorage": "Could not restore the unsent message. Free storage and retry; its saved recovery copy is retained."
         }
       },
       "tool": {

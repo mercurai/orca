@@ -1,3 +1,4 @@
+import { recoverStructuredLaunchDrafts } from './structured-agent-session-launch-draft-recovery'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import type { ExecutionHostId } from '../../../shared/execution-host'
 import {
@@ -127,21 +128,25 @@ function resetStructuredLaunchCallers(state: StructuredLaunchState): void {
 }
 
 function restartStructuredLaunchState(state: StructuredLaunchState): void {
-  const wasVisibilityUnknown = state.visibilityUnknown
-  if (!wasVisibilityUnknown) {
-    state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
-  }
+  const wasVisibilityUnknown = state.visibilityUnknown || Boolean(state.heldPromptDrafts?.length)
+  const recovery = recoverStructuredLaunchDrafts(state)
   resetStructuredLaunchCallers(state)
   delete state.failure
   state.callers.outcome = 'pending'
-  // A new create seeds from the settings of now (a paired server's arrive with its probe); picks
-  // held through the failure still apply.
   state.selection = { ...state.selection, seed: state.intent.seedOptions }
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
-  state.promise = publishWithHeldOptions(
-    state,
-    wasVisibilityUnknown ? reconcileUnknownLaunch(state) : launchAndReconcile(state)
-  )
+  state.promise = recovery.then((recovered) => {
+    if (!recovered) throw new Error('Unsent message recovery needs durable storage')
+    if (state.cancelled) throw new Error('Launch cancelled during message recovery')
+    if (!wasVisibilityUnknown) {
+      state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
+      state.selection = { ...state.selection, seed: state.intent.seedOptions }
+    }
+    return publishWithHeldOptions(
+      state,
+      wasVisibilityUnknown ? reconcileUnknownLaunch(state) : launchAndReconcile(state)
+    )
+  })
   trackLaunchSettlement(state, state.promise)
   trackStructuredLaunchConfirmationDeadline(state, state.promise)
   notifyStructuredLaunchListeners()
