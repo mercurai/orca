@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-15.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-18.
 
 ## Branches
 
@@ -164,6 +164,12 @@ series.
   only for a real build dispatched from the default branch; its condition reads the dispatch
   inputs and ref, which no build step can change.
   `config/mercurai/scripts/release-workflow-token-scope.test.mjs` pins all of this.
+Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
+CLI/hook native assets through `build:release`. The workflow refuses refs that still contain
+`config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
+Use an existing published installer for an older release rather than rebuilding a relay-era ref
+through this workflow. Installed-profile downgrade compatibility still requires separate verification.
+
 - `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer
   and keeps it as a run artifact; the run has no publish job. The artifact holds the installer
   alone, renamed `orca-windows-setup-DRY-RUN-<tag>.exe`, with no `latest.yml` and no blockmap,
