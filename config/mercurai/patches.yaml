@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-20261018
     status: ours-only
     base: 30a66ac083e5e09efc77ae54932ee9efe7019fa9
-    commit: 64d93b832be83d8fbb2b5c7d1266262ca07460ae
+    commit: ea2f5d91c03ab76ab47e79919885e3291142a64a
     owner: harness
     added: 2026-10-18
     tests:
@@ -129,19 +129,17 @@ patches:
       - tests/e2e/cross-version-wire/cross-version-web-device-key.unit.test.ts
       - tests/e2e/cross-version-wire/cross-version-web-session-pairing.unit.test.ts
     notes: >-
-      Test union checked against candidate 591469e40ac204ae9057d891eb94de08e8d75776:
+      Test union checked against candidate 34238ef0648a64a01047781a3f5278f4753c4347:
       112 registered paths cover all 51 targeted workflow paths and the three corrected
       cross-version pairing suites; every path exists.
       This provisional pin is for CI-only dry-run assembly; default registration and publication
       remain blocked on full exact-head CI and review.
-      PROVISIONAL REGISTRATION ONLY: candidate 64d93b832b has not passed the required full CI
+      PROVISIONAL REGISTRATION ONLY: candidate ea2f5d91c0 has not passed the required full CI
       gates.
-      The patch/current-main-release-20261018 ref does not exist yet. Before merging or
-      using
-      this manifest, replace commit with the final passing immutable candidate SHA,
-      create
-      that patch ref at the same SHA, and verify the exact base/head tuple and assembled
-      tree.
+      The provisional patch/current-main-release-20261018 ref exists at the pinned SHA.
+      Its three linear commits preserve the source tree without merge commits. Before
+      default registration or publication, verify final exact-head CI, the remote base/head
+      tuple and assembled-tree equality; replace this pin if further corrections are needed.
       Frozen official-main base is 30a66ac083e5e09efc77ae54932ee9efe7019fa9;
       the release version floor is v1.4.229, not the upstream base version.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
