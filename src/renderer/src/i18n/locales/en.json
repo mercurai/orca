@@ -18615,6 +18615,18 @@
           "minimal": "Min",
           "medium": "Med",
           "xhigh": "XHigh"
+        },
+        "speedStatus": {
+          "nextTurn": "Next turn: {{speed}}",
+          "loading": "Checking speed support…",
+          "unknown": "Speed support unknown. Refresh the catalog or choose Standard.",
+          "unavailable": "Selected speed is unavailable. Refresh the catalog or choose Standard.",
+          "available": "Speed available for the next turn.",
+          "applied": "Last host-applied speed: {{speed}}",
+          "processingUnknown": "Actual processing: unknown",
+          "processingReported": "Actual processing: {{speed}}",
+          "pendingFast": "Fast (awaiting catalog)",
+          "providerDefault": "Provider default"
         }
       },
       "tool": {

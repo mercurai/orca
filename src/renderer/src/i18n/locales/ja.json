@@ -18241,6 +18241,18 @@
         "compactAfterSending": "以前のメッセージはまだ送信中です。送信が終わったら /compact を実行してください。"
       },
       "composer": {
+        "speedStatus": {
+          "nextTurn": "次のターン：{{speed}}",
+          "loading": "速度の対応状況を確認中…",
+          "unknown": "速度の対応状況が不明です。カタログを更新するか、標準を選択してください。",
+          "unavailable": "選択した速度は利用できません。カタログを更新するか、標準を選択してください。",
+          "available": "次のターンで利用できる速度です。",
+          "applied": "ホストが最後に適用した速度：{{speed}}",
+          "processingUnknown": "実際の処理速度：不明",
+          "processingReported": "実際の処理速度：{{speed}}",
+          "pendingFast": "高速（カタログ待ち）",
+          "providerDefault": "プロバイダーの既定値"
+        },
         "imageUnsupported": "この Agent では画像の貼り付けはサポートされていません。",
         "send": "送信",
         "noPty": "ライブターミナルがありません - 再接続するには元に切り替えてください。",
