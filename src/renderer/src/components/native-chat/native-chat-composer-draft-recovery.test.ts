@@ -208,6 +208,27 @@ describe('durable composer recovery receipts', () => {
     expect(text(restored)).toBe('typed before hydration finished')
   })
 
+  it('refuses recovery when its stored workspace is deleted before hydration exposes its owner', async () => {
+    const owner = { workspaceId: 'synthetic-workspace', executionHostId: 'local' as const }
+    storage.drafts.set(SCOPE, {
+      text: 'owned draft', images: [], savedAt: 1, owner,
+      recoveredMessageIds: ['synthetic-previous-recovery']
+    })
+    const snapshot = new Map(storage.drafts)
+    let release!: (value: ReadonlyMap<string, unknown>) => void
+    const pending = new Promise<ReadonlyMap<string, unknown>>((resolve) => { release = resolve })
+    const modules = await reload({ ...storage, loadAll: () => pending }, false)
+    // No resolver: only the still-loading stored record can establish this draft's owner.
+    const recovering = recover(modules, [MESSAGE])
+    modules.store.deleteNativeChatComposerDraftsOwnedBy(owner)
+    release(snapshot)
+    expect(await recovering).toBe(false)
+    await settled(modules)
+    expect(text(modules)).toBe('')
+    expect(storage.drafts.has(SCOPE)).toBe(false)
+    expect(text(await reload())).toBe('')
+  })
+
   it('rejects a stale-window recovery when another window filled the final receipt slot', async () => {
     const seed = await reload()
     for (let start = 0; start < CAPACITY - 1; start += 32) {
