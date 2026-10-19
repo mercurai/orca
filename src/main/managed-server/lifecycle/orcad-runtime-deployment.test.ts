@@ -354,7 +354,7 @@ describe('createManagedOrcadEnvironment', () => {
 
     it('pairs a relay migration with the running build too, under its journaled fence', async () => {
       target = { ...target, orcadFence: { environmentId: 'env-m' }, generation: 9 }
-      writeOrcadMigrationSourceCutover(
+      await writeOrcadMigrationSourceCutover(
         userDataPath,
         orcadMigrationCutoverFixture('m-1', 'ssh-1', { generation: 9, environmentId: 'env-m' })
       )
@@ -373,7 +373,7 @@ describe('createManagedOrcadEnvironment', () => {
 
     it('a relay migration onto a rebooted host starts the stopped build and pairs (#28833)', async () => {
       target = { ...target, orcadFence: { environmentId: 'env-m' }, generation: 9 }
-      writeOrcadMigrationSourceCutover(
+      await writeOrcadMigrationSourceCutover(
         userDataPath,
         orcadMigrationCutoverFixture('m-1', 'ssh-1', { generation: 9, environmentId: 'env-m' })
       )
@@ -390,7 +390,7 @@ describe('createManagedOrcadEnvironment', () => {
 
     it('starts nothing for a migration whose running build is unverifiable', async () => {
       target = { ...target, orcadFence: { environmentId: 'env-m' }, generation: 9 }
-      writeOrcadMigrationSourceCutover(
+      await writeOrcadMigrationSourceCutover(
         userDataPath,
         orcadMigrationCutoverFixture('m-1', 'ssh-1', { generation: 9, environmentId: 'env-m' })
       )
@@ -649,7 +649,7 @@ describe('createManagedOrcadEnvironment', () => {
 describe('createManagedOrcadEnvironment for a migration', () => {
   it('deploys into its own journaled fence without leaving a provisioning intent', async () => {
     target = { ...target, orcadFence: { environmentId: 'env-m' }, generation: 9 }
-    writeOrcadMigrationSourceCutover(
+    await writeOrcadMigrationSourceCutover(
       userDataPath,
       orcadMigrationCutoverFixture('m-1', 'ssh-1', { generation: 9, environmentId: 'env-m' })
     )
@@ -730,7 +730,7 @@ describe('getManagedOrcadRuntimeStatus', () => {
   it('reports an unfinished migration into the server', async () => {
     await deploy()
     const [environment] = listEnvironments(userDataPath)
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('m-2', 'ssh-1', {
         generation: 9,
         environmentId: environment!.id

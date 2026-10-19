@@ -107,7 +107,7 @@ describe('adoptRuntimeProvisionedRoot', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-adopt-'))
     try {
       loadWslMoveFence(userDataPath)
-      seedWslMoveCutover(
+      await seedWslMoveCutover(
         userDataPath,
         cutover('move-1', 'source-fenced', {}, { repoIds: ['repo-vm'] })
       )

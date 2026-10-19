@@ -179,7 +179,7 @@ export function registerMobileHandlers(
 
       // Why: web/desktop runtime clients need full runtime access, not the
       // mobile allowlist used by phone QR pairing.
-      const offer = rpcServer.createPairingOffer({
+      const offer = await rpcServer.createPairingOffer({
         address: ip,
         rotate: args?.rotate,
         name: `Runtime ${new Date().toLocaleDateString()}`,
@@ -247,12 +247,12 @@ export function registerMobileHandlers(
     return { revoked: await rpcServer.revokeMobileDevice(args.deviceId) }
   })
 
-  ipcMain.handle('mobile:revokeRuntimeAccess', (_event, args: { deviceId: string }) => {
+  ipcMain.handle('mobile:revokeRuntimeAccess', async (_event, args: { deviceId: string }) => {
     const registry = rpcServer.getDeviceRegistry()
     if (!registry) {
       return { revoked: false }
     }
-    return { revoked: rpcServer.revokeRuntimeAccess(args.deviceId) }
+    return { revoked: await rpcServer.revokeRuntimeAccess(args.deviceId) }
   })
 
   ipcMain.handle('mobile:isWebSocketReady', () => {

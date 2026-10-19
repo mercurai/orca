@@ -32,8 +32,13 @@ vi.mock('node:path', () => ({
 }))
 
 vi.mock('../../shared/secure-file', () => ({
-  hardenExistingSecureFile: hardenExistingSecureFileMock,
-  writeSecureFile: writeSecureFileMock
+  hardenExistingSecureFile: hardenExistingSecureFileMock
+}))
+
+vi.mock('../../shared/secure-file-async-write', () => ({
+  writeSecureFileAsync: writeSecureFileMock,
+  ignoreDiscardedSecureWrite: async (save: () => Promise<void>) => await save(),
+  removeSecureFile: (path: string) => rmSyncMock(path, { force: true })
 }))
 
 const storePath = '/home/test/.orca/zcode-plan-api-key.enc'
@@ -51,7 +56,7 @@ describe('zcode-plan-api-key-store', () => {
     rmSyncMock.mockReset()
     hardenExistingSecureFileMock.mockReset()
     writeSecureFileMock.mockReset()
-    writeSecureFileMock.mockReturnValue(true)
+    writeSecureFileMock.mockResolvedValue(true)
     safeStorageMock.isEncryptionAvailable.mockReset()
     safeStorageMock.encryptString.mockReset()
     safeStorageMock.decryptString.mockReset()
@@ -74,7 +79,7 @@ describe('zcode-plan-api-key-store', () => {
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
 
-    store.saveZcodePlanApiKey(' glm-secret ')
+    await store.saveZcodePlanApiKey(' glm-secret ')
 
     expect(writeSecureFileMock).toHaveBeenCalledWith(storePath, envelope('encrypted', 'glm-secret'))
     existsSyncMock.mockReturnValue(true)
@@ -89,7 +94,7 @@ describe('zcode-plan-api-key-store', () => {
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
 
-    store.saveZcodePlanApiKey('glm-secret')
+    await store.saveZcodePlanApiKey('glm-secret')
 
     expect(writeSecureFileMock).toHaveBeenCalledWith(storePath, envelope('plaintext', 'glm-secret'))
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('safeStorage encryption unavailable'))
@@ -122,26 +127,30 @@ describe('zcode-plan-api-key-store', () => {
   it('rejects saving an empty key', async () => {
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('   ')).toThrow('GLM Coding Plan API key is required')
+    await expect(store.saveZcodePlanApiKey('   ')).rejects.toThrow(
+      'GLM Coding Plan API key is required'
+    )
     expect(writeSecureFileMock).not.toHaveBeenCalled()
   })
 
   it('rejects a key with an interior newline instead of saving it', async () => {
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('glm\r\nsecret')).toThrow('must be a single line')
+    await expect(store.saveZcodePlanApiKey('glm\r\nsecret')).rejects.toThrow(
+      'must be a single line'
+    )
     expect(writeSecureFileMock).not.toHaveBeenCalled()
   })
 
   it('refuses to keep an unrestricted plaintext key when hardening fails', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
-    writeSecureFileMock.mockReturnValue(false)
+    writeSecureFileMock.mockResolvedValue(false)
     existsSyncMock.mockReturnValue(false)
     readFileSyncMock.mockReturnValue(Buffer.from(envelope('plaintext', 'glm-secret')))
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('glm-secret')).toThrow(
+    await expect(store.saveZcodePlanApiKey('glm-secret')).rejects.toThrow(
       'could not be stored securely on this device'
     )
     expect(rmSyncMock).toHaveBeenCalledWith(storePath, { force: true })
@@ -157,10 +166,10 @@ describe('zcode-plan-api-key-store', () => {
       .mockReturnValueOnce(previous)
       .mockReturnValueOnce(Buffer.from(envelope('plaintext', 'new-key')))
       .mockReturnValue(previous)
-    writeSecureFileMock.mockReturnValueOnce(false).mockReturnValueOnce(true)
+    writeSecureFileMock.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('new-key')).toThrow(
+    await expect(store.saveZcodePlanApiKey('new-key')).rejects.toThrow(
       'could not be stored securely on this device'
     )
     // First write publishes the unrestricted replacement; the second restores
@@ -180,12 +189,12 @@ describe('zcode-plan-api-key-store', () => {
     const attempted = envelope('plaintext', 'new-key')
     existsSyncMock.mockReturnValue(true)
     readFileSyncMock.mockReturnValueOnce(previous).mockReturnValue(Buffer.from(attempted))
-    writeSecureFileMock.mockReturnValueOnce(false).mockImplementationOnce(() => {
-      throw new Error('restore failed before publish')
-    })
+    writeSecureFileMock
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('restore failed before publish'))
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('new-key')).toThrow(
+    await expect(store.saveZcodePlanApiKey('new-key')).rejects.toThrow(
       'could not be stored securely on this device'
     )
     expect(rmSyncMock).toHaveBeenCalledWith(storePath, { force: true })
@@ -201,12 +210,12 @@ describe('zcode-plan-api-key-store', () => {
       .mockReturnValueOnce(previous)
       .mockReturnValueOnce(Buffer.from(envelope('plaintext', 'new-key')))
       .mockReturnValue(previous)
-    writeSecureFileMock.mockReturnValueOnce(false).mockImplementationOnce(() => {
-      throw new Error('restore failed after publish')
-    })
+    writeSecureFileMock
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('restore failed after publish'))
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('new-key')).toThrow(
+    await expect(store.saveZcodePlanApiKey('new-key')).rejects.toThrow(
       'could not be stored securely on this device'
     )
     expect(rmSyncMock).not.toHaveBeenCalledWith(storePath, expect.anything())
@@ -219,12 +228,12 @@ describe('zcode-plan-api-key-store', () => {
     const sameKey = Buffer.from(envelope('plaintext', 'same-key'))
     existsSyncMock.mockReturnValue(true)
     readFileSyncMock.mockReturnValue(sameKey)
-    writeSecureFileMock.mockReturnValueOnce(false).mockImplementationOnce(() => {
-      throw new Error('restore failed after publish')
-    })
+    writeSecureFileMock
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error('restore failed after publish'))
     const store = await loadStore()
 
-    expect(() => store.saveZcodePlanApiKey('same-key')).toThrow(
+    await expect(store.saveZcodePlanApiKey('same-key')).rejects.toThrow(
       'could not be stored securely on this device'
     )
     expect(rmSyncMock).not.toHaveBeenCalledWith(storePath, expect.anything())
@@ -251,7 +260,7 @@ describe('zcode-plan-api-key-store', () => {
   it('clearing removes the file and resets the cached value', async () => {
     existsSyncMock.mockReturnValue(false)
     const store = await loadStore()
-    store.saveZcodePlanApiKey('glm-secret')
+    await store.saveZcodePlanApiKey('glm-secret')
 
     existsSyncMock.mockReturnValue(true)
     store.clearZcodePlanApiKey()

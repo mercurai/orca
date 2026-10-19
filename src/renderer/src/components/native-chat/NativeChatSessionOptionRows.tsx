@@ -16,6 +16,7 @@ import {
   nativeChatSessionOptionDisabledReason,
   nativeChatSessionOptionLabel
 } from './native-chat-session-option-labels'
+import { NativeChatSessionSpeedStatus } from './NativeChatSessionSpeedStatus'
 import { NativeChatSessionOptionWriteGroup } from './NativeChatSessionOptionWriteGroup'
 
 type NativeChatSessionOptionRowsProps = {
@@ -212,6 +213,9 @@ export function NativeChatSessionOptionRows({
                         onSet={(value) => onSet(descriptor, value)}
                         onAction={() => onAction(descriptor)}
                       />
+                      {options.some((option) => option.id === descriptor.id) ? (
+                        <NativeChatSessionSpeedStatus descriptor={descriptor} />
+                      ) : null}
                       {reason && !descriptor.settable && reason !== shownReason ? (
                         <div className="px-2 pb-1 text-xs text-muted-foreground">{reason}</div>
                       ) : null}

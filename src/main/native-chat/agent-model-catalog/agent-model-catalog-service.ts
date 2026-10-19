@@ -205,7 +205,7 @@ export function createAgentModelCatalogService(
       } else {
         const key = await newChatCatalogKey(deps, params.agent, folder)
         if (!key) {
-          return { origin: 'unknown' }
+          return { origin: 'unknown', catalogState: 'unknown' }
         }
         fingerprint = key.fingerprint
         probeHome = key.accountHome
@@ -223,19 +223,37 @@ export function createAgentModelCatalogService(
         listed: AgentModelCatalogEntry | null,
         extra: { listingInProgress?: true } = {}
       ): Promise<AgentSessionModelCatalogResult> => {
-        const unavailable = deps.store.failure(fingerprint)?.unavailable
+        const keepsListedDefault = listed
+          ? await workspaceKeepsListedDefault(deps, params.agent, workspacePath, accountHomePath)
+          : false
+        // Workspace resolution can yield to a catalog replacement; rows and confidence must
+        // describe the same current account snapshot, never the entry captured before the await.
+        listed = deps.store.get(fingerprint)
         const result = listed
           ? agentModelCatalogResultFromEntry(
               listed,
-              await workspaceKeepsListedDefault(deps, params.agent, workspacePath, accountHomePath),
+              keepsListedDefault,
               deps.listingNamesConfiguredModel?.has(params.agent) === true
             )
           : null
         const holdsEverywhere =
           result?.listingNamesConfiguredModel === true &&
           deps.agentReadsProjectModelConfig?.(params.agent) === false
+        // Read after workspace resolution: a failure or refresh may have landed during its await.
+        const unavailable = deps.store.failure(fingerprint)?.unavailable
+        const available =
+          listed !== null &&
+          !deps.store.isStale(listed, 'latest') &&
+          !deps.store.hasActiveFailure(fingerprint) &&
+          unavailable === undefined
+        const catalogState = available
+          ? 'available'
+          : deps.store.isListing(fingerprint)
+            ? 'loading'
+            : 'unknown'
         return {
           ...(result ?? { origin: 'unknown' }),
+          catalogState,
           ...(holdsEverywhere ? { defaultHoldsInEveryWorkspace: true as const } : {}),
           ...(result && folder !== undefined ? { modelsDifferByWorkspace: true as const } : {}),
           ...extra,

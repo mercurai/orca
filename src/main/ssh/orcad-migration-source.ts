@@ -25,7 +25,7 @@ export type OrcadMigrationSourceCutoverPort = {
   /** Drops the fence, then the journal; only on proof the destination holds nothing. */
   releaseFence: (cutover: OrcadMigrationSourceCutover) => Promise<void>
   /** After a proven commit: the source rows stay, hidden, for a downgraded build. */
-  retireAfterCommit: (migrationId: string, now?: () => Date) => OrcadMigrationSourceCutover
+  retireAfterCommit: (migrationId: string, now?: () => Date) => Promise<OrcadMigrationSourceCutover>
 }
 
 export type OrcadMigrationFenceAcquireArgs = {

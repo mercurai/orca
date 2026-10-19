@@ -75,6 +75,11 @@ vi.mock('../../shared/secure-path-windows-acl', async (original) => {
       }
       return state.reject ? false : outcome
     },
+    restrictNewFileAsync: async (path: string, directory = false) => {
+      const outcome = await real.restrictNewFileAsync(path, directory)
+      state.nativeOutcomes.push(outcome)
+      return state.reject ? false : outcome
+    },
     restrictWindowsDirectory: (path: string) =>
       real.restrictWindowsDirectory(path).then((restricted) => {
         state.directories.push(restricted)
@@ -102,7 +107,7 @@ describe.skipIf(process.platform !== 'win32')('native Windows Coding Plan rollba
     vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     vi.resetModules()
     store = await import('./zcode-plan-api-key-store')
-    store.saveZcodePlanApiKey('synthetic-previous')
+    await store.saveZcodePlanApiKey('synthetic-previous')
     expect(fs.readFileSync(keyPath, 'utf8')).toBe(envelope('synthetic-previous'))
     expect(state.nativeOutcomes.length).toBeGreaterThan(0)
     expect(state.nativeOutcomes.every(Boolean)).toBe(true)
@@ -126,9 +131,9 @@ describe.skipIf(process.platform !== 'win32')('native Windows Coding Plan rollba
 
   it.each(['before-restore', 'after-restore', 'competing'] as const)(
     'preserves the file contract after %s with real file and directory ACLs',
-    (fault) => {
+    async (fault) => {
       state.fault = fault
-      expect(() => store.saveZcodePlanApiKey('synthetic-rejected')).toThrow(
+      await expect(store.saveZcodePlanApiKey('synthetic-rejected')).rejects.toThrow(
         'could not be stored securely'
       )
       if (fault === 'before-restore') {

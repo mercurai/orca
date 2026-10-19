@@ -93,9 +93,9 @@ export async function verifyAndAddRuntimeEnvironmentFromPairingCode(
   }
   const { link, runtimeStatus } = verified
   const usesSshTunnel = link.endpointKind === 'loopback' && args.allowLoopback === true
-  let environment: ReturnType<typeof addEnvironmentFromPairingCode>
+  let environment: Awaited<ReturnType<typeof addEnvironmentFromPairingCode>>
   try {
-    environment = addEnvironmentFromPairingCode(userDataPath, {
+    environment = await addEnvironmentFromPairingCode(userDataPath, {
       ...args,
       ...(usesSshTunnel ? { connectionDependency: 'ssh-tunnel' as const } : {})
     })
@@ -149,9 +149,9 @@ export async function verifyAndRepairRuntimeEnvironmentFromPairingCode(
       message: 'This pairing link is for a different server.'
     }
   }
-  let environment: ReturnType<typeof updateEnvironmentFromPairingCode>
+  let environment: Awaited<ReturnType<typeof updateEnvironmentFromPairingCode>>
   try {
-    environment = updateEnvironmentFromPairingCode(userDataPath, existing.id, {
+    environment = await updateEnvironmentFromPairingCode(userDataPath, existing.id, {
       pairingCode: args.pairingCode,
       // Why: the key match proves the same server; a restarted one may report a new runtimeId.
       runtimeId: verified.runtimeStatus.runtimeId

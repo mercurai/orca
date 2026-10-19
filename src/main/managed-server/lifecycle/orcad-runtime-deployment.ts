@@ -153,7 +153,7 @@ export async function createManagedOrcadEnvironment(
         tunnel.remotePort,
         { ...tunnel, preferredPort: ORCAD_MANAGED_REMOTE_PORT }
       )
-      const environment = addManagedOrcadEnvironment(userDataPath, {
+      const environment = await addManagedOrcadEnvironment(userDataPath, {
         id: environmentId,
         name: args.name,
         pairingCode: tunneledOrcadPairingCode(tunnel.readiness(), localPort),

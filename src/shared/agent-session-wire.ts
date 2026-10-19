@@ -1,3 +1,4 @@
+import type { AgentSessionSpeed } from './agent-session-speed'
 import type { AgentSessionUnavailable } from './agent-session-availability'
 import type { AgentSessionFrameFields } from './agent-session-frame-fields'
 import type { AgentSessionCurrentWorkFields } from './agent-session-current-work-wire'
@@ -414,6 +415,9 @@ export type AgentSessionFastModeSupport = {
  * surface: an older host simply lacks the method.
  */
 export type AgentSessionModelCatalogResult = {
+  /** Confidence for this account's current listing. Retained model rows alone do not prove
+   *  support; absent on older hosts, whose confidence remains unknown. */
+  catalogState?: 'loading' | 'unknown' | 'available'
   /** The host is running the listing this answer is waiting on (its first for the account, or
    *  the probe re-checking `unavailable`); a `waitForListing` read answers when it lands. Absent
    *  from a host that predates it; such a host sends it only with `unknown`. */
@@ -463,6 +467,8 @@ export type AgentSessionCommandsResult = { commands?: AgentSessionSlashCommand[]
 /** Provider-reported choices and effective next-turn values. Additive read-only
  *  surface so older hosts can reject it without changing structured v1 writes. */
 export type AgentSessionOptionsResult = {
+  /** Optional for mixed-version hosts; absence retains the host's legacy speed controls. */
+  speed?: AgentSessionSpeed
   rewind?: AgentSessionRewindSupport
   conversationCommands?: readonly AgentSessionConversationCommand[]
   /** Present only where this session can change its goal, so a host without

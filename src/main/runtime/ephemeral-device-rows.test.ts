@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { planDeviceKeyFork } from './device-key-fork'
 import { DeviceRegistry, type DeviceEntry } from './device-registry'
 import { EPHEMERAL_DEVICE_IDLE_MS, planIdleEphemeralPrune } from './ephemeral-device-rows'
@@ -61,13 +61,16 @@ describe('ephemeral device rows', () => {
     )
   })
 
-  it('drops ephemeral rows when the host restarts and persists that', () => {
+  it('drops ephemeral rows when the host restarts and persists that', async () => {
     const { dir, registry } = registryWith([tokenRow(), keyedRow()])
     expect(registry.getDevice('keyed')).toBeNull()
     expect(registry.lookupDeviceKey('keyed')).toEqual({ kind: 'unknown' })
     expect(registry.getDevice('legacy')).not.toBeNull()
-    const onDisk = JSON.parse(readFileSync(join(dir, DEVICE_REGISTRY_FILENAME), 'utf8'))
-    expect(onDisk.map((row: DeviceEntry) => row.deviceId)).toEqual(['legacy'])
+    // Why: the load-time rewrite runs behind the constructor; the file starts with both rows.
+    await vi.waitFor(() => {
+      const onDisk = JSON.parse(readFileSync(join(dir, DEVICE_REGISTRY_FILENAME), 'utf8'))
+      expect(onDisk.map((row: DeviceEntry) => row.deviceId)).toEqual(['legacy'])
+    })
   })
 
   it('ignores an ephemeral flag on a token row', () => {
@@ -94,14 +97,16 @@ describe('ephemeral device rows', () => {
     ])
   })
 
-  it('removes idle rows from the registry durably', () => {
-    const { registry } = registryWith([tokenRow()])
-    const fork = registry.forkDeviceKey('legacy', KEY_A, 'Tab', { ephemeral: true })
-    const removed = registry.pruneIdleEphemeralDevices(
+  it('removes idle rows from the registry durably', async () => {
+    const { dir, registry } = registryWith([tokenRow()])
+    const fork = await registry.forkDeviceKey('legacy', KEY_A, 'Tab', { ephemeral: true })
+    const removed = await registry.pruneIdleEphemeralDevices(
       fork.lastSeenAt + EPHEMERAL_DEVICE_IDLE_MS + 1,
       () => false
     )
     expect(removed).toEqual([fork.deviceId])
     expect(registry.lookupDeviceKey(fork.deviceId)).toEqual({ kind: 'unknown' })
+    const onDisk = JSON.parse(readFileSync(join(dir, DEVICE_REGISTRY_FILENAME), 'utf8'))
+    expect(onDisk.map((row: DeviceEntry) => row.deviceId)).toEqual(['legacy'])
   })
 })

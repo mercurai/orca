@@ -24,7 +24,7 @@ import { resolveDurableOrcadCatalogMutation } from './orcad-catalog-durable-muta
 import { ORCAD_MIGRATION_DESTINATION_UNSUPPORTED } from './orcad-migration-catalog-client'
 import {
   listOrcadMigrationSourceCutovers,
-  writeOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 import type { OrcadMigrationSourceCutoverPort } from './orcad-migration-source'
 import {
@@ -81,7 +81,7 @@ export async function stageOrcadMigrationDestination(
           () => destination.readState(cutover.manifest),
           (observed) => observed.state !== 'absent'
         )
-  cutover = recordObservedState(context, cutover, state)
+  cutover = await recordObservedState(context, cutover, state)
   if (state.state === 'staged') {
     await transferOrcadMigrationSnapshots({
       source: context.store,
@@ -149,7 +149,7 @@ export async function abortOrcadMigrationCutover(
     state = await abortWithRecovery(destination, cutover.manifest)
   }
   if (state.state === 'committed') {
-    recordObservedState(context, cutover, await confirmDurableCommit(destination, cutover.manifest))
+    await recordObservedState(context, cutover, await confirmDurableCommit(destination, cutover.manifest))
     return committedRefusal()
   }
   if (state.state !== 'absent') {
@@ -182,11 +182,11 @@ function assertSourceUnchanged(
 }
 
 /** Moves the journal to what the destination reported; durable before it returns. */
-function recordObservedState(
+async function recordObservedState(
   context: OrcadMigrationCutoverContext,
   cutover: OrcadMigrationSourceCutover,
   state: OrcadMigrationCatalogState
-): OrcadMigrationSourceCutover {
+): Promise<OrcadMigrationSourceCutover> {
   if (state.state === 'absent') {
     throw new Error('orcad_migration_destination_catalog_absent')
   }
@@ -205,20 +205,23 @@ function recordObservedState(
   }
   const phase: OrcadMigrationSourceCutoverPhase =
     state.state === 'committed' ? 'destination-committed' : 'destination-staged'
-  if (phase === cutover.phase) {
-    return cutover
-  }
-  if (cutover.phase === 'destination-committed' || cutover.phase === 'source-retired') {
-    // Why: a journal never moves back from a proven commit.
-    return cutover
-  }
-  const next: OrcadMigrationSourceCutover = {
-    ...cutover,
-    phase,
-    updatedAt: (context.now ?? (() => new Date()))().toISOString()
-  }
-  writeOrcadMigrationSourceCutover(context.userDataPath, next)
-  return next
+  return updateOrcadMigrationSourceCutover(context.userDataPath, cutover.migrationId, (current) => {
+    if (current.manifestSha256 !== cutover.manifestSha256) {
+      throw new Error('orcad_migration_destination_state_mismatch')
+    }
+    if (
+      phase === current.phase ||
+      current.phase === 'destination-committed' ||
+      current.phase === 'source-retired'
+    ) {
+      return current
+    }
+    return {
+      ...current,
+      phase,
+      updatedAt: (context.now ?? (() => new Date()))().toISOString()
+    }
+  })
 }
 
 async function abortWithRecovery(

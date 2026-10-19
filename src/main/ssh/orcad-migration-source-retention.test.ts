@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
   listOrcadMigrationSourceCutovers,
+  removeOrcadMigrationSourceCutover,
   writeOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 import { orcadMigrationCutoverFixture } from './orcad-migration-cutover-fixture'
@@ -22,36 +23,53 @@ afterEach(() => {
 })
 
 describe('retaining a committed migration source', () => {
-  it('marks only a committed cutover, idempotently, and stops counting it as pending', () => {
-    writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-1'))
-    expect(() => retainOrcadMigrationSource(userDataPath, 'm-1')).toThrow(
+  it('marks only a committed cutover, idempotently, and stops counting it as pending', async () => {
+    await writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-1'))
+    await expect(retainOrcadMigrationSource(userDataPath, 'm-1')).rejects.toThrow(
       'orcad_migration_retain_before_commit'
     )
     const committed = {
       ...orcadMigrationCutoverFixture('m-1'),
       phase: 'destination-committed' as const
     }
-    writeOrcadMigrationSourceCutover(userDataPath, committed)
+    await writeOrcadMigrationSourceCutover(userDataPath, committed)
     const at = () => new Date('2026-10-03T00:00:00.000Z')
-    retainOrcadMigrationSource(userDataPath, 'm-1', at)
-    retainOrcadMigrationSource(userDataPath, 'm-1', () => new Date('2026-12-01T00:00:00.000Z'))
+    await retainOrcadMigrationSource(userDataPath, 'm-1', at)
+    await retainOrcadMigrationSource(userDataPath, 'm-1', () => new Date('2026-12-01T00:00:00.000Z'))
     expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.sourceRetainedAt).toBe(
       '2026-10-03T00:00:00.000Z'
     )
     expect(listPendingManagedOrcadMigrations(userDataPath)).toEqual([])
   })
 
-  it('does not count retained cutovers against the in-flight journal capacity', () => {
+  it('does not recreate a journal when cleanup was queued before retention', async () => {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
+      ...orcadMigrationCutoverFixture('m-removed'),
+      phase: 'destination-committed'
+    })
+    const results = await Promise.allSettled([
+      removeOrcadMigrationSourceCutover(userDataPath, 'm-removed'),
+      retainOrcadMigrationSource(userDataPath, 'm-removed')
+    ])
+    expect(results[0]).toEqual({ status: 'fulfilled', value: undefined })
+    expect(results[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({ message: 'orcad_migration_retain_before_commit' })
+    })
+    expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([])
+  })
+
+  it('does not count retained cutovers against the in-flight journal capacity', async () => {
     for (let index = 0; index < 4; index += 1) {
       const id = `m-${index}`
-      writeOrcadMigrationSourceCutover(userDataPath, {
+      await writeOrcadMigrationSourceCutover(userDataPath, {
         ...orcadMigrationCutoverFixture(id, `ssh-${index}`),
         phase: 'destination-committed',
         sourceRetainedAt: '2026-10-03T00:00:00.000Z'
       })
     }
-    expect(() =>
+    await expect(
       writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-new', 'ssh-9'))
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 })

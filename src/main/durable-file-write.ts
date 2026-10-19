@@ -17,7 +17,7 @@ import {
  * directory for fsync, and some filesystems reject it. The file fsync above it is the load-bearing
  * part; this closes the "rename recorded but not persisted" window where the platform allows it.
  */
-async function syncDirectory(directory: string): Promise<void> {
+export async function syncDirectoryDurably(directory: string): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | null = null
   try {
     handle = await open(directory, 'r')
@@ -36,7 +36,7 @@ export function syncDirectoryDurablySync(directory: string): void {
     fd = openSync(directory, 'r')
     fsyncSync(fd)
   } catch {
-    // Same platform caveats as syncDirectory.
+    // Same platform caveats as syncDirectoryDurably.
   } finally {
     if (fd !== null) {
       try {
@@ -70,7 +70,7 @@ export function publishFileDurableSync(tmpPath: string, finalPath: string): bool
  */
 export async function renameDurable(tmpPath: string, finalPath: string): Promise<void> {
   await renameFileWithWindowsRetryAsync(tmpPath, finalPath)
-  await syncDirectory(dirname(finalPath))
+  await syncDirectoryDurably(dirname(finalPath))
 }
 
 /**
@@ -121,7 +121,7 @@ export async function writeFileDurableIfCurrent(
       return false
     }
     renamed = true
-    await syncDirectory(dirname(finalPath))
+    await syncDirectoryDurably(dirname(finalPath))
     return true
   } finally {
     if (!renamed) {
