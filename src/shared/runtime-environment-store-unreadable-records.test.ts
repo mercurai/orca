@@ -23,7 +23,7 @@ import {
 } from './runtime-environment-managed-orcad-store'
 import {
   readPersistedEnvironmentStore,
-  writeEnvironmentStore
+  writeEnvironmentStoreSnapshotAsync
 } from './runtime-environment-store-file'
 
 const pairing = {
@@ -41,11 +41,11 @@ function readJson(path: string): { environments?: unknown[]; entries?: Record<st
 
 describe('runtime environment store with records this build cannot read', () => {
   let userDataPath: string
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-environment-unreadable-'))
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
   })
@@ -117,12 +117,12 @@ describe('runtime environment store with records this build cannot read', () => 
     const alpha = await add('Alpha')
     appendRawRecords(futureKind)
     const store = readPersistedEnvironmentStore(userDataPath)
-    expect(() =>
-      writeEnvironmentStore(userDataPath, {
+    await expect(async () =>
+      await writeEnvironmentStoreSnapshotAsync(userDataPath, {
         version: 1,
         environments: [...store.environments, { ...alpha, id: futureKind.id, name: 'Other' }]
       })
-    ).toThrow('newer version of Orca')
+    ).rejects.toThrow('newer version of Orca')
     expect(readJson(getEnvironmentStorePath(userDataPath)).environments).toContainEqual(futureKind)
   })
 
@@ -135,7 +135,7 @@ describe('runtime environment store with records this build cannot read', () => 
       JSON.stringify({ version: 1, entries: { future: futureEntry } })
     )
 
-    writeRuntimeEnvironmentSidecarEntry(
+    await writeRuntimeEnvironmentSidecarEntry(
       userDataPath,
       readPersistedEnvironmentStore(userDataPath).environments,
       alpha,
@@ -154,13 +154,13 @@ describe('runtime environment store with records this build cannot read', () => 
     }
 
     async function setup() {
-      const pinned = addManagedOrcadEnvironment(userDataPath, {
+      const pinned = (await addManagedOrcadEnvironment(userDataPath, {
         id: 'pinned',
         name: 'Pinned',
         pairingCode: encodePairingOffer({ ...pairing, endpoint: 'ws://127.0.0.1:41000/runtime' }),
         orcadDeployment: tunnel,
         now: 100
-      })
+      }))
       const other = await add('Other')
       const sidecarPath = getRuntimeEnvironmentSidecarPath(userDataPath)
       const file = readJson(sidecarPath)
@@ -192,18 +192,18 @@ describe('runtime environment store with records this build cannot read', () => 
       const { pinned, other, sidecarPath } = await setup()
       const storeBefore = readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')
 
-      expect(() => removeManagedOrcadEnvironment(userDataPath, pinned.id)).toThrow(
+      await expect(async () => (await removeManagedOrcadEnvironment(userDataPath, pinned.id))).rejects.toThrow(
         'newer version of Orca'
       )
       expect(readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')).toBe(storeBefore)
-      expect(() =>
-        writeRuntimeEnvironmentSidecarEntry(
+      await expect(async () =>
+        await writeRuntimeEnvironmentSidecarEntry(
           userDataPath,
           readPersistedEnvironmentStore(userDataPath).environments,
           pinned,
           null
         )
-      ).toThrow('newer version of Orca')
+      ).rejects.toThrow('newer version of Orca')
 
       await removeEnvironment(userDataPath, other.id)
       expect(readJson(sidecarPath).entries?.pinned).toEqual(unreadableEntry)

@@ -1,14 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { statSync } from 'node:fs'
-import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
-import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import { parsePairingCode, type PairingOffer } from './pairing'
 import { classifyRemotePairingHostname } from './remote-pairing-address'
 import { isProfileRuntimePublicKey } from './runtime-e2ee-keypair-file'
 import {
   createEnvironmentFromPairingOffer,
   getPreferredPairingOffer,
-  RuntimeEnvironmentStoreSchema,
   type KnownRuntimeEnvironment,
   type PersistedRuntimeEnvironment,
   type RuntimeEnvironmentSource,
@@ -17,15 +13,21 @@ import {
 import {
   readEnvironmentStore,
   readPersistedEnvironmentStore,
-  RuntimeEnvironmentStoreError
+  RuntimeEnvironmentStoreError,
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store-file'
-import {
-  getEnvironmentStorePath,
-  MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
-  readEnvironmentStoreRecords
-} from './runtime-environment-store-records'
-import { writeRuntimeEnvironmentSidecarEntry } from './runtime-environment-sidecar'
+import { writeRuntimeEnvironmentSidecarEntryWithinMutation } from './runtime-environment-sidecar'
 import { SecureWriteSupersededError } from './secure-file-async-write'
+import {
+  captureEnvironmentStoreVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
+export {
+  bumpEnvironmentWriteGeneration,
+  captureEnvironmentStoreVersion,
+  getEnvironmentWriteGeneration
+} from './runtime-environment-store-mutation'
+export { writeEnvironmentStoreAsync } from './runtime-environment-store-file'
 
 export {
   getEnvironmentStorePath,
@@ -100,19 +102,21 @@ export async function removeEnvironment(
   userDataPath: string,
   selector: string
 ): Promise<KnownRuntimeEnvironment> {
-  const removal = await mutateEnvironmentStore(userDataPath, (store) => {
-    const environment = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), selector)
-    assertNoIndependentSshAccess(environment)
-    const persisted = resolveEnvironmentFromStore(store, environment.id)
-    const remaining = store.environments.filter((entry) => entry.id !== environment.id)
-    return {
-      store: { version: 1, environments: remaining },
-      result: { environment, persisted, remaining }
-    }
+  return withRuntimeEnvironmentMutation(userDataPath, async () => {
+    const removal = await mutateEnvironmentStoreWithinMutation(userDataPath, (store) => {
+      const environment = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), selector)
+      assertNoIndependentSshAccess(environment)
+      const persisted = resolveEnvironmentFromStore(store, environment.id)
+      const remaining = store.environments.filter((entry) => entry.id !== environment.id)
+      return {
+        store: { version: 1, environments: remaining },
+        result: { environment, persisted, remaining }
+      }
+    })
+    // A leftover entry would read as stale anyway; dropping it keeps the sidecar from growing.
+    await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, removal.remaining, removal.persisted, null)
+    return removal.environment
   })
-  // A leftover entry would read as stale anyway; dropping it keeps the sidecar from growing.
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, removal.remaining, removal.persisted, null)
-  return removal.environment
 }
 
 export async function updateEnvironmentFromPairingCode(
@@ -225,43 +229,18 @@ function assertNoIndependentSshAccess(environment: KnownRuntimeEnvironment): voi
 }
 
 // Bumped by every publish: a read-modify-write compares it before publishing and re-reads when stale.
-let environmentWriteGeneration = 0
-
-export function bumpEnvironmentWriteGeneration(): void {
-  environmentWriteGeneration += 1
-}
-
-export function getEnvironmentWriteGeneration(): number {
-  return environmentWriteGeneration
-}
-
-/** `size:mtime` of the store file, so a publish by another lane or process voids a stale snapshot. */
-function environmentStoreFileSignature(userDataPath: string): string {
-  try {
-    const stats = statSync(getEnvironmentStorePath(userDataPath))
-    return `${stats.size}:${stats.mtimeMs}`
-  } catch {
-    return 'absent'
-  }
-}
-
-/**
- * Call BEFORE reading the store. The returned check is true only while no async publish landed
- * (generation) and no other writer touched the file (signature) since — upstream's synchronous
- * writers do not bump the generation, so the file itself is the witness for them.
- */
-export function captureEnvironmentStoreVersion(userDataPath: string): () => boolean {
-  const generation = environmentWriteGeneration
-  const signature = environmentStoreFileSignature(userDataPath)
-  return () =>
-    environmentWriteGeneration === generation &&
-    environmentStoreFileSignature(userDataPath) === signature
-}
-
 const MAX_MUTATION_ATTEMPTS = 5
 
+function mutateEnvironmentStore<TResult>(
+  userDataPath: string,
+  compute: (store: RuntimeEnvironmentStore) => { store: RuntimeEnvironmentStore; result: TResult }
+): Promise<TResult> {
+  return withRuntimeEnvironmentMutation(userDataPath, () =>
+    mutateEnvironmentStoreWithinMutation(userDataPath, compute))
+}
+
 /** Read-modify-write on the async lane; `compute` runs on a fresh snapshot per attempt and may throw. */
-async function mutateEnvironmentStore<TResult>(
+async function mutateEnvironmentStoreWithinMutation<TResult>(
   userDataPath: string,
   compute: (store: RuntimeEnvironmentStore) => { store: RuntimeEnvironmentStore; result: TResult }
 ): Promise<TResult> {
@@ -274,7 +253,6 @@ async function mutateEnvironmentStore<TResult>(
           if (!isCurrent()) {
             return false
           }
-          environmentWriteGeneration += 1
           return true
         }
       })
@@ -284,47 +262,5 @@ async function mutateEnvironmentStore<TResult>(
         throw error
       }
     }
-  }
-}
-
-/**
- * Writes only persisted fields; sidecar state is written by the sidecar module. Records on disk
- * this build cannot read are appended verbatim, in their original order.
- */
-export async function writeEnvironmentStoreAsync(
-  userDataPath: string,
-  store: RuntimeEnvironmentStore,
-  options: { shouldPublish?: () => boolean } = {}
-): Promise<void> {
-  const path = getEnvironmentStorePath(userDataPath)
-  const environments = RuntimeEnvironmentStoreSchema.parse(store).environments
-  const onDisk = readEnvironmentStoreRecords(userDataPath)
-  const readableIds = new Set(onDisk.environments.map((environment) => environment.id))
-  const unreadableIds = new Set(onDisk.unreadable.map((record) => record.id))
-  // A new readable record must not shadow one a newer build owns under the same id.
-  if (environments.some(({ id }) => unreadableIds.has(id) && !readableIds.has(id))) {
-    throw new RuntimeEnvironmentStoreError(
-      'invalid_argument',
-      'A server with this id already exists in a format that needs a newer version of Orca.'
-    )
-  }
-  try {
-    await writeSecureJsonFileWithinLimitAsync(
-      path,
-      {
-        version: 1,
-        environments: [...environments, ...onDisk.unreadable.map((record) => record.raw)]
-      },
-      MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
-      options
-    )
-  } catch (error) {
-    if (error instanceof JsonStringifyByteLimitError) {
-      throw new RuntimeEnvironmentStoreError(
-        'runtime_error',
-        `Could not write Orca environments at ${path}; the store exceeds its durable capacity.`
-      )
-    }
-    throw error
   }
 }

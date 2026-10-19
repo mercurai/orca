@@ -307,9 +307,21 @@ export class DeviceRegistry {
     return device && isStillAuthenticated(device, principal) ? device : null
   }
 
+  /** A first authentication is durable before readiness; established phones keep a sync fast path. */
+  prepareDeviceAuthentication(principal: AuthenticatedPrincipalBinding): void | Promise<void> {
+    return this.lastSeen.prepareAuthentication(principal, {
+      resolve: (binding) => this.resolveAuthenticatedPrincipal(binding),
+      serialized: (task) => this.serialized(task),
+      persistFirst: (deviceId) =>
+        this.lastSeen.update(this.devices, deviceId, (rows) => this.commit(rows, { durable: true }))
+    })
+  }
+
   updateLastSeen(deviceId: string): Promise<void> {
     return this.serialized(() =>
-      this.lastSeen.update(this.devices, deviceId, (devices) => this.commit(devices))
+      this.lastSeen.update(this.devices, deviceId, (devices) =>
+        this.commit(devices, { durable: this.getDevice(deviceId)?.lastSeenAt === 0 })
+      )
     )
   }
 
@@ -320,12 +332,7 @@ export class DeviceRegistry {
    * never scanned, so only that 0 -> non-zero transition is load-bearing.
    */
   updateLastSeenDeferred(deviceId: string): void {
-    this.lastSeen.defer(this.devices, deviceId, {
-      persistFirst: () => this.updateLastSeen(deviceId),
-      replaceRows: (devices) => {
-        this.devices = devices
-      }
-    })
+    this.devices = this.lastSeen.defer(this.devices, deviceId, () => this.updateLastSeen(deviceId))
   }
 
   /** Persists a deferred lastSeen refresh now; no-op when nothing is pending. */
@@ -373,13 +380,6 @@ export class DeviceRegistry {
   private async commit(devices: DeviceEntry[], options: { durable?: boolean } = {}): Promise<void> {
     const revision = this.lastSeen.revision
     await this.storage.write(devices, options)
-    if (revision === this.lastSeen.revision) {
-      this.devices = devices
-      // Why: this write included the latest in-memory timestamps, so a pending timer would only rewrite it.
-      this.lastSeen.cancel()
-      return
-    }
-    // A deferred refresh landed during the write; preserve its newer timestamps.
-    this.devices = this.lastSeen.merge(devices, this.devices)
+    this.devices = this.lastSeen.afterPersist(devices, this.devices, revision)
   }
 }

@@ -1,7 +1,6 @@
-// Why: the E2EE auth handshake must never wait on a secure-file write. Every registry write runs on
-// the async lane and the ACL rides on the file's creation in-process, so no process is spawned; the
-// deferred lastSeen refresh is coalesced. These tests pin how many secure writes land on the auth
-// critical path and their ordering, not wall-clock, so they are deterministic under load.
+// First authentication waits for its durable write; established phones acknowledge synchronously.
+// Every registry write uses the async lane and born-restricted ACL creation without spawning.
+// Deferred ordinary timestamps coalesce. These tests pin write counts and ordering, not latency.
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -160,18 +159,20 @@ describe('mobile auth critical path', () => {
     )
   })
 
-  it('persists the first sighting without holding e2ee_authenticated', async () => {
+  it('durably persists the first sighting before e2ee_authenticated', async () => {
     const registry = new DeviceRegistry(userDataPath)
     const device = await registry.addDevice('Phone', 'runtime')
     timeline.length = 0
 
     authenticate(registry, device)
 
-    // Why: the first sighting still reaches disk (rotatePendingDevice drops never-scanned entries), but the auth callback is synchronous.
-    expect(timeline).toEqual(['e2ee_ready', 'e2ee_authenticated'])
-    await drainPendingPathWrites()
+    expect(timeline).toEqual(['e2ee_ready'])
+    await vi.waitFor(() => expect(timeline).toContain('e2ee_authenticated'))
+    expect(timeline).toEqual(['e2ee_ready', 'restricted-create', 'e2ee_authenticated'])
     expect(restrictedCreates()).toBe(RESTRICTED_CREATES_PER_WRITE)
     expect(readPersistedDevices()[0]?.lastSeenAt).toBeGreaterThan(0)
+    // Drain only the subsequent ordinary refresh before deleting this test's directory.
+    await registry.flushPendingLastSeen()
   })
 
   it('coalesces a reconnect burst into one deferred write', async () => {

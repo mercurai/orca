@@ -27,7 +27,6 @@ export function initialCodexSessionPickerListing(
   }
   if (
     !session.ended && !session.catalogListingInProgress &&
-    !access.store.isListing(access.fingerprint) &&
     !access.store.hasActiveFailure(access.fingerprint)
   ) {
     void refresh().catch(() => {})

@@ -16,6 +16,12 @@ const SCANNED_ROOTS = ['main', 'shared', 'cli'].map((name) => resolve(__dirname,
 // async; add a file here only with that reasoning, never to silence a main-process caller.
 const SYNC_WRITER_OWNERS = new Set([
   'shared/secure-file.ts',
+  // Owns the bounded sync primitive and its async twin; callers remain subject to this guard.
+  'shared/bounded-secure-json-file.ts',
+  // Awaited cold orcad startup, before profile/runtime/RPC exposure: preserve exclusive key CAS.
+  'main/orcad/orcad-secret-key-record.ts',
+  // Same pre-runtime boundary; preserve readback and unchanged-publication veto during migration.
+  'main/orcad/orcad-plaintext-credential-migration.ts',
   'shared/secure-path-windows-acl.ts',
   'main/orcad/orcad-data-root-privacy.ts',
   'main/orcad/orcad-completed-stop-receipt.ts',

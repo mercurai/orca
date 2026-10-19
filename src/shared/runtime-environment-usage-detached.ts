@@ -1,5 +1,5 @@
+import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import {
-  bumpEnvironmentWriteGeneration,
   captureEnvironmentStoreVersion,
   getEnvironmentStorePath,
   writeEnvironmentStoreAsync
@@ -32,31 +32,32 @@ async function persistStamp(
   selector: string,
   args: UsageArgs
 ): Promise<void> {
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
-    const isCurrent = captureEnvironmentStoreVersion(userDataPath)
-    const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
-    if (!plan) {
-      return
-    }
-    try {
-      await writeEnvironmentStoreAsync(userDataPath, plan.store, {
-        // Our own publish counts as a write, so a concurrent stamp for another environment re-reads.
-        shouldPublish: () => {
-          if (!isCurrent()) {
-            return false
+  return withRuntimeEnvironmentMutation(userDataPath, async () => {
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const isCurrent = captureEnvironmentStoreVersion(userDataPath)
+      const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
+      if (!plan) {
+        return
+      }
+      try {
+        await writeEnvironmentStoreAsync(userDataPath, plan.store, {
+          // Our own publish counts as a write, so a concurrent stamp for another environment re-reads.
+          shouldPublish: () => {
+            if (!isCurrent()) {
+              return false
+            }
+            return true
           }
-          bumpEnvironmentWriteGeneration()
-          return true
+        })
+        return
+      } catch (error) {
+        if (!(error instanceof SecureWriteSupersededError)) {
+          throw error
         }
-      })
-      return
-    } catch (error) {
-      if (!(error instanceof SecureWriteSupersededError)) {
-        throw error
       }
     }
-  }
-  // Two attempts lost to concurrent edits: dropping a lastUsedAt stamp is harmless, the next response re-stamps.
+    // Two attempts lost to concurrent edits: dropping a lastUsedAt stamp is harmless, the next response re-stamps.
+  })
 }
 
 /**

@@ -1,3 +1,4 @@
+import * as fileSystem from 'node:fs'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -104,7 +105,7 @@ describe('device-key authentication (host)', () => {
     const params = {
       devicePublicKeyB64: Buffer.from(key.publicKey).toString('base64'),
       deviceProofB64: sign(key, 'register', migrating.transcriptHashB64),
-      deviceLabel: 'Pixel‮ evil\u0007'
+      deviceLabel: 'Pixel‮ evil'
     }
     const forked = await registerSocketDeviceKey(registry, migrating.socket!, params)
     // A lost reply retried with the same key returns the same row.
@@ -240,17 +241,29 @@ describe('device-key authentication (host)', () => {
       error: { code: 'device_revoked', deviceId: 'gone' }
     })
 
-    const unreadable = new DeviceRegistry(userDataPath)
-    unreadable['registryUnreadable'] = true
-    const unavailable = harness(unreadable).connect((hash) => ({
-      deviceId: 'gone',
-      deviceProofB64: sign(key, 'auth', hash)
-    }))
-    expect(unavailable.reply).toEqual({
-      type: 'e2ee_error',
-      error: { code: 'registry_unavailable' }
+    const path = join(userDataPath, DEVICE_REGISTRY_FILENAME)
+    writeFileSync(path, '[]')
+    const read = fileSystem.readFileSync
+    const failingRead = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((...args) => {
+      if (args[0] === path) {
+        throw Object.assign(new Error('Synthetic registry read denied'), { code: 'EACCES' })
+      }
+      return read(...args)
     })
-    expect(unavailable.ws.close).toHaveBeenCalledWith(4001, 'Device registry unavailable')
+    try {
+      const unreadable = new DeviceRegistry(userDataPath)
+      const unavailable = harness(unreadable).connect((hash) => ({
+        deviceId: 'gone',
+        deviceProofB64: sign(key, 'auth', hash)
+      }))
+      expect(unavailable.reply).toEqual({
+        type: 'e2ee_error',
+        error: { code: 'registry_unavailable' }
+      })
+      expect(unavailable.ws.close).toHaveBeenCalledWith(4001, 'Device registry unavailable')
+    } finally {
+      failingRead.mockRestore()
+    }
   })
 
   it('refuses registration over legacy framing', async () => {

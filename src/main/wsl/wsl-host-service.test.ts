@@ -1,3 +1,5 @@
+import * as secureWrites from '../../shared/secure-file-async-write'
+import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -196,12 +198,152 @@ describe('WslHostService', () => {
     await expect(service.add({ distro: 'Ubuntu' })).resolves.toMatchObject({ kind: 'disabled' })
   })
 
+  it('abandons the connection and holder even when failed Add cleanup cannot persist', async () => {
+    const connector = makeConnector([UBUNTU])
+    const service = makeService(connector)
+    const execute = secureWrites.writeSecureFileAsync
+    let deployments = 0
+    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+      .mockImplementation((path, contents, options) => {
+        if (path.endsWith('orca-environments.json')) {
+          return Promise.reject(new Error('registration refused'))
+        }
+        if (path.endsWith('orca-wsl-host-deployments.json')) {
+          deployments += 1
+          if (deployments > 1) {
+            return Promise.reject(new Error('cleanup refused'))
+          }
+        }
+        return execute(path, contents, options)
+      })
+    try {
+      await expect(service.add({ distro: 'Ubuntu' })).rejects.toThrow('cleanup refused')
+      expect(connector.disconnect).toHaveBeenCalledWith('Ubuntu')
+      expect(connector.releaseHolder).toHaveBeenCalledWith('Ubuntu')
+      expect(connector.get('Ubuntu')).toBeNull()
+      expect(ready).not.toHaveBeenCalled()
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it('does not register or announce an Add disabled while its persistence waits', async () => {
+    const connector = makeConnector([UBUNTU])
+    const service = makeService(connector)
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const held = withRuntimeEnvironmentMutation(userDataPath, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const adding = service.add({ distro: 'Ubuntu' })
+    try {
+      await vi.waitFor(() => expect(connector.connect).toHaveBeenCalledOnce())
+      enabled = false
+      await service.enabledChanged(false)
+    } finally {
+      release.resolve()
+    }
+    await held
+    await expect(adding).resolves.toMatchObject({ ok: false, kind: 'disabled' })
+    expect(listEnvironments(userDataPath)).toEqual([])
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toBeNull()
+    expect(ready).not.toHaveBeenCalled()
+    expect(published.some((status) => status.state === 'ready')).toBe(false)
+  })
+
+  it('does not publish ready when pairing persistence fails', async () => {
+    const service = makeService(makeConnector([UBUNTU]))
+    await service.add({ distro: 'Ubuntu' })
+    ready.mockClear()
+    pairingChanged.mockClear()
+    published.length = 0
+    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+      .mockRejectedValue(new Error('pairing publication refused'))
+    try {
+      await service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42000, 'new-token'), {
+        state: 'ready', census: null
+      })
+      expect(ready).not.toHaveBeenCalled()
+      expect(pairingChanged).not.toHaveBeenCalled()
+      expect(published).toEqual([])
+      expect(getPreferredPairingOffer(listEnvironments(userDataPath)[0]).deviceToken).toBe('token-1')
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it('restores owned port metadata when a newer disconnect cancels the main pairing write', async () => {
+    const service = makeService(makeConnector([UBUNTU]))
+    await service.add({ distro: 'Ubuntu' })
+    ready.mockClear()
+    pairingChanged.mockClear()
+    published.length = 0
+    const execute = secureWrites.writeSecureFileAsync
+    let interrupted = false
+    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+      .mockImplementation(async (path, contents, options) => {
+        const result = await execute(path, contents, options)
+        if (path.endsWith('orca-wsl-host-deployments.json') && !interrupted) {
+          interrupted = true
+          await service.handleConnectionChange('Ubuntu', null, {
+            state: 'distro-stopped', terminals: 'exited', recovering: false
+          })
+        }
+        return result
+      })
+    try {
+      await service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42001, 'new-token'), {
+        state: 'ready', census: null
+      })
+      expect(interrupted).toBe(true)
+      expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.localPort).toBe(42000)
+      const [environment] = listEnvironments(userDataPath)
+      expect(environment.orcadDeployment).toMatchObject({ kind: 'wsl', localPort: 42000 })
+      expect(getPreferredPairingOffer(environment).deviceToken).toBe('token-1')
+      expect(published.map((status) => status.state)).toEqual(['distro-stopped'])
+      expect(ready).not.toHaveBeenCalled()
+      expect(pairingChanged).not.toHaveBeenCalled()
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it('does not let an older queued ready event replace a newer disconnect', async () => {
+    const service = makeService(makeConnector([UBUNTU]))
+    await service.add({ distro: 'Ubuntu' })
+    ready.mockClear()
+    published.length = 0
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const held = withRuntimeEnvironmentMutation(userDataPath, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const older = service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42000, 'old-token'), {
+      state: 'ready', census: null
+    })
+    try {
+      await service.handleConnectionChange('Ubuntu', null, {
+        state: 'distro-stopped', terminals: 'exited', recovering: false
+      })
+    } finally {
+      release.resolve()
+    }
+    await Promise.all([held, older])
+    expect(ready).not.toHaveBeenCalled()
+    expect(published.map((status) => status.state)).toEqual(['distro-stopped'])
+    expect(getPreferredPairingOffer(listEnvironments(userDataPath)[0]).deviceToken).toBe('token-1')
+  })
+
   it('persists a relaunch’s new device token from onChange and retires the old transport', async () => {
     const connector = makeConnector([UBUNTU])
     const service = makeService(connector)
     await service.add({ distro: 'Ubuntu' })
 
-    service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42000, 'token-2'), {
+    await service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42000, 'token-2'), {
       state: 'ready',
       census: null
     })
@@ -210,7 +352,7 @@ describe('WslHostService', () => {
     expect(getPreferredPairingOffer(environment).deviceToken).toBe('token-2')
     expect(pairingChanged).toHaveBeenCalledWith('wsl:ubuntu')
 
-    service.handleConnectionChange('Ubuntu', null, {
+    await service.handleConnectionChange('Ubuntu', null, {
       state: 'distro-stopped',
       terminals: 'exited',
       recovering: false
@@ -228,14 +370,14 @@ describe('WslHostService', () => {
       reason: '1 terminal is running on this host.',
       forceable: true
     }
-    service.handleConnectionChange(
+    await service.handleConnectionChange(
       'Ubuntu',
       { ...connection('Ubuntu'), deferredUpdate },
       { state: 'ready', census: null }
     )
     expect(published.at(-1)).toMatchObject({ state: 'ready', deferredUpdate })
     // A reconnecting host is not serving the incumbent the deferral describes.
-    service.handleConnectionChange(
+    await service.handleConnectionChange(
       'Ubuntu',
       { ...connection('Ubuntu'), deferredUpdate },
       {

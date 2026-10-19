@@ -1,3 +1,4 @@
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -52,8 +53,9 @@ beforeEach(async () => {
   envId = environment.id
   mocks.diagnostics.mockReturnValue(null)
 })
-afterEach(() => {
+afterEach(async () => {
   resetRuntimeEnvironmentStatusOwners()
+  await drainPendingPathWrites()
   rmSync(directory, { recursive: true, force: true })
 })
 
@@ -93,6 +95,7 @@ it.each(['success', 'failure', 'throw'] as const)(
       ok: false,
       error: { code: 'runtime_environment_changed' }
     })
+    await drainPendingPathWrites()
     expect(resolveEnvironment(directory, envId).runtimeId).toBeNull()
     expect(mocks.ensure).not.toHaveBeenCalled()
     expect(mocks.reconnect).not.toHaveBeenCalled()
@@ -108,6 +111,7 @@ it('does not fence another environment or a fresh probe after retirement', async
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
   advanceRuntimeEnvironmentCapabilityIncarnation(envId)
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
+  await drainPendingPathWrites()
   expect(resolveEnvironment(directory, envId).runtimeId).toBe('old-host')
   expect(mocks.ensure).toHaveBeenCalledTimes(2)
 })

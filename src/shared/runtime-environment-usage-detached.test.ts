@@ -1,3 +1,4 @@
+import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -173,4 +174,28 @@ it('does not let two concurrent stamps for different environments roll each othe
   const stored = listEnvironments(userDataPath)
   expect(stored.find((env) => env.id === id)?.runtimeId).toBe('runtime-a')
   expect(stored.find((env) => env.id === other.id)?.runtimeId).toBe('runtime-b')
+})
+
+
+it('queues detached stamps behind the complete profile transaction', async () => {
+  const { userDataPath, id } = await seededStore()
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const held = withRuntimeEnvironmentMutation(userDataPath, async () => {
+    entered.resolve()
+    await release.promise
+  })
+  await entered.promise
+  try {
+    markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'queued-runtime' })
+    expect(() => markEnvironmentUsedDetached(userDataPath, 'missing')).toThrow('Unknown environment')
+    await Promise.resolve()
+    expect(writes).toHaveLength(0)
+    expect(listEnvironments(userDataPath)[0]?.runtimeId).toBeNull()
+  } finally {
+    release.resolve()
+  }
+  await held
+  await idle()
+  expect(listEnvironments(userDataPath)[0]?.runtimeId).toBe('queued-runtime')
 })

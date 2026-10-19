@@ -1,4 +1,4 @@
-import type { DeviceEntry } from './device-entry'
+import type { AuthenticatedPrincipalBinding, DeviceEntry } from './device-entry'
 
 const LAST_SEEN_FLUSH_DELAY_MS = 250
 
@@ -6,6 +6,7 @@ const LAST_SEEN_FLUSH_DELAY_MS = 250
 export class DeviceRegistryLastSeen {
   private pendingFlush: NodeJS.Timeout | null = null
   private currentRevision = 0
+  private readonly firstSightings = new Map<string, Promise<void>>()
 
   constructor(private readonly persist: () => Promise<void>) {}
 
@@ -15,6 +16,54 @@ export class DeviceRegistryLastSeen {
 
   markChanged(): void {
     this.currentRevision += 1
+  }
+
+  /** Concurrent first sockets share one write; a failed write may be retried on reconnect. */
+  firstSighting(deviceId: string, persist: () => Promise<void>): Promise<void> {
+    const pending = this.firstSightings.get(deviceId)
+    if (pending) {
+      return pending
+    }
+    const writing = persist().finally(() => {
+      if (this.firstSightings.get(deviceId) === writing) {
+        this.firstSightings.delete(deviceId)
+      }
+    })
+    this.firstSightings.set(deviceId, writing)
+    return writing
+  }
+
+  /** Preserves synchronous admission for established devices and fences first-sighting writes. */
+  prepareAuthentication(
+    principal: AuthenticatedPrincipalBinding,
+    owner: {
+      resolve: (principal: AuthenticatedPrincipalBinding) => DeviceEntry | null
+      serialized: (task: () => Promise<void>) => Promise<void>
+      persistFirst: (deviceId: string) => Promise<void>
+    }
+  ): void | Promise<void> {
+    const device = owner.resolve(principal)
+    if (!device) {
+      throw new Error('Device authentication changed before admission')
+    }
+    if (device.lastSeenAt !== 0) {
+      return
+    }
+    return this.firstSighting(device.deviceId, () =>
+      owner.serialized(async () => {
+        const current = owner.resolve(principal)
+        if (!current) {
+          throw new Error('Device authentication changed before persistence')
+        }
+        if (current.lastSeenAt === 0) {
+          await owner.persistFirst(current.deviceId)
+        }
+      })
+    ).then(() => {
+      if (!owner.resolve(principal)) {
+        throw new Error('Device authentication changed while persisting')
+      }
+    })
   }
 
   async update(
@@ -35,6 +84,15 @@ export class DeviceRegistryLastSeen {
     )
   }
 
+  /** Preserve newer deferred timestamps when a durable write overlapped a refresh. */
+  afterPersist(written: DeviceEntry[], current: DeviceEntry[], revision: number): DeviceEntry[] {
+    if (revision === this.revision) {
+      this.cancel()
+      return written
+    }
+    return this.merge(written, current)
+  }
+
   merge(written: DeviceEntry[], current: DeviceEntry[]): DeviceEntry[] {
     const seen = new Map(current.map((device) => [device.deviceId, device.lastSeenAt]))
     return written.map((device) => ({
@@ -46,26 +104,25 @@ export class DeviceRegistryLastSeen {
   defer(
     devices: DeviceEntry[],
     deviceId: string,
-    owner: { persistFirst: () => Promise<void>; replaceRows: (devices: DeviceEntry[]) => void }
-  ): void {
+    persistFirst: () => Promise<void>
+  ): DeviceEntry[] {
     const existing = devices.find((device) => device.deviceId === deviceId)
     if (!existing) {
-      return
+      return devices
     }
     if (existing.lastSeenAt === 0) {
-      void owner.persistFirst().catch((error) => {
+      void this.firstSighting(deviceId, persistFirst).catch((error) => {
         console.warn('[mobile] Failed to persist first device sighting:', error)
       })
-      return
+      return devices
     }
     const seenAt = Date.now()
     this.markChanged()
-    owner.replaceRows(
-      devices.map((device) =>
-        device.deviceId === deviceId ? { ...device, lastSeenAt: seenAt } : device
-      )
+    const refreshed = devices.map((device) =>
+      device.deviceId === deviceId ? { ...device, lastSeenAt: seenAt } : device
     )
     this.schedule()
+    return refreshed
   }
 
   schedule(): void {

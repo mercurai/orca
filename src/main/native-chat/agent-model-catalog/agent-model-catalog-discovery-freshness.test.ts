@@ -88,6 +88,7 @@ describe('a live listing beside the account-level discovery', () => {
     // The first read starts the account's discovery; a chat lists while it is still running.
     expect(await run.catalog.read({ agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     run.saveLive()

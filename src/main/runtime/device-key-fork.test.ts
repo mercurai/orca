@@ -1,7 +1,8 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import * as fileSystem from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { planDeviceKeyFork } from './device-key-fork'
 import { devicePrincipalOf } from './device-principal'
 import { DeviceRegistry, type DeviceEntry } from './device-registry'
@@ -74,12 +75,29 @@ describe('planDeviceKeyFork', () => {
   })
 
   it('commits nothing when the registry cannot be read', async () => {
-    const registry = new DeviceRegistry(mkdtempSync(join(tmpdir(), 'orca-device-key-fork-')))
+    const directory = mkdtempSync(join(tmpdir(), 'orca-device-key-fork-'))
+    const registry = new DeviceRegistry(directory)
     const legacy = await registry.addDevice('Laptop', 'runtime')
-    registry['registryUnreadable'] = true
-    await expect(registry.forkDeviceKey(legacy.deviceId, KEY_A, 'Mac')).rejects.toThrow()
-    expect(registry.listDevices()).toHaveLength(1)
-    expect(registry.lookupDeviceKey('anything')).toEqual({ kind: 'unavailable' })
+    const path = join(directory, DEVICE_REGISTRY_FILENAME)
+    const before = readFileSync(path)
+    const read = fileSystem.readFileSync
+    const failingRead = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((...args) => {
+      if (args[0] === path) {
+        throw Object.assign(new Error('Synthetic registry read denied'), { code: 'EACCES' })
+      }
+      return read(...args)
+    })
+    try {
+      const unreadable = new DeviceRegistry(directory)
+      await expect(unreadable.forkDeviceKey(legacy.deviceId, KEY_A, 'Mac')).rejects.toThrow()
+      expect(unreadable.lookupDeviceKey('anything')).toEqual({ kind: 'unavailable' })
+      // The unreadable instance cannot load rows; the healthy instance and disk retain them.
+      expect(registry.listDevices()).toHaveLength(1)
+    } finally {
+      failingRead.mockRestore()
+    }
+    expect(readFileSync(path)).toEqual(before)
+    expect(new DeviceRegistry(directory).listDevices()).toHaveLength(1)
   })
 
   it('refuses a fork once its token row has begun to be revoked, and allows it after a rollback', async () => {

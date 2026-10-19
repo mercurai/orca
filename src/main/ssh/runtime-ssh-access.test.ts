@@ -148,7 +148,7 @@ describe('independent runtime SSH access coordinator', () => {
       if (!persisted) {
         throw new Error('missing environment')
       }
-      writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, persisted, {
+      await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, persisted, {
         reconciliation: {
           version: 1,
           stage: 'prepared',

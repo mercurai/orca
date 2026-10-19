@@ -44,10 +44,10 @@ function repo(id: string, overrides: Partial<Repo> = {}): Repo {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   testState.dir = mkdtempSync(join(tmpdir(), 'wsl-move-backfill-'))
   loadWslMoveFence(testState.dir)
-  seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
+  await seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
   vi.mocked(probeGitRemoteIdentity).mockResolvedValue({
     status: 'resolved',
     identity: { canonicalKey: 'github.com/acme/app', remoteName: 'origin', remoteUrl: 'u' }
@@ -111,7 +111,7 @@ describe('fork upstream backfill under a WSL move', () => {
   })
 
   it('fills the host row, not the hidden local row with the same id', async () => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
     const store = createStore()
     store.addRepo(repo(MOVING))
     store.addRepo(repo(MOVING, { executionHostId: 'runtime:env-1' }))

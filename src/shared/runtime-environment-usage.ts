@@ -1,5 +1,5 @@
+import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import {
-  bumpEnvironmentWriteGeneration,
   captureEnvironmentStoreVersion,
   resolveEnvironmentFromStore,
   writeEnvironmentStoreAsync
@@ -29,30 +29,31 @@ export async function markEnvironmentUsed(
   selector: string,
   args: EnvironmentUsedArgs = {}
 ): Promise<void> {
-  // Same version guard as the detached stamp, so a mutation published meanwhile is never overwritten.
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const isCurrent = captureEnvironmentStoreVersion(userDataPath)
-    const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
-    if (!plan) {
-      return
-    }
-    try {
-      await writeEnvironmentStoreAsync(userDataPath, plan.store, {
-        shouldPublish: () => {
-          if (!isCurrent()) {
-            return false
+  return withRuntimeEnvironmentMutation(userDataPath, async () => {
+    // Same version guard as the detached stamp, so a mutation published meanwhile is never overwritten.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const isCurrent = captureEnvironmentStoreVersion(userDataPath)
+      const plan = planEnvironmentUsedUpdate(userDataPath, selector, args)
+      if (!plan) {
+        return
+      }
+      try {
+        await writeEnvironmentStoreAsync(userDataPath, plan.store, {
+          shouldPublish: () => {
+            if (!isCurrent()) {
+              return false
+            }
+            return true
           }
-          bumpEnvironmentWriteGeneration()
-          return true
+        })
+        return
+      } catch (error) {
+        if (!(error instanceof SecureWriteSupersededError)) {
+          throw error
         }
-      })
-      return
-    } catch (error) {
-      if (!(error instanceof SecureWriteSupersededError)) {
-        throw error
       }
     }
-  }
+  })
 }
 
 // What `markEnvironmentUsed` would write, or null while `lastUsedAt` is fresh; throws for an unknown environment.

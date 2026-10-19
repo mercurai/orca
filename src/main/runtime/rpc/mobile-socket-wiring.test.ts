@@ -55,6 +55,7 @@ function registryFor(
   scope: 'mobile' | 'runtime' = 'mobile'
 ): DeviceRegistry {
   return {
+    prepareDeviceAuthentication: vi.fn(() => undefined),
     validateToken: (candidate: string) =>
       candidate === token
         ? {

@@ -79,8 +79,17 @@ function harness(relay?: (deviceId: string) => MobileSocketTransportMetadata) {
         JSON.stringify({ type: 'e2ee_auth', v: 2, transcriptHashB64, ...auth(transcriptHashB64) })
       )
     )
-    const reply = ws.sent[1] ? JSON.parse(peer.openText(String(ws.sent[1]))!) : null
-    return { ws, transcriptHashB64, reply, socket: ready.length > before ? ready.at(-1) : null }
+    let reply: unknown = null
+    return {
+      ws, transcriptHashB64,
+      get reply() {
+        if (reply === null && ws.sent[1]) {
+          reply = JSON.parse(peer.openText(String(ws.sent[1]))!)
+        }
+        return reply
+      },
+      get socket() { return ready.length > before ? ready.at(-1) : null }
+    }
   }
   return {
     registry,
@@ -102,9 +111,8 @@ describe('first pairing over a direct socket', () => {
   it('pairs a never-used code and keeps an already-paired browser working', async () => {
     const { registry, connect } = harness()
     const pending = await registry.getOrCreatePendingDevice('Browser', 'runtime')
-    expect(connect(() => ({ deviceToken: pending.token })).reply).toMatchObject({
-      type: 'e2ee_authenticated'
-    })
+    const first = connect(() => ({ deviceToken: pending.token }))
+    await vi.waitFor(() => expect(first.reply).toMatchObject({ type: 'e2ee_authenticated' }))
     expect(registry.getDevice(pending.deviceId)?.lastSeenAt).toBeGreaterThan(0)
     expect(connect(() => ({ deviceToken: pending.token })).reply).toMatchObject({
       type: 'e2ee_authenticated'
@@ -123,9 +131,8 @@ describe('relayed phones', () => {
     }))
     const pending = await registry.getOrCreatePendingDevice('Phone', 'mobile')
     bindRelay(pending.deviceId)
-    expect(connect(() => ({ deviceToken: pending.token })).reply).toMatchObject({
-      type: 'e2ee_authenticated'
-    })
+    const relayed = connect(() => ({ deviceToken: pending.token }))
+    await vi.waitFor(() => expect(relayed.reply).toMatchObject({ type: 'e2ee_authenticated' }))
   })
 })
 

@@ -21,7 +21,7 @@ import { markEnvironmentUsed } from './runtime-environment-usage'
 import {
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
-  writeEnvironmentStore
+  writeEnvironmentStoreSnapshotAsync
 } from './runtime-environment-store-file'
 import { RuntimeEnvironmentStoreSchema } from './runtime-environments'
 import {
@@ -60,24 +60,24 @@ function wslRecord(overrides: Partial<WslHostDeploymentRecord> = {}): WslHostDep
 
 describe('WSL host deployment store', () => {
   let userDataPath: string
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-wsl-host-deployments-'))
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks()
     vi.unstubAllEnvs()
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  function addSshManaged() {
-    return addManagedOrcadEnvironment(userDataPath, {
+  async function addSshManaged() {
+    return (await addManagedOrcadEnvironment(userDataPath, {
       id: 'ssh-managed',
       name: 'Build box',
       pairingCode: encodePairingOffer({ ...pairing, endpoint: 'ws://127.0.0.1:41000/runtime' }),
       orcadDeployment: sshTunnel,
       now: 100
-    })
+    }))
   }
 
   // Why a plain pairing: orca-environments.json holds nothing an older build cannot read.
@@ -90,7 +90,7 @@ describe('WSL host deployment store', () => {
       }),
       now: 150
     })
-    writeWslHostDeployment(userDataPath, environment.id, {
+    await writeWslHostDeployment(userDataPath, environment.id, {
       ...record,
       environmentId: environment.id
     })
@@ -101,17 +101,17 @@ describe('WSL host deployment store', () => {
     return readFileSync(path, 'utf8')
   }
 
-  it('leaves an SSH-only profile byte-for-byte unchanged across a read and rewrite', () => {
-    addSshManaged()
-    recordManagedOrcadMigration(userDataPath, 'ssh-managed', '2026-10-01T00:00:00.000Z')
+  it('leaves an SSH-only profile byte-for-byte unchanged across a read and rewrite', async () => {
+    await addSshManaged()
+    await recordManagedOrcadMigration(userDataPath, 'ssh-managed', '2026-10-01T00:00:00.000Z')
     const storePath = getEnvironmentStorePath(userDataPath)
     const sidecarPath = getRuntimeEnvironmentSidecarPath(userDataPath)
     const before = { store: bytes(storePath), sidecar: bytes(sidecarPath) }
 
     const [environment] = listEnvironments(userDataPath)
     expect(environment?.orcadDeployment).toEqual(sshTunnel)
-    writeEnvironmentStore(userDataPath, readPersistedEnvironmentStore(userDataPath))
-    recordManagedOrcadMigration(userDataPath, 'ssh-managed', '2026-10-01T00:00:00.000Z')
+    await writeEnvironmentStoreSnapshotAsync(userDataPath, readPersistedEnvironmentStore(userDataPath))
+    await recordManagedOrcadMigration(userDataPath, 'ssh-managed', '2026-10-01T00:00:00.000Z')
 
     expect({ store: bytes(storePath), sidecar: bytes(sidecarPath) }).toEqual(before)
     expect(before.sidecar).not.toContain('"kind"')
@@ -119,7 +119,7 @@ describe('WSL host deployment store', () => {
   })
 
   it('overlays a WSL deployment as a managed server without touching the shared files', async () => {
-    addSshManaged()
+    await addSshManaged()
     const storeBefore = bytes(getEnvironmentStorePath(userDataPath))
     const sidecarBefore = bytes(getRuntimeEnvironmentSidecarPath(userDataPath))
     const wslId = await addWslManaged()
@@ -136,7 +136,7 @@ describe('WSL host deployment store', () => {
 
   describe('downgrade to builds that never read the WSL file', () => {
     it('keeps every environment readable by a build that rejects the whole store on one bad record', async () => {
-      addSshManaged()
+      await addSshManaged()
       const wslId = await addWslManaged()
 
       // Builds before the per-record store parsed orca-environments.json whole.
@@ -150,7 +150,7 @@ describe('WSL host deployment store', () => {
     })
 
     it("keeps SSH servers managed under main's reader, which sees the WSL server as a plain pairing", async () => {
-      addSshManaged()
+      await addSshManaged()
       const wslId = await addWslManaged()
 
       // main's readEnvironmentStore: persisted records with their sidecar entries overlaid.
@@ -164,7 +164,7 @@ describe('WSL host deployment store', () => {
     })
 
     it('keeps the WSL deployment after an older build rewrites the store', async () => {
-      addSshManaged()
+      await addSshManaged()
       const wslId = await addWslManaged()
       // An older build's routine write: parse, strip unknown keys, rewrite.
       const path = getEnvironmentStorePath(userDataPath)
@@ -191,12 +191,12 @@ describe('WSL host deployment store', () => {
       return path
     }
 
-    it('rewrites unknown records verbatim and in place when another record changes', () => {
+    it('rewrites unknown records verbatim and in place when another record changes', async () => {
       const extended = { ...wslRecord({ environmentId: 'extended' }), futureField: { x: 1 } }
       const path = seed(futureKind, extended, corrupt, anonymous)
 
-      writeWslHostDeployment(userDataPath, 'new', wslRecord({ environmentId: 'new' }))
-      writeWslHostDeployment(
+      await writeWslHostDeployment(userDataPath, 'new', wslRecord({ environmentId: 'new' }))
+      await writeWslHostDeployment(
         userDataPath,
         'new',
         wslRecord({ environmentId: 'new', remotePort: 7000 })
@@ -209,7 +209,7 @@ describe('WSL host deployment store', () => {
         anonymous,
         wslRecord({ environmentId: 'new', remotePort: 7000 })
       ])
-      writeWslHostDeployment(userDataPath, 'new', null)
+      await writeWslHostDeployment(userDataPath, 'new', null)
       expect(JSON.parse(bytes(path)).deployments).toEqual([
         futureKind,
         extended,
@@ -220,7 +220,7 @@ describe('WSL host deployment store', () => {
 
     it('hides the environment an unreadable record owns and refuses to replace that record', async () => {
       vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
-      addSshManaged()
+      await addSshManaged()
       const wslId = await addWslManaged()
       const future = { ...futureKind, environmentId: wslId }
       seed(future)
@@ -229,7 +229,7 @@ describe('WSL host deployment store', () => {
         new Set([wslId])
       )
       expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual(['ssh-managed'])
-      expect(() => writeWslHostDeployment(userDataPath, wslId, null)).toThrow(
+      await expect(async () => (await writeWslHostDeployment(userDataPath, wslId, null))).rejects.toThrow(
         WslHostDeploymentStoreInvalidError
       )
       expect(JSON.parse(bytes(getWslHostDeploymentStorePath(userDataPath))).deployments).toEqual([
@@ -237,7 +237,7 @@ describe('WSL host deployment store', () => {
       ])
     })
 
-    it('treats two records for one environment as unreadable', () => {
+    it('treats two records for one environment as unreadable', async () => {
       seed(wslRecord(), wslRecord({ remotePort: 7000 }))
       expect(readWslHostDeployments(userDataPath)).toEqual({
         deployments: [],
@@ -245,20 +245,20 @@ describe('WSL host deployment store', () => {
       })
     })
 
-    it('fails closed when the file itself is corrupt and WSL hosts are enabled', () => {
+    it('fails closed when the file itself is corrupt and WSL hosts are enabled', async () => {
       vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
-      addSshManaged()
+      await addSshManaged()
       writeFileSync(getWslHostDeploymentStorePath(userDataPath), '{"version":1,"deployments":{}}')
       expect(() => listEnvironments(userDataPath)).toThrow(RuntimeEnvironmentStoreError)
-      expect(() => writeWslHostDeployment(userDataPath, 'x', null)).toThrow(
+      await expect(async () => (await writeWslHostDeployment(userDataPath, 'x', null))).rejects.toThrow(
         WslHostDeploymentStoreInvalidError
       )
     })
 
     // Regression: with the gate closed a corrupt WSL file must not hide SSH and paired servers.
-    it('keeps every other server listed when the file is corrupt and the gate is closed', () => {
+    it('keeps every other server listed when the file is corrupt and the gate is closed', async () => {
       vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
-      addSshManaged()
+      await addSshManaged()
       writeFileSync(getWslHostDeploymentStorePath(userDataPath), '{"version":1,"deployments":{}}')
       expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual(['ssh-managed'])
     })
@@ -284,8 +284,8 @@ describe('WSL host deployment store', () => {
       expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual([remote.id])
     })
 
-    it('never hides an SSH-managed server behind an unreadable WSL record', () => {
-      addSshManaged()
+    it('never hides an SSH-managed server behind an unreadable WSL record', async () => {
+      await addSshManaged()
       seed({ ...futureKind, environmentId: 'ssh-managed' })
       expect(listEnvironments(userDataPath)[0]?.orcadDeployment).toEqual(sshTunnel)
     })
@@ -293,7 +293,7 @@ describe('WSL host deployment store', () => {
 
   it('ignores a stale record whose port no longer matches the pairing', async () => {
     const wslId = await addWslManaged()
-    writeWslHostDeployment(
+    await writeWslHostDeployment(
       userDataPath,
       wslId,
       wslRecord({ environmentId: wslId, localPort: 43000 })
@@ -303,9 +303,9 @@ describe('WSL host deployment store', () => {
     expect(environment?.orcadDeployment).toBeUndefined()
   })
 
-  it('ignores a WSL record on a server that already has an SSH deployment', () => {
-    addSshManaged()
-    writeWslHostDeployment(
+  it('ignores a WSL record on a server that already has an SSH deployment', async () => {
+    await addSshManaged()
+    await writeWslHostDeployment(
       userDataPath,
       'ssh-managed',
       wslRecord({ environmentId: 'ssh-managed', localPort: 41000 })
@@ -313,13 +313,13 @@ describe('WSL host deployment store', () => {
     expect(listEnvironments(userDataPath)[0]?.orcadDeployment).toEqual(sshTunnel)
   })
 
-  it('rejects a record written under another environment id or with an invalid distro', () => {
-    expect(() => writeWslHostDeployment(userDataPath, 'other', wslRecord())).toThrow()
-    expect(() =>
-      writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distro: 'Ubuntu 24.04' }))
-    ).toThrow()
-    expect(() =>
-      writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distroId: '{ABC}' }))
-    ).toThrow()
+  it('rejects a record written under another environment id or with an invalid distro', async () => {
+    await expect(async () => (await writeWslHostDeployment(userDataPath, 'other', wslRecord()))).rejects.toThrow()
+    await expect(async () =>
+      await writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distro: 'Ubuntu 24.04' }))
+    ).rejects.toThrow()
+    await expect(async () =>
+      await writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distroId: '{ABC}' }))
+    ).rejects.toThrow()
   })
 })

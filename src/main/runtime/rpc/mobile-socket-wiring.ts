@@ -218,6 +218,7 @@ export class MobileSocketWiring {
             devicePublicKeyB64: lookup.device.devicePublicKeyB64
           }
         },
+        beforeReady: (_channel, device) => this.deviceRegistry.prepareDeviceAuthentication(device),
         onReady: (channel, device) => {
           const socket = {
             ws,
@@ -238,7 +239,7 @@ export class MobileSocketWiring {
           }
           this.authenticatedSockets.set(ws, socket)
           transport.setClientId(ws, device.deviceId)
-          // Why: deferred — the client's e2ee_authenticated must not wait on a secure-file rewrite.
+          // First sighting was durably admitted; ordinary timestamp refreshes stay deferred.
           this.deviceRegistry.updateLastSeenDeferred(device.deviceId)
           this.onReady?.(socket)
         },
