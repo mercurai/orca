@@ -357,7 +357,7 @@
 1 src/renderer/src/lib/worktree-jump-navigation.ts
 2 src/renderer/src/lib/worktree-operation-route.ts
 1 src/renderer/src/lib/worktree-row-open-in-owner.ts
-6 src/renderer/src/lib/worktree-runtime-owner.ts # typed owner resolver plus its null-collapsing wrapper; callers net -3
+7 src/renderer/src/lib/worktree-runtime-owner.ts # typed owner resolver, its null-collapsing wrapper, and the legacy-fallback adapter the folds move to (round 3 F0); deleting the deprecated pair (F8) nets it down
 1 src/renderer/src/lib/worktree-sort-order-host-split.ts
 1 src/renderer/src/runtime/local-structured-session-tabs-sync/snapshot-apply.ts
 17 src/renderer/src/runtime/runtime-jira-client.ts

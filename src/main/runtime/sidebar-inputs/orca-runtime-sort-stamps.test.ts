@@ -98,7 +98,13 @@ describe('host sort stamps on a headless runtime', () => {
         worktreeId: WT,
         payload: { state: 'waiting', prompt: 'task', agentType: 'claude' }
       })
-      expect(meta[WT]).toEqual({ lastActivityAt: 70_000, smartTier: 'needs-you', smartAt: 70_000 })
+      // No client is looking, so the request for input also raises the unread flag.
+      expect(meta[WT]).toEqual({
+        lastActivityAt: 70_000,
+        smartTier: 'needs-you',
+        smartAt: 70_000,
+        isUnread: true
+      })
     } finally {
       vi.useRealTimers()
     }

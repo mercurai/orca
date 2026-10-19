@@ -6,7 +6,7 @@ import type {
 } from '../../../shared/sidebar-list/sort-stamps'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../shared/workspace-scope'
 
-type StampedRecord = { lastActivityAt: number } & SmartStampFields
+type StampedRecord = { lastActivityAt: number; isUnread?: boolean } & SmartStampFields
 type StampUpdates = {
   lastActivityAt: number
   smartTier: SmartTier | undefined
@@ -27,8 +27,10 @@ export type WorkspaceRecordStore<TRecord, TUpdates> = {
   updateFolderWorkspace?: (folderWorkspaceId: string, updates: TUpdates) => unknown
 }
 
-/** The record reads and writes stamping needs. */
-export type SortStampsStore = WorkspaceRecordStore<StampedRecord, StampUpdates> & {
+type UnreadUpdate = { isUnread: boolean }
+
+/** The record reads and writes stamping and the unread flag need. */
+export type SortStampsStore = WorkspaceRecordStore<StampedRecord, StampUpdates | UnreadUpdate> & {
   getAllWorktreeMeta?: () => Record<string, StampedRecord>
   getFolderWorkspaces?: () => readonly (StampedRecord & { id: string })[]
 }
@@ -62,6 +64,21 @@ export function writeWorkspaceRecord<TUpdates>(
   } else {
     store?.setWorktreeMeta(worktreeId, updates)
   }
+}
+
+/** Sets the workspace's unread flag; true when its record held the other value. */
+export function writeUnreadFlag(
+  store: SortStampsStore | null,
+  workspace: WorkspaceRef,
+  isUnread: boolean
+): boolean {
+  const record = readWorkspaceRecord(store, workspace)
+  // Only a workspace with a record is written; writing would create one for a stale id.
+  if (!record || Boolean(record.isUnread) === isUnread) {
+    return false
+  }
+  writeWorkspaceRecord<UnreadUpdate>(store, workspace, { isUnread })
+  return true
 }
 
 // Only a workspace with a record is stamped; writing would create one for a stale id.

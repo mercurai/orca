@@ -100,9 +100,9 @@ function getCmdShellArgStartupCommand(command?: string): string | null {
  * large payloads return the bootstrap alone so stdin delivery remains available.
  */
 function getPowerShellRestoreCwdCommand(cwd: string): string {
+  // Why: profiles can change location, so restore the PTY cwd after profile loading.
   return [
     '',
-    '# Profiles can change location; restore the PTY cwd after profile loading.',
     `try { Set-Location -LiteralPath ${quoteStartupArg(cwd, 'powershell')} -ErrorAction Stop } catch { Write-Warning "Failed to restore working directory: $_" }`
   ].join('\n')
 }

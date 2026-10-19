@@ -7,7 +7,9 @@ import {
   getConnectionExecutionHostId,
   getRepoExecutionHostId,
   isLocalExecutionHost,
-  LOCAL_EXECUTION_HOST_ID
+  LOCAL_EXECUTION_HOST_ID,
+  parseExecutionHostId,
+  type ExecutionHostId
 } from '../../../shared/execution-host'
 import type { SidebarTemporalSnapshot } from '../../../shared/sidebar-list/sidebar-temporal-snapshot'
 import type { Worktree } from '../../../shared/worktree/types'
@@ -15,6 +17,8 @@ import type { Repo } from '../../../shared/repo-types'
 import { SidebarRetentionOwner, type SidebarRetentionCandidates } from './sidebar-retention-owner'
 import type { AgentStatusStoreView } from './workspace-activity-facts-producer'
 import { SortStampsProducer } from './sort-stamps-producer'
+import { writeUnreadFlag } from './sort-stamp-records'
+import { WorkspaceViewers } from './workspace-viewers'
 import { TerminalUseProducer } from './terminal-use-producer'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { getRepoIdFromWorktreeId } from '../../../shared/worktree/id'
@@ -36,6 +40,7 @@ export abstract class OrcaRuntimeWithSidebarTemporal extends OrcaRuntimeWithWork
     listRows: () => this.listSidebarRows(),
     retentionCandidates: () => this.readSidebarRetentionCandidates()
   })
+  readonly workspaceViewers = new WorkspaceViewers(Date.now)
   readonly sortStamps = new SortStampsProducer({
     store: () => this.store,
     isWriteFenced: (worktreeId) =>
@@ -43,6 +48,7 @@ export abstract class OrcaRuntimeWithSidebarTemporal extends OrcaRuntimeWithWork
     resolveTabWorktreeId: (tabId) => this.tabs.get(tabId)?.worktreeId,
     subscribeToPtyExit: (ptyId, listener) => this.subscribeToPtyExit(ptyId, listener),
     onClientEvent: (listener, options) => this.onClientEvent(listener, options),
+    isViewing: (worktreeId, paneKey) => this.workspaceViewers.isViewing(worktreeId, paneKey),
     onStampsWritten: (worktreeId) => this.notifySortStampsChanged(worktreeId),
     now: Date.now
   })
@@ -100,15 +106,7 @@ export abstract class OrcaRuntimeWithSidebarTemporal extends OrcaRuntimeWithWork
     await this.sortStamps
       .reconcileStoredTiers({
         isLocalWorkspace: (worktreeId) =>
-          !!store &&
-          isLocalExecutionHost(
-            resolveAgentWorkspaceExecutionHostId(worktreeId, {
-              getRepo: (repoId) => store.getRepo(repoId),
-              getWorktreeMeta: (id) => store.getWorktreeMeta(id),
-              getFolderWorkspace: (id) => store.getFolderWorkspace?.(id),
-              getProjectGroups: () => store.getProjectGroups?.() ?? []
-            })
-          ),
+          !!store && isLocalExecutionHost(this.workspaceHostId(worktreeId)),
         terminalPtyIds: (worktreeId) => {
           const session = store?.getWorkspaceSession?.(LOCAL_EXECUTION_HOST_ID)
           const ptyIds = new Set<string>()
@@ -133,6 +131,31 @@ export abstract class OrcaRuntimeWithSidebarTemporal extends OrcaRuntimeWithWork
         probePtyLiveness: async (ptyId) => (await provider.probePtyLiveness?.(ptyId)) ?? null
       })
       .catch((error: unknown) => console.warn('[sidebar] sort tier reconcile failed:', error))
+  }
+
+  /** A phone holding the workspace's session open has it on screen: its flag is read and stays down. */
+  readAndHoldPhoneSession(worktreeId: string): () => void {
+    const hostId = this.workspaceHostId(worktreeId)
+    const workspace = {
+      worktreeId,
+      sshHostId: hostId && parseExecutionHostId(hostId)?.kind === 'ssh' ? hostId : null
+    }
+    if (writeUnreadFlag(this.store, workspace, false)) {
+      this.notifySortStampsChanged(worktreeId)
+    }
+    return this.workspaceViewers.openPhoneSession(worktreeId)
+  }
+
+  private workspaceHostId(worktreeId: string): ExecutionHostId | null {
+    const store = this.store
+    return store
+      ? resolveAgentWorkspaceExecutionHostId(worktreeId, {
+          getRepo: (repoId) => store.getRepo(repoId),
+          getWorktreeMeta: (id) => store.getWorktreeMeta(id),
+          getFolderWorkspace: (id) => store.getFolderWorkspace?.(id),
+          getProjectGroups: () => store.getProjectGroups?.() ?? []
+        })
+      : null
   }
 
   // Metadata only: clients re-list the record, and the cached git scans stay.

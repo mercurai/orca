@@ -22,6 +22,9 @@ import {
   getExecutionHostIdForFolderWorkspace,
   getRuntimeEnvironmentIdForFolderWorkspace
 } from './folder-workspace-runtime-owner'
+import { namedHostForOwnerRef, resolveOwner, type WorkspaceOwnerRef } from './resolve-owner'
+import { SELF_LOCAL_AUTHORITY, type HostAuthority } from '../../../shared/host-authority'
+import type { ExecutionHostOwnerMatch } from '../../../shared/worktree-execution-host-resolution'
 import {
   getFloatingWorkspaceOperationRoute,
   resolveActiveWorkspaceRoute,
@@ -223,4 +226,65 @@ export function getExecutionHostIdForWorktree(
     getKnownExecutionHostIdForWorktree(state, worktreeId) ??
     getFocusedRuntimeOrLocalExecutionHostId(state)
   )
+}
+
+function hasRowHost(row: { executionHostId?: string | null; connectionId?: string | null }) {
+  return Boolean(row.executionHostId?.trim() || row.connectionId?.trim())
+}
+
+/** A row that names its host; without one the deprecated resolver's guess still applies. */
+function hasHostEvidence(state: WorktreeRuntimeOwnerState, workspaceId: string): boolean {
+  if (getFloatingWorkspaceOperationRoute(workspaceId)) {
+    return true
+  }
+  const scope = parseWorkspaceKey(workspaceId)
+  if (scope?.type === 'folder') {
+    const folder = findFolderWorkspaceOwner(state, scope.folderWorkspaceId)
+    return Boolean(
+      folder &&
+      (hasRowHost(folder) ||
+        state.projectGroups?.some(
+          (group) => group.id === folder.projectGroupId && hasRowHost(group)
+        ))
+    )
+  }
+  const repoId = getRepoIdFromWorktreeId(workspaceId)
+  const isStampedCopy = (row: {
+    id: string
+    hostId?: string
+    runtimeOwnerEnvironmentId?: string
+  }) =>
+    row.id === workspaceId && Boolean(row.hostId?.trim() || row.runtimeOwnerEnvironmentId?.trim())
+  return Boolean(
+    state.worktreesByRepo?.[repoId]?.some(isStampedCopy) ||
+    state.detectedWorktreesByRepo?.[repoId]?.worktrees.some(isStampedCopy) ||
+    state.repos?.some((repo) => repo.id === repoId && hasRowHost(repo))
+  )
+}
+
+/**
+ * `resolveOwner` for callers folding off the deprecated resolvers: a named host and stamped rows
+ * resolve as `resolveOwner` does (twins and contested hosts stay `ambiguous`), while `missing` and
+ * rows with no host stamp keep the deprecated answer, single focused runtime included.
+ */
+export function resolveOwnerWithLegacyFallback(
+  state: WorktreeRuntimeOwnerState,
+  ref: WorkspaceOwnerRef
+): ExecutionHostOwnerMatch<HostAuthority> {
+  const match = resolveOwner(state, ref)
+  if (
+    namedHostForOwnerRef(state, ref) ||
+    match.kind === 'ambiguous' ||
+    (match.kind === 'resolved' && hasHostEvidence(state, ref.workspaceId))
+  ) {
+    return match
+  }
+  const legacyEnvironmentId = getRuntimeEnvironmentIdForWorktree(state, ref.workspaceId)
+  if (legacyEnvironmentId) {
+    return {
+      kind: 'resolved',
+      owner: { endpoint: { kind: 'environment', environmentId: legacyEnvironmentId }, at: 'local' }
+    }
+  }
+  return match.kind === 'resolved' ? match : { kind: 'resolved', owner: SELF_LOCAL_AUTHORITY }
 }

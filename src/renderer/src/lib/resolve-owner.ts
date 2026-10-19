@@ -78,6 +78,18 @@ function isFolderTwin(state: WorktreeOperationRouteState, folderWorkspaceId: str
   )
 }
 
+/** The host the caller or the active workspace selection names for this workspace, if any. */
+export function namedHostForOwnerRef(
+  state: Pick<WorktreeOperationRouteState, 'activeWorktreeId' | 'activeWorkspaceExecutionHostId'>,
+  ref: WorkspaceOwnerRef
+): ExecutionHostId | null {
+  return (
+    ref.hostId ??
+    (state.activeWorktreeId === ref.workspaceId ? state.activeWorkspaceExecutionHostId : null) ??
+    null
+  )
+}
+
 function resolveRoute(
   state: WorktreeOperationRouteState,
   ref: WorkspaceOwnerRef
@@ -85,9 +97,7 @@ function resolveRoute(
   if (getFloatingWorkspaceOperationRoute(ref.workspaceId)) {
     return { kind: 'resolved', owner: SELF_LOCAL_AUTHORITY }
   }
-  const hostId =
-    ref.hostId ??
-    (state.activeWorktreeId === ref.workspaceId ? state.activeWorkspaceExecutionHostId : null)
+  const hostId = namedHostForOwnerRef(state, ref)
   const scope = parseWorkspaceKey(ref.workspaceId)
   // Why: with no host named, nothing can pick a twin; refusing beats landing on the wrong machine.
   if (!hostId && scope?.type === 'folder' && isFolderTwin(state, scope.folderWorkspaceId)) {

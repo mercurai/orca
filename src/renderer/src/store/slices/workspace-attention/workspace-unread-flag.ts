@@ -12,6 +12,7 @@ import { persistPassiveWorktreeMetaForOwner } from '../worktrees/listing/worktre
 import type { WorkspaceAttentionGet, WorkspaceAttentionSet } from './workspace-attention-contract'
 import { workspaceHasLiveMarker } from './workspace-live-markers'
 import { ORCA_SIDEBAR_INPUTS_IS_MAIN } from '../../../../../shared/sidebar-inputs-switch'
+import { noteWindowUnreadDecision } from '@/lib/sidebar-shadow/window-unread-decisions'
 
 // The persisted workspace flag `isUnread`. Only the workspace-attention module writes it.
 
@@ -20,8 +21,12 @@ export function markWorkspaceUnreadFlag(
   get: WorkspaceAttentionGet,
   worktreeId: string
 ): void {
-  // Switch point: the owning host stamps bells and finishes; the flag alone is the window's.
-  const stamp = ORCA_SIDEBAR_INPUTS_IS_MAIN ? {} : { lastActivityAt: Date.now() }
+  // Switch point: the owning host raises the flag from the same news; the window only records it.
+  if (ORCA_SIDEBAR_INPUTS_IS_MAIN) {
+    noteWindowUnreadDecision(worktreeId, true)
+    return
+  }
+  const stamp = { lastActivityAt: Date.now() }
   const workspaceScope = parseWorkspaceKey(worktreeId)
   if (workspaceScope?.type === 'folder') {
     const folderWorkspaceId = workspaceScope.folderWorkspaceId
@@ -97,6 +102,9 @@ export function clearWorkspaceUnreadFlag(
   /** Folder rows share an id across hosts: the on-screen host's row, or null for every row. */
   executionHostId?: ExecutionHostId | null
 ): void {
+  if (ORCA_SIDEBAR_INPUTS_IS_MAIN) {
+    noteWindowUnreadDecision(worktreeId, false)
+  }
   const workspaceScope = parseWorkspaceKey(worktreeId)
   if (workspaceScope?.type === 'folder') {
     const folderWorkspaceId = workspaceScope.folderWorkspaceId
