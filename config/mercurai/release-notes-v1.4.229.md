@@ -11,12 +11,12 @@ installation, runtime and rollback acceptance before using this text as release 
 
 ## Source and provenance
 
-- Official source boundary: `966832793b8611945aeb8deebe9f0e7cefeae9cb`.
+- Official source boundary: `273068f969071f687762eadb3709eb4f75a7384b`.
 - Official release floor: `v1.4.229`, commit `a0cd1644f320f1327f7495650a816111b495f3cd`.
-- Provisional consolidated candidate: `3616a71d2181367edd4825213e0d7d2d3099de92`.
-- Candidate tree: `608789183e5616dc84b4b0f1f9644f4f98955f40`, identical to source `c4afbf1445`.
+- Provisional consolidated candidate: `56724aa0830e7f947f59a27cc2df943f867467fb`.
+- Candidate tree: `7313dcc00f5f0f69ad27c4ed718c48f8a730891b`, identical to source `ff294e300c`.
 - Registration, full CI and release acceptance remain pending.
-- Release candidate: [product PR55](https://github.com/mercurai/orca/pull/55).
+- Release candidate: [product PR56](https://github.com/mercurai/orca/pull/56).
 - Original integration history: [superseded PR47](https://github.com/mercurai/orca/pull/47).
 - Protected assembly support: [management PR48](https://github.com/mercurai/orca/pull/48).
 
@@ -35,6 +35,11 @@ Codex speed selection preserves advertised request IDs and separates next-turn i
 settings and actual processing evidence. Catalog failures and unavailable selections require explicit
 recovery. Legacy Fast preferences and independently updated execution hosts retain compatibility.
 These are intended behaviors; publish only after the final candidate's required verification passes.
+
+The integration corrections add durable first-device admission, independent healthy-session catalog
+refresh, serialized environment/journal mutations and WSL cancellation cleanup. Concurrency and
+async-persistence fixtures cover these paths. Source review accepted the candidate; full CI and
+installed-app acceptance are still pending, so these are not claims of a verified deployed fix.
 
 ## Verification and update acceptance
 

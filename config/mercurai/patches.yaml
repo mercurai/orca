@@ -5,14 +5,14 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: 966832793b8611945aeb8deebe9f0e7cefeae9cb
+base: 273068f969071f687762eadb3709eb4f75a7384b
 release_branch: release/mercurai
 patches:
   - slug: current-main-release-20261018
-    branch: patch/current-main-release-96683279
+    branch: patch/current-main-release-273068f9
     status: ours-only
-    base: 966832793b8611945aeb8deebe9f0e7cefeae9cb
-    commit: 3616a71d2181367edd4825213e0d7d2d3099de92
+    base: 273068f969071f687762eadb3709eb4f75a7384b
+    commit: 56724aa0830e7f947f59a27cc2df943f867467fb
     owner: harness
     added: 2026-10-18
     tests:
@@ -130,20 +130,94 @@ patches:
       - tests/e2e/cross-version-wire/cross-version-device-key-registry.unit.test.ts
       - tests/e2e/cross-version-wire/cross-version-web-device-key.unit.test.ts
       - tests/e2e/cross-version-wire/cross-version-web-session-pairing.unit.test.ts
+      - config/scripts/ci-dependency-download-cache.test.mjs
+      - config/scripts/pr-preflight-gates.test.mjs
+      - config/scripts/win32-test-lane-registration.test.mjs
+      - src/cli/runtime/client-execution-host.test.ts
+      - src/main/agent-hooks/first-work-branch-rename-wsl-move.test.ts
+      - src/main/automations/automation-wsl-move-refusal.test.ts
+      - src/main/automations/dispatch-refusal-wsl-move.test.ts
+      - src/main/codex/codex-structured-session-options-catalog.test.ts
+      - src/main/ipc/pty/host-env/spawn-cwd-wsl-move.test.ts
+      - src/main/ipc/repos/project-host-setup-wsl-move-fence.test.ts
+      - src/main/ipc/repos/repo-ipc-wsl-move-fence.test.ts
+      - src/main/ipc/runtime-environments/runtime-environment-host-dispatch.test.ts
+      - src/main/ipc/runtime-environments/runtime-environment-status-retirement.test.ts
+      - src/main/ipc/worktrees-wsl-move-fence.test.ts
+      - src/main/ipc/wsl-host-gate-off.test.ts
+      - src/main/ipc/wsl-move-handlers.test.ts
+      - src/main/managed-server/lifecycle/orcad-runtime-conversion.test.ts
+      - src/main/managed-server/lifecycle/orcad-runtime-decommission.test.ts
+      - src/main/managed-server/lifecycle/orcad-runtime-deployment.test.ts
+      - src/main/managed-server/lifecycle/orcad-runtime-forget.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-discovery-freshness.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-prewarm.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-saved-only-read.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-conversation-stop.test.ts
+      - src/main/orca-profiles/profile-cloud-auth-characterization.test.ts
+      - src/main/persistence/migrating-orcad-catalog/migration-journal-directory.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-background-backoff.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-cutover-journal.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-desktop-rewrite.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-rewrite-ledger.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-scope-guard.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-session-freeze.test.ts
+      - src/main/repo-backfill-wsl-move.test.ts
+      - src/main/runtime/device-key-fork.test.ts
+      - src/main/runtime/device-registry-first-sighting.test.ts
+      - src/main/runtime/rpc/device-key-auth.test.ts
+      - src/main/runtime/rpc/e2ee-channel-admission.test.ts
+      - src/main/runtime/rpc/mobile-socket-wiring.test.ts
+      - src/main/runtime/rpc/web-session-pairing.test.ts
+      - src/main/runtime/runtime-managed-worktree-metadata-wsl-move.test.ts
+      - src/main/runtime/runtime-provisioned-root-adoption.test.ts
+      - src/main/runtime/runtime-rpc-relay-provider-install.test.ts
+      - src/main/ssh/orcad-migration-cutover-journal.test.ts
+      - src/main/ssh/orcad-migration-delta-move.test.ts
+      - src/main/ssh/orcad-migration-delta-snapshot.test.ts
+      - src/main/ssh/orcad-migration-repository-link.test.ts
+      - src/main/ssh/orcad-migration-source-retention.test.ts
+      - src/main/ssh/orcad-retained-source-lists.test.ts
+      - src/main/ssh/orcad-runtime-maintenance.test.ts
+      - src/main/ssh/orcad-unreachable-setup-release.test.ts
+      - src/main/ssh/runtime-ssh-access.test.ts
+      - src/main/wsl-move-incidental-writes.test.ts
+      - src/main/wsl-move-scan-pruning.test.ts
+      - src/main/wsl/wsl-host-service.test.ts
+      - src/renderer/src/components/native-chat/NativeChatRewindAction.target.test.tsx
+      - src/renderer/src/components/native-chat/native-chat-composer-draft-capacity.test.ts
+      - src/renderer/src/components/native-chat/native-chat-composer-draft-lifecycle.test.tsx
+      - src/renderer/src/components/native-chat/native-chat-composer-draft-store.test.ts
+      - src/renderer/src/components/native-chat/use-native-chat-provisional-launch.test.tsx
+      - src/renderer/src/components/native-chat/use-structured-agent-session.rewind.test.tsx
+      - src/renderer/src/lib/launch-structured-agent-session.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-after-failure.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-create-message.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-options.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-registered-agent.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-unconfirmed-or-retried.test.ts
+      - src/shared/runtime-environment-managed-orcad-store.test.ts
+      - src/shared/runtime-environment-sidecar.test.ts
+      - src/shared/runtime-environment-ssh-access-store.test.ts
+      - src/shared/runtime-environment-store-unreadable-records-interleaving.test.ts
+      - src/shared/runtime-environment-store-unreadable-records.test.ts
+      - src/shared/runtime-environment-wsl-host-store.test.ts
+      - src/shared/secure-file-sync-writers-removed.test.ts
+      - src/shared/wsl-host-deployment-store.test.ts
+      - tests/e2e/cross-version-wire/managed-orcad-convert-downgrade.unit.test.ts
     notes: >-
-      Test union checked against candidate c4afbf1445f0a0c70f8f1b808be14d2ce3e31959:
-      114 registered paths cover all 53 targeted workflow paths and the three corrected
-      cross-version pairing suites; every path exists.
-      This provisional pin is for CI-only dry-run assembly; default registration and publication
-      remain blocked on full exact-head CI and review.
-      PROVISIONAL REGISTRATION ONLY: candidate 3616a71d21 has not passed the required full CI
-      gates.
-      The provisional patch/current-main-release-96683279 ref exists at the pinned SHA.
-      Its single linear commit preserves the source tree without merge commits. Before
-      default registration or publication, verify final exact-head CI, the remote base/head
-      tuple and assembled-tree equality; replace this pin if further corrections are needed.
-      Frozen official-main base is 966832793b8611945aeb8deebe9f0e7cefeae9cb;
-      the release version floor is v1.4.229, not the upstream base version.
+      Provisional exact candidate 56724aa0830e7f947f59a27cc2df943f867467fb,
+      source ff294e300c8aaab0227461137a8d3c039ab2c2e4,
+      tree 7313dcc00f5f0f69ad27c4ed718c48f8a730891b.
+      Registered tests retain the predecessor union and every correction-wave Vitest suite;
+      Playwright specs remain covered by their existing PR/E2E workflows, not this Vitest list.
+      Scoped independent source reviews and clean actual-merge/retention audit accepted.
+      Full PR39184193725 and targeted/cost39184193689 are pending; no predecessor receipt
+      approves this candidate. CI-only dry-run assembly may use this pin, but default
+      registration and publication remain blocked until exact-head gates pass.
+      Frozen official base is 273068f969071f687762eadb3709eb4f75a7384b;
+      v1.4.229 is the release-version floor. Source/patch trees must match protected
+      assembly output before publication. Later official commits belong to the next cut.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.
