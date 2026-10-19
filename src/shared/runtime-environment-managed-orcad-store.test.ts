@@ -23,7 +23,7 @@ import {
   writeRuntimeEnvironmentSidecarEntry
 } from './runtime-environment-sidecar'
 import { readPersistedEnvironmentStore } from './runtime-environment-store-file'
-import { getRuntimeSshAccess } from './runtime-environments'
+import { getOrcadSshDeployment, getRuntimeSshAccess } from './runtime-environments'
 import { shippedBuildRewrite } from './runtime-environment-shipped-store.test-fixture'
 
 const deployment = {
@@ -92,7 +92,7 @@ describe('managed orcad environment store', () => {
     expect(listEnvironments(userDataPath).map((entry) => entry.id).sort())
       .toEqual(['environment-1', 'environment-2'])
     expect(listEnvironments(userDataPath).every((entry) =>
-      entry.orcadDeployment?.sshTargetId === deployment.sshTargetId)).toBe(true)
+      getOrcadSshDeployment(entry)?.sshTargetId === deployment.sshTargetId)).toBe(true)
   })
 
   it('keeps the deployment link out of the file shipped builds rewrite', async () => {
