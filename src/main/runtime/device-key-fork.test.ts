@@ -1,4 +1,4 @@
-import * as fileSystem from 'node:fs'
+import type * as FileSystem from 'node:fs'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +7,11 @@ import { planDeviceKeyFork } from './device-key-fork'
 import { devicePrincipalOf } from './device-principal'
 import { DeviceRegistry, type DeviceEntry } from './device-registry'
 import { DEVICE_REGISTRY_FILENAME } from './mobile-pairing-files'
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof FileSystem>()
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) }
+})
 
 const KEY_A = Buffer.alloc(32, 1).toString('base64')
 const KEY_B = Buffer.alloc(32, 2).toString('base64')
@@ -80,12 +85,12 @@ describe('planDeviceKeyFork', () => {
     const legacy = await registry.addDevice('Laptop', 'runtime')
     const path = join(directory, DEVICE_REGISTRY_FILENAME)
     const before = readFileSync(path)
-    const read = fileSystem.readFileSync
-    const failingRead = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((...args) => {
+    const actual = await vi.importActual<typeof FileSystem>('node:fs')
+    const failingRead = vi.mocked(readFileSync).mockImplementation((...args) => {
       if (args[0] === path) {
         throw Object.assign(new Error('Synthetic registry read denied'), { code: 'EACCES' })
       }
-      return read(...args)
+      return actual.readFileSync(...args)
     })
     try {
       const unreadable = new DeviceRegistry(directory)
@@ -94,7 +99,7 @@ describe('planDeviceKeyFork', () => {
       // The unreadable instance cannot load rows; the healthy instance and disk retain them.
       expect(registry.listDevices()).toHaveLength(1)
     } finally {
-      failingRead.mockRestore()
+      failingRead.mockImplementation(actual.readFileSync)
     }
     expect(readFileSync(path)).toEqual(before)
     expect(new DeviceRegistry(directory).listDevices()).toHaveLength(1)

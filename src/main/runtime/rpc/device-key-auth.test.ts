@@ -1,5 +1,5 @@
-import * as fileSystem from 'node:fs'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import type * as FileSystem from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import nacl from 'tweetnacl'
@@ -17,6 +17,11 @@ import {
   type MobileSocketTransport,
   type MobileSocketTransportMetadata
 } from './mobile-socket-wiring'
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof FileSystem>()
+  return { ...actual, readFileSync: vi.fn(actual.readFileSync) }
+})
 
 class FakeSocket {
   readonly OPEN = 1
@@ -68,6 +73,7 @@ function harness(registry: DeviceRegistry, metadata?: MobileSocketTransportMetad
   /** Opens a direct v2 socket and sends `auth(transcriptHashB64)`; returns the decoded verdict. */
   function connect(auth: (transcriptHashB64: string) => Record<string, unknown>) {
     const ws = new FakeSocket()
+    const readyIndex = ready.length
     const peer = new SimulatedMobileE2EEV2Peer(
       nacl.box.keyPair(),
       desktop.publicKey,
@@ -82,8 +88,21 @@ function harness(registry: DeviceRegistry, metadata?: MobileSocketTransportMetad
         JSON.stringify({ type: 'e2ee_auth', v: 2, transcriptHashB64, ...auth(transcriptHashB64) })
       )
     )
-    const reply = ws.sent[1] ? JSON.parse(peer.openText(String(ws.sent[1]))!) : null
-    return { ws, peer, transcriptHashB64, reply, socket: ready.at(-1) }
+    let reply: unknown = null
+    return {
+      ws,
+      peer,
+      transcriptHashB64,
+      get reply() {
+        if (reply === null && ws.sent[1]) {
+          reply = JSON.parse(peer.openText(String(ws.sent[1]))!)
+        }
+        return reply
+      },
+      get socket() {
+        return ready[readyIndex]
+      }
+    }
   }
   return { connect, ready }
 }
@@ -146,6 +165,7 @@ describe('device-key authentication (host)', () => {
     const legacy = await registry.addDevice('Phone', 'mobile')
     const { connect } = harness(registry)
     const migrating = connect(() => ({ deviceToken: legacy.token }))
+    await vi.waitFor(() => expect(migrating.reply).toMatchObject({ type: 'e2ee_authenticated' }))
     const key = nacl.sign.keyPair()
     const devicePublicKeyB64 = Buffer.from(key.publicKey).toString('base64')
     await expect(
@@ -229,7 +249,7 @@ describe('device-key authentication (host)', () => {
     expect(attempt.reply).toEqual({ type: 'e2ee_error', error: { code: 'bad_auth' } })
   })
 
-  it('answers device_revoked only when the registry is readable', () => {
+  it('answers device_revoked only when the registry is readable', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-device-key-'))
     const key = nacl.sign.keyPair()
     const revoked = harness(new DeviceRegistry(userDataPath)).connect((hash) => ({
@@ -243,12 +263,12 @@ describe('device-key authentication (host)', () => {
 
     const path = join(userDataPath, DEVICE_REGISTRY_FILENAME)
     writeFileSync(path, '[]')
-    const read = fileSystem.readFileSync
-    const failingRead = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((...args) => {
+    const actual = await vi.importActual<typeof FileSystem>('node:fs')
+    const failingRead = vi.mocked(readFileSync).mockImplementation((...args) => {
       if (args[0] === path) {
         throw Object.assign(new Error('Synthetic registry read denied'), { code: 'EACCES' })
       }
-      return read(...args)
+      return actual.readFileSync(...args)
     })
     try {
       const unreadable = new DeviceRegistry(userDataPath)
@@ -262,7 +282,7 @@ describe('device-key authentication (host)', () => {
       })
       expect(unavailable.ws.close).toHaveBeenCalledWith(4001, 'Device registry unavailable')
     } finally {
-      failingRead.mockRestore()
+      failingRead.mockImplementation(actual.readFileSync)
     }
   })
 
