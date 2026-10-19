@@ -11,13 +11,13 @@ export function registerWorktreeHookRunnerHandler(context: WorktreeIpcContext): 
 
   ipcMain.handle(
     'hooks:createIssueCommandRunner',
-    (_event, args: { repoId: string; worktreePath: string; command: string }) => {
+    async (_event, args: { repoId: string; worktreePath: string; command: string }) => {
       const repo = store.getRepo(args.repoId)
       if (!repo) {
         throw new Error(`Repo not found: ${args.repoId}`)
       }
 
-      return createIssueCommandRunnerScript(
+      return await createIssueCommandRunnerScript(
         repo,
         args.worktreePath,
         args.command,

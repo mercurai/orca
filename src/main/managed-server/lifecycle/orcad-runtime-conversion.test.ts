@@ -73,7 +73,7 @@ beforeEach(() => {
       throw new Error('deploy without a fence')
     }
     if (!listEnvironments(path).some((entry) => entry.id === owner)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id: owner,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -307,7 +307,7 @@ describe('backing out a conversion whose server is registered but never committe
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     // A stopped server from a build that left its journal behind.
     const [environment] = listEnvironments(userDataPath)
-    removeManagedOrcadEnvironment(userDataPath, environment!.id)
+    await removeManagedOrcadEnvironment(userDataPath, environment!.id)
     store.updateSshTarget(TARGET.id, { orcadFence: undefined })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toHaveLength(1)

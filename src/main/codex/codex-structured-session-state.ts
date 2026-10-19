@@ -1,3 +1,4 @@
+import type { CodexSpeedRequestState } from './codex-structured-speed-state'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
@@ -126,7 +127,7 @@ export type CodexStructuredSessionAdapterDeps = {
   modelCatalog?: AgentModelCatalogStore
 }
 
-export type CodexSession = {
+export type CodexSession = CodexSpeedRequestState & {
   events?: StructuredAgentSessionEventSink
   account?: AgentSessionAccountKind
   connection: CodexAppServerConnection

@@ -123,7 +123,7 @@ beforeEach(() => {
         throw new Error('deploy without a fence')
       }
       if (!listEnvironments(path).some((entry) => entry.id === owner)) {
-        addManagedOrcadEnvironment(path, {
+        await addManagedOrcadEnvironment(path, {
           id: owner,
           name: args.name,
           pairingCode: encodePairingOffer({
@@ -354,14 +354,14 @@ describe('moving onto a server another desktop already added the same project to
 // #29560: `orca environment stop` unlinks the server but leaves its profile on the host.
 describe('moving the host again after its server was stopped', () => {
   // The local half of stop (unlinkEnvironmentLocally); the server keeps its profile.
-  function stopServer(): void {
+  async function stopServer(): Promise<void> {
     const owner = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))
     if (!owner) {
       throw new Error('no managed server to stop')
     }
-    removeManagedOrcadEnvironment(userDataPath, owner)
+    await removeManagedOrcadEnvironment(userDataPath, owner)
     targetStore.getOrcadRuntimeClaims().release(TARGET.id, owner)
-    removeOrcadMigrationJournalsForDestination(userDataPath, TARGET.id, owner)
+    await removeOrcadMigrationJournalsForDestination(userDataPath, TARGET.id, owner)
   }
 
   it('links the projects the server kept from the first move instead of conflicting', async () => {
@@ -369,7 +369,7 @@ describe('moving the host again after its server was stopped', () => {
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     // Used on the server while it was managed.
     server.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({
       outcome: 'converted',
@@ -420,7 +420,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, groupId)).toBe('Renamed on the server')
@@ -433,7 +433,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     store.addRepo(repo('added-after-stop', '/root/later'))
     store.moveProjectToGroup('added-after-stop', groupId)
 
@@ -446,7 +446,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await convert()
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     await convert()
     store.addRepo(repo('added-later', '/root/later'))
     reconcileManagedOrcadSshTargets(userDataPath, store)
@@ -473,7 +473,7 @@ describe('moving the host again after its server was stopped', () => {
     store.moveProjectToGroup('desktop-repo', child.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
-    stopServer()
+    await stopServer()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
 
@@ -487,7 +487,7 @@ describe('moving the host again after its server was stopped', () => {
   it('still moves a later folder workspace that takes its host from the server’s group', async () => {
     const groupId = groupDesktopRepo()
     await convert()
-    stopServer()
+    await stopServer()
     await convert()
     const folder = store.createFolderWorkspace({
       projectGroupId: groupId,

@@ -1,7 +1,9 @@
+import { captureEnvironmentStoreVersion, captureRuntimeEnvironmentFileVersion, withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
+import { serializePathWrite } from './path-write-serializer'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
 import { warnUnreadableEnvironmentState } from './runtime-environment-store-records'
 import {
@@ -125,31 +127,42 @@ export function readWslHostDeployments(userDataPath: string): WslHostDeployments
  * verbatim, in place, so a newer build's records and fields survive.
  */
 export function writeWslHostDeployment(
+  ...args: Parameters<typeof writeWslHostDeploymentWithinMutation>
+): Promise<void> {
+  return withRuntimeEnvironmentMutation(args[0], () => writeWslHostDeploymentWithinMutation(...args))
+}
+
+export async function writeWslHostDeploymentWithinMutation(
   userDataPath: string,
   environmentId: string,
-  deployment: WslHostDeploymentRecord | null
-): void {
-  const path = getWslHostDeploymentStorePath(userDataPath)
-  const next = deployment ? WslHostDeploymentRecordSchema.parse(deployment) : null
-  if (next && next.environmentId !== environmentId) {
-    throw new Error('A WSL host deployment must be written under its own environment id.')
-  }
-  const records = readStoredRecords(userDataPath)
-  if (records.some((record) => record.environmentId === environmentId && !record.deployment)) {
-    throw new WslHostDeploymentStoreInvalidError(path, environmentId)
-  }
-  const raws = records.flatMap((record) =>
-    record.environmentId !== environmentId ? [record.raw] : next ? [next] : []
-  )
-  if (next && !records.some((record) => record.environmentId === environmentId)) {
-    raws.push(next)
-  }
-  writeSecureJsonFileWithinLimit(
-    path,
-    { version: 1, deployments: raws },
-    MAX_WSL_HOST_DEPLOYMENTS_FILE_BYTES,
-    { durable: true }
-  )
+  deployment: WslHostDeploymentRecord | null,
+  shouldPublish?: () => boolean
+): Promise<void> {
+  return serializePathWrite(`${getWslHostDeploymentStorePath(userDataPath)}#mutation`, async () => {
+    const isCurrent = captureEnvironmentStoreVersion(userDataPath)
+    const fileIsCurrent = captureRuntimeEnvironmentFileVersion(getWslHostDeploymentStorePath(userDataPath))
+    const path = getWslHostDeploymentStorePath(userDataPath)
+    const next = deployment ? WslHostDeploymentRecordSchema.parse(deployment) : null
+    if (next && next.environmentId !== environmentId) {
+      throw new Error('A WSL host deployment must be written under its own environment id.')
+    }
+    const records = readStoredRecords(userDataPath)
+    if (records.some((record) => record.environmentId === environmentId && !record.deployment)) {
+      throw new WslHostDeploymentStoreInvalidError(path, environmentId)
+    }
+    const raws = records.flatMap((record) =>
+      record.environmentId !== environmentId ? [record.raw] : next ? [next] : []
+    )
+    if (next && !records.some((record) => record.environmentId === environmentId)) {
+      raws.push(next)
+    }
+    await writeSecureJsonFileWithinLimitAsync(
+      path,
+      { version: 1, deployments: raws },
+      MAX_WSL_HOST_DEPLOYMENTS_FILE_BYTES,
+      { durable: true, shouldPublish: () => isCurrent() && fileIsCurrent() && shouldPublish?.() !== false }
+    )
+  })
 }
 
 function hasNonWslOwner(environment: KnownRuntimeEnvironment): boolean {

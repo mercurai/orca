@@ -107,11 +107,20 @@ async function unmount(): Promise<void> {
   host = null
 }
 
-function storedDraft(scopeKey: string): unknown {
+async function storedDraft(scopeKey: string): Promise<unknown> {
+  await settleIssuedDraftWrites()
   return storage.drafts.get(scopeKey) ?? null
 }
 
-const loadedStores: { clearNativeChatComposerDraftsForTests: () => void }[] = []
+const loadedStores: {
+  clearNativeChatComposerDraftsForTests: () => void
+  nativeChatComposerDraftWritesSettled: () => Promise<void>
+}[] = []
+
+/** Wait for transaction acknowledgements without issuing deferred typing writes. */
+async function settleIssuedDraftWrites(): Promise<void> {
+  await Promise.all(loadedStores.map((store) => store.nativeChatComposerDraftWritesSettled()))
+}
 
 /** A fresh renderer: module memory is gone, the drafts' storage is not. */
 async function loadHooks(): Promise<{
@@ -178,6 +187,7 @@ beforeEach(() => {
 afterEach(async () => {
   await unmount()
   vi.useRealTimers()
+  await settleIssuedDraftWrites()
   for (const store of loadedStores.splice(0)) {
     store.clearNativeChatComposerDraftsForTests()
   }
@@ -202,7 +212,7 @@ describe('native-chat composer draft lifecycle', () => {
       ])
     })
     window.dispatchEvent(new Event('pagehide'))
-    expect(storedDraft('tab-1:pane')).toMatchObject({ text: '/goal ship it' })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ text: '/goal ship it' })
     const held = seen.api
 
     // A question prompt replaces the composer while the host accepts the command.
@@ -210,7 +220,7 @@ describe('native-chat composer draft lifecycle', () => {
     held?.setDraft('')
     held?.attachments.clearImageAttachments()
 
-    expect(storedDraft('tab-1:pane')).toBeNull()
+    expect(await storedDraft('tab-1:pane')).toBeNull()
     const reloaded = await loadHooks()
     const restored: { api?: ComposerApi } = {}
     await mount(
@@ -238,13 +248,13 @@ describe('native-chat composer draft lifecycle', () => {
     )
     await act(async () => first.api?.setDraft('sent text'))
     window.dispatchEvent(new Event('pagehide'))
-    expect(storedDraft('tab-1:pane')).toMatchObject({ text: 'sent text' })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ text: 'sent text' })
     await act(async () => first.api?.send('sent text'))
     await unmount()
 
     await held.settle()
 
-    expect(storedDraft('tab-1:pane')).toBeNull()
+    expect(await storedDraft('tab-1:pane')).toBeNull()
   })
 
   it('keeps what was typed in a replacement composer when the old composer’s send settles', async () => {
@@ -275,7 +285,7 @@ describe('native-chat composer draft lifecycle', () => {
 
     expect(second.api?.draft).toBe('new text')
     window.dispatchEvent(new Event('pagehide'))
-    expect(storedDraft('tab-1:pane')).toMatchObject({ text: 'new text' })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ text: 'new text' })
   })
 
   it('keeps an image pasted while a host command was on its way', async () => {
@@ -330,7 +340,7 @@ describe('native-chat composer draft lifecycle', () => {
 
     expect(seen.api?.draft).toBe('')
     expect(seen.api?.attachments.imageAttachments).toEqual([])
-    expect(storedDraft('agent-session:s1')).toBeNull()
+    expect(await storedDraft('agent-session:s1')).toBeNull()
   })
 
   it('leaves a draft replaced before the send was accepted as it is', async () => {
@@ -408,13 +418,13 @@ describe('native-chat composer draft lifecycle', () => {
       seen.api?.setDraft('')
       seen.api?.attachments.clearImageAttachments()
     })
-    expect(storedDraft('tab-1:pane')).toBeNull()
+    expect(await storedDraft('tab-1:pane')).toBeNull()
 
     await act(async () => {
       vi.advanceTimersByTime(1_000)
     })
     window.dispatchEvent(new Event('pagehide'))
-    expect(storedDraft('tab-1:pane')).toBeNull()
+    expect(await storedDraft('tab-1:pane')).toBeNull()
   })
 
   it('does not bring back a sent image when a paste from a replaced composer is dropped late', async () => {
@@ -463,7 +473,7 @@ describe('native-chat composer draft lifecycle', () => {
     // The paste's save fails late in the replaced composer, which drops its placeholder.
     stale?.attachments.dropPendingImageAttachment(pending.id ?? '')
 
-    expect(storedDraft('tab-1:pane')).toBeNull()
+    expect(await storedDraft('tab-1:pane')).toBeNull()
     const third: { api?: ComposerApi } = {}
     await mount(
       createElement(
@@ -501,7 +511,7 @@ describe('native-chat composer draft lifecycle', () => {
     // An SSH upload started in the first composer finishes now.
     stale?.attachments.attachResolvedPaths(['/repo/late.png'])
 
-    expect(storedDraft('tab-1:pane')).toMatchObject({ images: [{ path: '/repo/late.png' }] })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ images: [{ path: '/repo/late.png' }] })
   })
 
   it('inserts a late file reference from a replaced composer into the current text', async () => {
@@ -529,7 +539,7 @@ describe('native-chat composer draft lifecycle', () => {
     stale?.setDraft((previous) => `${previous}@late.txt `)
     window.dispatchEvent(new Event('pagehide'))
 
-    expect(storedDraft('tab-1:pane')).toMatchObject({ text: '@late.txt ' })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ text: '@late.txt ' })
   })
 
   it('turns a restored image whose file is gone into one to attach again', async () => {
@@ -670,7 +680,7 @@ describe('native-chat composer draft lifecycle', () => {
     })
     await act(async () => seen.api?.setDraft((previous) => `${previous}next`))
     window.dispatchEvent(new Event('pagehide'))
-    expect(storedDraft('tab-1:pane')).toMatchObject({ text: 'next' })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ text: 'next' })
 
     // An edit here not yet saved wins over the other window's write.
     await act(async () => seen.api?.setDraft('mine, unsaved'))
@@ -708,7 +718,7 @@ describe('native-chat composer draft lifecycle', () => {
       await store.nativeChatComposerDraftWritesSettled()
     })
     expect(seen.unsaved).toBe(false)
-    expect(storedDraft('tab-1:pane')).toMatchObject({ text: 'typed on a full disk' })
+    expect(await storedDraft('tab-1:pane')).toMatchObject({ text: 'typed on a full disk' })
   })
 
   it('does not bring back an untouched launch link after a reload, when no seed is left to replace it', async () => {

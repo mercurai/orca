@@ -11,7 +11,7 @@ import type {
   WslMoveRecordStoreRewrittenResult
 } from '../../../shared/wsl-move/wsl-move-renderer-rewrite-types'
 import { wslHostsGateOpen } from '../../wsl/wsl-host-gate'
-import { listWslMoveCutovers, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import { listWslMoveCutovers, updateWslMoveCutover } from './wsl-move-cutover-journal'
 import {
   isWslMoveDesktopRewriteRegistryComplete,
   listWslMoveDesktopRewriteStores,
@@ -46,28 +46,40 @@ function readCommittedCutover(userDataPath: string, migrationId: string): WslMov
   return cutover?.phase === 'destination-committed' ? cutover : null
 }
 
-function appendLedgerEntry(userDataPath: string, cutover: WslMoveCutover, storeId: string): void {
-  writeWslMoveCutover(userDataPath, {
-    ...cutover,
-    rewrittenStores: [...cutover.rewrittenStores, storeId],
-    updatedAt: new Date().toISOString()
+function appendLedgerEntry(
+  userDataPath: string,
+  migrationId: string,
+  storeId: string
+): Promise<boolean> {
+  return updateWslMoveCutover(userDataPath, migrationId, (current) => {
+    if (current?.phase !== 'destination-committed' || current.rewrittenStores.includes(storeId)) {
+      return { result: false }
+    }
+    return {
+      cutover: {
+        ...current,
+        rewrittenStores: [...current.rewrittenStores, storeId],
+        updatedAt: new Date().toISOString()
+      },
+      result: true
+    }
   })
 }
 
-/** Advances once every registered store, main and renderer, is in the ledger. */
-function advanceWhenRewritten(userDataPath: string, migrationId: string): void {
-  // Stores not registered yet would never run on a move that already left the rewrite phase.
-  if (!isWslMoveDesktopRewriteRegistryComplete()) {
-    return
-  }
-  const cutover = readCommittedCutover(userDataPath, migrationId)
-  if (!cutover || pendingWslMoveDesktopRewriteStores(cutover.rewrittenStores).length > 0) {
-    return
-  }
-  writeWslMoveCutover(userDataPath, {
-    ...cutover,
-    phase: 'client-rewritten',
-    updatedAt: new Date().toISOString()
+/** Advances once every registered store, main and renderer, is in the durable ledger. */
+function advanceWhenRewritten(userDataPath: string, migrationId: string): Promise<void> {
+  return updateWslMoveCutover(userDataPath, migrationId, (current) => {
+    if (
+      !isWslMoveDesktopRewriteRegistryComplete() ||
+      current?.phase !== 'destination-committed' ||
+      pendingWslMoveDesktopRewriteStores(current.rewrittenStores).length > 0
+    ) {
+      return { result: undefined }
+    }
+    return {
+      cutover: { ...current, phase: 'client-rewritten', updatedAt: new Date().toISOString() },
+      result: undefined
+    }
   })
 }
 
@@ -113,10 +125,10 @@ async function rewriteMainStores(
       throw new Error('wsl_move_record_missing')
     }
     if (!current.rewrittenStores.includes(store.id)) {
-      appendLedgerEntry(userDataPath, current, store.id)
+      await appendLedgerEntry(userDataPath, migrationId, store.id)
     }
   }
-  advanceWhenRewritten(userDataPath, migrationId)
+  await advanceWhenRewritten(userDataPath, migrationId)
 }
 
 async function runPass(options: WslMoveDesktopRewritePassOptions): Promise<void> {
@@ -199,10 +211,10 @@ export function listPendingWslMoveRendererRewrites(
  * The renderer finished (and persisted) one of its stores for a committed move. Independent of
  * main-store order: it may land before, between or after the main pass's entries.
  */
-export function recordWslMoveRendererStoreRewritten(
+export async function recordWslMoveRendererStoreRewritten(
   userDataPath: string,
   request: WslMoveRecordStoreRewrittenRequest
-): WslMoveRecordStoreRewrittenResult {
+): Promise<WslMoveRecordStoreRewrittenResult> {
   if (!wslHostsGateOpen()) {
     return { recorded: false, reason: 'gated-off' }
   }
@@ -214,17 +226,15 @@ export function recordWslMoveRendererStoreRewritten(
     return { recorded: false, reason: 'not-renderer-store' }
   }
   try {
-    const cutover = readCommittedCutover(userDataPath, request.migrationId)
-    if (!cutover || cutover.rewrittenStores.includes(store.id)) {
+    if (!(await appendLedgerEntry(userDataPath, request.migrationId, store.id))) {
       return { recorded: false, reason: 'not-pending' }
     }
-    appendLedgerEntry(userDataPath, cutover, store.id)
   } catch (error) {
     console.warn(`[wsl-move] Could not record a renderer rewrite: ${describe(error)}`)
     return { recorded: false, reason: 'failed' }
   }
   try {
-    advanceWhenRewritten(userDataPath, request.migrationId)
+    await advanceWhenRewritten(userDataPath, request.migrationId)
   } catch (error) {
     // The entry is durable; the next pass retries the advance.
     console.warn(`[wsl-move] Could not finish the desktop rewrite: ${describe(error)}`)

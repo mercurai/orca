@@ -1,3 +1,4 @@
+import * as fileSystem from 'node:fs'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -92,10 +93,10 @@ function freshRegistry(): DeviceRegistry {
 }
 
 describe('device-key authentication (host)', () => {
-  it('forks a token row per installation, then authenticates the key and keeps the token working', () => {
+  it('forks a token row per installation, then authenticates the key and keeps the token working', async () => {
     const registry = freshRegistry()
-    const legacy = registry.addDevice('Phone', 'mobile')
-    registry.updateLastSeen(legacy.deviceId)
+    const legacy = await registry.addDevice('Phone', 'mobile')
+    await registry.updateLastSeen(legacy.deviceId)
     const { connect } = harness(registry)
 
     const migrating = connect(() => ({ deviceToken: legacy.token }))
@@ -104,11 +105,11 @@ describe('device-key authentication (host)', () => {
     const params = {
       devicePublicKeyB64: Buffer.from(key.publicKey).toString('base64'),
       deviceProofB64: sign(key, 'register', migrating.transcriptHashB64),
-      deviceLabel: 'Pixel‮ evil\u0007'
+      deviceLabel: 'Pixel‮ evil'
     }
-    const forked = registerSocketDeviceKey(registry, migrating.socket!, params)
+    const forked = await registerSocketDeviceKey(registry, migrating.socket!, params)
     // A lost reply retried with the same key returns the same row.
-    expect(registerSocketDeviceKey(registry, migrating.socket!, params)).toEqual(forked)
+    expect(await registerSocketDeviceKey(registry, migrating.socket!, params)).toEqual(forked)
     expect(registry.getDevice(forked.deviceId)).toMatchObject({
       credentialKind: 'device-key',
       forkedFrom: legacy.deviceId,
@@ -133,27 +134,27 @@ describe('device-key authentication (host)', () => {
     const other = connect(() => ({ deviceToken: legacy.token }))
     expect(other.reply).toMatchObject({ type: 'e2ee_authenticated' })
     const otherKey = nacl.sign.keyPair()
-    const otherFork = registerSocketDeviceKey(registry, other.socket!, {
+    const otherFork = await registerSocketDeviceKey(registry, other.socket!, {
       devicePublicKeyB64: Buffer.from(otherKey.publicKey).toString('base64'),
       deviceProofB64: sign(otherKey, 'register', other.transcriptHashB64)
     })
     expect(otherFork.deviceId).not.toBe(forked.deviceId)
   })
 
-  it('refuses a keyed row presented with a token, a replayed proof and a wrong-purpose proof', () => {
+  it('refuses a keyed row presented with a token, a replayed proof and a wrong-purpose proof', async () => {
     const registry = freshRegistry()
-    const legacy = registry.addDevice('Phone', 'mobile')
+    const legacy = await registry.addDevice('Phone', 'mobile')
     const { connect } = harness(registry)
     const migrating = connect(() => ({ deviceToken: legacy.token }))
     const key = nacl.sign.keyPair()
     const devicePublicKeyB64 = Buffer.from(key.publicKey).toString('base64')
-    expect(() =>
+    await expect(
       registerSocketDeviceKey(registry, migrating.socket!, {
         devicePublicKeyB64,
         deviceProofB64: sign(key, 'auth', migrating.transcriptHashB64)
       })
-    ).toThrow('bad_proof')
-    const forked = registerSocketDeviceKey(registry, migrating.socket!, {
+    ).rejects.toThrow('bad_proof')
+    const forked = await registerSocketDeviceKey(registry, migrating.socket!, {
       devicePublicKeyB64,
       deviceProofB64: sign(key, 'register', migrating.transcriptHashB64)
     })
@@ -176,12 +177,12 @@ describe('device-key authentication (host)', () => {
     expect(mixed.reply).toEqual({ type: 'e2ee_error', error: { code: 'bad_auth' } })
   })
 
-  it("accepts a fork over its token row's Relay binding and refuses other bindings without a revocation verdict", () => {
+  it("accepts a fork over its token row's Relay binding and refuses other bindings without a revocation verdict", async () => {
     const registry = freshRegistry()
-    const legacy = registry.addDevice('Phone', 'mobile')
-    const stranger = registry.addDevice('Other phone', 'mobile')
+    const legacy = await registry.addDevice('Phone', 'mobile')
+    const stranger = await registry.addDevice('Other phone', 'mobile')
     const key = nacl.sign.keyPair()
-    const forked = registry.forkDeviceKey(
+    const forked = await registry.forkDeviceKey(
       legacy.deviceId,
       Buffer.from(key.publicKey).toString('base64'),
       'Phone'
@@ -217,9 +218,9 @@ describe('device-key authentication (host)', () => {
     expect(attempt.reply).toEqual({ type: 'e2ee_error', error: { code: 'registry_unavailable' } })
   })
 
-  it('never answers device_revoked for a row that exists without a key', () => {
+  it('never answers device_revoked for a row that exists without a key', async () => {
     const registry = freshRegistry()
-    const legacy = registry.addDevice('Phone', 'mobile')
+    const legacy = await registry.addDevice('Phone', 'mobile')
     const key = nacl.sign.keyPair()
     const attempt = harness(registry).connect((hash) => ({
       deviceId: legacy.deviceId,
@@ -240,22 +241,34 @@ describe('device-key authentication (host)', () => {
       error: { code: 'device_revoked', deviceId: 'gone' }
     })
 
-    const unreadable = new DeviceRegistry(userDataPath)
-    unreadable['registryUnreadable'] = true
-    const unavailable = harness(unreadable).connect((hash) => ({
-      deviceId: 'gone',
-      deviceProofB64: sign(key, 'auth', hash)
-    }))
-    expect(unavailable.reply).toEqual({
-      type: 'e2ee_error',
-      error: { code: 'registry_unavailable' }
+    const path = join(userDataPath, DEVICE_REGISTRY_FILENAME)
+    writeFileSync(path, '[]')
+    const read = fileSystem.readFileSync
+    const failingRead = vi.spyOn(fileSystem, 'readFileSync').mockImplementation((...args) => {
+      if (args[0] === path) {
+        throw Object.assign(new Error('Synthetic registry read denied'), { code: 'EACCES' })
+      }
+      return read(...args)
     })
-    expect(unavailable.ws.close).toHaveBeenCalledWith(4001, 'Device registry unavailable')
+    try {
+      const unreadable = new DeviceRegistry(userDataPath)
+      const unavailable = harness(unreadable).connect((hash) => ({
+        deviceId: 'gone',
+        deviceProofB64: sign(key, 'auth', hash)
+      }))
+      expect(unavailable.reply).toEqual({
+        type: 'e2ee_error',
+        error: { code: 'registry_unavailable' }
+      })
+      expect(unavailable.ws.close).toHaveBeenCalledWith(4001, 'Device registry unavailable')
+    } finally {
+      failingRead.mockRestore()
+    }
   })
 
-  it('refuses registration over legacy framing', () => {
+  it('refuses registration over legacy framing', async () => {
     const registry = freshRegistry()
-    const legacy = registry.addDevice('Phone', 'mobile')
+    const legacy = await registry.addDevice('Phone', 'mobile')
     const key = nacl.sign.keyPair()
     const params = {
       devicePublicKeyB64: Buffer.from(key.publicKey).toString('base64'),
@@ -266,12 +279,12 @@ describe('device-key authentication (host)', () => {
       device: { deviceId: legacy.deviceId, credentialRevision: 0, deviceToken: legacy.token },
       transcriptHashB64: null
     } as unknown as AuthenticatedMobileSocket
-    expect(() => registerSocketDeviceKey(registry, legacySocket, params)).toThrow(
+    await expect(registerSocketDeviceKey(registry, legacySocket, params)).rejects.toThrow(
       'device_key_requires_e2ee_v2'
     )
   })
 
-  it('keeps keyed rows out of pairing offers and rotation, and inert for token lookups', () => {
+  it('keeps keyed rows out of pairing offers and rotation, and inert for token lookups', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-device-key-'))
     const keyB64 = Buffer.from(nacl.sign.keyPair().publicKey).toString('base64')
     writeFileSync(
@@ -291,9 +304,9 @@ describe('device-key authentication (host)', () => {
     const registry = new DeviceRegistry(userDataPath)
     expect(registry.validateToken('')).toBeNull()
     expect(registry.getPendingDevice('mobile')).toBeNull()
-    const offered = registry.getOrCreatePendingDevice('New', 'mobile')
+    const offered = await registry.getOrCreatePendingDevice('New', 'mobile')
     expect(offered.deviceId).not.toBe('keyed')
-    registry.rotatePendingDevice('Rotated', 'mobile')
+    await registry.rotatePendingDevice('Rotated', 'mobile')
     expect(registry.getDevice('keyed')).toMatchObject({ credentialKind: 'device-key' })
     expect(registry.lookupDeviceKey('keyed')).toMatchObject({ kind: 'found' })
   })

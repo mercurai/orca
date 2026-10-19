@@ -4,6 +4,7 @@ import {
   PLUGIN_TERMINAL_ID_MAX_LENGTH,
   PLUGIN_WORKSPACE_LABEL_MAX_LENGTH,
   PLUGIN_WORKSPACE_TERMINAL_LIMIT,
+  pluginCommandInvocationParamsSchema,
   type PluginHostMethodSpec
 } from '../../shared/plugins/plugin-host-api'
 import type { PluginEventName } from '../../shared/plugins/plugin-manifest'
@@ -17,6 +18,7 @@ export type PluginWorktreeContext = {
 /** Structural service surface the facade delegates to. Desktop main binds it
  *  over runtime services; relay policy and conformance tests bind fakes. */
 export type PluginHostServices = {
+  invokePluginCommand?: (pluginId: string, commandId: string, args?: unknown) => Promise<unknown>
   resolveActiveWorktreeContext(): Promise<PluginWorktreeContext | null>
   listWorktreeTerminals(worktreeId: string): Promise<{ id: string }[]>
   sendTerminalText(
@@ -30,8 +32,12 @@ export type PluginHostServices = {
   }): Promise<{ delivered: boolean }>
   storage: {
     get(pluginId: string, key: string): unknown
-    set(pluginId: string, key: string, value: unknown): { ok: true } | { ok: false; error: string }
-    delete(pluginId: string, key: string): void
+    set(
+      pluginId: string,
+      key: string,
+      value: unknown
+    ): Promise<{ ok: true } | { ok: false; error: string }>
+    delete(pluginId: string, key: string): Promise<void>
     keys(pluginId: string): string[]
   }
   secrets: {
@@ -39,12 +45,20 @@ export type PluginHostServices = {
       pluginId: string,
       key: string
     ): { ok: true; value: string | null } | { ok: false; error: string }
-    set(pluginId: string, key: string, value: string): { ok: true } | { ok: false; error: string }
-    delete(pluginId: string, key: string): void
+    set(
+      pluginId: string,
+      key: string,
+      value: string
+    ): Promise<{ ok: true } | { ok: false; error: string }>
+    delete(pluginId: string, key: string): Promise<void>
   }
   settings: {
     getAll(pluginId: string): Record<string, unknown>
-    set(pluginId: string, key: string, value: unknown): { ok: true } | { ok: false; error: string }
+    set(
+      pluginId: string,
+      key: string,
+      value: unknown
+    ): Promise<{ ok: true } | { ok: false; error: string }>
   }
   subscribeEvents(pluginId: string, events: PluginEventName[]): PluginEventName[]
 }
@@ -69,6 +83,13 @@ function definePluginMethod(
 }
 
 const HANDLERS = new Map<string, BoundPluginHostMethod>([
+  definePluginMethod('commands.invoke', async (params, { pluginId, services }) => {
+    const { commandId, args } = pluginCommandInvocationParamsSchema.parse(params)
+    if (!services.invokePluginCommand) {
+      throw new Error('plugin command invocation is not available on this host')
+    }
+    return { value: (await services.invokePluginCommand(pluginId, commandId, args)) ?? null }
+  }),
   definePluginMethod('workspace.readContext', async (_params, { services }) => {
     const context = await services.resolveActiveWorktreeContext()
     if (!context) {
@@ -118,7 +139,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('storage.set', async (params, { pluginId, services }) => {
     const { key, value } = params as { key: string; value: unknown }
-    const result = services.storage.set(pluginId, key, value)
+    const result = await services.storage.set(pluginId, key, value)
     if (!result.ok) {
       throw new Error(result.error)
     }
@@ -126,7 +147,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('storage.delete', async (params, { pluginId, services }) => {
     const { key } = params as { key: string }
-    services.storage.delete(pluginId, key)
+    await services.storage.delete(pluginId, key)
     return { ok: true }
   }),
   definePluginMethod('storage.keys', async (_params, { pluginId, services }) => {
@@ -142,7 +163,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('secrets.set', async (params, { pluginId, services }) => {
     const { key, value } = params as { key: string; value: string }
-    const result = services.secrets.set(pluginId, key, value)
+    const result = await services.secrets.set(pluginId, key, value)
     if (!result.ok) {
       throw new Error(result.error)
     }
@@ -150,7 +171,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('secrets.delete', async (params, { pluginId, services }) => {
     const { key } = params as { key: string }
-    services.secrets.delete(pluginId, key)
+    await services.secrets.delete(pluginId, key)
     return { ok: true }
   }),
   definePluginMethod('settings.get', async (_params, { pluginId, services }) => {
@@ -158,7 +179,7 @@ const HANDLERS = new Map<string, BoundPluginHostMethod>([
   }),
   definePluginMethod('settings.set', async (params, { pluginId, services }) => {
     const { key, value } = params as { key: string; value: unknown }
-    const result = services.settings.set(pluginId, key, value)
+    const result = await services.settings.set(pluginId, key, value)
     if (!result.ok) {
       throw new Error(result.error)
     }

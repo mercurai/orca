@@ -19,7 +19,12 @@ export const AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY =
 // older host refuses `accountEnv`. A client sends it only to a host advertising this.
 export const AGENT_SESSION_ACCOUNT_ENV_RUNTIME_CAPABILITY = 'agent-session.account-env.v1' as const
 
+/** Exact Codex speed IDs, next-turn admission, and safe legacy preference migration. */
+export const CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY =
+  'agent-session.codex-speed-selection.v1' as const
+
 export const AGENT_SESSION_CREATE_RUNTIME_CAPABILITIES = [
+  CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY,
   AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY,

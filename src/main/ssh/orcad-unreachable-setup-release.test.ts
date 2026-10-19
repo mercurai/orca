@@ -62,7 +62,7 @@ async function strandedConversion() {
   if (fenced.outcome !== 'fenced') {
     throw new Error('expected a fence')
   }
-  addManagedOrcadEnvironment(userDataPath, {
+  await addManagedOrcadEnvironment(userDataPath, {
     id: 'env-1',
     name: 'Managed',
     pairingCode: encodePairingOffer({
