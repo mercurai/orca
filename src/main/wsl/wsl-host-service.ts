@@ -12,11 +12,11 @@ import {
   readWslHostDeployments,
   type WslHostDeploymentRecord
 } from '../../shared/wsl-host-deployment-store'
-import {
-  type WslHostAddResult,
-  type WslHostDistro,
-  type WslHostServerStop,
-  type WslHostStatus
+import type {
+  WslHostAddResult,
+  WslHostDistro,
+  WslHostServerStop,
+  WslHostStatus
 } from '../../shared/wsl-host-types'
 import type { WslHostDistroCandidate } from './wsl-host-distro-list'
 import { wslHostSshManagedRefusal } from './wsl-host-ssh-orcad-conflict'

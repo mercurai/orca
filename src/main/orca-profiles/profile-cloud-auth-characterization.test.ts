@@ -1,3 +1,4 @@
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -552,6 +553,7 @@ describe('cloud auth characterization', () => {
         await readRelayAuthContext(authConfig(), userDataPath).catch(() => null)
       }
       expect(disk.failSessionWrites).toBe(0)
+      await drainPendingPathWrites()
       vi.resetModules()
       const store = await import('./profile-cloud-session-store')
       const session = store.readOrcaCloudSession(

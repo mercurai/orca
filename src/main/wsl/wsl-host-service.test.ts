@@ -158,7 +158,7 @@ describe('WslHostService', () => {
   })
 
   it('refuses a distro whose orcad this desktop already reaches as another server (R25)', async () => {
-    addEnvironmentFromPairingCode(userDataPath, {
+    await addEnvironmentFromPairingCode(userDataPath, {
       name: 'wsl over ssh',
       pairingCode: pairing(41000, 'other-token')
     })

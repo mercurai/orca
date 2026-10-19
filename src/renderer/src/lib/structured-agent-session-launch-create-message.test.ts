@@ -451,7 +451,10 @@ describe('the first message owned by create', () => {
     await expect(restored.promise).rejects.toBeInstanceOf(Error)
     expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId))
       .toBe('visibility-unknown')
-    expect(readStructuredAgentLaunchRecord(launch.sessionId)).toEqual(originalRecord)
+    expect(readStructuredAgentLaunchRecord(launch.sessionId)).toEqual({
+      ...originalRecord,
+      lifecycle: 'visibility-unknown'
+    })
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual([
       'agentSession.create', 'agentSession.history'
     ])
