@@ -49,4 +49,3 @@ it('loses nothing past the old budget: 200 drafts and over 5M characters all com
   const total = [...storage.drafts.values()].reduce((sum, draft) => sum + draft.text.length, 0)
   expect(total).toBeGreaterThan(5_000_000)
 })
-
