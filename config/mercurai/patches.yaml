@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-273068f9
     status: ours-only
     base: 273068f969071f687762eadb3709eb4f75a7384b
-    commit: 56724aa0830e7f947f59a27cc2df943f867467fb
+    commit: c7941d83ac6052b813b9a305d3dceddbe35a6230
     owner: harness
     added: 2026-10-18
     tests:
@@ -206,14 +206,16 @@ patches:
       - src/shared/wsl-host-deployment-store.test.ts
       - tests/e2e/cross-version-wire/managed-orcad-convert-downgrade.unit.test.ts
     notes: >-
-      Provisional exact candidate 56724aa0830e7f947f59a27cc2df943f867467fb,
-      source ff294e300c8aaab0227461137a8d3c039ab2c2e4,
-      tree 7313dcc00f5f0f69ad27c4ed718c48f8a730891b.
+      Provisional exact candidate c7941d83ac6052b813b9a305d3dceddbe35a6230,
+      source 9a02890c9b2e535870e793534d8cb4b2caa851bb,
+      tree 5623aaba99b669bebb7662ce8bb4aeee07245c07.
       Registered tests retain the predecessor union and every correction-wave Vitest suite;
       Playwright specs remain covered by their existing PR/E2E workflows, not this Vitest list.
       Scoped independent source reviews and clean actual-merge/retention audit accepted.
-      Full PR39184193725 and targeted/cost39184193689 are pending; no predecessor receipt
-      approves this candidate. CI-only dry-run assembly may use this pin, but default
+      Predecessor full PR39184193725 failed one type-import lint rule; assembly39184391556
+      passed2236 tests and failed6 fixture cases. Reviewed six-file corrections are now included;
+      fresh exact-head CI/assembly remains required. No predecessor receipt approves this pin.
+      CI-only dry-run assembly may use this pin, but default
       registration and publication remain blocked until exact-head gates pass.
       Frozen official base is 273068f969071f687762eadb3709eb4f75a7384b;
       v1.4.229 is the release-version floor. Source/patch trees must match protected
