@@ -8,11 +8,11 @@ import {
   type MobileE2EEV2Ready
 } from '../../../shared/mobile-e2ee-v2-contract'
 import { sealMobileE2EEV2Frame } from '../../../shared/mobile-e2ee-v2-framing'
-import type { DeviceRegistry } from '../device-registry'
 import { deriveSharedKey, encrypt, generateKeyPair } from '../../../shared/e2ee-crypto'
 import { deriveMobileE2EEV2KeySchedule } from '../../../shared/mobile-e2ee-v2-node-key-schedule'
 import {
   MobileSocketWiring,
+  type MobileSocketDeviceRegistry,
   type MobileSocketTransport,
   type MobileSocketTransportMetadata
 } from './mobile-socket-wiring'
@@ -53,7 +53,7 @@ function registryFor(
   deviceId: string,
   token: string,
   scope: 'mobile' | 'runtime' = 'mobile'
-): DeviceRegistry {
+): MobileSocketDeviceRegistry {
   return {
     prepareDeviceAuthentication: vi.fn(() => undefined),
     validateToken: (candidate: string) =>
@@ -67,9 +67,10 @@ function registryFor(
             lastSeenAt: 0
           }
         : null,
-    updateLastSeen: vi.fn(),
+    lookupDeviceKey: () => ({ kind: 'unknown' }),
+    pruneIdleEphemeralDevices: vi.fn(async () => []),
     updateLastSeenDeferred: vi.fn()
-  } as unknown as DeviceRegistry
+  }
 }
 
 describe('MobileSocketWiring', () => {
