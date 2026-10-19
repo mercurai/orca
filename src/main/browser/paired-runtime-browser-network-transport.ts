@@ -1,8 +1,8 @@
 import {
   BrowserNetworkTunnelEvent,
-  type BrowserHostLeaseAuthority,
-  type BrowserNetworkExecutionHost
+  type BrowserHostLeaseAuthority
 } from '../../shared/browser-client-host-protocol'
+import type { BrowserNetworkExecutionHost } from '../../shared/browser-network-execution-host'
 import type { PairedRuntimeConnection } from '../../shared/paired-runtime-connection'
 import {
   subscribeRemoteRuntimeRequest,

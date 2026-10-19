@@ -33,6 +33,7 @@ function editorTab(
   file: PersistedOpenFile
 ): HeadlessEditorTab {
   const unifiedTab = editorUnifiedTab(session, worktreeId, file)
+  const activeFileId = session.activeFileIdByWorktree?.[worktreeId]
   const common = {
     // A file's id is its path, which is also the unified tab's entity.
     id: unifiedTab?.id ?? file.filePath,
@@ -42,7 +43,8 @@ function editorTab(
     isDirty: file.dirtyDraftContent !== undefined,
     isActive:
       session.activeTabTypeByWorktree?.[worktreeId] === 'editor' &&
-      session.activeFileIdByWorktree?.[worktreeId] === file.filePath,
+      !!activeFileId &&
+      editorTabShowsFile(activeFileId, file, worktreeId),
     color: unifiedTab?.color ?? null,
     isPinned: unifiedTab?.isPinned === true
   }
@@ -97,7 +99,8 @@ export function retireHeadlessEditorTab(
     tabOrder: withoutTab(group.tabOrder) ?? [],
     ...(group.recentTabIds ? { recentTabIds: withoutTab(group.recentTabIds) } : {})
   }))
-  const wasActiveFile = session.activeFileIdByWorktree?.[worktreeId] === tab.filePath
+  const activeFileId = session.activeFileIdByWorktree?.[worktreeId]
+  const wasActiveFile = !!activeFileId && editorTabShowsFile(activeFileId, file, worktreeId)
   return {
     ...session,
     openFilesByWorktree: {

@@ -16,6 +16,32 @@ export function editorTabShowsFile(entityId: string, file: FileOwner, worktreeId
   )
 }
 
+/**
+ * A file record's key among its workspace's records: its path, and in a layout-owner build its
+ * runtime owner too, since a local and a runtime-environment file can share a path.
+ */
+export function editorFileKey(file: FileOwner): string {
+  // Why no worktree: every record keyed here belongs to one workspace, or moves between two.
+  return ORCA_LAYOUT_OWNER_IS_MAIN
+    ? ownedEditorFileId(file.filePath, '', file.runtimeEnvironmentId)
+    : file.filePath
+}
+
+export function sameEditorFile(a: FileOwner, b: FileOwner): boolean {
+  return editorFileKey(a) === editorFileKey(b)
+}
+
+/** Whether an editor file id (a bare path or an owned id) names one of the workspace's records. */
+export function holdsEditorFileId(
+  workspace: { worktreeId: string; editorFiles?: readonly FileOwner[] },
+  fileId: string
+): boolean {
+  return (
+    workspace.editorFiles?.some((file) => editorTabShowsFile(fileId, file, workspace.worktreeId)) ??
+    false
+  )
+}
+
 export function editorTabFile<F extends FileOwner>(
   workspace: { worktreeId: string; editorFiles?: readonly F[] },
   entityId: string
@@ -23,4 +49,40 @@ export function editorTabFile<F extends FileOwner>(
   return workspace.editorFiles?.find((file) =>
     editorTabShowsFile(entityId, file, workspace.worktreeId)
   )
+}
+
+type EditorWorkspace<F> = {
+  worktreeId: string
+  tabs: readonly { entityId: string }[]
+  editorFiles?: readonly F[]
+}
+
+/**
+ * The records an editor tab shows. The window gives a path's bare id to one owner only, so a bare
+ * id that matches several records names those no owned-id tab claims.
+ */
+function editorTabFiles<F extends FileOwner>(workspace: EditorWorkspace<F>, entityId: string): F[] {
+  const shown = (workspace.editorFiles ?? []).filter((file) =>
+    editorTabShowsFile(entityId, file, workspace.worktreeId)
+  )
+  if (shown.length < 2) {
+    return shown
+  }
+  const ids = new Set(workspace.tabs.map((tab) => tab.entityId))
+  const unclaimed = shown.filter(
+    (file) =>
+      !ids.has(ownedEditorFileId(file.filePath, workspace.worktreeId, file.runtimeEnvironmentId))
+  )
+  return unclaimed.length > 0 ? unclaimed : shown
+}
+
+/** Whether a record stays once `entityId`'s last tab closed: not that tab's, or another tab's too. */
+export function keptAfterEditorClose<F extends FileOwner>(
+  before: EditorWorkspace<F>,
+  after: { tabs: readonly { entityId: string }[] },
+  entityId: string
+): (file: F) => boolean {
+  const closed = new Set(editorTabFiles(before, entityId))
+  const shown = new Set(after.tabs.flatMap((tab) => editorTabFiles(before, tab.entityId)))
+  return (file) => !closed.has(file) || shown.has(file)
 }

@@ -5,7 +5,7 @@ import {
   isFloatingWorkspaceSelector
 } from '../../../../shared/floating-workspace-worktree'
 import { resolveFloatingTerminalCwd } from '../../../ipc/floating-workspace-directory'
-import type { BrowserNetworkExecutionHost } from '../../../../shared/browser-client-host-protocol'
+import type { BrowserNetworkExecutionHost } from '../../../../shared/browser-network-execution-host'
 import {
   LOCAL_EXECUTION_HOST_ID,
   getConnectionExecutionHostId,

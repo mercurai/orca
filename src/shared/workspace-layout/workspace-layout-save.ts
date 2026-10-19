@@ -15,7 +15,7 @@ import {
   FACT_SESSION_FIELDS,
   VIEW_SESSION_FIELDS
 } from './workspace-layout-beside'
-import { editorTabShowsFile } from './workspace-layout-editor-tab-file'
+import { editorFileKey, editorTabShowsFile } from './workspace-layout-editor-tab-file'
 import type { LoadedWorkspaceLayout } from './workspace-layout-load-types'
 import { collectLayoutLeafIdsInOrder } from './terminal-pane-tree'
 import { paneKeyOf, tabsInOrder, type WorkspaceLayout } from './workspace-layout-model'
@@ -107,7 +107,7 @@ function saveWorkspace(
       ...(previewTabs.some((tab) => editorTabShowsFile(tab.entityId, file, worktreeId))
         ? { isPreview: true }
         : {}),
-      ...view.editorDrafts[key]?.[file.filePath]
+      ...view.editorDrafts[key]?.[editorFileKey(file)]
     }))
   }
   if (workspace.browserTabs) {
