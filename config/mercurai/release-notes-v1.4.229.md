@@ -11,12 +11,12 @@ installation, runtime and rollback acceptance before using this text as release 
 
 ## Source and provenance
 
-- Official source boundary: `273068f969071f687762eadb3709eb4f75a7384b`.
+- Official source boundary: `613c5986e3e2671c8603b503bbf171692487f866`.
 - Official release floor: `v1.4.229`, commit `a0cd1644f320f1327f7495650a816111b495f3cd`.
-- Provisional consolidated candidate: `c1a902a425cd6709a549adf88e2c996359063e76`.
-- Candidate tree: `c91e2be21cff6a8c4924840f21b7db6e40a757c5`, identical to source `823803e895`.
+- Provisional consolidated candidate: `19e2b167e7064a3ee76cd3d7356ec05e925f1874`.
+- Candidate tree: `1ca2f603c21bfe130006e9b910a22acbad976c5b`, identical to source `bf3417557c`.
 - Registration, full CI and release acceptance remain pending.
-- Release candidate: [product PR56](https://github.com/mercurai/orca/pull/56).
+- Release candidate: [product PR57](https://github.com/mercurai/orca/pull/57).
 - Original integration history: [superseded PR47](https://github.com/mercurai/orca/pull/47).
 - Protected assembly support: [management PR48](https://github.com/mercurai/orca/pull/48).
 

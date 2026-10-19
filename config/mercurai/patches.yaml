@@ -5,14 +5,14 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: 273068f969071f687762eadb3709eb4f75a7384b
+base: 613c5986e3e2671c8603b503bbf171692487f866
 release_branch: release/mercurai
 patches:
   - slug: current-main-release-20261018
-    branch: patch/current-main-release-273068f9
+    branch: patch/current-main-release-613c5986
     status: ours-only
-    base: 273068f969071f687762eadb3709eb4f75a7384b
-    commit: c1a902a425cd6709a549adf88e2c996359063e76
+    base: 613c5986e3e2671c8603b503bbf171692487f866
+    commit: 19e2b167e7064a3ee76cd3d7356ec05e925f1874
     owner: harness
     added: 2026-10-18
     tests:
@@ -206,9 +206,9 @@ patches:
       - src/shared/wsl-host-deployment-store.test.ts
       - tests/e2e/cross-version-wire/managed-orcad-convert-downgrade.unit.test.ts
     notes: >-
-      Provisional exact candidate c1a902a425cd6709a549adf88e2c996359063e76,
-      source 823803e89530c2c1c4bf17e2e2bfcdb1b7e50b78,
-      tree c91e2be21cff6a8c4924840f21b7db6e40a757c5.
+      Provisional exact candidate 19e2b167e7064a3ee76cd3d7356ec05e925f1874,
+      source bf3417557c71d511db9383ffe8f7a1cf44848c0d,
+      tree 1ca2f603c21bfe130006e9b910a22acbad976c5b.
       Registered tests retain the predecessor union and every correction-wave Vitest suite;
       Playwright specs remain covered by their existing PR/E2E workflows, not this Vitest list.
       Scoped independent source reviews and clean actual-merge/retention audit accepted.
@@ -223,7 +223,7 @@ patches:
       No predecessor receipt approves this pin.
       CI-only dry-run assembly may use this pin, but default
       registration and publication remain blocked until exact-head gates pass.
-      Frozen official base is 273068f969071f687762eadb3709eb4f75a7384b;
+      Frozen official base is 613c5986e3e2671c8603b503bbf171692487f866;
       v1.4.229 is the release-version floor. Source/patch trees must match protected
       assembly output before publication. Later official commits belong to the next cut.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
