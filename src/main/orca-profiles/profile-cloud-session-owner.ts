@@ -4,12 +4,15 @@ import type {
   OrcaProfileCloudSummary,
   OrcaProfileListState
 } from '../../shared/orca-profiles'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { SecureWriteDiscardedError } from '../../shared/secure-file-async-write'
 import { linkOrcaProfileToCloud } from './profile-cloud-index'
 import { getOrcaProfileListState, loadOrCreateProfileIndex } from './profile-index-store'
 import type { OrcaCloudSessionExchangeResponse } from './profile-cloud-session-exchange'
 import {
   clearOrcaCloudSession,
   flushUnsavedOrcaCloudSessions,
+  getOrcaCloudSessionPath,
   orcaCloudSessionKey,
   readOrcaCloudSession,
   saveOrcaCloudSession,
@@ -19,6 +22,10 @@ import {
 
 // The one owner of each profile's cloud session: every read and write of the session goes
 // through here. Callers ask for changes; they never write a session they built themselves.
+//
+// Writes are async, so changes that save run one at a time per profile: each re-checks its
+// ticket against the state the previous one left, never a snapshot taken before an await.
+// Fences (sign-out, invalidation, relink start) stay synchronous and take effect at once.
 
 type SessionOwnerState = {
   // Bumped by sign-in and sign-out: a change begun before either may not land.
@@ -28,6 +35,8 @@ type SessionOwnerState = {
   linkVersion: number
   // Signed out this run: the file is ignored even if it could not be removed.
   signedOut: boolean
+  // Counts completed sign-out fences: a sign-in requested before one may not land after it.
+  signOuts: number
 }
 
 export type CloudSessionTicket = { generation: number; linkVersion: number }
@@ -44,10 +53,18 @@ function ownerOf(profileId: string, userDataPath: string): SessionOwnerState {
   const key = orcaCloudSessionKey(profileId, userDataPath)
   let owner = owners.get(key)
   if (!owner) {
-    owner = { generation: 0, linkVersion: 0, signedOut: false }
+    owner = { generation: 0, linkVersion: 0, signedOut: false, signOuts: 0 }
     owners.set(key, owner)
   }
   return owner
+}
+
+function serializedChange<T>(
+  profileId: string,
+  userDataPath: string,
+  change: () => Promise<T>
+): Promise<T> {
+  return serializePathWrite(`${getOrcaCloudSessionPath(profileId, userDataPath)}#change`, change)
 }
 
 function isSameOrgAsLink(
@@ -61,18 +78,30 @@ function isSameOrgAsLink(
   return (linked?.activeOrgId ?? '') === (cloud.activeOrgId ?? '')
 }
 
-function relink(
+async function relink(
   owner: SessionOwnerState,
   profileId: string,
   userDataPath: string,
   cloud: OrcaProfileCloudSummary
-): OrcaProfileListState {
+): Promise<OrcaProfileListState> {
   const orgChanged = !isSameOrgAsLink(profileId, userDataPath, cloud)
-  const list = linkOrcaProfileToCloud(profileId, cloud, userDataPath)
+  const list = await linkOrcaProfileToCloud(profileId, cloud, userDataPath)
   if (orgChanged) {
     owner.linkVersion++
   }
   return list
+}
+
+// A sign-out that discarded the write is a lost race, not a failure.
+async function savedOrNull<T>(save: () => Promise<T>): Promise<T | null> {
+  try {
+    return await save()
+  } catch (error) {
+    if (error instanceof SecureWriteDiscardedError) {
+      return null
+    }
+    throw error
+  }
 }
 
 export function readCloudSession(
@@ -98,16 +127,29 @@ export function signInCloudSession(
   profileId: string,
   userDataPath: string,
   exchange: OrcaCloudSessionExchangeResponse
-): void {
-  saveOrcaCloudSession(profileId, userDataPath, {
-    accessToken: exchange.accessToken,
-    refreshToken: exchange.refreshToken,
-    expiresAt: exchange.expiresAt,
-    organizations: exchange.organizations,
-    capabilities: exchange.capabilities
+): Promise<void> {
+  const owner = ownerOf(profileId, userDataPath)
+  const signOutsAtRequest = owner.signOuts
+  return serializedChange(profileId, userDataPath, async () => {
+    // Why: a sign-out after the request wins even if it ran before this write was dequeued.
+    if (owner.signOuts !== signOutsAtRequest) {
+      throw new Error('Signed out while signing in.')
+    }
+    const saved = await savedOrNull(() =>
+      saveOrcaCloudSession(profileId, userDataPath, {
+        accessToken: exchange.accessToken,
+        refreshToken: exchange.refreshToken,
+        expiresAt: exchange.expiresAt,
+        organizations: exchange.organizations,
+        capabilities: exchange.capabilities
+      })
+    )
+    if (saved === null) {
+      throw new Error('Signed out while signing in.')
+    }
+    invalidateCloudSessionChanges(profileId, userDataPath)
+    owner.signedOut = false
   })
-  invalidateCloudSessionChanges(profileId, userDataPath)
-  ownerOf(profileId, userDataPath).signedOut = false
 }
 
 // Fences off every change in flight, e.g. before sign-out's network revoke.
@@ -119,7 +161,9 @@ export function invalidateCloudSessionChanges(profileId: string, userDataPath: s
 
 export function signOutCloudSession(profileId: string, userDataPath: string): void {
   invalidateCloudSessionChanges(profileId, userDataPath)
-  ownerOf(profileId, userDataPath).signedOut = true
+  const owner = ownerOf(profileId, userDataPath)
+  owner.signedOut = true
+  owner.signOuts++
   try {
     clearOrcaCloudSession(profileId, userDataPath)
   } catch {
@@ -159,34 +203,42 @@ export function commitCloudSessionRotation(
   ticket: CloudSessionTicket,
   spent: OrcaCloudSession,
   rotated: OrcaCloudSessionExchangeResponse
-): OrcaCloudSession | null {
-  const owner = ownerOf(profileId, userDataPath)
-  const current = readCloudSession(profileId, userDataPath)
-  if (
-    owner.generation !== ticket.generation ||
-    current.status !== 'found' ||
-    current.session.refreshToken !== spent.refreshToken
-  ) {
-    return null
-  }
-  const tokens = {
-    accessToken: rotated.accessToken,
-    refreshToken: rotated.refreshToken,
-    expiresAt: rotated.expiresAt
-  }
-  const linkUnmoved = owner.linkVersion === ticket.linkVersion
-  const next = linkUnmoved
-    ? { ...tokens, organizations: rotated.organizations, capabilities: rotated.capabilities }
-    : { ...current.session, ...tokens }
-  saveOrcaCloudSession(profileId, userDataPath, next, { spentOnFailure: true })
-  if (linkUnmoved) {
-    try {
-      relink(owner, profileId, userDataPath, rotated.cloud)
-    } catch {
-      // The tokens are saved; the link is retried by the next refresh or org change.
+): Promise<OrcaCloudSession | null> {
+  return serializedChange(profileId, userDataPath, async () => {
+    const owner = ownerOf(profileId, userDataPath)
+    const current = readCloudSession(profileId, userDataPath)
+    if (
+      owner.generation !== ticket.generation ||
+      current.status !== 'found' ||
+      current.session.refreshToken !== spent.refreshToken
+    ) {
+      return null
     }
-  }
-  return next
+    const tokens = {
+      accessToken: rotated.accessToken,
+      refreshToken: rotated.refreshToken,
+      expiresAt: rotated.expiresAt
+    }
+    const linkUnmoved = owner.linkVersion === ticket.linkVersion
+    const next = linkUnmoved
+      ? { ...tokens, organizations: rotated.organizations, capabilities: rotated.capabilities }
+      : { ...current.session, ...tokens }
+    const saved = await savedOrNull(() =>
+      saveOrcaCloudSession(profileId, userDataPath, next, { spentOnFailure: true })
+    )
+    // Signed out mid-write: the clear won and the rotated session is gone with it.
+    if (saved === null || owner.generation !== ticket.generation) {
+      return null
+    }
+    if (linkUnmoved) {
+      try {
+        await relink(owner, profileId, userDataPath, rotated.cloud)
+      } catch {
+        // The tokens are saved; the link is retried by the next refresh or org change.
+      }
+    }
+    return next
+  })
 }
 
 // Org selection moves the link before its request, so a refresh already in flight lands
@@ -205,23 +257,30 @@ function commitServerReply(
   ticket: CloudSessionTicket,
   reply: CloudSessionServerReply,
   acceptsSameOrg: boolean
-): OrcaProfileListState | null {
-  const owner = ownerOf(profileId, userDataPath)
-  const current = readCloudSession(profileId, userDataPath)
-  const linkMoved =
-    owner.linkVersion !== ticket.linkVersion &&
-    !(acceptsSameOrg && reply.cloud && isSameOrgAsLink(profileId, userDataPath, reply.cloud))
-  if (owner.generation !== ticket.generation || current.status !== 'found' || linkMoved) {
-    return null
-  }
-  saveOrcaCloudSession(profileId, userDataPath, {
-    ...current.session,
-    organizations: reply.organizations ?? current.session.organizations,
-    capabilities: reply.capabilities
+): Promise<OrcaProfileListState | null> {
+  return serializedChange(profileId, userDataPath, async () => {
+    const owner = ownerOf(profileId, userDataPath)
+    const current = readCloudSession(profileId, userDataPath)
+    const linkMoved =
+      owner.linkVersion !== ticket.linkVersion &&
+      !(acceptsSameOrg && reply.cloud && isSameOrgAsLink(profileId, userDataPath, reply.cloud))
+    if (owner.generation !== ticket.generation || current.status !== 'found' || linkMoved) {
+      return null
+    }
+    const saved = await savedOrNull(() =>
+      saveOrcaCloudSession(profileId, userDataPath, {
+        ...current.session,
+        organizations: reply.organizations ?? current.session.organizations,
+        capabilities: reply.capabilities
+      })
+    )
+    if (saved === null || owner.generation !== ticket.generation) {
+      return null
+    }
+    return reply.cloud
+      ? await relink(owner, profileId, userDataPath, reply.cloud)
+      : getOrcaProfileListState(userDataPath)
   })
-  return reply.cloud
-    ? relink(owner, profileId, userDataPath, reply.cloud)
-    : getOrcaProfileListState(userDataPath)
 }
 
 /**
@@ -233,7 +292,7 @@ export function commitCloudSessionRelink(
   userDataPath: string,
   ticket: CloudSessionTicket,
   reply: CloudSessionServerReply
-): OrcaProfileListState | null {
+): Promise<OrcaProfileListState | null> {
   return commitServerReply(profileId, userDataPath, ticket, reply, true)
 }
 
@@ -243,11 +302,12 @@ export function commitCloudSessionCapabilities(
   userDataPath: string,
   ticket: CloudSessionTicket,
   reply: CloudSessionServerReply
-): OrcaProfileListState | null {
+): Promise<OrcaProfileListState | null> {
   return commitServerReply(profileId, userDataPath, ticket, reply, false)
 }
 
-// Writes any rotation still held only in memory; called on quit and OS shutdown.
+// Starts the retry of any rotation still held only in memory; called on quit and OS shutdown.
+// The writes ride the secure-file path lanes, which the quit drain waits for.
 export function flushUnsavedCloudSessions(): void {
   flushUnsavedOrcaCloudSessions()
 }

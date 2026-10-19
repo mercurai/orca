@@ -57,10 +57,10 @@ function makeDeps(overrides: Partial<FirstWorkBranchRenameDeps> = {}) {
 }
 
 let userDataPath: string
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-rename-'))
   loadWslMoveFence(userDataPath)
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced', {}, { repoIds: [REPO_ID] }))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced', {}, { repoIds: [REPO_ID] }))
   resetFirstWorkBranchRenameState()
   vi.clearAllMocks()
   resolveTextGenerationParamsMock.mockReturnValue({

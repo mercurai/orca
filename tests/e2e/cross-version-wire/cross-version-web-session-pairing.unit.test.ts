@@ -19,7 +19,7 @@ const SUITE_TIMEOUT_MS = 180_000
 
 type RegistryLike = {
   validateToken(token: string): { deviceId: string } | null
-  updateLastSeen(deviceId: string): void
+  updateLastSeen(deviceId: string): void | Promise<void>
 }
 
 let ReleasedRegistry: new (userDataPath: string) => RegistryLike
@@ -42,17 +42,17 @@ describe('cross-version: session-only browser rows', () => {
     expect(releasedCapabilities).not.toContain(DEVICE_KEY_EPHEMERAL_RUNTIME_CAPABILITY)
   })
 
-  it('a released registry keeps the session row and token rows; this host drops it on restart', () => {
+  it('a released registry keeps the session row and token rows; this host drops it on restart', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-xv-web-session-'))
     const current = new DeviceRegistry(userDataPath)
-    const legacy = current.addDevice('Browser', 'runtime')
-    current.updateLastSeen(legacy.deviceId)
+    const legacy = await current.addDevice('Browser', 'runtime')
+    await current.updateLastSeen(legacy.deviceId)
     const keyB64 = Buffer.from(nacl.sign.keyPair().publicKey).toString('base64')
-    const session = current.forkDeviceKey(legacy.deviceId, keyB64, 'Tab', { ephemeral: true })
+    const session = await current.forkDeviceKey(legacy.deviceId, keyB64, 'Tab', { ephemeral: true })
 
     const released = new ReleasedRegistry(userDataPath)
     expect(released.validateToken(legacy.token)?.deviceId).toBe(legacy.deviceId)
-    released.updateLastSeen(legacy.deviceId)
+    await released.updateLastSeen(legacy.deviceId)
     const rows: DeviceEntry[] = JSON.parse(
       readFileSync(join(userDataPath, DEVICE_REGISTRY_FILENAME), 'utf8')
     )

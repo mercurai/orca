@@ -49,11 +49,11 @@ const MOVING = 'repo-1::/workspace/feature-wt'
 const STAYING = 'repo-2::/workspace/other-wt'
 
 let userDataPath: string
-beforeEach(() => {
+beforeEach(async () => {
   setupWorktreeHandlers()
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-worktree-ipc-'))
   loadWslMoveFence(userDataPath)
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
 })
 afterEach(() => {
   resetWslMoveFenceForTests()

@@ -1,3 +1,4 @@
+import { completeWslHostAdd, WslHostConnectionChanges } from './wsl-host-connection-change'
 /**
  * WSL distros as hosts (WSL-via-orcad C7): add and remove them, persist what each connection
  * reports, and connect only for the user. A stopped distro boots on an explicit add or connect,
@@ -5,19 +6,17 @@
  */
 import { errorMessage } from '../../shared/error-message'
 import {
-  addWslHostEnvironment,
   removeWslHostEnvironment
 } from '../../shared/runtime-environment-wsl-host-store'
 import {
   readWslHostDeployments,
   type WslHostDeploymentRecord
 } from '../../shared/wsl-host-deployment-store'
-import {
-  wslHostEnvironmentLabel,
-  type WslHostAddResult,
-  type WslHostDistro,
-  type WslHostServerStop,
-  type WslHostStatus
+import type {
+  WslHostAddResult,
+  WslHostDistro,
+  WslHostServerStop,
+  WslHostStatus
 } from '../../shared/wsl-host-types'
 import type { WslHostDistroCandidate } from './wsl-host-distro-list'
 import { wslHostSshManagedRefusal } from './wsl-host-ssh-orcad-conflict'
@@ -73,8 +72,23 @@ export class WslHostService {
   private readonly removing = new Set<string>()
   // Bumped on disable so an Add that started before it cannot finish as a ready host.
   private disableGeneration = 0
+  private readonly connectionChanges: WslHostConnectionChanges
 
-  constructor(private readonly deps: WslHostServiceDependencies) {}
+  constructor(private readonly deps: WslHostServiceDependencies) {
+    this.connectionChanges = new WslHostConnectionChanges({
+      record: (distro) => this.recordForDistro(distro),
+      generation: () => this.disableGeneration,
+      current: (record, generation) => this.connectionIsCurrent(record, generation),
+      persist: (record, connection, current) => persistWslHostConnection(deps.userDataPath(), record, connection, current),
+      pairingChanged: deps.pairingChanged,
+      publish: (record, status, connection) => {
+        this.setStatus(record, status, connection)
+        if (status.state === 'ready' && connection) {
+          deps.ready(record.environmentId)
+        }
+      }
+    })
+  }
 
   /** Two-phase so the connector's `onChange` can call back into this service. */
   attach(connector: WslHostConnector): void {
@@ -89,22 +103,15 @@ export class WslHostService {
   }
 
   /** C5's `onChange`: persist what moved, then tell the UI. */
-  handleConnectionChange(
-    distro: string,
-    connection: WslOrcadConnection | null,
-    status: WslOrcadConnectionStatus
-  ): void {
-    const record = this.recordForDistro(distro)
-    if (!record) {
-      return
-    }
-    if (connection && persistWslHostConnection(this.deps.userDataPath(), record, connection)) {
-      this.deps.pairingChanged(record.environmentId)
-    }
-    this.setStatus(record, status, connection)
-    if (status.state === 'ready' && connection) {
-      this.deps.ready(record.environmentId)
-    }
+  handleConnectionChange(distro: string, connection: WslOrcadConnection | null,
+    status: WslOrcadConnectionStatus): Promise<void> {
+    return this.connectionChanges.handle(distro, connection, status)
+  }
+
+  private connectionIsCurrent(record: WslHostDeploymentRecord, generation: number): boolean {
+    const owner = this.recordForEnvironment(record.environmentId)
+    return this.disableGeneration === generation && !this.removing.has(record.environmentId) &&
+      owner?.createdAt === record.createdAt && owner.distroId === record.distroId && this.canRun()
   }
 
   getStatuses(): WslHostStatus[] {
@@ -150,7 +157,7 @@ export class WslHostService {
         // Without its holder the distro idles out.
         await connector.releaseHolder(record.distro)
       }
-      removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
+      await removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
       this.visible.delete(environmentId)
     } finally {
       // Why: a failed removal (e.g. EBUSY on Windows) must leave the host usable and removable.
@@ -283,6 +290,9 @@ export class WslHostService {
     if (!('distro' in admission)) {
       return admission
     }
+    if (generation !== this.disableGeneration || !this.canRun()) {
+      return { ok: false, kind: 'disabled', message: WSL_HOSTS_DISABLED_MESSAGE }
+    }
     const { distro } = admission
     const userDataPath = this.deps.userDataPath()
     const sharing = await wslHostSshManagedRefusal(distro.name, userDataPath, (name) =>
@@ -290,6 +300,9 @@ export class WslHostService {
     )
     if (sharing) {
       return sharing
+    }
+    if (generation !== this.disableGeneration || !this.canRun()) {
+      return { ok: false, kind: 'disabled', message: WSL_HOSTS_DISABLED_MESSAGE }
     }
     const environmentId = defaultWslOrcadEnvironmentId(distro.name)
     const connected = await connectForWslHostAdd(this.wsl, distro.name, () =>
@@ -301,29 +314,19 @@ export class WslHostService {
       return connected
     }
     const { connection } = connected
-    try {
-      addWslHostEnvironment(userDataPath, {
-        id: environmentId,
-        name: wslHostEnvironmentLabel(distro.name),
-        pairingCode: connection.pairingOffer,
-        record: {
-          kind: 'wsl',
-          distro: distro.name,
-          distroId: distro.id,
-          localPort: connection.localPort,
-          remotePort: connection.remotePort
+    return completeWslHostAdd({
+      userDataPath, distro, environmentId, connection,
+      isCurrent: () => generation === this.disableGeneration && this.canRun() &&
+        !this.removing.has(environmentId),
+      abandon: () => abandonWslHostAdd(this.wsl, distro.name),
+      publish: () => {
+        const record = this.recordForEnvironment(environmentId)
+        if (record) {
+          this.setStatus(record, { state: 'ready', census: null }, connection)
         }
-      })
-    } catch (error) {
-      await abandonWslHostAdd(this.wsl, distro.name)
-      return { ok: false, kind: 'failed', message: errorMessage(error) }
-    }
-    const record = this.recordForEnvironment(environmentId)
-    if (record) {
-      this.setStatus(record, { state: 'ready', census: null }, connection)
-    }
-    this.deps.ready(environmentId)
-    return { ok: true, environmentId }
+        this.deps.ready(environmentId)
+      }
+    })
   }
 
   private setStatus(

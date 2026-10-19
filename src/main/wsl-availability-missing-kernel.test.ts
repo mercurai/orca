@@ -11,7 +11,13 @@ vi.mock('./wsl-interop-spawn-directory', () => ({
 }))
 
 const originalPlatform = process.platform
-const success: ProcessResult = { code: 0, signal: null, stdout: '', stderr: '', timedOut: false }
+const success: ProcessResult = {
+  code: 0,
+  signal: null,
+  stdout: '',
+  stderr: '',
+  timedOut: false
+}
 
 describe('WSL1 availability without WSL2 kernel', () => {
   const guestCalls = () =>

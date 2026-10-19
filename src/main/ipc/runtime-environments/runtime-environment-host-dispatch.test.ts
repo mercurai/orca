@@ -207,40 +207,40 @@ describe('runtimeEnvironments:remove by host kind', () => {
     expect(mocks.retire).not.toHaveBeenCalled()
   })
 
-  it('removes a WSL host generically when no service exists', () => {
+  it('removes a WSL host generically when no service exists', async () => {
     useHost('wsl')
     mocks.wsl.service = null
-    expect(handler('runtimeEnvironments:remove')(null, { selector: 'Ubuntu (WSL)' })).toEqual({
+    expect(await handler('runtimeEnvironments:remove')(null, { selector: 'Ubuntu (WSL)' })).toEqual({
       removed: redacted('wsl')
     })
     expect(mocks.removeEnvironment).toHaveBeenCalledWith('/u', 'Ubuntu (WSL)')
     expect(mocks.closeRequest).toHaveBeenCalledWith('Ubuntu (WSL)')
   })
 
-  it('refuses a WSL host with the gate closed', () => {
+  it('refuses a WSL host with the gate closed', async () => {
     useHost('wsl')
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
-    expect(() => handler('runtimeEnvironments:remove')(null, { selector: 'wsl:ubuntu' })).toThrow(
+    await expect(handler('runtimeEnvironments:remove')(null, { selector: 'wsl:ubuntu' })).rejects.toThrow(
       WSL_HOSTS_GATED_OFF_MESSAGE
     )
     expect(mocks.wsl.service!.remove).not.toHaveBeenCalled()
     expect(mocks.removeEnvironment).not.toHaveBeenCalled()
   })
 
-  it('refuses the default host before the gate check', () => {
+  it('refuses the default host before the gate check', async () => {
     mocks.handle.mockClear()
     register('wsl:ubuntu')
     useHost('wsl')
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
-    expect(() => handler('runtimeEnvironments:remove')(null, { selector: 'wsl:ubuntu' })).toThrow(
+    await expect(handler('runtimeEnvironments:remove')(null, { selector: 'wsl:ubuntu' })).rejects.toThrow(
       'This server is the default host for new projects. Choose another one in Advanced before removing it.'
     )
   })
 
-  it.each(NETWORK_HOSTS)('removes a %s host generically and synchronously', (name) => {
+  it.each(NETWORK_HOSTS)('removes a %s host generically after persistence', async (name) => {
     useHost(name)
     const id = HOSTS[name].id
-    expect(handler('runtimeEnvironments:remove')(null, { selector: id })).toEqual({
+    expect(await handler('runtimeEnvironments:remove')(null, { selector: id })).toEqual({
       removed: redacted(name)
     })
     expect(mocks.wsl.service!.remove).not.toHaveBeenCalled()

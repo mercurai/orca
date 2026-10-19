@@ -7,61 +7,39 @@ import {
 } from './mobile-e2ee-v2-desktop-session'
 import type { DesktopMobileE2EEV2OutboundItem as V2OutboundItem } from './mobile-e2ee-v2-desktop-outbound'
 import { handleDesktopMobileE2EEV2Inbound } from './mobile-e2ee-v2-desktop-inbound'
+import { decodeMobileE2EEPublicKey } from './mobile-e2ee-auth-validation'
 import {
-  authenticateMobileE2EE,
-  decodeMobileE2EEPublicKey,
-  describeMobileE2EEAuthFailure,
-  type DeviceKeyResolution
-} from './mobile-e2ee-auth-validation'
+  admitMobileE2EEAuthentication,
+  type E2EEChannelOptions,
+  type E2EEMessageHandler,
+  type E2EEAuthenticatedDevice
+} from './mobile-e2ee-auth-admission'
 import { isMobileE2EEOutboundItemWithinLimit } from './mobile-e2ee-outbound-admission'
 import { parseRemoteRuntimeJsonText } from '../../../shared/remote-runtime-request-frames'
-import type { MobileE2EEOutboundMemoryBudget } from './mobile-e2ee-outbound-memory-budget'
 import { MobileE2EEDesktopOutboundOwner } from './mobile-e2ee-desktop-outbound-owner'
 import { createLegacyReplySenders } from './mobile-e2ee-legacy-reply-senders'
 import { parseRuntimeClientCapabilities } from './runtime-client-capabilities'
-import type {
-  RpcBinarySendOptions,
-  RpcBinarySendResult,
-  RpcBinarySender
-} from './rpc-binary-sender'
+import type { RpcBinarySendOptions, RpcBinarySendResult } from './rpc-binary-sender'
 import type { RuntimeCapability } from '../../../shared/protocol-version'
 import type { EventProps } from '../../../shared/telemetry-events'
 import { track } from '../../telemetry/client'
-import type { DevicePrincipal } from '../device-principal'
 
 type OutboundBudgetEmitter = EventProps<'remote_outbound_budget_close'>['emitter']
 
 const HANDSHAKE_TIMEOUT_MS = 10_000
 const MAX_CONSECUTIVE_DECRYPT_FAILURES = 5
 
-export type E2EEChannelOptions = {
-  serverSecretKey: Uint8Array
-  resolveAuthenticatedDevice: (token: string) => E2EEAuthenticatedDevice | null
-  // Absent: key auth is refused as bad_auth, the same as before device keys existed.
-  resolveAuthenticatedDeviceKey?: (deviceId: string) => DeviceKeyResolution<E2EEAuthenticatedDevice>
-  onReady: (channel: E2EEChannel, device: E2EEAuthenticatedDevice) => void
-  onError: (code: number, reason: string) => void
-  transportContext?: DesktopMobileE2EEV2Context
-  requireV2?: boolean
-  outboundMemoryBudget?: MobileE2EEOutboundMemoryBudget
-}
-
-export type E2EEAuthenticatedDevice = DevicePrincipal & {
-  // Absent for a keyed row, which never presented a bearer.
-  deviceToken?: string
-}
+export type { E2EEChannelOptions, E2EEAuthenticatedDevice } from './mobile-e2ee-auth-admission'
 
 export class E2EEChannel {
-  private state: 'awaiting_hello' | 'awaiting_auth' | 'ready' = 'awaiting_hello'
+  private state: 'awaiting_hello' | 'awaiting_auth' | 'authenticating' | 'ready' | 'closed' = 'awaiting_hello'
   private sharedKey: Uint8Array | null = null
   private consecutiveFailures = 0
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null
   private readonly ws: WebSocket
   private readonly serverSecretKey: Uint8Array
-  private readonly resolvers: Pick<
-    E2EEChannelOptions,
-    'resolveAuthenticatedDevice' | 'resolveAuthenticatedDeviceKey'
-  >
+  private readonly resolvers: E2EEChannelOptions
+  private readonly beforeReady: E2EEChannelOptions['beforeReady']
   private readonly onReady: (channel: E2EEChannel, device: E2EEAuthenticatedDevice) => void
   private readonly onError: (code: number, reason: string) => void
   private readonly transportContext: DesktopMobileE2EEV2Context
@@ -69,13 +47,7 @@ export class E2EEChannel {
   private readonly outbound: MobileE2EEDesktopOutboundOwner
   private v2Session: DesktopMobileE2EEV2Session | null = null
   // Why: the handler is set after readiness because its reply closure needs this channel's encryption state.
-  private messageHandler:
-    | ((
-        plaintext: string,
-        encryptedReply: (response: string) => void,
-        encryptedBinaryReply: RpcBinarySender
-      ) => void)
-    | null = null
+  private messageHandler: E2EEMessageHandler | null = null
   private binaryMessageHandler: ((plaintext: Uint8Array<ArrayBufferLike>) => void) | null = null
 
   deviceToken: string | null = null
@@ -91,6 +63,7 @@ export class E2EEChannel {
     this.ws = ws
     this.serverSecretKey = options.serverSecretKey
     this.resolvers = options
+    this.beforeReady = options.beforeReady
     this.onReady = options.onReady
     this.onError = options.onError
     this.transportContext = options.transportContext ?? { transport: 'direct' }
@@ -103,17 +76,11 @@ export class E2EEChannel {
     )
 
     this.handshakeTimer = setTimeout(() => {
-      this.onError(4002, 'E2EE handshake timeout')
+      this.failAdmission(4002, 'E2EE handshake timeout')
     }, HANDSHAKE_TIMEOUT_MS)
   }
 
-  onMessage(
-    handler: (
-      plaintext: string,
-      encryptedReply: (response: string) => void,
-      encryptedBinaryReply: RpcBinarySender
-    ) => void
-  ): void {
+  onMessage(handler: E2EEMessageHandler): void {
     this.messageHandler = handler
   }
 
@@ -122,6 +89,13 @@ export class E2EEChannel {
   }
 
   handleRawMessage(raw: string | Uint8Array<ArrayBufferLike>): void {
+    if (this.state === 'closed') {
+      return
+    }
+    if (this.state === 'authenticating') {
+      this.failAdmission(4001, 'Message before authentication completed')
+      return
+    }
     if (this.state === 'awaiting_hello') {
       if (typeof raw !== 'string') {
         this.onError(4001, 'Invalid handshake message')
@@ -240,21 +214,44 @@ export class E2EEChannel {
   }
 
   private handleAuth(plaintext: string): void {
-    const authentication = authenticateMobileE2EE({
+    admitMobileE2EEAuthentication({
       plaintext,
       v2Session: this.v2Session,
       resolveDevice: this.resolvers.resolveAuthenticatedDevice,
-      resolveDeviceKey: this.resolvers.resolveAuthenticatedDeviceKey
+      resolveDeviceKey: this.resolvers.resolveAuthenticatedDeviceKey,
+      begin: () => {
+        this.state = 'authenticating'
+      },
+      isActive: () => this.state === 'authenticating' && this.ws.readyState === this.ws.OPEN,
+      beforeReady: (device) => this.beforeReady?.(this, device),
+      complete: (device, capabilities) => this.completeAuthentication(device, capabilities),
+      reject: () => this.rejectAdmission(),
+      invalid: (failure) => {
+        this.sendEncryptedControl(failure.sealedError)
+        this.onError(4001, failure.closeReason)
+      }
     })
-    if (!authentication.ok) {
-      const failure = describeMobileE2EEAuthFailure(authentication)
-      this.sendEncryptedControl(failure.sealedError)
-      this.onError(4001, failure.closeReason)
+  }
+
+  private rejectAdmission(): void {
+    if (this.state === 'closed') {
       return
     }
-    const authenticatedDevice = authentication.device
+    // Storage/admission trouble is retryable; never tell a keyed client to delete its key.
+    this.sendEncryptedControl({ type: 'e2ee_error', error: { code: 'registry_unavailable' } })
+    this.failAdmission(4001, 'Device registry unavailable')
+  }
 
-    this.clientCapabilities = parseRuntimeClientCapabilities(authentication.clientCapabilities)
+  private failAdmission(code: number, reason: string): void {
+    this.destroy()
+    this.onError(code, reason)
+  }
+
+  private completeAuthentication(
+    authenticatedDevice: E2EEAuthenticatedDevice,
+    capabilities: unknown
+  ): void {
+    this.clientCapabilities = parseRuntimeClientCapabilities(capabilities)
     this.deviceToken = authenticatedDevice.deviceToken ?? null
     this.authenticatedDevice = authenticatedDevice
     this.state = 'ready'
@@ -330,6 +327,7 @@ export class E2EEChannel {
   }
 
   destroy(): void {
+    this.state = 'closed'
     if (this.handshakeTimer) {
       clearTimeout(this.handshakeTimer)
       this.handshakeTimer = null

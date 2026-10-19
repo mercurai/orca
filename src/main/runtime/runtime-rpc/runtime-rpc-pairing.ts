@@ -53,7 +53,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return this.pushUnregisterOutbox
   }
 
-  setMobileRelayBinding(deviceId: string, binding: RelayDeviceBinding): boolean {
+  async setMobileRelayBinding(deviceId: string, binding: RelayDeviceBinding): Promise<boolean> {
     const current = this.deviceRegistry?.getDevice(deviceId)
     if (
       current?.scope !== 'mobile' ||
@@ -67,11 +67,11 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
         current.relayBinding.ownerIdentityKey !== binding.ownerIdentityKey)
     ) {
       // Why: switching the owning account/host must not strand the old cloud credential family, even if that account is offline.
-      if (!this.queueRelayDeviceRevoke(current.relayBinding)) {
+      if (!(await this.queueRelayDeviceRevoke(current.relayBinding))) {
         return false
       }
     }
-    const updated = this.deviceRegistry?.setRelayBinding(deviceId, binding) ?? false
+    const updated = (await this.deviceRegistry?.setRelayBinding(deviceId, binding)) ?? false
     if (updated) {
       this.mobileRelayPairingProvider?.onDemandStateChanged?.()
     }
@@ -134,7 +134,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return ws?.endpoint ?? null
   }
 
-  createPairingOffer(args: {
+  async createPairingOffer(args: {
     address?: string | null
     name?: string
     rotate?: boolean
@@ -144,7 +144,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     reach?: RuntimePairingReach
     // Why: administrative permissions exist only when granted here, never added to a paired device later.
     grants?: readonly RuntimeDeviceGrant[]
-  }):
+  }): Promise<
     | PairingOfferUnavailable
     | {
         available: true
@@ -152,7 +152,8 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
         endpoint: string
         deviceId: string
         webClientUrl: string | null
-      } {
+      }
+  > {
     if (this.pairingInitializationFailure) {
       return this.pairingInitializationFailure
     }
@@ -183,8 +184,8 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
       const reach = args.reach ?? 'network'
       const grants = args.grants ?? []
       device = args.rotate
-        ? this.deviceRegistry.rotatePendingDevice(deviceName, scope, reach, grants)
-        : this.deviceRegistry.getOrCreatePendingDevice(deviceName, scope, reach, grants)
+        ? await this.deviceRegistry.rotatePendingDevice(deviceName, scope, reach, grants)
+        : await this.deviceRegistry.getOrCreatePendingDevice(deviceName, scope, reach, grants)
     } catch (error) {
       console.error('[runtime] Failed to persist pairing credential:', error)
       return pairingUnavailable('device_registry_unavailable', DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE)
@@ -210,12 +211,19 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     }
   }
 
-  protected queueOrRetainRelayDeviceRevoke(deviceId: string, binding: RelayDeviceBinding): void {
-    if (this.queueRelayDeviceRevoke(binding)) {
+  /**
+   * Why: the outbox is the only durable cleanup record for a minted invite. When it can't be
+   * written, keep the binding on the device so cleanup keeps a reference instead of orphaning it.
+   */
+  protected async queueOrRetainRelayDeviceRevoke(
+    deviceId: string,
+    binding: RelayDeviceBinding
+  ): Promise<void> {
+    if (await this.queueRelayDeviceRevoke(binding)) {
       return
     }
     try {
-      this.deviceRegistry?.setRelayBinding(deviceId, binding)
+      await this.deviceRegistry?.setRelayBinding(deviceId, binding)
     } catch (error) {
       console.error('[runtime] Failed to retain an unrevoked Relay binding:', error)
     }

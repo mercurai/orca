@@ -1,4 +1,4 @@
-import { markEnvironmentUsed } from '../../../shared/runtime-environment-store'
+import { markEnvironmentUsedDetached } from '../../../shared/runtime-environment-usage-detached'
 
 /**
  * Records `lastUsedAt` for callers that cannot report a failure to anyone.
@@ -13,10 +13,10 @@ import { markEnvironmentUsed } from '../../../shared/runtime-environment-store'
 export function recordRuntimeEnvironmentUsage(
   userDataPath: string,
   selector: string,
-  args: Parameters<typeof markEnvironmentUsed>[2] = {}
+  args: Parameters<typeof markEnvironmentUsedDetached>[2] = {}
 ): void {
   try {
-    markEnvironmentUsed(userDataPath, selector, args)
+    markEnvironmentUsedDetached(userDataPath, selector, args)
   } catch (error) {
     console.warn(
       `Skipped last-used bookkeeping for runtime environment ${selector}:`,

@@ -7,7 +7,7 @@ import type {
   ManagedDataAccountProvider,
   ManagedDataAccountsState
 } from '../../shared/managed-account-types'
-import { writeSecureFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 
 export class ManagedDataAccountProfileRemoval {
   constructor(
@@ -21,7 +21,7 @@ export class ManagedDataAccountProfileRemoval {
     provider: ManagedDataAccountProvider,
     accountId: string,
     state: ManagedDataAccountsState,
-    publish: (state: ManagedDataAccountsState) => ManagedDataAccountsState,
+    publish: (state: ManagedDataAccountsState) => Promise<ManagedDataAccountsState>,
     changed: () => void
   ): Promise<ManagedDataAccountsState> {
     if (!z.uuid().safeParse(accountId).success) {
@@ -52,13 +52,16 @@ export class ManagedDataAccountProfileRemoval {
     if (existsSync(rollbackPath)) {
       this.assertOwned(rollbackPath)
     }
-    if (!writeSecureFile(rollbackPath, readFileSync(metadataPath, 'utf8'), { durable: true })) {
+    const backedUp = await writeSecureFileAsync(rollbackPath, readFileSync(metadataPath, 'utf8'), {
+      durable: true
+    })
+    if (!backedUp) {
       rmSync(rollbackPath, { force: true })
       throw new Error('Could not restrict account metadata backup permissions.')
     }
     let next: ManagedDataAccountsState
     try {
-      next = publish({
+      next = await publish({
         accounts: state.accounts.filter((account) => account.id !== accountId),
         activeAccountId: state.activeAccountId === accountId ? null : state.activeAccountId
       })

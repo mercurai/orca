@@ -51,7 +51,7 @@ export function discoveredModel(
   sessionSupportsFastMode: boolean
 ): CatalogModel {
   const effort = effortOption(model)
-  const serviceTier = model.serviceTiers?.length ? serviceTierOption(model.serviceTiers) : null
+  const serviceTier = model.serviceTiers ? serviceTierOption(model.serviceTiers) : null
   return {
     id: model.id,
     label: model.label,

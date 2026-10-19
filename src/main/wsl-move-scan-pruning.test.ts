@@ -55,13 +55,13 @@ function lineage(childId: string, parentId: string): WorktreeLineage {
 }
 
 let store: Store
-beforeEach(() => {
+beforeEach(async () => {
   testState.dir = mkdtempSync(join(tmpdir(), 'wsl-move-scan-'))
   store = createStore()
   store.addRepo(repo(MOVING))
   store.addRepo(repo(STAYING))
   loadWslMoveFence(testState.dir)
-  seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
+  await seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
 })
 afterEach(async () => {
   resetWslMoveFenceForTests()

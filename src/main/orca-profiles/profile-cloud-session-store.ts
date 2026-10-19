@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { guardedSafeStorage as safeStorage } from '../host/safe-storage-availability'
-import { isUnreadableError, writeSecureJsonFile } from '../../shared/secure-file'
+import { pathDiscardEpoch } from '../../shared/path-write-serializer'
+import { isUnreadableError } from '../../shared/secure-file'
+import {
+  removeSecureFile,
+  SecureWriteDiscardedError,
+  writeSecureJsonFileAsync
+} from '../../shared/secure-file-async-write'
 import type {
   OrcaCloudCapabilities,
   OrcaCloudOrgSummary,
@@ -117,13 +123,16 @@ const unsavedRotations = new Map<
   string,
   { profileId: string; userDataPath: string; session: OrcaCloudSession }
 >()
+// Why: reads poll, and a retry is async now, so a slow disk must not stack one write per read.
+const retriesInFlight = new Set<string>()
 
-function writeOrcaCloudSession(
+/** Writes the session where its persistence mode says; the memory cache is the caller's to update. */
+async function persistOrcaCloudSession(
   profileId: string,
   userDataPath: string,
-  session: OrcaCloudSession
-): OrcaCloudSessionPersistence {
-  const cacheKey = orcaCloudSessionKey(profileId, userDataPath)
+  session: OrcaCloudSession,
+  shouldPublish?: () => boolean
+): Promise<Exclude<OrcaCloudSessionPersistence, 'none'>> {
   if (safeStorage.isEncryptionAvailable()) {
     const encrypted: PersistedEncryptedSession = {
       version: 1,
@@ -131,8 +140,9 @@ function writeOrcaCloudSession(
       savedAt: Date.now(),
       ciphertext: safeStorage.encryptString(JSON.stringify(session)).toString('base64')
     }
-    writeSecureJsonFile(getOrcaCloudSessionPath(profileId, userDataPath), encrypted)
-    rememberMemorySession(cacheKey, { session, persistence: 'encrypted' })
+    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), encrypted, {
+      shouldPublish
+    })
     return 'encrypted'
   }
 
@@ -143,38 +153,52 @@ function writeOrcaCloudSession(
       savedAt: Date.now(),
       session
     }
-    writeSecureJsonFile(getOrcaCloudSessionPath(profileId, userDataPath), plaintext)
-    rememberMemorySession(cacheKey, { session, persistence: 'dev-plaintext' })
+    await writeSecureJsonFileAsync(getOrcaCloudSessionPath(profileId, userDataPath), plaintext, {
+      shouldPublish
+    })
     return 'dev-plaintext'
   }
 
   // Why: Orca account refresh tokens must not silently fall back to plaintext
   // in production. Memory-only keeps cloud features usable until restart.
-  rememberMemorySession(cacheKey, { session, persistence: 'memory-only' })
   return 'memory-only'
 }
 
-export function saveOrcaCloudSession(
+/**
+ * A sign-out that lands while the write is in flight wins: the write is discarded, the memory
+ * cache is left alone and the call rejects with `SecureWriteDiscardedError`.
+ */
+export async function saveOrcaCloudSession(
   profileId: string,
   userDataPath: string,
   session: OrcaCloudSession,
   options: { spentOnFailure?: boolean } = {}
-): OrcaCloudSessionPersistence {
+): Promise<OrcaCloudSessionPersistence> {
   const key = orcaCloudSessionKey(profileId, userDataPath)
+  const path = getOrcaCloudSessionPath(profileId, userDataPath)
+  const discardEpoch = pathDiscardEpoch(path)
   try {
-    const persistence = writeOrcaCloudSession(profileId, userDataPath, session)
+    const persistence = await persistOrcaCloudSession(profileId, userDataPath, session)
+    // Why: a clear between the write's last check and this continuation must not be undone in memory.
+    if (pathDiscardEpoch(path) !== discardEpoch) {
+      throw new SecureWriteDiscardedError(path)
+    }
+    rememberMemorySession(key, { session, persistence })
     unsavedRotations.delete(key)
     return persistence
   } catch (error) {
+    if (pathDiscardEpoch(path) !== discardEpoch) {
+      throw new SecureWriteDiscardedError(path)
+    }
     // A failed non-rotating write throws as before and leaves any unsaved rotation pending.
-    if (!options.spentOnFailure) {
+    if (!options.spentOnFailure || error instanceof SecureWriteDiscardedError) {
       throw error
     }
     // Why: losing a rotated token makes the next refresh resend the spent one, which the
     // server reads as reuse and revokes the whole family.
     unsavedRotations.set(key, { profileId, userDataPath, session })
     try {
-      rmSync(getOrcaCloudSessionPath(profileId, userDataPath), { force: true })
+      rmSync(path, { force: true })
     } catch {
       // A spent token left on disk costs one sign-in after restart, never a loop.
     }
@@ -184,17 +208,34 @@ export function saveOrcaCloudSession(
 
 function retryUnsavedRotation(key: string): void {
   const unsaved = unsavedRotations.get(key)
-  if (!unsaved) {
+  if (!unsaved || retriesInFlight.has(key)) {
     return
   }
-  try {
-    writeOrcaCloudSession(unsaved.profileId, unsaved.userDataPath, unsaved.session)
-    unsavedRotations.delete(key)
-  } catch {
-    // Still unsaved; the next read or the quit flush tries again.
-  }
+  retriesInFlight.add(key)
+  const path = getOrcaCloudSessionPath(unsaved.profileId, unsaved.userDataPath)
+  const discardEpoch = pathDiscardEpoch(path)
+  persistOrcaCloudSession(
+    unsaved.profileId,
+    unsaved.userDataPath,
+    unsaved.session,
+    () => unsavedRotations.get(key) === unsaved && pathDiscardEpoch(path) === discardEpoch
+  )
+    .then((persistence) => {
+      // Only the rotation still pending may land; a sign-out or newer save already replaced it.
+      if (unsavedRotations.get(key) === unsaved && pathDiscardEpoch(path) === discardEpoch) {
+        unsavedRotations.delete(key)
+        rememberMemorySession(key, { session: unsaved.session, persistence })
+      }
+    })
+    .catch(() => {
+      // Still unsaved; the next read or the quit flush tries again.
+    })
+    .finally(() => {
+      retriesInFlight.delete(key)
+    })
 }
 
+/** Starts the retries; the writes ride the path lanes, which quit drains. */
 export function flushUnsavedOrcaCloudSessions(): void {
   for (const key of unsavedRotations.keys()) {
     retryUnsavedRotation(key)
@@ -274,11 +315,12 @@ export function readOrcaCloudSession(
   }
 }
 
+/** Deletes the file and discards every write to it still in flight, so a save-then-clear stays cleared. */
 export function clearOrcaCloudSession(profileId: string, userDataPath: string): void {
   const key = orcaCloudSessionKey(profileId, userDataPath)
   unsavedRotations.delete(key)
   memorySessions.delete(key)
-  rmSync(getOrcaCloudSessionPath(profileId, userDataPath), { force: true })
+  removeSecureFile(getOrcaCloudSessionPath(profileId, userDataPath))
 }
 
 export function getOrcaCloudMemorySessionCountForTests(): number {
