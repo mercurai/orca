@@ -46,8 +46,18 @@ export type AuthenticatedMobileSocket = {
   transport: MobileSocketTransportMetadata
 }
 
+/** Registry operations used by socket admission, activity and ephemeral-device cleanup. */
+export type MobileSocketDeviceRegistry = Pick<
+  DeviceRegistry,
+  | 'validateToken'
+  | 'lookupDeviceKey'
+  | 'prepareDeviceAuthentication'
+  | 'updateLastSeenDeferred'
+  | 'pruneIdleEphemeralDevices'
+>
+
 type MobileSocketWiringOptions = {
-  deviceRegistry: DeviceRegistry
+  deviceRegistry: MobileSocketDeviceRegistry
   e2eeKeypair: E2EEKeypair
   onText: (
     socket: AuthenticatedMobileSocket,
@@ -70,7 +80,7 @@ function toAuthenticatedDevice(device: DeviceEntry): E2EEAuthenticatedDevice {
 }
 
 export class MobileSocketWiring {
-  private readonly deviceRegistry: DeviceRegistry
+  private readonly deviceRegistry: MobileSocketDeviceRegistry
   private readonly e2eeKeypair: E2EEKeypair
   private readonly onText: MobileSocketWiringOptions['onText']
   private readonly onBinary: MobileSocketWiringOptions['onBinary']
