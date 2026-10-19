@@ -122,7 +122,7 @@ describe('desktop relay E2EE integration', () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-relay-e2ee-'))
     userDataPaths.push(userDataPath)
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'mobile')
+    const device = await registry.addDevice('Phone', 'mobile')
     const desktopKeys = nacl.box.keyPair()
     const relayHostId = deriveRelayHostId(desktopKeys.publicKey)
     const receivedText = deferred<string>()

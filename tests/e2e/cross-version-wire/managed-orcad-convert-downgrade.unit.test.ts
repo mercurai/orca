@@ -59,7 +59,7 @@ describe(`managed orcad conversion read back by ${LAST_RELAY_ONLY_REF}`, () => {
   beforeAll(async () => {
     // A real conversion leaves a committed cutover journal; it is what makes this build hide the rows.
     userDataPath = mkdtempSync(join(tmpdir(), 'orcad-convert-downgrade-'))
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('migration-converted', TARGET_ID, {
         environmentId: 'env-managed'
       }),

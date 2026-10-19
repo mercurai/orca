@@ -15,15 +15,15 @@ const REGISTER_INPUT = {
   filter: {}
 }
 
-function createService(
+async function createService(
   options: {
     registerFails?: boolean
     deleteFails?: boolean
     /** Runs before each delete resolves, so a suite can queue work mid-flush. */
-    onDelete?: (registrationId: string) => void
+    onDelete?: (registrationId: string) => void | Promise<void>
     now?: () => number
   } = {}
-): {
+): Promise<{
   service: DesktopPushService
   registry: DeviceRegistry
   outbox: PushUnregisterOutbox
@@ -32,11 +32,11 @@ function createService(
   send: ReturnType<typeof vi.fn>
   dispatch: (event: MobileNotificationEvent) => void
   retries: { run: () => void; delayMs: number }[]
-} {
+}> {
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-push-service-'))
   const registry = new DeviceRegistry(userDataPath)
   const outbox = new PushUnregisterOutbox(userDataPath)
-  const device = registry.addDevice('phone', 'mobile')
+  const device = await registry.addDevice('phone', 'mobile')
   const deletes: string[] = []
   let listener: ((event: MobileNotificationEvent) => void) | null = null
 
@@ -64,7 +64,7 @@ function createService(
     ),
     deleteDevice: vi.fn(async (registrationId: string) => {
       deletes.push(registrationId)
-      options.onDelete?.(registrationId)
+      await options.onDelete?.(registrationId)
       return !options.deleteFails
     }),
     send: vi.fn(async () => ({ ok: true, results: [] }) as const)
@@ -96,7 +96,7 @@ function createService(
 
 describe('DesktopPushService', () => {
   it('persists the registration the gateway hands back', async () => {
-    const harness = createService()
+    const harness = await createService()
 
     expect(
       await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
@@ -108,7 +108,7 @@ describe('DesktopPushService', () => {
   })
 
   it('persists nothing when the gateway is unreachable', async () => {
-    const harness = createService({ registerFails: true })
+    const harness = await createService({ registerFails: true })
 
     expect(
       await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
@@ -117,7 +117,7 @@ describe('DesktopPushService', () => {
   })
 
   it('refuses to register a device that is not a paired phone', async () => {
-    const harness = createService()
+    const harness = await createService()
 
     expect(await harness.service.register({ deviceId: 'not-a-device', ...REGISTER_INPUT })).toEqual(
       {
@@ -128,7 +128,7 @@ describe('DesktopPushService', () => {
   })
 
   it('clears the local registration and deletes at the gateway on unregister', async () => {
-    const harness = createService()
+    const harness = await createService()
     await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
 
     expect(await harness.service.unregister(harness.deviceId)).toEqual({ unregistered: true })
@@ -139,7 +139,7 @@ describe('DesktopPushService', () => {
   })
 
   it('keeps the delete queued when the gateway cannot be reached', async () => {
-    const harness = createService({ deleteFails: true })
+    const harness = await createService({ deleteFails: true })
     await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
 
     await harness.service.unregister(harness.deviceId)
@@ -151,13 +151,13 @@ describe('DesktopPushService', () => {
   })
 
   it('reports nothing to unregister for a device that never enabled push', async () => {
-    const harness = createService()
+    const harness = await createService()
     expect(await harness.service.unregister(harness.deviceId)).toEqual({ unregistered: false })
   })
 
   it('drains a delete queued before this launch', async () => {
-    const harness = createService()
-    harness.outbox.enqueue({ registrationId: 'reg-stale', deviceId: 'device-gone' })
+    const harness = await createService()
+    await harness.outbox.enqueue({ registrationId: 'reg-stale', deviceId: 'device-gone' })
 
     await harness.service.flushUnregisterOutbox()
 
@@ -166,8 +166,8 @@ describe('DesktopPushService', () => {
   })
 
   it('unregisters at the gateway when the device stopped being a phone mid-register', async () => {
-    const harness = createService()
-    vi.spyOn(harness.registry, 'setPushRegistration').mockReturnValue(false)
+    const harness = await createService()
+    vi.spyOn(harness.registry, 'setPushRegistration').mockResolvedValue(false)
 
     expect(
       await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
@@ -179,10 +179,8 @@ describe('DesktopPushService', () => {
   })
 
   it('unregisters at the gateway when the registration cannot be written', async () => {
-    const harness = createService({ deleteFails: true })
-    vi.spyOn(harness.registry, 'setPushRegistration').mockImplementation(() => {
-      throw new Error('disk full')
-    })
+    const harness = await createService({ deleteFails: true })
+    vi.spyOn(harness.registry, 'setPushRegistration').mockRejectedValue(new Error('disk full'))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     expect(
@@ -197,18 +195,18 @@ describe('DesktopPushService', () => {
 
   it('drains a delete queued while a flush is already running', async () => {
     let queued = false
-    const harness = createService({
-      onDelete: () => {
+    const harness = await createService({
+      onDelete: async () => {
         if (queued) {
           return
         }
         queued = true
-        harness.outbox.enqueue({ registrationId: 'reg-late', deviceId: 'device-late' })
+        await harness.outbox.enqueue({ registrationId: 'reg-late', deviceId: 'device-late' })
         // Mirrors unregister(): the trigger arrives while the flush is mid-await.
         void harness.service.flushUnregisterOutbox()
       }
     })
-    harness.outbox.enqueue({ registrationId: 'reg-first', deviceId: 'device-first' })
+    await harness.outbox.enqueue({ registrationId: 'reg-first', deviceId: 'device-first' })
 
     await harness.service.flushUnregisterOutbox()
 
@@ -217,8 +215,8 @@ describe('DesktopPushService', () => {
   })
 
   it('retries a failed drain on a capped backoff instead of waiting for a relaunch', async () => {
-    const harness = createService({ deleteFails: true })
-    harness.outbox.enqueue({ registrationId: 'reg-stuck', deviceId: 'device-1' })
+    const harness = await createService({ deleteFails: true })
+    await harness.outbox.enqueue({ registrationId: 'reg-stuck', deviceId: 'device-1' })
 
     await harness.service.flushUnregisterOutbox()
     expect(harness.retries.map((entry) => entry.delayMs)).toEqual([30_000])
@@ -231,8 +229,8 @@ describe('DesktopPushService', () => {
   })
 
   it('stops re-arming the retry once the service is stopped', async () => {
-    const harness = createService({ deleteFails: true })
-    harness.outbox.enqueue({ registrationId: 'reg-stuck', deviceId: 'device-1' })
+    const harness = await createService({ deleteFails: true })
+    await harness.outbox.enqueue({ registrationId: 'reg-stuck', deviceId: 'device-1' })
     await harness.service.flushUnregisterOutbox()
 
     harness.service.stop()
@@ -244,7 +242,7 @@ describe('DesktopPushService', () => {
 
   it('throttles a device that registers in a loop and lets it back in a minute later', async () => {
     let clock = 1_700_000_000_000
-    const harness = createService({ now: () => clock })
+    const harness = await createService({ now: () => clock })
     const input = { deviceId: harness.deviceId, ...REGISTER_INPUT }
 
     for (let index = 0; index < 10; index++) {
@@ -270,7 +268,7 @@ describe('DesktopPushService', () => {
   })
 
   it('pushes a dispatched notification through the subscribed dispatcher', async () => {
-    const harness = createService()
+    const harness = await createService()
     await harness.service.register({ deviceId: harness.deviceId, ...REGISTER_INPUT })
 
     harness.dispatch({
@@ -293,7 +291,7 @@ describe('DesktopPushService', () => {
 it('renews a seven-day mobile lease only on explicit registration', async () => {
   const now = 1_800_000_000_000
   const clock = vi.spyOn(Date, 'now').mockReturnValue(now)
-  const h = createService()
+  const h = await createService()
   try {
     await h.service.register({
       deviceId: h.deviceId,
@@ -315,13 +313,13 @@ it('renews a seven-day mobile lease only on explicit registration', async () => 
 })
 
 it('sends an explicit test only to the requesting registered phone and awaits gateway acceptance', async () => {
-  const { service, registry, deviceId, send } = createService()
+  const { service, registry, deviceId, send } = await createService()
   await service.register({
     ...REGISTER_INPUT,
     deviceId,
     filter: { onlyWhenDesktopAway: true, sound: false }
   })
-  registry.addDevice('another phone', 'mobile')
+  await registry.addDevice('another phone', 'mobile')
   send.mockResolvedValue({ ok: true, results: [{ registrationId: 'reg-1', status: 'queued' }] })
   await expect(service.test(deviceId)).resolves.toEqual({ accepted: true })
   expect(send).toHaveBeenCalledWith({
@@ -335,7 +333,7 @@ it('sends an explicit test only to the requesting registered phone and awaits ga
 })
 
 it('does not claim success for missing registrations or failed gateway sends', async () => {
-  const { service, deviceId, send } = createService()
+  const { service, deviceId, send } = await createService()
   await expect(service.test(deviceId)).resolves.toEqual({
     accepted: false,
     reason: 'not_registered'

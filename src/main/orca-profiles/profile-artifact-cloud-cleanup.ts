@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import type { OrcaProfileCloudSummary, OrcaProfileSummary } from '../../shared/orca-profiles'
-import { bestEffortFsyncDirectorySync, writeDurableSecureJsonFile } from '../../shared/secure-file'
+import { bestEffortFsyncDirectorySync } from '../../shared/secure-file'
+import { writeDurableSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 import { clearArtifactCreateIntents } from '../artifacts/artifact-create-intent-store'
 import { clearArtifactShareRecords } from '../artifacts/artifact-share-record-store'
 import { getOrcaProfileDirectory } from './profile-storage-paths'
@@ -22,12 +23,12 @@ export function artifactCloudIdentity(cloud: OrcaProfileCloudSummary | undefined
     : 'local'
 }
 
-export function prepareArtifactCloudCleanup(
+export async function prepareArtifactCloudCleanup(
   profileId: string,
   userDataPath: string,
   targetCloud: OrcaProfileCloudSummary | undefined
-): void {
-  writeDurableSecureJsonFile(cleanupMarkerPath(profileId, userDataPath), {
+): Promise<void> {
+  await writeDurableSecureJsonFileAsync(cleanupMarkerPath(profileId, userDataPath), {
     version: 1,
     phase: 'prepared',
     targetIdentity: artifactCloudIdentity(targetCloud)
@@ -73,28 +74,28 @@ export function artifactCloudCleanupNeedsCommit(
   )
 }
 
-export function commitArtifactCloudCleanup(
+export async function commitArtifactCloudCleanup(
   profileId: string,
   userDataPath: string,
   targetCloud: OrcaProfileCloudSummary | undefined
-): void {
+): Promise<void> {
   const targetIdentity = artifactCloudIdentity(targetCloud)
   const marker = readCleanupMarker(profileId, userDataPath)
   if (marker?.phase !== 'prepared' || marker.targetIdentity !== targetIdentity) {
     throw new Error('Artifact cloud cleanup marker does not match the profile transition.')
   }
-  writeDurableSecureJsonFile(cleanupMarkerPath(profileId, userDataPath), {
+  await writeDurableSecureJsonFileAsync(cleanupMarkerPath(profileId, userDataPath), {
     version: 1,
     phase: 'committed',
     targetIdentity
   } satisfies ArtifactCloudCleanupMarker)
 }
 
-export function completeArtifactCloudCleanupIfCommitted(
+export async function completeArtifactCloudCleanupIfCommitted(
   profileId: string,
   userDataPath: string,
   currentCloud: OrcaProfileCloudSummary | undefined
-): void {
+): Promise<void> {
   const marker = readCleanupMarker(profileId, userDataPath)
   if (
     marker?.phase !== 'committed' ||
@@ -103,7 +104,7 @@ export function completeArtifactCloudCleanupIfCommitted(
     return
   }
   clearArtifactCreateIntents(profileId, userDataPath)
-  clearArtifactShareRecords(profileId, userDataPath)
+  await clearArtifactShareRecords(profileId, userDataPath)
   rmSync(cleanupMarkerPath(profileId, userDataPath), { force: true })
   bestEffortFsyncDirectorySync(getOrcaProfileDirectory(profileId, userDataPath))
 }
@@ -122,10 +123,10 @@ function assertArtifactCloudCleanupReady(
   }
 }
 
-export function prepareArtifactCloudUse(
+export async function prepareArtifactCloudUse(
   profile: Pick<OrcaProfileSummary, 'id' | 'cloud'>,
   userDataPath: string
-): void {
-  completeArtifactCloudCleanupIfCommitted(profile.id, userDataPath, profile.cloud)
+): Promise<void> {
+  await completeArtifactCloudCleanupIfCommitted(profile.id, userDataPath, profile.cloud)
   assertArtifactCloudCleanupReady(profile.id, userDataPath, profile.cloud)
 }

@@ -34,9 +34,11 @@ export function bindPluginHostServices(input: {
   delegate: PluginRuntimeDelegate
   pluginsDataDir: string
   subscribeEvents: (pluginKey: string, events: PluginEventName[]) => PluginEventName[]
+  invokePluginCommand?: PluginHostServices['invokePluginCommand']
 }): PluginHostServices {
   const { delegate, pluginsDataDir, subscribeEvents } = input
   return {
+    invokePluginCommand: input.invokePluginCommand,
     resolveActiveWorktreeContext: async () => {
       const context = await delegate.resolveActiveWorktreeContext()
       if (!context) {

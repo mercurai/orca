@@ -70,7 +70,7 @@ function refreshPairing(
   environment: KnownRuntimeEnvironment,
   readiness: ServeReadiness,
   localPort: number
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   return refreshManagedOrcadPairing(
     userDataPath,
     environment.id,
@@ -155,7 +155,7 @@ export async function runManagedOrcadUpdate(
     activeVersion: result.fullVersion,
     readiness
   })
-  const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+  const updated = await refreshPairing(userDataPath, environment, readiness, deployment.localPort)
   if (started) {
     // The started slot may have bound another port than the forward in use.
     await rebuildOrcadManagedTunnel(userDataPath, environment.id)
@@ -230,7 +230,7 @@ export function rollbackManagedOrcadEnvironment(
         { ...slot, remoteInstallDir: targetDir },
         { buildHash: targetBuildHash, fullVersion: result.target }
       )
-      const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+      const updated = await refreshPairing(userDataPath, environment, readiness, deployment.localPort)
       return {
         outcome: 'rolled-back',
         environment: redactRuntimeEnvironment(updated),
@@ -259,7 +259,7 @@ export function recoverManagedOrcadEnvironment(
         return result
       }
       const updated = result.readiness
-        ? refreshPairing(userDataPath, environment, result.readiness, deployment.localPort)
+        ? await refreshPairing(userDataPath, environment, result.readiness, deployment.localPort)
         : environment
       if (result.activeVersion) {
         await ensureOrcadManagedTunnel(userDataPath, environment.id)

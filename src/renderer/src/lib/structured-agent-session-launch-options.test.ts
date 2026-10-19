@@ -318,8 +318,16 @@ describe('picks made while a chat launches', () => {
     expect(lifecycle()).toBe('failed')
     expect(mutations()).toEqual([])
 
+    const retryAdopted = Promise.withResolvers<void>()
+    mocks.retryIntent.mockImplementationOnce((intent: StructuredAgentSessionLaunchIntent) => {
+      const retried = { ...intent, seedOptions: { model: 'gpt-saved-since' } }
+      retryAdopted.resolve()
+      return retried
+    })
     expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
-    // The retried create seeds from the saved selection of now.
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({ model: 'gpt-picked' })
+    await retryAdopted.promise
+    // A definitive refusal permits a new create once recovery admits the retry.
     expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)).toEqual({
       seed: { model: 'gpt-saved-since' },
       held: { model: 'gpt-picked' }

@@ -28,10 +28,10 @@ const MOVING_WT = 'repo-1::/ws/repo-1/wt'
 const STAYING_WT = 'repo-2::/ws/repo-2/wt'
 
 let userDataPath: string
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-incidental-'))
   loadWslMoveFence(userDataPath)
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
   gitExecFileAsyncMock.mockReset()
   gitExecFileAsyncMock.mockImplementation(async (args: string[]) => {
     if (args[0] === 'remote' && args[1] === 'get-url') {

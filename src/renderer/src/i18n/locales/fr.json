@@ -18321,6 +18321,20 @@
         "compactAfterSending": "Votre message précédent est encore en cours d'envoi. Lancez /compact une fois qu'il est parti."
       },
       "composer": {
+        "speedStatus": {
+          "recoveryStorage": "Impossible de restaurer le message non envoyé. Libérez de l’espace de stockage et réessayez ; sa copie de récupération enregistrée est conservée.",
+          "waitForChange": "Attendez la fin du changement de vitesse avant d’envoyer, ou mettez à jour Orca sur l’hôte d’exécution.",
+          "nextTurn": "Prochain tour : {{speed}}",
+          "loading": "Vérification des vitesses disponibles…",
+          "unknown": "Disponibilité de la vitesse inconnue. Actualisez le catalogue ou choisissez Standard.",
+          "unavailable": "La vitesse sélectionnée est indisponible. Actualisez le catalogue ou choisissez Standard.",
+          "available": "Vitesse disponible pour le prochain tour.",
+          "applied": "Dernière vitesse appliquée par l’hôte : {{speed}}",
+          "processingUnknown": "Traitement réel : inconnu",
+          "processingReported": "Traitement réel : {{speed}}",
+          "pendingFast": "Rapide (en attente du catalogue)",
+          "providerDefault": "Valeur par défaut du fournisseur"
+        },
         "imageUnsupported": "Le collage d'image n'est pas pris en charge pour cet agent.",
         "send": "Envoyer",
         "noPty": "Aucun terminal actif — rebasculez pour vous reconnecter.",

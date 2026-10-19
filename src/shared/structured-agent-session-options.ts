@@ -1,4 +1,9 @@
-import type { AgentSessionOptionCatalog, CatalogModel } from './agent-session-option-catalog'
+import type { AgentSessionSpeed } from './agent-session-speed'
+import {
+  structuredAgentSessionOptionCatalog,
+  withStructuredSpeedSnapshot
+} from './structured-agent-session-speed'
+import type { AgentSessionOptionCatalog } from './agent-session-option-catalog'
 import { discoveredModel } from './structured-agent-session-discovered-model'
 import {
   buildNativeChatSessionOptionSnapshot,
@@ -29,24 +34,12 @@ import {
   encodeStructuredAgentSessionOptionValue
 } from './structured-agent-session-option-codec'
 
-export function structuredAgentSessionOptionCatalog(
-  seed: AgentSessionOptionCatalog,
-  result: AgentSessionOptionsResult
-): AgentSessionOptionCatalog {
-  const models: CatalogModel[] = result.models.map((model) =>
-    discoveredModel(model, result.fastModeSupport?.supported === true)
-  )
-  if (result.current.model && !models.some((model) => model.id === result.current.model)) {
-    models.push({
-      id: result.current.model,
-      label: result.current.model,
-      options: seed.unknownModelOptions ?? []
-    })
-  }
-  return { ...seed, models, defaultModelIsCliDefault: true }
-}
+export { structuredAgentSessionOptionCatalog } from './structured-agent-session-speed'
 
 export type StructuredAgentSessionOptionState = {
+  speed?: AgentSessionSpeed
+  /** The model whose live answer supplied speed facts; held picks cannot inherit its acceptance. */
+  speedModelId?: string
   catalog: AgentSessionOptionCatalog | null
   /** What produced `catalog`; a weaker source never replaces a stronger one. `seed` is the
    *  built-in list before the host answered (shown as the quiet placeholder); `builtin` is the
@@ -193,6 +186,8 @@ export function applyStructuredAgentSessionOptions(
     ...state,
     catalog: structuredAgentSessionOptionCatalog(seed, result),
     catalogSource: 'live',
+    speed: result.speed,
+    speedModelId: result.current.model ?? result.models.find((model) => model.isDefault)?.id,
     verifiedModelIds: result.listedModelIds?.length ? result.listedModelIds : undefined,
     permissionMode: result.current.permissionMode ?? null
   }
@@ -215,7 +210,11 @@ export function structuredAgentSessionOptionSnapshot(
   state: StructuredAgentSessionOptionState
 ): SessionOptionDescriptor[] {
   const permission = structuredAgentSessionPermissionDescriptor(state)
-  const options = modelOptionSnapshot(state)
+  const options = withStructuredSpeedSnapshot(
+    modelOptionSnapshot(state),
+    state.speed,
+    state.speedModelId
+  )
   return permission ? [...options, permission] : options
 }
 

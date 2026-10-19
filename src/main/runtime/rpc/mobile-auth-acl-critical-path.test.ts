@@ -1,7 +1,6 @@
-// Why: the E2EE auth handshake used to persist `lastSeenAt` inline, and on Windows every secure-file
-// write blocked the main thread on synchronous icacls spawns (~1-1.5s cold each). The ACL now
-// rides on the file's creation in-process; these tests pin how many secure writes land on the auth
-// critical path, not wall-clock, so they are deterministic under load.
+// First authentication waits for its durable write; established phones acknowledge synchronously.
+// Every registry write uses the async lane and born-restricted ACL creation without spawning.
+// Deferred ordinary timestamps coalesce. These tests pin write counts and ordering, not latency.
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WebSocket } from 'ws'
 
 import { runProcess, runProcessSync } from '@orca/process-host'
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import {
   resetWindowsSecurityLoadForTests,
   setWindowsSecurityForTests
@@ -136,77 +136,97 @@ describe('mobile auth critical path', () => {
     ) as DeviceEntry[]
   }
 
-  it('emits e2ee_authenticated without a single secure write on the critical path', () => {
+  const restrictedCreates = (): number =>
+    timeline.filter((entry) => entry === 'restricted-create').length
+
+  it('emits e2ee_authenticated without a single secure write on the critical path', async () => {
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
+    const device = await registry.addDevice('Phone', 'runtime')
     // Why: a re-connecting device is the measured case; the first sighting is covered below.
-    registry.updateLastSeen(device.deviceId)
+    await registry.updateLastSeen(device.deviceId)
     timeline.length = 0
 
     authenticate(registry, device)
 
     expect(timeline).toEqual(['e2ee_ready', 'e2ee_authenticated'])
+    expect(restrictedCreates()).toBe(0)
 
-    registry.flushPendingLastSeen()
+    await registry.flushPendingLastSeen()
     // The write is deferred, never dropped, and still born restricted.
-    expect(timeline.filter((entry) => entry === 'restricted-create')).toHaveLength(
-      RESTRICTED_CREATES_PER_WRITE
-    )
+    expect(restrictedCreates()).toBe(RESTRICTED_CREATES_PER_WRITE)
     expect(readPersistedDevices()[0]?.lastSeenAt).toBe(
       registry.getDevice(device.deviceId)?.lastSeenAt
     )
   })
 
-  it('still persists the first sighting before authenticating', () => {
+  it('durably persists the first sighting before e2ee_authenticated', async () => {
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
+    const device = await registry.addDevice('Phone', 'runtime')
     timeline.length = 0
 
     authenticate(registry, device)
 
-    // Why: rotatePendingDevice drops entries disk says were never scanned, so this write stays inline.
-    expect(timeline).toEqual([
-      'e2ee_ready',
-      ...Array<TimelineEntry>(RESTRICTED_CREATES_PER_WRITE).fill('restricted-create'),
-      'e2ee_authenticated'
-    ])
+    expect(timeline).toEqual(['e2ee_ready'])
+    await vi.waitFor(() => expect(timeline).toContain('e2ee_authenticated'))
+    expect(timeline).toEqual(['e2ee_ready', 'restricted-create', 'e2ee_authenticated'])
+    expect(restrictedCreates()).toBe(RESTRICTED_CREATES_PER_WRITE)
     expect(readPersistedDevices()[0]?.lastSeenAt).toBeGreaterThan(0)
+    // Drain only the subsequent ordinary refresh before deleting this test's directory.
+    await registry.flushPendingLastSeen()
   })
 
-  it('coalesces a reconnect burst into one deferred write', () => {
-    vi.useFakeTimers()
+  it('coalesces a reconnect burst into one deferred write', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.addDevice('Phone', 'runtime')
+    await registry.updateLastSeen(device.deviceId)
     timeline.length = 0
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       authenticate(registry, device)
     }
 
-    expect(timeline.filter((entry) => entry === 'restricted-create')).toHaveLength(0)
-    vi.advanceTimersByTime(250)
-    expect(timeline.filter((entry) => entry === 'restricted-create')).toHaveLength(
-      RESTRICTED_CREATES_PER_WRITE
-    )
+    expect(restrictedCreates()).toBe(0)
+    await vi.advanceTimersByTimeAsync(250)
+    await drainPendingPathWrites()
+    expect(restrictedCreates()).toBe(RESTRICTED_CREATES_PER_WRITE)
   })
 
-  it('cancels the deferred rewrite when another registry save persists the timestamp', () => {
-    vi.useFakeTimers()
+  it('cancels the deferred rewrite when another registry save persists the timestamp', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.addDevice('Phone', 'runtime')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.addDevice('Phone', 'runtime')
+    await registry.updateLastSeen(device.deviceId)
     timeline.length = 0
 
     registry.updateLastSeenDeferred(device.deviceId)
-    registry.addDevice('Other client', 'runtime')
-    expect(timeline.filter((entry) => entry === 'restricted-create')).toHaveLength(
-      RESTRICTED_CREATES_PER_WRITE
-    )
+    await registry.addDevice('Other client', 'runtime')
+    expect(restrictedCreates()).toBe(RESTRICTED_CREATES_PER_WRITE)
 
-    vi.advanceTimersByTime(250)
-    expect(timeline.filter((entry) => entry === 'restricted-create')).toHaveLength(
-      RESTRICTED_CREATES_PER_WRITE
-    )
+    await vi.advanceTimersByTimeAsync(250)
+    await drainPendingPathWrites()
+    expect(restrictedCreates()).toBe(RESTRICTED_CREATES_PER_WRITE)
+  })
+
+  it('keeps a deferred refresh that lands while another save is in flight', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const registry = new DeviceRegistry(userDataPath)
+    const device = await registry.addDevice('Phone', 'runtime')
+    await registry.updateLastSeen(device.deviceId)
+    const refreshedAt = Date.now() + 10_000
+    const now = vi.spyOn(Date, 'now')
+
+    const saving = registry.addDevice('Other client', 'runtime')
+    now.mockReturnValue(refreshedAt)
+    registry.updateLastSeenDeferred(device.deviceId)
+    await saving
+    now.mockRestore()
+
+    expect(registry.getDevice(device.deviceId)?.lastSeenAt).toBe(refreshedAt)
+    await vi.advanceTimersByTimeAsync(250)
+    await drainPendingPathWrites()
+    expect(
+      readPersistedDevices().find((entry) => entry.deviceId === device.deviceId)?.lastSeenAt
+    ).toBe(refreshedAt)
   })
 })

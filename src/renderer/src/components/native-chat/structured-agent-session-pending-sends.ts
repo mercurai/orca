@@ -1,7 +1,11 @@
 // Each chat's sends the host has not answered yet, in memory only: what the sender keeps and the
 // chat's view reads.
 
-import type { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-send-mutation'
+import type { CodexSpeedWireAuthority } from '../../../../shared/codex-speed-wire-authority'
+import type {
+  structuredAgentSessionMessageSendMutation,
+  structuredAgentSessionSendBody
+} from '../../../../shared/structured-agent-session-send-mutation'
 import type { AgentJournalCursor } from '../../../../shared/agent-session-journal-types'
 
 export type StructuredAgentSessionPendingSend = {
@@ -12,6 +16,11 @@ export type StructuredAgentSessionPendingSend = {
   queuedAt: number
   delivery?: 'queue-if-active'
   options?: Readonly<Record<string, string>>
+  /** Frozen after negotiation: an uncertain retry must retain the original idempotent request. */
+  wireRequest?: {
+    params: ReturnType<typeof structuredAgentSessionMessageSendMutation>
+    authority?: CodexSpeedWireAuthority
+  }
   /**
    * `sending`: on its way, its one request out or about to be; the chat takes no other send meanwhile.
    * `recorded`: the host holds it; an open chat draws it until the host's row or card arrives.

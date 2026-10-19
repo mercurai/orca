@@ -91,7 +91,7 @@ function optionDescriptor(args: {
   const valueSource = tracked?.source ?? (showDefault ? 'default' : 'unknown')
   if (option.kind.type === 'select') {
     const choices = choiceWithCurrent(option.kind.choices, tracked)
-    if (choices.length <= 1) {
+    if (choices.length === 0 || (choices.length === 1 && option.id !== 'serviceTier')) {
       return null
     }
     const currentValue =
