@@ -283,9 +283,10 @@ export function couldRunOnWindows(runsOn) {
         : [...(runsOn?.labels ?? []), runsOn?.group ?? ''].flat()
   return labels.some((label) => {
     // Both branches are statically known only for this literal repository routing shape.
-    const routing = /^\$\{\{\s*github\.repository\s*==\s*'[^'\r\n]+'\s*&&\s*'([^'\r\n]+)'\s*\|\|\s*'([^'\r\n]+)'\s*\}\}$/.exec(
-      String(label)
-    )
+    const routing =
+      /^\$\{\{\s*github\.repository\s*==\s*'[^'\r\n]+'\s*&&\s*'([^'\r\n]+)'\s*\|\|\s*'([^'\r\n]+)'\s*\}\}$/.exec(
+        String(label)
+      )
     if (routing) {
       return couldRunOnWindows(routing.slice(1))
     }
@@ -549,18 +550,9 @@ describe('Windows runner detection', () => {
       "${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-8vcpu-ubuntu-2404' }}",
       false
     ],
-    [
-      "${{ github.repository == 'mercurai/orca' && 'windows-2022' || 'ubuntu-latest' }}",
-      true
-    ],
-    [
-      "${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'windows-2022' }}",
-      true
-    ],
-    [
-      "${{ github.repository == 'mercurai/orca' && inputs.runner || 'ubuntu-latest' }}",
-      true
-    ],
+    ["${{ github.repository == 'mercurai/orca' && 'windows-2022' || 'ubuntu-latest' }}", true],
+    ["${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'windows-2022' }}", true],
+    ["${{ github.repository == 'mercurai/orca' && inputs.runner || 'ubuntu-latest' }}", true],
     ['${{ matrix.os }}', true]
   ])(
     'checks both literal repository runner results, failing closed for unknowns: %s',

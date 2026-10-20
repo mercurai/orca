@@ -96,7 +96,11 @@ describe('session.tabs tab delta across mixed client versions', () => {
     cleanups.push(() => server.stop())
     // Why a profile per desktop: one profile saves a server once, so each desktop needs its own.
     const pair = async (name: string): Promise<{ userDataPath: string; id: string }> => {
-      const offer = await server.createPairingOffer({ address: '127.0.0.1', name, scope: 'runtime' })
+      const offer = await server.createPairingOffer({
+        address: '127.0.0.1',
+        name,
+        scope: 'runtime'
+      })
       if (!offer.available) {
         throw new Error('pairing_unavailable')
       }

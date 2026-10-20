@@ -99,7 +99,9 @@ describe('Codex speed admission uses the execution account catalog', () => {
         rejection: { neverReachedAgent: true }
       })
       expect(fixture.starts()).toEqual([])
-      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({ serviceTier: TIER })
+      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({
+        serviceTier: TIER
+      })
       recordListing(store)
       expect(await fixture.send('refreshed-tier')).toMatchObject({ state: 'admitted' })
       expect(fixture.starts()).toHaveLength(1)
@@ -119,7 +121,9 @@ describe('Codex speed admission uses the execution account catalog', () => {
         rejection: { neverReachedAgent: true }
       })
       expect(fixture.starts()).toEqual([])
-      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({ serviceTier: TIER })
+      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({
+        serviceTier: TIER
+      })
     } finally {
       await fixture.cleanup()
     }
@@ -147,7 +151,9 @@ describe('Codex speed admission uses the execution account catalog', () => {
       })
       expect(fixture.starts()).toHaveLength(1)
       expect(fixture.starts()[0]?.params).toMatchObject({ serviceTier: 'default' })
-      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({ serviceTier: TIER })
+      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({
+        serviceTier: TIER
+      })
     } finally {
       await fixture.cleanup()
     }

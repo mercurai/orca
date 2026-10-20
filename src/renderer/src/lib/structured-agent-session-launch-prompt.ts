@@ -108,11 +108,16 @@ export function stageStructuredLaunchPrompt(
 }
 
 /** Only unsent legacy reservations remain this launch's text to recover. */
-export function captureStructuredLaunchPromptDrafts(sessionId: string): StructuredLaunchPromptDraft[] {
+export function captureStructuredLaunchPromptDrafts(
+  sessionId: string
+): StructuredLaunchPromptDraft[] {
   return [...(staged.get(sessionId) ?? [])].flatMap((prompt) => {
     const clientMessageId = prompt.slot?.clientMessageId
-    return !prompt.createOwned && !prompt.callerKeepsText && !prompt.discarded &&
-      !prompt.delivery && clientMessageId
+    return !prompt.createOwned &&
+      !prompt.callerKeepsText &&
+      !prompt.discarded &&
+      !prompt.delivery &&
+      clientMessageId
       ? [{ clientMessageId, text: prompt.text }]
       : []
   })

@@ -14,11 +14,13 @@ const MODEL = 'synthetic-legacy-model'
 const FAST_ID = 'synthetic-fast-request-id'
 const identity = { sessionId: 'legacy-speed-session', fence: 7 }
 const listing = {
-  data: [{
-    model: MODEL,
-    supportedReasoningEfforts: [],
-    serviceTiers: [{ id: FAST_ID, name: 'Fast' }]
-  }],
+  data: [
+    {
+      model: MODEL,
+      supportedReasoningEfforts: [],
+      serviceTiers: [{ id: FAST_ID, name: 'Fast' }]
+    }
+  ],
   nextCursor: null
 }
 
@@ -36,10 +38,15 @@ describe('saved Codex Fast migration', () => {
     const saved = { model: MODEL, fastMode: 'true' }
     try {
       await acquireReadyCodexForTest(adapter, {
-        identity: identityFor(identity.sessionId), fence: identity.fence,
-        spawnToken: 'legacy-fast-report', options: saved
+        identity: identityFor(identity.sessionId),
+        fence: identity.fence,
+        spawnToken: 'legacy-fast-report',
+        options: saved
       })
-      expect((await adapter.readOptions(identity)).current).toMatchObject({ model: MODEL, fastMode: true })
+      expect((await adapter.readOptions(identity)).current).toMatchObject({
+        model: MODEL,
+        fastMode: true
+      })
       expect(Object.fromEntries(restoredCodexSessionOptions(saved))).toEqual(saved)
     } finally {
       pending.resolve(listing)
@@ -50,9 +57,15 @@ describe('saved Codex Fast migration', () => {
   it.each(['default', FAST_ID, 'synthetic-ultra-request-id'])(
     'keeps canonical %s ahead of a saved legacy true',
     (serviceTier) => {
-      expect(Object.fromEntries(restoredCodexSessionOptions({
-        model: MODEL, serviceTier, fastMode: 'true'
-      }))).toEqual({ model: MODEL, serviceTier })
+      expect(
+        Object.fromEntries(
+          restoredCodexSessionOptions({
+            model: MODEL,
+            serviceTier,
+            fastMode: 'true'
+          })
+        )
+      ).toEqual({ model: MODEL, serviceTier })
     }
   )
 
@@ -70,7 +83,9 @@ describe('saved Codex Fast migration', () => {
       await adapter.readOptions(identity)
 
       const outcome = await adapter.dispatch({
-        ...identity, clientMessageId: 'migrated-fast-message', body: USER_MESSAGE
+        ...identity,
+        clientMessageId: 'migrated-fast-message',
+        body: USER_MESSAGE
       })
 
       expect(outcome).toMatchObject({ state: 'admitted' })
@@ -100,7 +115,9 @@ describe('saved Codex Fast migration', () => {
         options: { model: MODEL, fastMode: 'true' }
       })
       const outcome = await adapter.dispatch({
-        ...identity, clientMessageId: 'pending-fast-message', body: USER_MESSAGE
+        ...identity,
+        clientMessageId: 'pending-fast-message',
+        body: USER_MESSAGE
       })
 
       expect(outcome).toMatchObject({

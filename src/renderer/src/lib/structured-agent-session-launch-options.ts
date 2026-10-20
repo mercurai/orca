@@ -71,8 +71,11 @@ export function holdStructuredAgentSessionLaunchOption(
   encoded: string
 ): Promise<StructuredLaunchOptionOutcome> | null {
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (!state || state.cancelled ||
-    (state.callers.outcome === 'published' && !isStructuredLaunchSpeedBlocked(sessionId, id))) {
+  if (
+    !state ||
+    state.cancelled ||
+    (state.callers.outcome === 'published' && !isStructuredLaunchSpeedBlocked(sessionId, id))
+  ) {
     return null
   }
   const replies = repliesFor(state)
@@ -80,11 +83,14 @@ export function holdStructuredAgentSessionLaunchOption(
   // A model pick drops picks held under the model it replaces; the permission mode is the chat's.
   const dropped =
     id === 'model'
-      ? Object.keys(held).filter((key) =>
-          key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID &&
-          !(state.intent.agent === 'codex' && (key === 'serviceTier' || key === 'fastMode'))
+      ? Object.keys(held).filter(
+          (key) =>
+            key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID &&
+            !(state.intent.agent === 'codex' && (key === 'serviceTier' || key === 'fastMode'))
         )
-      : isCodexLaunchSpeedKey(state, id) ? ['serviceTier', 'fastMode'] : [id]
+      : isCodexLaunchSpeedKey(state, id)
+        ? ['serviceTier', 'fastMode']
+        : [id]
   for (const key of dropped) {
     replies.get(key)?.({ kind: 'superseded' })
     replies.delete(key)
@@ -113,25 +119,29 @@ async function setLaunchOption(
       worktree: state.intent.params.worktree,
       options: { ...(model ? { model } : {}), [key]: value }
     })
-    const wireKey = key === 'serviceTier' && prepared.options?.serviceTier === undefined
-      ? 'fastMode'
-      : key
+    const wireKey =
+      key === 'serviceTier' && prepared.options?.serviceTier === undefined ? 'fastMode' : key
     const fields = { key: wireKey, value: prepared.options?.[wireKey] ?? value }
     const result = await callStructuredAgentSession<
       AgentSessionMutationResult<AgentSessionOptionResult>
-    >(target, 'agentSession.setOption', {
-      envelope: {
-        sessionId,
-        clientOperationId: createStructuredAgentSessionOperationId(createBrowserUuid),
-        expectedRuntimeFence: fence,
-        payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-          method: 'agentSession.setOption',
+    >(
+      target,
+      'agentSession.setOption',
+      {
+        envelope: {
           sessionId,
-          fields
-        })
+          clientOperationId: createStructuredAgentSessionOperationId(createBrowserUuid),
+          expectedRuntimeFence: fence,
+          payloadFingerprint: structuredAgentSessionPayloadFingerprint({
+            method: 'agentSession.setOption',
+            sessionId,
+            fields
+          })
+        },
+        ...fields
       },
-      ...fields
-    }, prepared.authority)
+      prepared.authority
+    )
     if (!result.ok) {
       return { kind: 'refused', failure: agentSessionRefusalFailure(result.refusal) }
     }
@@ -210,7 +220,8 @@ export async function applyStructuredLaunchHeldOptions(
     const reply = repliesFor(state).get(id)
     const outcome = await setLaunchOption(state, receipt.fence, id, encoded)
     const stillCurrent = state.selection.held[id] === encoded && repliesFor(state).get(id) === reply
-    const refusedSpeed = stillCurrent && isCodexLaunchSpeedKey(state, id) && outcome.kind === 'refused'
+    const refusedSpeed =
+      stillCurrent && isCodexLaunchSpeedKey(state, id) && outcome.kind === 'refused'
     const changed = refusedSpeed ? waitForStructuredLaunchSpeedChange(state) : null
     settleHeldOption(state, id, encoded, outcome, { stillCurrent, retainIntent: refusedSpeed })
     if (changed) {

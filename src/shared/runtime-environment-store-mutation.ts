@@ -33,7 +33,8 @@ function fileSignature(path: string): string {
 export function captureEnvironmentStoreVersion(userDataPath: string): () => boolean {
   const generation = environmentWriteGeneration
   const signature = fileSignature(getEnvironmentStorePath(userDataPath))
-  return () => environmentWriteGeneration === generation &&
+  return () =>
+    environmentWriteGeneration === generation &&
     fileSignature(getEnvironmentStorePath(userDataPath)) === signature
 }
 

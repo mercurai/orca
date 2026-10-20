@@ -141,7 +141,7 @@ export function runProcessInProcess(
       clearTimeout(timer)
       clearTimeout(graceTimer)
       clearTimeout(barrierDeadlineTimer)
-      spec.signal?.removeEventListener('abort', onAbort)
+      spec.signal?.removeEventListener('abort', stopAndSettle)
       act()
     }
 
@@ -308,13 +308,12 @@ export function runProcessInProcess(
 
     // Why the same escalation: an aborted caller has stopped waiting, so an
     // unkillable child must not keep the promise alive on their behalf either.
-    const onAbort = (): void => stopAndSettle()
-    spec.signal?.addEventListener('abort', onAbort, { once: true })
+    spec.signal?.addEventListener('abort', stopAndSettle, { once: true })
     // Why check after subscribing: a signal that was already aborted never
     // fires the event, so the child would otherwise run to its full timeout on
     // behalf of a caller who had already given up.
     if (spec.signal?.aborted) {
-      onAbort()
+      stopAndSettle()
     }
 
     child.once('error', (error) => {

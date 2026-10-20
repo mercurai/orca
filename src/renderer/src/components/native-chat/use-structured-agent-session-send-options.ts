@@ -22,8 +22,10 @@ export function useStructuredAgentSessionSendOptions(
     const selection = getStructuredAgentSessionLaunchSelection(sessionId)
     const held = { ...(selection?.held ?? launch?.heldOptions), ...pendingOptionsRef.current }
     if (!takesSendOptions) {
-      if (optionStateRef.current.record.agent === 'codex' &&
-        (held.serviceTier !== undefined || held.fastMode !== undefined)) {
+      if (
+        optionStateRef.current.record.agent === 'codex' &&
+        (held.serviceTier !== undefined || held.fastMode !== undefined)
+      ) {
         throw new CodexSpeedSelectionError(
           translate(
             'components.native-chat.composer.speedStatus.waitForChange',

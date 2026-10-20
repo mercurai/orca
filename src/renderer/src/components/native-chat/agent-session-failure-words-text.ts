@@ -192,7 +192,10 @@ const PIECES: Record<AgentSessionFailureCopyId, (values: AgentSessionFailureCopy
     writeFailed: () =>
       translate('components.native-chat.failureWords.writeFailed', COPY.writeFailed),
     speedSupportUnknown: () =>
-      translate('components.native-chat.failureWords.speedSupportUnknown', COPY.speedSupportUnknown),
+      translate(
+        'components.native-chat.failureWords.speedSupportUnknown',
+        COPY.speedSupportUnknown
+      ),
     speedUnavailable: () =>
       translate('components.native-chat.failureWords.speedUnavailable', COPY.speedUnavailable),
     cancelled: () => translate('components.native-chat.failureWords.cancelled', COPY.cancelled),

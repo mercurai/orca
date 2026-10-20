@@ -96,13 +96,19 @@ export function structuredAgentSessionSendSelection(
   if (agent === 'codex') {
     const serviceTier = shown('serviceTier')
     const legacy = snapshot.find((descriptor) => descriptor.id === 'fastMode')
-    const legacyIntent = legacy?.valueSource === 'applied' || legacy?.valueSource === 'dispatched' ||
+    const legacyIntent =
+      legacy?.valueSource === 'applied' ||
+      legacy?.valueSource === 'dispatched' ||
       legacy?.valueSource === 'reported'
-    const speed: Record<string, string> | undefined = serviceTier !== undefined
-      ? { serviceTier }
-      : legacyIntent && legacy?.kind.type === 'boolean'
-        ? { fastMode: String(legacy.kind.currentValue) } : undefined
-    return speed ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed } : undefined
+    const speed: Record<string, string> | undefined =
+      serviceTier !== undefined
+        ? { serviceTier }
+        : legacyIntent && legacy?.kind.type === 'boolean'
+          ? { fastMode: String(legacy.kind.currentValue) }
+          : undefined
+    return speed
+      ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed }
+      : undefined
   }
   return model ? { model, ...(effort ? { effort } : {}) } : undefined
 }

@@ -110,7 +110,11 @@ describe('mobile relay hosts: phone -> desktop lists the servers it shows', () =
       ],
       [
         'old',
-        { name: 'ThinkPad', pairing: parsePairingCode(await pairingUrl(old, 'runtime'))!, capable: false }
+        {
+          name: 'ThinkPad',
+          pairing: parsePairingCode(await pairingUrl(old, 'runtime'))!,
+          capable: false
+        }
       ]
     ])
     const contact = new Map<string, Contact>([

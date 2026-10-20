@@ -41,11 +41,12 @@ describe('structured session speed state projection', () => {
       result
     )
 
-    expect(structuredAgentSessionOptionSnapshot(state).find(({ id }) => id === 'serviceTier'))
-      .toMatchObject({
-        speed,
-        kind: { currentValue: TIER }
-      })
+    expect(
+      structuredAgentSessionOptionSnapshot(state).find(({ id }) => id === 'serviceTier')
+    ).toMatchObject({
+      speed,
+      kind: { currentValue: TIER }
+    })
   })
 
   it('invalidates same-model speed support after a changed pick when no refreshed answer arrives', () => {
@@ -71,13 +72,15 @@ describe('structured session speed state projection', () => {
       CODEX_SESSION_OPTION_CATALOG,
       result
     )
-    expect(structuredAgentSessionOptionSnapshot(live).find(({ id }) => id === 'serviceTier'))
-      .toMatchObject({ speed: { requested: { tierId: TIER }, support: 'available', applied } })
+    expect(
+      structuredAgentSessionOptionSnapshot(live).find(({ id }) => id === 'serviceTier')
+    ).toMatchObject({ speed: { requested: { tierId: TIER }, support: 'available', applied } })
 
     const changed = commitStructuredAgentSessionOptionValues(live, { serviceTier: nextTier })
     // A failed detached refresh applies no new result; the committed pick must stand on its own.
-    const descriptor = structuredAgentSessionOptionSnapshot(changed)
-      .find(({ id }) => id === 'serviceTier')
+    const descriptor = structuredAgentSessionOptionSnapshot(changed).find(
+      ({ id }) => id === 'serviceTier'
+    )
 
     expect(descriptor).toMatchObject({
       kind: { currentValue: nextTier },
@@ -106,8 +109,9 @@ describe('structured session speed state projection', () => {
       CODEX_SESSION_OPTION_CATALOG,
       result
     )
-    const descriptor = structuredAgentSessionOptionSnapshot(state)
-      .find(({ id }) => id === 'serviceTier')
+    const descriptor = structuredAgentSessionOptionSnapshot(state).find(
+      ({ id }) => id === 'serviceTier'
+    )
 
     expect(descriptor).toMatchObject({
       speed,
@@ -168,8 +172,9 @@ describe('structured session speed state projection', () => {
       CODEX_SESSION_OPTION_CATALOG,
       result
     )
-    const descriptor = structuredAgentSessionOptionSnapshot(state)
-      .find(({ id }) => id === 'serviceTier')
+    const descriptor = structuredAgentSessionOptionSnapshot(state).find(
+      ({ id }) => id === 'serviceTier'
+    )
 
     expect(descriptor).toMatchObject({ speed })
     expect(descriptor).not.toHaveProperty('speed.applied')
@@ -191,8 +196,9 @@ describe('structured session speed state projection', () => {
       CODEX_SESSION_OPTION_CATALOG,
       firstResult
     )
-    expect(structuredAgentSessionOptionSnapshot(first).find(({ id }) => id === 'serviceTier'))
-      .toMatchObject({ speed: firstResult.speed })
+    expect(
+      structuredAgentSessionOptionSnapshot(first).find(({ id }) => id === 'serviceTier')
+    ).toMatchObject({ speed: firstResult.speed })
     const oldHostResult = {
       models: [
         {

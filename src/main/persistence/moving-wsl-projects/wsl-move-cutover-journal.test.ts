@@ -136,9 +136,9 @@ describe('WSL move journal', () => {
   })
 
   it('refuses a later phase whose record is missing or was lifted, or that skips a phase', async () => {
-    await expect(writeWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))).rejects.toThrow(
-      'wsl_move_record_missing'
-    )
+    await expect(
+      writeWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+    ).rejects.toThrow('wsl_move_record_missing')
     await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
     await removeWslMoveCutover(userDataPath, 'move-1')
     await expect(writeWslMoveCutover(userDataPath, cutover('move-1', 'quiesced'))).rejects.toThrow(
@@ -177,7 +177,8 @@ describe('WSL move journal', () => {
     ])
     expect(outcomes[0]).toEqual({ status: 'fulfilled', value: undefined })
     expect(outcomes[1]).toMatchObject({
-      status: 'rejected', reason: new Error('wsl_move_record_missing')
+      status: 'rejected',
+      reason: new Error('wsl_move_record_missing')
     })
     expect(listWslMoveCutovers(userDataPath)).toEqual([])
   })
@@ -190,7 +191,8 @@ describe('WSL move journal', () => {
     ])
     expect(outcomes[0]).toEqual({ status: 'fulfilled', value: undefined })
     expect(outcomes[1]).toMatchObject({
-      status: 'rejected', reason: new Error('wsl_move_in_flight')
+      status: 'rejected',
+      reason: new Error('wsl_move_in_flight')
     })
     expect(listWslMoveCutovers(userDataPath)[0]?.phase).toBe('quiesced')
   })

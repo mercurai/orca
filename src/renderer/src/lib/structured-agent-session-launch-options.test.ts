@@ -325,7 +325,9 @@ describe('picks made while a chat launches', () => {
       return retried
     })
     expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
-    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({ model: 'gpt-picked' })
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({
+      model: 'gpt-picked'
+    })
     await retryAdopted.promise
     // A definitive refusal permits a new create once recovery admits the retry.
     expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)).toEqual({

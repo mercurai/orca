@@ -32,7 +32,10 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
     commit: () => {
       // A joiner may hand off the CLI source while speed authorization awaits.
       const { options: _currentOptions, ...currentFields } = intent.params
-      const currentParams = { ...currentFields, ...(params.options ? { options: params.options } : {}) }
+      const currentParams = {
+        ...currentFields,
+        ...(params.options ? { options: params.options } : {})
+      }
       if (intent.createMessageSupport !== true) {
         prepareLegacyStructuredLaunchPrompts(intent.sessionId)
         return currentParams
@@ -54,11 +57,7 @@ function structuredLaunchCreateOptions(
     worktree: intent.params.worktree,
     seedsModel: intent.seedOptions?.model !== undefined
   })
-  const view = structuredAgentSessionOptionView(
-    firstFrame,
-    intent.seedOptions,
-    selection.held
-  )
+  const view = structuredAgentSessionOptionView(firstFrame, intent.seedOptions, selection.held)
   const options = {
     ...selection.held,
     ...structuredAgentSessionSendSelection(intent.agent, structuredAgentSessionOptionSnapshot(view))

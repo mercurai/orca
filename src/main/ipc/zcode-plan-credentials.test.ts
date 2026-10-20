@@ -1,4 +1,4 @@
-import type { RateLimitService } from '../rate-limits/service'
+import { createEmptyRateLimitState } from '../../shared/rate-limit-state-factory'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerZcodePlanCredentialsHandlers } from './zcode-plan-credentials'
 
@@ -29,7 +29,7 @@ vi.mock('../credentials/saved-credential-readability', () => ({
 vi.mock('../rate-limits/zcode-usage-fetcher', () => ({ hasZcodeCliPlanCredentials: mocks.hasCli }))
 
 function handler(channel: string) {
-  const registration = mocks.handle.mock.calls.find(([name]) => name === channel)
+  const registration = mocks.handle.mock.calls.findLast(([name]) => name === channel)
   if (!registration) {
     throw new Error('Handler missing')
   }
@@ -46,10 +46,12 @@ describe('GLM credential IPC', () => {
   })
 
   it('waits for durable save before returning status', async () => {
-    const refresh = vi.fn(() => Promise.resolve())
+    const refresh = vi.fn(() => Promise.resolve(createEmptyRateLimitState()))
     const invalidateZcodeCredentialState = vi.fn()
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: credential commands use only these refresh and invalidation methods.
-    registerZcodePlanCredentialsHandlers({ refresh, invalidateZcodeCredentialState } as RateLimitService)
+    registerZcodePlanCredentialsHandlers({
+      refresh,
+      invalidateZcodeCredentialState
+    })
     let release!: () => void
     mocks.save.mockImplementationOnce(
       () =>
@@ -79,10 +81,12 @@ describe('GLM credential IPC', () => {
   })
 
   it('propagates durable save failure without reading status or refreshing', async () => {
-    const refresh = vi.fn(() => Promise.resolve())
+    const refresh = vi.fn(() => Promise.resolve(createEmptyRateLimitState()))
     const invalidateZcodeCredentialState = vi.fn()
-    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: credential commands use only these refresh and invalidation methods.
-    registerZcodePlanCredentialsHandlers({ refresh, invalidateZcodeCredentialState } as RateLimitService)
+    registerZcodePlanCredentialsHandlers({
+      refresh,
+      invalidateZcodeCredentialState
+    })
     mocks.save.mockRejectedValueOnce(new Error('synthetic persistence failure'))
     await expect(handler('zcodePlanCredentials:saveApiKey')(null, 'synthetic-key')).rejects.toThrow(
       'synthetic persistence failure'

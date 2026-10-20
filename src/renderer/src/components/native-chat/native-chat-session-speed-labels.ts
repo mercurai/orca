@@ -4,16 +4,20 @@ import { translate } from '@/i18n/i18n'
 import { nativeChatSessionChoiceLabel } from './native-chat-session-option-labels'
 
 function tierLabel(descriptor: SessionOptionDescriptor, tierId: string): string {
-  const choice = descriptor.kind.type === 'select'
-    ? descriptor.kind.choices.find((candidate) => candidate.value === tierId)
-    : undefined
+  const choice =
+    descriptor.kind.type === 'select'
+      ? descriptor.kind.choices.find((candidate) => candidate.value === tierId)
+      : undefined
   return nativeChatSessionChoiceLabel(choice ?? { value: tierId, label: tierId }, 'serviceTier')
 }
 
 function supportLabel(support: AgentSessionSpeed['support']): string {
   switch (support) {
     case 'loading':
-      return translate('components.native-chat.composer.speedStatus.loading', 'Checking speed support…')
+      return translate(
+        'components.native-chat.composer.speedStatus.loading',
+        'Checking speed support…'
+      )
     case 'unknown':
       return translate(
         'components.native-chat.composer.speedStatus.unknown',
@@ -46,29 +50,39 @@ export function nativeChatSessionSpeedLabels(descriptor: SessionOptionDescriptor
   const requestedLabel = requested
     ? 'tierId' in requested
       ? tierLabel(descriptor, requested.tierId)
-      : translate('components.native-chat.composer.speedStatus.pendingFast', 'Fast (awaiting catalog)')
+      : translate(
+          'components.native-chat.composer.speedStatus.pendingFast',
+          'Fast (awaiting catalog)'
+        )
     : translate('components.native-chat.composer.speedStatus.providerDefault', 'Provider default')
   return {
-    nextTurn: translate('components.native-chat.composer.speedStatus.nextTurn', 'Next turn: {{speed}}', {
-      speed: requestedLabel
-    }),
+    nextTurn: translate(
+      'components.native-chat.composer.speedStatus.nextTurn',
+      'Next turn: {{speed}}',
+      {
+        speed: requestedLabel
+      }
+    ),
     support: supportLabel(support),
-    ...(applied ? {
-      applied: translate(
-        'components.native-chat.composer.speedStatus.applied',
-        'Last host-applied speed: {{speed}}',
-        { speed: tierLabel(descriptor, applied.tierId) }
-      )
-    } : {}),
-    processing: processing.status === 'reported'
-      ? translate(
-          'components.native-chat.composer.speedStatus.processingReported',
-          'Actual processing: {{speed}}',
-          { speed: tierLabel(descriptor, processing.tierId) }
-        )
-      : translate(
-          'components.native-chat.composer.speedStatus.processingUnknown',
-          'Actual processing: unknown'
-        )
+    ...(applied
+      ? {
+          applied: translate(
+            'components.native-chat.composer.speedStatus.applied',
+            'Last host-applied speed: {{speed}}',
+            { speed: tierLabel(descriptor, applied.tierId) }
+          )
+        }
+      : {}),
+    processing:
+      processing.status === 'reported'
+        ? translate(
+            'components.native-chat.composer.speedStatus.processingReported',
+            'Actual processing: {{speed}}',
+            { speed: tierLabel(descriptor, processing.tierId) }
+          )
+        : translate(
+            'components.native-chat.composer.speedStatus.processingUnknown',
+            'Actual processing: unknown'
+          )
   }
 }

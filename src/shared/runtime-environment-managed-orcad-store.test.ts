@@ -61,7 +61,8 @@ describe('managed orcad environment store', () => {
     await add()
     const execute = secureWrites.writeSecureFileAsync
     let updated = false
-    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+    const write = vi
+      .spyOn(secureWrites, 'writeSecureFileAsync')
       .mockImplementation(async (path, contents, options) => {
         const result = await execute(path, contents, options)
         if (path === getRuntimeEnvironmentSidecarPath(userDataPath) && !updated) {
@@ -76,7 +77,9 @@ describe('managed orcad environment store', () => {
       await expect(add({ id: 'environment-2', name: 'Second' })).rejects.toThrow('superseded')
       expect(listEnvironments(userDataPath)).toHaveLength(1)
       expect(listEnvironments(userDataPath)[0]).toMatchObject({
-        id: 'environment-1', lastUsedAt: 777, orcadDeployment: deployment
+        id: 'environment-1',
+        lastUsedAt: 777,
+        orcadDeployment: deployment
       })
     } finally {
       write.mockRestore()
@@ -89,14 +92,20 @@ describe('managed orcad environment store', () => {
     expect(first).toBeInstanceOf(Promise)
     expect(second).toBeInstanceOf(Promise)
     await Promise.all([first, second])
-    expect(listEnvironments(userDataPath).map((entry) => entry.id).sort())
-      .toEqual(['environment-1', 'environment-2'])
-    expect(listEnvironments(userDataPath).every((entry) =>
-      getOrcadSshDeployment(entry)?.sshTargetId === deployment.sshTargetId)).toBe(true)
+    expect(
+      listEnvironments(userDataPath)
+        .map((entry) => entry.id)
+        .sort()
+    ).toEqual(['environment-1', 'environment-2'])
+    expect(
+      listEnvironments(userDataPath).every(
+        (entry) => getOrcadSshDeployment(entry)?.sshTargetId === deployment.sshTargetId
+      )
+    ).toBe(true)
   })
 
   it('keeps the deployment link out of the file shipped builds rewrite', async () => {
-    const environment = (await add())
+    const environment = await add()
     expect(environment.orcadDeployment).toEqual(deployment)
     expect(getRuntimeSshAccess(environment)).toEqual(deployment)
     const persisted = readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')
@@ -126,17 +135,19 @@ describe('managed orcad environment store', () => {
   })
 
   it('refuses a pairing that does not point at the deployment tunnel', async () => {
-    await expect(async () => (await add({ pairingCode: pairingCode('ws://127.0.0.1:1234') }))).rejects.toThrow(
-      'does not point at its SSH tunnel'
-    )
-    await expect(async () => (await add({ pairingCode: pairingCode('wss://server.example') }))).rejects.toThrow()
+    await expect(
+      async () => await add({ pairingCode: pairingCode('ws://127.0.0.1:1234') })
+    ).rejects.toThrow('does not point at its SSH tunnel')
+    await expect(
+      async () => await add({ pairingCode: pairingCode('wss://server.example') })
+    ).rejects.toThrow()
     expect(listEnvironments(userDataPath)).toEqual([])
   })
 
   it('refuses duplicate ids and names', async () => {
     await add()
-    await expect(async () => (await add({ name: 'Other' }))).rejects.toThrow('already exists')
-    await expect(async () => (await add({ id: 'environment-2' }))).rejects.toThrow('already exists')
+    await expect(async () => await add({ name: 'Other' })).rejects.toThrow('already exists')
+    await expect(async () => await add({ id: 'environment-2' })).rejects.toThrow('already exists')
   })
 
   it('keeps a managed server from being removed or re-paired outside its lifecycle', async () => {
@@ -160,8 +171,8 @@ describe('managed orcad environment store', () => {
   })
 
   it('leaves an unchanged pairing alone and re-binds the link when the offer rotates', async () => {
-    const environment = (await add())
-    expect((await refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode()))).toEqual(
+    const environment = await add()
+    expect(await refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode())).toEqual(
       environment
     )
     const rotated = encodePairingOffer({
@@ -170,12 +181,17 @@ describe('managed orcad environment store', () => {
       deviceToken: 'rotated-token',
       publicKeyB64: Buffer.alloc(32, 1).toString('base64')
     })
-    const refreshed = (await refreshManagedOrcadPairing(userDataPath, 'environment-1', rotated, 500))
+    const refreshed = await refreshManagedOrcadPairing(userDataPath, 'environment-1', rotated, 500)
     expect(refreshed.endpoints[0]?.deviceToken).toBe('rotated-token')
     expect(refreshed.pairingRevision).toBe(500)
     expect(refreshed.orcadDeployment).toEqual(deployment)
-    await expect(async () =>
-      await refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode('ws://127.0.0.1:1'))
+    await expect(
+      async () =>
+        await refreshManagedOrcadPairing(
+          userDataPath,
+          'environment-1',
+          pairingCode('ws://127.0.0.1:1')
+        )
     ).rejects.toThrow('does not point at its SSH tunnel')
   })
 
@@ -209,12 +225,12 @@ describe('managed orcad environment store', () => {
         pairedDeviceId
       })
     await add({ pairingCode: offer('token-old', 'device-old') })
-    const repaired = (await refreshManagedOrcadPairing(
+    const repaired = await refreshManagedOrcadPairing(
       userDataPath,
       'environment-1',
       offer('token-new', 'device-new'),
       500
-    ))
+    )
     expect(repaired).toMatchObject({ pairedDeviceId: 'device-new', pairingRevision: 500 })
 
     // A status reply authenticated with the old token finishes after the re-pair.
@@ -245,7 +261,8 @@ describe('managed orcad environment store', () => {
       publicKeyB64: Buffer.alloc(32, 1).toString('base64')
     })
     expect(
-      (await refreshManagedOrcadPairing(userDataPath, 'environment-1', rotated, 500)).orcadMigratedAt
+      (await refreshManagedOrcadPairing(userDataPath, 'environment-1', rotated, 500))
+        .orcadMigratedAt
     ).toBe('2026-03-01T00:00:00.000Z')
   })
 })

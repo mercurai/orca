@@ -219,11 +219,14 @@ describe('Orca cloud session store', () => {
     const store = await loadSessionStore()
     const writer = await import('../../shared/secure-file-async-write')
     const lane = await import('../../shared/path-write-serializer')
-    const failedWrite = vi.spyOn(writer, 'writeSecureJsonFileAsync')
+    const failedWrite = vi
+      .spyOn(writer, 'writeSecureJsonFileAsync')
       .mockRejectedValueOnce(new Error('synthetic disk failure'))
     const previous = makeSession()
     try {
-      await store.saveOrcaCloudSession('profile-1', userDataPath, previous, { spentOnFailure: true })
+      await store.saveOrcaCloudSession('profile-1', userDataPath, previous, {
+        spentOnFailure: true
+      })
     } finally {
       failedWrite.mockRestore()
     }
@@ -238,7 +241,8 @@ describe('Orca cloud session store', () => {
     await lane.drainPendingPathWrites()
     const reloaded = await loadSessionStore()
     expect(reloaded.readOrcaCloudSession('profile-1', userDataPath)).toMatchObject({
-      status: 'found', session: latest
+      status: 'found',
+      session: latest
     })
   })
 

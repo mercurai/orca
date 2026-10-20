@@ -204,7 +204,8 @@ describe('WslHostService', () => {
     const service = makeService(connector)
     const execute = secureWrites.writeSecureFileAsync
     let deployments = 0
-    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+    const write = vi
+      .spyOn(secureWrites, 'writeSecureFileAsync')
       .mockImplementation((path, contents, options) => {
         if (path.endsWith('orca-environments.json')) {
           return Promise.reject(new Error('registration refused'))
@@ -260,16 +261,20 @@ describe('WslHostService', () => {
     ready.mockClear()
     pairingChanged.mockClear()
     published.length = 0
-    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+    const write = vi
+      .spyOn(secureWrites, 'writeSecureFileAsync')
       .mockRejectedValue(new Error('pairing publication refused'))
     try {
       await service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42000, 'new-token'), {
-        state: 'ready', census: null
+        state: 'ready',
+        census: null
       })
       expect(ready).not.toHaveBeenCalled()
       expect(pairingChanged).not.toHaveBeenCalled()
       expect(published).toEqual([])
-      expect(getPreferredPairingOffer(listEnvironments(userDataPath)[0]).deviceToken).toBe('token-1')
+      expect(getPreferredPairingOffer(listEnvironments(userDataPath)[0]).deviceToken).toBe(
+        'token-1'
+      )
     } finally {
       write.mockRestore()
     }
@@ -283,20 +288,24 @@ describe('WslHostService', () => {
     published.length = 0
     const execute = secureWrites.writeSecureFileAsync
     let interrupted = false
-    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+    const write = vi
+      .spyOn(secureWrites, 'writeSecureFileAsync')
       .mockImplementation(async (path, contents, options) => {
         const result = await execute(path, contents, options)
         if (path.endsWith('orca-wsl-host-deployments.json') && !interrupted) {
           interrupted = true
           await service.handleConnectionChange('Ubuntu', null, {
-            state: 'distro-stopped', terminals: 'exited', recovering: false
+            state: 'distro-stopped',
+            terminals: 'exited',
+            recovering: false
           })
         }
         return result
       })
     try {
       await service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42001, 'new-token'), {
-        state: 'ready', census: null
+        state: 'ready',
+        census: null
       })
       expect(interrupted).toBe(true)
       expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.localPort).toBe(42000)
@@ -323,12 +332,19 @@ describe('WslHostService', () => {
       await release.promise
     })
     await entered.promise
-    const older = service.handleConnectionChange('Ubuntu', connection('Ubuntu', 42000, 'old-token'), {
-      state: 'ready', census: null
-    })
+    const older = service.handleConnectionChange(
+      'Ubuntu',
+      connection('Ubuntu', 42000, 'old-token'),
+      {
+        state: 'ready',
+        census: null
+      }
+    )
     try {
       await service.handleConnectionChange('Ubuntu', null, {
-        state: 'distro-stopped', terminals: 'exited', recovering: false
+        state: 'distro-stopped',
+        terminals: 'exited',
+        recovering: false
       })
     } finally {
       release.resolve()

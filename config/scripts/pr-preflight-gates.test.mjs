@@ -20,9 +20,9 @@ it('shares one setup and overlaps the compiler only after type-aware checks fini
     ['mercurai/orca', 'ubuntu-latest'],
     ['stablyai/orca', 'blacksmith-8vcpu-ubuntu-2404']
   ]) {
-    expect(
-      runInNewContext(preflight['runs-on'].slice(3, -2), { github: { repository } })
-    ).toBe(runner)
+    expect(runInNewContext(preflight['runs-on'].slice(3, -2), { github: { repository } })).toBe(
+      runner
+    )
   }
   const installs = steps.filter(
     (step) => step.uses === './.github/actions/install-node-dependencies'

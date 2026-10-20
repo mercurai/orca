@@ -47,13 +47,13 @@ describe('runtime environment sidecar across a downgrade', () => {
       pairingCode: encodePairingOffer(pairing),
       now: 100
     })
-    const prepared = (await prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
+    const prepared = await prepareRuntimeEnvironmentSshAccessLink(userDataPath, {
       expectedEnvironment: seeded,
       requestId: 'link-request',
       ...tunnel,
       targetFingerprint: 'target-fingerprint'
-    }))
-    return (await linkVerifiedRuntimeEnvironmentSshAccess(userDataPath, {
+    })
+    return await linkVerifiedRuntimeEnvironmentSshAccess(userDataPath, {
       expectedEnvironment: prepared,
       requestId: 'link-request',
       verifiedRuntimeId: 'host-runtime',
@@ -63,20 +63,28 @@ describe('runtime environment sidecar across a downgrade', () => {
       }),
       tunnel,
       now: 90
-    }))
+    })
   }
 
   it('preserves a newer registered owner absent from the caller snapshot', async () => {
     const first = await addEnvironmentFromPairingCode(userDataPath, {
-      name: 'First', pairingCode: encodePairingOffer(pairing), now: 100
+      name: 'First',
+      pairingCode: encodePairingOffer(pairing),
+      now: 100
     })
     const stale = readPersistedEnvironmentStore(userDataPath).environments
     const opaque = { futureVersion: 99 }
-    writeFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), JSON.stringify({
-      version: 1, entries: { future: opaque }
-    }))
+    writeFileSync(
+      getRuntimeEnvironmentSidecarPath(userDataPath),
+      JSON.stringify({
+        version: 1,
+        entries: { future: opaque }
+      })
+    )
     const second = addManagedOrcadEnvironment(userDataPath, {
-      id: 'second', name: 'Second', now: 200,
+      id: 'second',
+      name: 'Second',
+      now: 200,
       pairingCode: encodePairingOffer({ ...pairing, endpoint: 'ws://127.0.0.1:41000' }),
       orcadDeployment: tunnel
     })
@@ -86,12 +94,16 @@ describe('runtime environment sidecar across a downgrade', () => {
         orcadMigratedAt: '2026-10-18T00:00:00.000Z'
       })
     ])
-    expect(listEnvironments(userDataPath).find((entry) => entry.id === registered.id)?.orcadDeployment)
-      .toEqual(tunnel)
-    expect(listEnvironments(userDataPath).find((entry) => entry.id === first.id)?.orcadMigratedAt)
-      .toBe('2026-10-18T00:00:00.000Z')
-    expect(JSON.parse(readFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), 'utf8'))
-      .entries.future).toEqual(opaque)
+    expect(
+      listEnvironments(userDataPath).find((entry) => entry.id === registered.id)?.orcadDeployment
+    ).toEqual(tunnel)
+    expect(
+      listEnvironments(userDataPath).find((entry) => entry.id === first.id)?.orcadMigratedAt
+    ).toBe('2026-10-18T00:00:00.000Z')
+    expect(
+      JSON.parse(readFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), 'utf8')).entries
+        .future
+    ).toEqual(opaque)
   })
 
   it('keeps SSH access after a shipped build rewrites orca-environments.json', async () => {

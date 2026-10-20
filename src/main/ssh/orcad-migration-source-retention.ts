@@ -71,7 +71,9 @@ async function retainOnce(
     if (current.phase !== 'destination-committed') {
       throw new Error('orcad_migration_retain_before_commit')
     }
-    return current.sourceRetainedAt ? current : { ...current, sourceRetainedAt: now().toISOString() }
+    return current.sourceRetainedAt
+      ? current
+      : { ...current, sourceRetainedAt: now().toISOString() }
   }).catch((error: unknown) => {
     if (error instanceof Error && error.message === 'orcad_migration_cutover_missing') {
       throw new Error('orcad_migration_retain_before_commit')

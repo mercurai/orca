@@ -30,25 +30,31 @@ export function readCodexSessionSpeed(
 ): AgentSessionSpeed {
   const tierId = session.options.get('serviceTier')
   const legacyFast = tierId === undefined && session.options.get('fastMode') === 'true'
-  const requested = tierId !== undefined
-    ? { tierId }
-    : legacyFast ? { legacyFast: true as const } : undefined
+  const requested =
+    tierId !== undefined ? { tierId } : legacyFast ? { legacyFast: true as const } : undefined
   const access = session.catalogAccess
   const entry = access?.store.get(access.fingerprint)
-  const usable = !access || (
-    !!entry && !access.store.isStale(entry, 'latest') &&
-    !access.store.hasActiveFailure(access.fingerprint)
-  )
+  const usable =
+    !access ||
+    (!!entry &&
+      !access.store.isStale(entry, 'latest') &&
+      !access.store.hasActiveFailure(access.fingerprint))
   const modelId = session.options.get('model') ?? session.reportedOptions.model
   const model = (access ? entry?.models : listing.models)?.find((row) => row.id === modelId)
   let support: AgentSessionSpeed['support'] = 'unknown'
   if (usable && model?.serviceTiers !== undefined) {
     const selected = legacyFast ? codexFastServiceTier(model) : tierId
-    const available = legacyFast && selected === undefined ? false :
-      selected === undefined || selected === CODEX_DEFAULT_SERVICE_TIER ||
-      model.serviceTiers.some((row) => row.value === selected)
+    const available =
+      legacyFast && selected === undefined
+        ? false
+        : selected === undefined ||
+          selected === CODEX_DEFAULT_SERVICE_TIER ||
+          model.serviceTiers.some((row) => row.value === selected)
     support = available ? 'available' : 'unavailable'
-  } else if (session.catalogListingInProgress || (access && access.store.isListing(access.fingerprint))) {
+  } else if (
+    session.catalogListingInProgress ||
+    (access && access.store.isListing(access.fingerprint))
+  ) {
     support = 'loading'
   }
   const applied = session.speedApplied

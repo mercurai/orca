@@ -131,7 +131,9 @@ describe('Codex session options through the host catalog store', () => {
   it('lists once at the first read and serves every later read from the store', async () => {
     const store = new AgentModelCatalogStore()
     let release!: () => void
-    const listing = new Promise<void>((resolve) => { release = resolve })
+    const listing = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const request = vi.fn(async () => {
       await listing
       return listAnswer('gpt-live', 'gpt-next')
@@ -144,7 +146,8 @@ describe('Codex session options through the host catalog store', () => {
     release()
     await vi.waitFor(() =>
       expect(store.get(FINGERPRINT)?.models.map((model) => model.id)).toEqual([
-        'gpt-live', 'gpt-next'
+        'gpt-live',
+        'gpt-next'
       ])
     )
     expect(modelListCalls(request)).toBe(1)

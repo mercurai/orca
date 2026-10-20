@@ -17,7 +17,10 @@ export function isStructuredLaunchSpeedBlocked(sessionId: string, key: string): 
   return !!state && blocked.has(state) && (key === 'model' || isCodexLaunchSpeedKey(state, key))
 }
 
-export function noteStructuredLaunchSpeedReplacement(state: StructuredLaunchState, key: string): void {
+export function noteStructuredLaunchSpeedReplacement(
+  state: StructuredLaunchState,
+  key: string
+): void {
   if (key === 'model' || isCodexLaunchSpeedKey(state, key)) {
     selectionVersions.set(state, (selectionVersions.get(state) ?? 0) + 1)
   }

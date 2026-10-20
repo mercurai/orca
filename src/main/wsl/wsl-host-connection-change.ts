@@ -1,5 +1,8 @@
 import { errorMessage } from '../../shared/error-message'
-import { addWslHostEnvironment, removeWslHostEnvironment } from '../../shared/runtime-environment-wsl-host-store'
+import {
+  addWslHostEnvironment,
+  removeWslHostEnvironment
+} from '../../shared/runtime-environment-wsl-host-store'
 import { wslHostEnvironmentLabel, type WslHostAddResult } from '../../shared/wsl-host-types'
 import { WSL_HOSTS_DISABLED_MESSAGE } from './wsl-host-add-admission'
 import type { WslHostDistroCandidate } from './wsl-host-distro-list'
@@ -11,11 +14,17 @@ type ChangeOwner = {
   record: (distro: string) => WslHostDeploymentRecord | null
   current: (record: WslHostDeploymentRecord, generation: number) => boolean
   generation: () => number
-  persist: (record: WslHostDeploymentRecord, connection: WslOrcadConnection, current: () => boolean) =>
-    Promise<{ ok: true; pairingChanged: boolean } | { ok: false }>
+  persist: (
+    record: WslHostDeploymentRecord,
+    connection: WslOrcadConnection,
+    current: () => boolean
+  ) => Promise<{ ok: true; pairingChanged: boolean } | { ok: false }>
   pairingChanged: (environmentId: string) => void
-  publish: (record: WslHostDeploymentRecord, status: WslOrcadConnectionStatus,
-    connection: WslOrcadConnection | null) => void
+  publish: (
+    record: WslHostDeploymentRecord,
+    status: WslOrcadConnectionStatus,
+    connection: WslOrcadConnection | null
+  ) => void
 }
 
 /** An asynchronous ready event cannot outlive a newer event, removal or disable. */
@@ -23,8 +32,11 @@ export class WslHostConnectionChanges {
   private readonly revisions = new Map<string, number>()
   constructor(private readonly owner: ChangeOwner) {}
 
-  async handle(distro: string, connection: WslOrcadConnection | null,
-    status: WslOrcadConnectionStatus): Promise<void> {
+  async handle(
+    distro: string,
+    connection: WslOrcadConnection | null,
+    status: WslOrcadConnectionStatus
+  ): Promise<void> {
     const record = this.owner.record(distro)
     if (!record) {
       return
@@ -32,7 +44,8 @@ export class WslHostConnectionChanges {
     const revision = (this.revisions.get(record.environmentId) ?? 0) + 1
     this.revisions.set(record.environmentId, revision)
     const generation = this.owner.generation()
-    const current = (): boolean => this.revisions.get(record.environmentId) === revision &&
+    const current = (): boolean =>
+      this.revisions.get(record.environmentId) === revision &&
       this.owner.current(record, generation)
     if (!current()) {
       return
@@ -51,7 +64,6 @@ export class WslHostConnectionChanges {
     }
   }
 }
-
 
 /** The connection is already open; no connector operation runs inside a profile transaction. */
 export async function completeWslHostAdd(args: {
@@ -78,8 +90,11 @@ export async function completeWslHostAdd(args: {
       shouldPublish: isCurrent,
       pairingCode: connection.pairingOffer,
       record: {
-        kind: 'wsl', distro: distro.name, distroId: distro.id,
-        localPort: connection.localPort, remotePort: connection.remotePort
+        kind: 'wsl',
+        distro: distro.name,
+        distroId: distro.id,
+        localPort: connection.localPort,
+        remotePort: connection.remotePort
       }
     })
   } catch (error) {

@@ -34,25 +34,32 @@ export function readCodexRestingSpeed(input: {
   const { saved, catalog } = input
   const canonical = saved.serviceTier
   const legacyFast = canonical === undefined && saved.fastMode === 'true'
-  let tierId: string | undefined = canonical ?? (saved.fastMode === 'false' ? CODEX_DEFAULT_SERVICE_TIER : undefined)
-  let support: AgentSessionSpeed['support'] = catalog.catalogState === 'loading' ||
-    catalog.listingInProgress ? 'loading' : 'unknown'
-  if (catalog.catalogState === 'available' && catalog.origin !== 'unknown' &&
-    !catalog.unavailable) {
+  let tierId: string | undefined =
+    canonical ?? (saved.fastMode === 'false' ? CODEX_DEFAULT_SERVICE_TIER : undefined)
+  let support: AgentSessionSpeed['support'] =
+    catalog.catalogState === 'loading' || catalog.listingInProgress ? 'loading' : 'unknown'
+  if (
+    catalog.catalogState === 'available' &&
+    catalog.origin !== 'unknown' &&
+    !catalog.unavailable
+  ) {
     const modelId = saved.model ?? input.currentModel
     const model = catalog.models.find((row) => row.id === modelId)
     if (model?.serviceTiers !== undefined) {
       if (legacyFast) {
         tierId = codexFastServiceTier(model)
       }
-      const available = legacyFast && tierId === undefined ? false :
-        tierId === undefined || tierId === CODEX_DEFAULT_SERVICE_TIER ||
-        model.serviceTiers.some((tier) => tier.value === tierId)
+      const available =
+        legacyFast && tierId === undefined
+          ? false
+          : tierId === undefined ||
+            tierId === CODEX_DEFAULT_SERVICE_TIER ||
+            model.serviceTiers.some((tier) => tier.value === tierId)
       support = available ? 'available' : 'unavailable'
     }
   }
-  const requested = tierId !== undefined ? { tierId } :
-    legacyFast ? { legacyFast: true as const } : undefined
+  const requested =
+    tierId !== undefined ? { tierId } : legacyFast ? { legacyFast: true as const } : undefined
   return {
     ...(requested ? { requested } : {}),
     support,

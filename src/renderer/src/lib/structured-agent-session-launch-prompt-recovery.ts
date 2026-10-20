@@ -13,5 +13,8 @@ export function recoverStructuredLaunchPromptDrafts(
   sessionId: string,
   drafts: readonly StructuredLaunchPromptDraft[]
 ): Promise<boolean> {
-  return recoverNativeChatComposerDraftMessages(structuredAgentSessionDraftScopeKey(sessionId), drafts)
+  return recoverNativeChatComposerDraftMessages(
+    structuredAgentSessionDraftScopeKey(sessionId),
+    drafts
+  )
 }

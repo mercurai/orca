@@ -16,10 +16,13 @@ export function persistStructuredLaunchState(
 ): void {
   const heldOptions = state.selection.held
   const hasHeld = Object.keys(heldOptions).length > 0
-  const heldPromptDrafts = state.heldPromptDrafts ??
+  const heldPromptDrafts =
+    state.heldPromptDrafts ??
     (hasHeld ? captureStructuredLaunchPromptDrafts(state.intent.sessionId) : [])
-  if (lifecycle === 'cancelled' ||
-      (lifecycle === 'published' && !hasHeld && !heldPromptDrafts.length)) {
+  if (
+    lifecycle === 'cancelled' ||
+    (lifecycle === 'published' && !hasHeld && !heldPromptDrafts.length)
+  ) {
     deleteStructuredAgentLaunchRecord(state.intent.sessionId)
     return
   }

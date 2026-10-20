@@ -106,7 +106,6 @@ export function deleteStructuredLaunchStateIfCurrent(state: StructuredLaunchStat
   return true
 }
 
-
 export function getPersistedStructuredAgentLaunchRecord(
   sessionId: string
 ): StructuredAgentLaunchPersistedRecord | undefined {

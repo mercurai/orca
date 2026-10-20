@@ -89,7 +89,10 @@ export function listWslMoveCutoverChain(
  * from the one on disk. A new move into a distro must extend the head of its chain, and only
  * once that head finished: one in-flight move per distro (design, section 4.3).
  */
-export async function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutover): Promise<void> {
+export async function writeWslMoveCutover(
+  userDataPath: string,
+  cutover: WslMoveCutover
+): Promise<void> {
   const parsed = parseVerifiedWslMoveCutover(structuredClone(cutover))
   return journals.transact(userDataPath, async ({ write }) => {
     assertWslMoveWrite(userDataPath, parsed)
@@ -104,7 +107,9 @@ export function updateWslMoveCutover<R>(
   update: (current: WslMoveCutover | undefined) => { cutover?: WslMoveCutover; result: R }
 ): Promise<R> {
   return journals.transact(userDataPath, async ({ write }) => {
-    const current = listWslMoveCutovers(userDataPath).find((entry) => entry.migrationId === migrationId)
+    const current = listWslMoveCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
     const next = update(current)
     if (next.cutover) {
       const parsed = parseVerifiedWslMoveCutover(structuredClone(next.cutover))

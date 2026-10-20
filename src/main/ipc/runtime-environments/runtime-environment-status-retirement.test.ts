@@ -50,18 +50,20 @@ beforeEach(async () => {
   vi.clearAllMocks()
   resetRuntimeEnvironmentCapabilityEvidence()
   directory = mkdtempSync(join(tmpdir(), 'orca-status-retirement-'))
-  envId = (await addManagedOrcadEnvironment(directory, {
-    id: 'env-managed',
-    name: 'Host',
-    now: 1,
-    pairingCode: pairingCode(),
-    orcadDeployment: {
-      sshTargetId: 'box',
-      sshTargetGeneration: 1,
-      localPort: 6768,
-      remotePort: 6768
-    }
-  })).id
+  envId = (
+    await addManagedOrcadEnvironment(directory, {
+      id: 'env-managed',
+      name: 'Host',
+      now: 1,
+      pairingCode: pairingCode(),
+      orcadDeployment: {
+        sshTargetId: 'box',
+        sshTargetGeneration: 1,
+        localPort: 6768,
+        remotePort: 6768
+      }
+    })
+  ).id
   mocks.diagnostics.mockReturnValue(null)
 })
 afterEach(async () => {

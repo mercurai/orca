@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { CLAUDE_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
 import type { AgentSessionModelCatalogResult } from './agent-session-wire'
-import type { SessionOptionDescriptor, SessionOptionValueSource } from './native-chat-session-options'
+import type {
+  SessionOptionDescriptor,
+  SessionOptionValueSource
+} from './native-chat-session-options'
 import {
   applyStructuredAgentSessionModelCatalog,
   applyStructuredAgentSessionOptions,
@@ -125,13 +128,18 @@ describe('what a send carries', () => {
   })
 })
 
-
 describe('Codex legacy Fast provenance on sends', () => {
-  function legacy(valueSource: SessionOptionValueSource, currentValue: boolean): SessionOptionDescriptor {
+  function legacy(
+    valueSource: SessionOptionValueSource,
+    currentValue: boolean
+  ): SessionOptionDescriptor {
     return {
-      id: 'fastMode', label: 'Fast',
+      id: 'fastMode',
+      label: 'Fast',
       kind: { type: 'boolean', currentValue },
-      valueSource, transport: 'agent-session', settable: true
+      valueSource,
+      transport: 'agent-session',
+      settable: true
     }
   }
 
@@ -156,12 +164,18 @@ describe('Codex legacy Fast provenance on sends', () => {
 
   it('keeps the model attached to an explicit legacy false preference', () => {
     const model: SessionOptionDescriptor = {
-      id: 'model', label: 'Model',
+      id: 'model',
+      label: 'Model',
       kind: { type: 'select', currentValue: 'synthetic-model', choices: [] },
-      valueSource: 'reported', transport: 'agent-session', settable: true
+      valueSource: 'reported',
+      transport: 'agent-session',
+      settable: true
     }
-    expect(structuredAgentSessionSendSelection('codex', [model, legacy('dispatched', false)])).toEqual({
-      model: 'synthetic-model', fastMode: 'false'
+    expect(
+      structuredAgentSessionSendSelection('codex', [model, legacy('dispatched', false)])
+    ).toEqual({
+      model: 'synthetic-model',
+      fastMode: 'false'
     })
   })
 })

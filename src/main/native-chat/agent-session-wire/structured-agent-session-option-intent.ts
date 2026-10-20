@@ -1,5 +1,8 @@
 import { refuse, type AgentSessionOptionResult } from '../../../shared/agent-session-wire'
-import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID, agentChatPermissionModes } from '../../../shared/agent-chat-permission-mode'
+import {
+  AGENT_CHAT_PERMISSION_MODE_OPTION_ID,
+  agentChatPermissionModes
+} from '../../../shared/agent-chat-permission-mode'
 import type { AgentSessionRecordStore } from '../../runtime/agent-session-record-store'
 import type { StructuredAgentRegistry } from './structured-agent-registry'
 import type { AgentSessionTurnContext, TurnOutcome } from './structured-agent-session-turns'
@@ -39,9 +42,10 @@ export async function recordStructuredAgentSessionOptionIntent(
     }
   }
   const normalize = deps.agents.definition(record.provider)?.restingOptions.normalizePick
-  const options = input.key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID && normalize
-    ? normalize(record.options ?? {}, input)
-    : { ...record.options, [input.key]: input.value }
+  const options =
+    input.key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID && normalize
+      ? normalize(record.options ?? {}, input)
+      : { ...record.options, [input.key]: input.value }
   if (options === null) {
     return {
       ok: false,

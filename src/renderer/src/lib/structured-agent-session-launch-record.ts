@@ -1,5 +1,8 @@
 import type { StructuredLaunchPromptDraft } from './structured-agent-session-launch-prompt-recovery'
-import { MAX_PROMPT_BYTES, SendBodyStructure } from '../../../shared/rpc-contract/structured-agent-session-message-params'
+import {
+  MAX_PROMPT_BYTES,
+  SendBodyStructure
+} from '../../../shared/rpc-contract/structured-agent-session-message-params'
 import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import { isTuiAgent } from '../../../shared/tui-agent-config'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -91,7 +94,9 @@ export function structuredAgentLaunchRecordFor(
     ...(resumeFrom ? { resumeFrom } : {}),
     ...(firstMessage ? { firstMessage } : {}),
     ...(options ? { options } : {}),
-    ...(intent.createCanonicalOptions ? { createCanonicalOptions: intent.createCanonicalOptions } : {}),
+    ...(intent.createCanonicalOptions
+      ? { createCanonicalOptions: intent.createCanonicalOptions }
+      : {}),
     ...(intent.createSpeedAuthority ? { createSpeedAuthority: intent.createSpeedAuthority } : {}),
     ...(intent.createPrepared !== true || intent.createMessageSupport === undefined
       ? {}
@@ -179,12 +184,16 @@ function validSpeedAuthority(value: unknown): value is CodexSpeedWireAuthority {
   if (!value || typeof value !== 'object') {
     return false
   }
-  const revision = 'expectedEnvironmentPairingRevision' in value
-    ? value.expectedEnvironmentPairingRevision : undefined
-  const runtime = 'expectedEnvironmentRuntimeId' in value
-    ? value.expectedEnvironmentRuntimeId : undefined
-  return (revision === undefined || (typeof revision === 'number' && Number.isFinite(revision))) &&
+  const revision =
+    'expectedEnvironmentPairingRevision' in value
+      ? value.expectedEnvironmentPairingRevision
+      : undefined
+  const runtime =
+    'expectedEnvironmentRuntimeId' in value ? value.expectedEnvironmentRuntimeId : undefined
+  return (
+    (revision === undefined || (typeof revision === 'number' && Number.isFinite(revision))) &&
     (runtime === undefined || (typeof runtime === 'string' && runtime.length > 0))
+  )
 }
 
 function validHeldPromptDrafts(value: unknown): value is readonly StructuredLaunchPromptDraft[] {
@@ -194,12 +203,23 @@ function validHeldPromptDrafts(value: unknown): value is readonly StructuredLaun
   const ids = new Set<string>()
   let bytes = 0
   return value.every((draft: unknown) => {
-    if (!draft || typeof draft !== 'object' || !('clientMessageId' in draft) || !('text' in draft)) {
+    if (
+      !draft ||
+      typeof draft !== 'object' ||
+      !('clientMessageId' in draft) ||
+      !('text' in draft)
+    ) {
       return false
     }
     const { clientMessageId, text } = draft
-    if (typeof clientMessageId !== 'string' || !clientMessageId || clientMessageId.length > 512 ||
-      ids.has(clientMessageId) || typeof text !== 'string' || !text) {
+    if (
+      typeof clientMessageId !== 'string' ||
+      !clientMessageId ||
+      clientMessageId.length > 512 ||
+      ids.has(clientMessageId) ||
+      typeof text !== 'string' ||
+      !text
+    ) {
       return false
     }
     ids.add(clientMessageId)
