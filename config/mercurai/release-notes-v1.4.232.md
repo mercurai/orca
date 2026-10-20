@@ -18,8 +18,8 @@ package version. This candidate carries all released code and 54 subsequent main
 336 upstream commits after the prior Mercurai boundary `613c5986`.
 Later official changes belong to a subsequent frozen cut.
 
-Candidate `647af7c383f604b78a57ee663b6b78c4807f975d`, tree `f1a47484a107f65712d32e4574eaf7b390a54e7d`,
-source `02ed98ed7c90088a39d7d7827c4153ffc371aa58`; trees are identical.
+Candidate `8652932927b8c7c91722a9354b164a6bcd6a9a1d`, tree `c0d5cde6f2e6ae59832aba79fc814b7dc45ed775`,
+source `73e3a7be20437b6a393121d86025ba50ba562ca6`; trees are identical.
 Product candidate: [PR61](https://github.com/mercurai/orca/pull/61).
 The initial candidate failed CI; fixture, omission and toolchain corrections are included here.
 Exact-head CI and protected release receipts remain pending.
