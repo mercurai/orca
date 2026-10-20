@@ -36,6 +36,7 @@ import { recordingStructuredAgentSessionLogger } from './structured-agent-sessio
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import { claudeAndCodexDeclared } from './structured-agent-session-adapter-router-test-support'
 import {
+  codexCalls,
   THREAD_ID,
   acquireReadyCodexForTest,
   adapterFor,
@@ -259,14 +260,8 @@ describe('a Stop that names no turn', () => {
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-2')
     const replacement = send('replacement', { model: 'gpt-next', serviceTier: 'default' })
     await replacement.result
-    await eventually(() =>
-      expect(
-        codex.connections[0].calls.filter((call) => call.method === 'turn/start')
-      ).toHaveLength(2)
-    )
-    expect(
-      codex.connections[0].calls.filter((call) => call.method === 'turn/start')[1]?.params
-    ).toMatchObject({ serviceTier: 'default' })
+    await eventually(() => expect(codexCalls(codex, 'turn/start')).toHaveLength(2))
+    expect(codexCalls(codex, 'turn/start')[1]?.params).toMatchObject({ serviceTier: 'default' })
     pending.resolve({ data: [], nextCursor: null })
     await eventually(() => expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(true))
     expect(modelCatalog.failureDetail(fingerprint)).toContain('no available models')
@@ -393,7 +388,7 @@ describe('a Stop that names no turn', () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = (params) => {
-      if (codex.connections[0].calls.filter((call) => call.method === 'turn/start').length === 1) {
+      if (codexCalls(codex, 'turn/start').length === 1) {
         throw new CodexAppServerRequestError(
           'turn/start',
           -32602,
@@ -428,11 +423,7 @@ describe('a Stop that names no turn', () => {
     expect(await pickOption('model', 'gpt-live')).toMatchObject({ ok: true })
     const retried = send('second send')
     await retried.result
-    await eventually(() =>
-      expect(
-        codex.connections[0].calls.filter((call) => call.method === 'turn/start')
-      ).toHaveLength(2)
-    )
+    await eventually(() => expect(codexCalls(codex, 'turn/start')).toHaveLength(2))
     expect(store.getRecord(SESSION)?.options?.model).toBe('gpt-live')
     await eventually(async () =>
       expect((await submission(retried.id))?.dispatchState).not.toBe('rejected')

@@ -103,12 +103,7 @@ export class AgentModelCatalogStore {
 
   /** Whether any account's catalog of `agent` is saved here. */
   hasEntryForAgent(agent: string): boolean {
-    for (const entry of this.entries.values()) {
-      if (entry.agent === agent) {
-        return true
-      }
-    }
-    return false
+    return Array.from(this.entries.values()).some((entry) => entry.agent === agent)
   }
 
   /** Refresh ages discovery; turn admission can check the latest live or discovered capabilities. */
