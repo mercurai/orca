@@ -4,6 +4,14 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
       - 'src/main/git/command-runner/**'
+      - 'src/cli/runtime/environments.test.ts'
+      - 'src/main/ipc/repos-execution-host-catalog.test.ts'
+      - 'src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts'
+      - 'src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts'
+      - 'src/main/managed-server/install/remote-install-model.test.ts'
+      - 'src/main/managed-server/posix-host-op-byte-budget.test.ts'
+      - 'src/main/ssh/ssh-remote-commands.ts'
+      - 'src/main/ssh/ssh-remote-commands.test.ts'
       - 'src/main/native-chat/agent-model-catalog/**'
       - 'src/packages/process-host/**'
       - 'src/main/codex/codex-structured-session-options.test.ts'
@@ -46,6 +54,13 @@ jobs:
         run: >-
           node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
           src/main/git/command-runner/spawned-command-tree-kill.test.ts
+          src/cli/runtime/environments.test.ts
+          src/main/ipc/repos-execution-host-catalog.test.ts
+          src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts
+          src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts
+          src/main/managed-server/install/remote-install-model.test.ts
+          src/main/managed-server/posix-host-op-byte-budget.test.ts
+          src/main/ssh/ssh-remote-commands.test.ts
           src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
           src/main/git/command-runner/git-spawn-worker-client.test.ts
           src/main/git/command-runner/git-spawn-worker-handler.test.ts

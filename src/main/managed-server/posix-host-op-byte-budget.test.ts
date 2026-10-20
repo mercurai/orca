@@ -99,8 +99,7 @@ const POSIX_HOST_OP_BYTE_BUDGET = 6 * 1024
 const OVER_BUDGET_CEILINGS: Readonly<Record<string, number>> = {
   tryStealInstallLockCommand: 9_022,
   orcadLaunchCommand: 8_122,
-  'orcadLaunchCommand (WSL setsid)': 6_439,
-  probeRemoteInstallCompleteCommand: 12_189
+  'orcadLaunchCommand (WSL setsid)': 6_439
 }
 
 type HostCase = { host: RemoteHostPlatform; target: NodeRuntimeTarget; nodePath: string }
