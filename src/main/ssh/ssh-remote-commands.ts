@@ -97,7 +97,10 @@ export function probeRemoteInstallCompleteCommand(
         return `&& test -f ${file} `
       })
       .join('')
-    return `orca_dir=${quotePosixShell(directory)}; test -d ${quotePosixShell(remoteInstallDir)} ${fileTests}&& echo OK || echo MISSING`
+    const compact = `orca_dir=${quotePosixShell(directory)}; test -d ${quotePosixShell(remoteInstallDir)} ${fileTests}&& echo OK || echo MISSING`
+    const directTests = required.map((path) => `&& test -f ${quotePosixShell(path)} `).join('')
+    const direct = `test -d ${quotePosixShell(remoteInstallDir)} ${directTests}&& echo OK || echo MISSING`
+    return Buffer.byteLength(compact) < Buffer.byteLength(direct) ? compact : direct
   }
   return powerShellCommand(
     [
