@@ -9,9 +9,11 @@ import {
 } from './runtime-environment-store'
 
 // Exercise the real host filesystem and fsync handle modes; native DACL coverage lives elsewhere.
-vi.mock('./windows-security-addon', () => ({ loadWindowsSecurity: () => ({
+vi.mock('./windows-security-addon', () => ({
+  loadWindowsSecurity: () => ({
     error: 'native DACL intentionally unavailable in storage ordering fixture'
-  }) }))
+  })
+}))
 
 let userDataPath: string
 beforeEach(() => {

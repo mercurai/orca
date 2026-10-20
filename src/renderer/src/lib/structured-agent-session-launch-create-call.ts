@@ -139,7 +139,7 @@ async function prepareCreateWireOptions(
     const staged = preparation?.params ?? intent.params
     // A prepared first frame may deliberately omit an unlisted remembered model.
     // Undefined here is a decision, not permission to resurrect the launch seed.
-    const canonical = preparation ? staged.options : staged.options ?? intent.seedOptions
+    const canonical = preparation ? staged.options : (staged.options ?? intent.seedOptions)
     const prepared = await authorizeCreateSpeed(intent, canonical)
     // No prompt ownership or persisted negotiation marker changes before authorization.
     intent.createMessageSupport = supported

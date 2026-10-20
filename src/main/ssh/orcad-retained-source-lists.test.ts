@@ -188,10 +188,10 @@ describe('project host setups of a converted host', () => {
     expect(visibleProjectHostSetups(folderOnly).map((entry) => entry.id)).toEqual(['repo-local'])
   })
 
-  it('hides the local setup of a project a WSL move took, by its repo row alone', () => {
+  it('hides the local setup of a project a WSL move took, by its repo row alone', async () => {
     loadWslMoveFence(dir)
     try {
-      seedWslMoveCutover(
+      await seedWslMoveCutover(
         dir,
         wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: ['repo-local'] })
       )
