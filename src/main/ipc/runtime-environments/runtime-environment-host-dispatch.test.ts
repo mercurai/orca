@@ -210,11 +210,11 @@ describe('runtimeEnvironments:remove by host kind', () => {
   it('removes a WSL host generically when no service exists', async () => {
     useHost('wsl')
     mocks.wsl.service = null
-    expect(
-      await handler('runtimeEnvironments:remove')(null, { selector: 'Ubuntu (WSL)' })
-    ).toEqual({
-      removed: redacted('wsl')
-    })
+    expect(await handler('runtimeEnvironments:remove')(null, { selector: 'Ubuntu (WSL)' })).toEqual(
+      {
+        removed: redacted('wsl')
+      }
+    )
     expect(mocks.removeEnvironment).toHaveBeenCalledWith('/u', 'Ubuntu (WSL)')
     expect(mocks.closeRequest).toHaveBeenCalledWith('Ubuntu (WSL)')
   })

@@ -15,9 +15,11 @@ import type { OrcadHostTransport } from '../../ssh/orcad-host-transport'
 import { ManagedOrcadPairingRepairs, pairingRevisionOf } from './orcad-managed-pairing-repair'
 
 // Exercise the real host filesystem and fsync handle modes; native DACL coverage lives elsewhere.
-vi.mock('../../../shared/windows-security-addon', () => ({ loadWindowsSecurity: () => ({
+vi.mock('../../../shared/windows-security-addon', () => ({
+  loadWindowsSecurity: () => ({
     error: 'native DACL intentionally unavailable in storage ordering fixture'
-  }) }))
+  })
+}))
 
 let profile: string
 beforeEach(() => {

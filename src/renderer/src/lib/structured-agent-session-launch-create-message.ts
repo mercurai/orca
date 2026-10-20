@@ -58,7 +58,17 @@ function structuredLaunchCreateOptions(
     seedsModel: intent.seedOptions?.model !== undefined
   })
   const view = structuredAgentSessionOptionView(firstFrame, intent.seedOptions, selection.held)
+  const { model: _model, effort: _effort, ...independentSeed } = intent.seedOptions ?? {}
+  // Permission and speed remain launch intent when a remembered model is unlisted.
+  // A paired host supplied its own seed during admission. Explicit Codex speed keeps
+  // its model too, so an unknown tier is refused under that model, never paid elsewhere.
+  const keepsSeedModel =
+    intent.target.kind !== 'local' ||
+    (intent.agent === 'codex' &&
+      (independentSeed.serviceTier !== undefined || independentSeed.fastMode !== undefined))
   const options = {
+    ...independentSeed,
+    ...(keepsSeedModel ? intent.seedOptions : {}),
     ...selection.held,
     ...structuredAgentSessionSendSelection(intent.agent, structuredAgentSessionOptionSnapshot(view))
   }
