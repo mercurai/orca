@@ -17,7 +17,10 @@ import {
 } from './structured-agent-session-launch-options'
 
 /** Preview options without taking ownership of the first message before authorization. */
-export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchState): {
+export function prepareStructuredLaunchCreateMessage(
+  state: StructuredLaunchState,
+  createMessageSupport: boolean
+): {
   params: StructuredAgentSessionCreateParams
   commit?: () => StructuredAgentSessionCreateParams
 } {
@@ -25,7 +28,7 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
   if (intent.createPrepared) {
     return { params: intent.params }
   }
-  const options = structuredLaunchCreateOptions(state)
+  const options = structuredLaunchCreateOptions(state, createMessageSupport)
   const params = { ...intent.params, ...(options ? { options } : {}) }
   return {
     params,
@@ -36,7 +39,7 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
         ...currentFields,
         ...(params.options ? { options: params.options } : {})
       }
-      if (intent.createMessageSupport !== true) {
+      if (!createMessageSupport) {
         prepareLegacyStructuredLaunchPrompts(intent.sessionId)
         return currentParams
       }
@@ -49,7 +52,8 @@ export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchStat
 /** Picks held so far, and the model and effort the chat shows: a first message starts its turn
  *  on them, as a later send does. */
 function structuredLaunchCreateOptions(
-  state: StructuredLaunchState
+  state: StructuredLaunchState,
+  createMessageSupport: boolean
 ): Readonly<Record<string, string>> | undefined {
   const { intent, selection } = state
   const firstFrame = firstFrameOptionState(intent.agent, intent.target, {
@@ -58,8 +62,14 @@ function structuredLaunchCreateOptions(
     seedsModel: intent.seedOptions?.model !== undefined
   })
   const view = structuredAgentSessionOptionView(firstFrame, intent.seedOptions, selection.held)
-  const { model: _model, effort: _effort, ...independentSeed } = intent.seedOptions ?? {}
-  // Permission and speed remain launch intent when a remembered model is unlisted.
+  const {
+    model: seededModel,
+    effort: seededEffort,
+    permissionMode: seededPermission,
+    ...independentSeed
+  } = intent.seedOptions ?? {}
+  // Legacy create needs the seeded permission; modern create carries an explicit held
+  // permission only. Speed/personality intent survives an unlisted remembered model.
   // A paired host supplied its own seed during admission. Explicit Codex speed keeps
   // its model too, so an unknown tier is refused under that model, never paid elsewhere.
   const keepsSeedModel =
@@ -68,7 +78,11 @@ function structuredLaunchCreateOptions(
       (independentSeed.serviceTier !== undefined || independentSeed.fastMode !== undefined))
   const options = {
     ...independentSeed,
-    ...(keepsSeedModel ? intent.seedOptions : {}),
+    ...(keepsSeedModel && seededModel !== undefined ? { model: seededModel } : {}),
+    ...(keepsSeedModel && seededEffort !== undefined ? { effort: seededEffort } : {}),
+    ...(!createMessageSupport && seededPermission !== undefined
+      ? { permissionMode: seededPermission }
+      : {}),
     ...selection.held,
     ...structuredAgentSessionSendSelection(intent.agent, structuredAgentSessionOptionSnapshot(view))
   }

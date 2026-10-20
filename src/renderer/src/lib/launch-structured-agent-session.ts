@@ -48,7 +48,7 @@ export type StructuredAgentSessionLaunchIntent = {
   params: StructuredAgentSessionCreateParams
   createMessageSupport?: boolean
   createPrepared?: true
-  prepareCreate?: () => {
+  prepareCreate?: (createMessageSupport: boolean) => {
     params: StructuredAgentSessionCreateParams
     commit?: () => StructuredAgentSessionCreateParams
   }

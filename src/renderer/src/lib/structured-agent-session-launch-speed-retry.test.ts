@@ -109,7 +109,7 @@ describe('create prompt ownership waits for speed authorization', () => {
       cancelled: false,
       selection: { held: {} }
     }
-    intent.prepareCreate = () => prepareStructuredLaunchCreateMessage(state)
+    intent.prepareCreate = (supported) => prepareStructuredLaunchCreateMessage(state, supported)
     const prompt = stageStructuredLaunchPrompt(SESSION, 'original opening text')
     const pending = getStructuredAgentSessionPendingSends(SESSION)[0]
     expect(pending).toBeDefined()

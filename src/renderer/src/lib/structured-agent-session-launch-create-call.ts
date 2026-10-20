@@ -135,7 +135,7 @@ async function prepareCreateWireOptions(
     } catch {
       // Unknown first-message support retains the legacy prompt path.
     }
-    const preparation = intent.prepareCreate?.()
+    const preparation = intent.prepareCreate?.(supported)
     const staged = preparation?.params ?? intent.params
     // A prepared first frame may deliberately omit an unlisted remembered model.
     // Undefined here is a decision, not permission to resurrect the launch seed.
