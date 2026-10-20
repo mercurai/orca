@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-1bfb4565
     status: ours-only
     base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
-    commit: 6bedca40867ecc17bb236a81cb21fa06db4a8076
+    commit: 2aafac5aea4d2eb69effada90990870d0dc06113
     owner: harness
     added: 2026-10-20
     tests:
@@ -223,9 +223,9 @@ patches:
       - src/main/managed-server/posix-host-op-byte-budget.test.ts
       - src/main/ssh/ssh-remote-commands.test.ts
     notes: >-
-      Provisional exact candidate 6bedca40867ecc17bb236a81cb21fa06db4a8076,
-      source acbcf653a703ec350e44e3b636ebb266d5792787,
-      tree fb4827762275d8ca25eb18a1bcec4773bbbff887.
+      Provisional exact candidate 2aafac5aea4d2eb69effada90990870d0dc06113,
+      source 459db1804be0a744265be10ed6f6b7a18a6357db,
+      tree b876f99a70b1dce32c20da3c9826704208e17ee2.
       Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
       v1.4.232 is the release-version floor. This combines all released code and
       54 subsequent main commits while preserving the shipped Mercurai enhancements.
