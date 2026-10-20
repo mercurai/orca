@@ -16,6 +16,7 @@ on:
       - 'src/renderer/src/components/native-chat/native-chat-session-speed-labels.ts'
       - 'src/renderer/src/runtime/codex-speed*.ts'
       - 'src/renderer/src/lib/structured-agent-session-launch*.ts'
+      - 'src/renderer/src/components/native-chat/native-chat-composer-draft*.ts'
       - 'src/renderer/src/components/native-chat/structured-agent-session-send-attempt.ts'
       - 'src/renderer/src/components/native-chat/use-structured-agent-session-mutate.ts'
       - 'src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts'
@@ -86,6 +87,7 @@ jobs:
           src/main/codex/codex-structured-message-options.test.ts
           src/main/native-chat/agent-session-wire/structured-agent-session-message-choices.test.ts
           src/renderer/src/components/native-chat/native-chat-composer-draft-store.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-image-replacement.test.ts
           src/shared/runtime-environment-store-pairing-serialization.test.ts
           src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
           src/shared/runtime-environment-store.test.ts
