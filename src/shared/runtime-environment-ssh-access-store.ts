@@ -15,7 +15,10 @@ import {
   type PersistedRuntimeEnvironment,
   type RuntimeSshTunnelLink
 } from './runtime-environments'
-import { readEnvironmentStore, readPersistedEnvironmentStore } from './runtime-environment-store-file'
+import {
+  readEnvironmentStore,
+  readPersistedEnvironmentStore
+} from './runtime-environment-store-file'
 import {
   overlayRuntimeEnvironmentSidecar,
   readCurrentRuntimeEnvironmentSidecarEntry,
