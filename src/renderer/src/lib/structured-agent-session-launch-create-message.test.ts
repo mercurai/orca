@@ -288,6 +288,19 @@ describe('the first message owned by create', () => {
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
   })
 
+  it('retains an explicit held permission even when modern create omits the seeded default', async () => {
+    mocks.call.mockImplementation(async () => created())
+    const launch = start()
+    holdStructuredAgentSessionLaunchOption(launch.sessionId, 'permissionMode', 'ask')
+    await launch.launchResult
+    const params = createParams()
+    expect(params.firstMessage).toBeDefined()
+    expect(params.options).toEqual({ permissionMode: 'ask' })
+    expect(params.envelope.payloadFingerprint).toBe(
+      structuredAgentSessionCreateFingerprint({ sessionId: launch.sessionId, ...params })
+    )
+  })
+
   it('keeps the old create-then-send payload for an older host', async () => {
     mocks.supports.mockResolvedValue(false)
     mocks.call.mockImplementation(async (_target, method, params) => {
