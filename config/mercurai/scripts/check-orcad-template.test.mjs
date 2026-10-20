@@ -1,7 +1,8 @@
 // Run with `node --test "config/mercurai/scripts/*.test.mjs"` from the repo root.
 // Uses the repo's own template fixture and verifier, so it follows whatever tag it runs in.
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { after, test } from 'node:test'
@@ -106,3 +107,86 @@ test('parses its arguments and refuses an incomplete or unknown set', () => {
   assert.throws(() => parseArguments(['--repo', '.', '--resources', 'out', '--targets', '']), /usage:/)
   assert.throws(() => parseArguments(['--bogus', 'x']), /unexpected argument --bogus/)
 })
+
+/** Synthetic newer release API: the real legacy fixture above covers the older tag contract. */
+async function compactedReleaseFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'orca-compacted-release-check-'))
+  roots.push(root)
+  const releaseRepo = join(root, 'repo')
+  const resourcesDir = join(root, 'resources')
+  const templateDir = join(resourcesDir, 'orcad-template')
+  await mkdir(join(releaseRepo, 'src/shared'), { recursive: true })
+  await mkdir(join(releaseRepo, 'config/scripts'), { recursive: true })
+  await mkdir(join(templateDir, 'targets', SHIPPED), { recursive: true })
+  await mkdir(join(resourcesDir, 'ripgrep/linux-x64'), { recursive: true })
+  const worker = 'git-spawn-worker-entry.js'
+  const binary = 'ripgrep/linux-x64/rg'
+  await writeFile(join(templateDir, 'targets', SHIPPED, worker), 'worker')
+  await writeFile(join(resourcesDir, binary), 'synthetic-ripgrep')
+  await writeFile(
+    join(templateDir, 'manifest.json'),
+    JSON.stringify({
+      schemaVersion: 4,
+      targets: {
+        [SHIPPED]: {
+          packagedRipgrep: true,
+          files: { [binary]: createHash('sha256').update('synthetic-ripgrep').digest('hex') }
+        }
+      }
+    })
+  )
+  await writeFile(join(releaseRepo, 'src/shared/orcad-artifacts.ts'), `
+export const ORCAD_TEMPLATE_TARGETS_DIR = 'targets'
+export const ORCAD_TEMPLATE_MANIFEST_FILENAME = 'manifest.json'
+export const ORCAD_ARTIFACTS = [{filename: '${worker}'}, {filename: '${binary}'}]
+export const orcadTemplateCommonFilenames = () => []
+export const orcadArtifactFilenames = () => ['${worker}', '${binary}']
+export function orcadTemplatePackagedRipgrep(schema, target, value) {
+  if (schema !== 4 || target !== '${SHIPPED}' || value !== true) {
+    throw new Error('Invalid packaged ripgrep reference')
+  }
+  return '${binary}'
+}
+`)
+  await writeFile(join(releaseRepo, 'config/scripts/verify-packaged-orcad-template.cjs'), `
+const { readFileSync, lstatSync } = require('node:fs')
+const { createHash } = require('node:crypto')
+const { join } = require('node:path')
+exports.verifyPackagedOrcadTemplate = (resources) => {
+  const binary = join(resources, '${binary}')
+  const manifest = JSON.parse(readFileSync(join(resources, 'orcad-template/manifest.json'), 'utf8'))
+  const metadata = lstatSync(binary)
+  if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error('ripgrep is not a regular file')
+  const digest = createHash('sha256').update(readFileSync(binary)).digest('hex')
+  if (digest !== manifest.targets['${SHIPPED}'].files['${binary}']) {
+    throw new Error('shared ripgrep checksum mismatch')
+  }
+}
+`)
+  return { root, repoRoot: releaseRepo, resourcesDir, templateDir, worker, binary }
+}
+
+test('uses the release resolver for a compacted shared ripgrep and retains required worker checks', async () => {
+  const fixture = await compactedReleaseFixture()
+  const input = { ...fixture, targets: [SHIPPED], required: [fixture.worker] }
+  assert.deepEqual(await checkOrcadTemplate(input), [])
+  await rm(join(fixture.templateDir, 'targets', SHIPPED, fixture.worker))
+  assert.ok((await checkOrcadTemplate(input)).includes(`${SHIPPED}: missing or empty ${fixture.worker}`))
+})
+
+for (const damage of ['missing', 'tampered']) {
+  test(`refuses ${damage} compacted shared ripgrep`, async () => {
+    const fixture = await compactedReleaseFixture()
+    const binary = join(fixture.resourcesDir, fixture.binary)
+    await (damage === 'missing' ? rm(binary) : writeFile(binary, 'changed'))
+    const problems = await checkOrcadTemplate({ ...fixture, targets: [SHIPPED] })
+    assert.ok(problems.length > 0)
+    assert.ok(
+      problems.some((problem) =>
+        damage === 'tampered'
+          ? problem.includes('shared ripgrep checksum mismatch')
+          : problem.includes('ENOENT')
+      )
+    )
+  })
+}

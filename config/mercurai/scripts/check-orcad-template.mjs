@@ -46,11 +46,41 @@ export async function checkOrcadTemplate({ repoRoot, resourcesDir, targets, requ
     }
   }
   const common = new Set(artifacts.orcadTemplateCommonFilenames(mobileWebAssets))
+  // Newer tags compact identical ripgrep bytes into desktop resources. Their own
+  // parser validates the schema/target reference; their verifier above checks hashes.
+  let manifest
+  if (typeof artifacts.orcadTemplatePackagedRipgrep === 'function') {
+    try {
+      manifest = JSON.parse(
+        readFileSync(join(templateDir, artifacts.ORCAD_TEMPLATE_MANIFEST_FILENAME), 'utf8')
+      )
+    } catch (error) {
+      problems.push(error instanceof Error ? error.message : String(error))
+      return problems
+    }
+  }
   for (const target of targets) {
+    let packagedRipgrep
+    if (manifest) {
+      try {
+        packagedRipgrep = artifacts.orcadTemplatePackagedRipgrep(
+          manifest.schemaVersion,
+          target,
+          manifest.targets?.[target]?.packagedRipgrep
+        )
+      } catch (error) {
+        problems.push(error instanceof Error ? error.message : String(error))
+        continue
+      }
+    }
     for (const filename of artifacts.orcadArtifactFilenames(target, mobileWebAssets)) {
-      const path = common.has(filename)
-        ? join(templateDir, ...filename.split('/'))
-        : join(templateDir, artifacts.ORCAD_TEMPLATE_TARGETS_DIR, target, ...filename.split('/'))
+      const root =
+        filename === packagedRipgrep
+          ? resourcesDir
+          : common.has(filename)
+            ? templateDir
+            : join(templateDir, artifacts.ORCAD_TEMPLATE_TARGETS_DIR, target)
+      const path = join(root, ...filename.split('/'))
       if (!existsSync(path) || !statSync(path).isFile() || statSync(path).size === 0) {
         problems.push(`${target}: missing or empty ${filename}`)
       }

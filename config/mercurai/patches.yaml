@@ -5,16 +5,16 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: 613c5986e3e2671c8603b503bbf171692487f866
+base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-20261018
-    branch: patch/current-main-release-613c5986
+  - slug: current-main-release-20261020
+    branch: patch/current-main-release-1bfb4565
     status: ours-only
-    base: 613c5986e3e2671c8603b503bbf171692487f866
-    commit: 19e2b167e7064a3ee76cd3d7356ec05e925f1874
+    base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
+    commit: fef054f34069a0506e2ff27e92191c59155503cf
     owner: harness
-    added: 2026-10-18
+    added: 2026-10-20
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
@@ -188,6 +188,7 @@ patches:
       - src/renderer/src/components/native-chat/native-chat-composer-draft-capacity.test.ts
       - src/renderer/src/components/native-chat/native-chat-composer-draft-lifecycle.test.tsx
       - src/renderer/src/components/native-chat/native-chat-composer-draft-store.test.ts
+      - src/renderer/src/components/native-chat/native-chat-composer-draft-image-replacement.test.ts
       - src/renderer/src/components/native-chat/use-native-chat-provisional-launch.test.tsx
       - src/renderer/src/components/native-chat/use-structured-agent-session.rewind.test.tsx
       - src/renderer/src/lib/launch-structured-agent-session.test.ts
@@ -205,27 +206,36 @@ patches:
       - src/shared/secure-file-sync-writers-removed.test.ts
       - src/shared/wsl-host-deployment-store.test.ts
       - tests/e2e/cross-version-wire/managed-orcad-convert-downgrade.unit.test.ts
+      - src/main/codex/codex-structured-message-options.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-message-choices.test.ts
+      - src/shared/runtime-environment-store-pairing-serialization.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
+      - src/main/ipc/minimax-credentials.test.ts
+      - src/main/ipc/zcode-plan-credentials.test.ts
+      - src/main/runtime/rpc/methods/usage-credentials.test.ts
+      - config/scripts/compact-packaged-orcad-ripgrep.test.mjs
+      - src/shared/runtime-environment-store-same-server.test.ts
+      - src/cli/runtime/environments.test.ts
+      - src/main/ipc/repos-execution-host-catalog.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts
+      - src/main/managed-server/install/remote-install-model.test.ts
+      - src/main/managed-server/install/remote-versioned-install.test.ts
+      - src/main/managed-server/posix-host-op-byte-budget.test.ts
+      - src/main/ssh/ssh-remote-commands.test.ts
     notes: >-
-      Provisional exact candidate 19e2b167e7064a3ee76cd3d7356ec05e925f1874,
-      source bf3417557c71d511db9383ffe8f7a1cf44848c0d,
-      tree 1ca2f603c21bfe130006e9b910a22acbad976c5b.
-      Registered tests retain the predecessor union and every correction-wave Vitest suite;
-      Playwright specs remain covered by their existing PR/E2E workflows, not this Vitest list.
-      Scoped independent source reviews and clean actual-merge/retention audit accepted.
-      Predecessor full PR39184193725 failed one type-import lint rule; assembly39184391556
-      passed2236 tests and failed6 fixture cases. Reviewed six-file corrections are now included;
-      fresh exact-head CI/assembly remains required. The following c7941d83 candidate passed
-      assembly2242 tests but failed changed-code quality on a whole-registry fixture cast.
-      This pin replaces that cast with a complete typed five-operation dependency contract.
-      The 3b6a728b candidate also passed2242 assembly tests and targeted checks; its compiler
-      found one missing SSH/WSL union narrowing in a test. This pin uses the existing SSH
-      deployment accessor without changing runtime code or the expected target assertion.
-      No predecessor receipt approves this pin.
-      CI-only dry-run assembly may use this pin, but default
-      registration and publication remain blocked until exact-head gates pass.
-      Frozen official base is 613c5986e3e2671c8603b503bbf171692487f866;
-      v1.4.229 is the release-version floor. Source/patch trees must match protected
-      assembly output before publication. Later official commits belong to the next cut.
+      Provisional exact candidate fef054f34069a0506e2ff27e92191c59155503cf,
+      source d13c1f651ae673adaf2c337fff2b67e71e6aabef,
+      tree f949142d05e222bfa63ac7b0c53be8237f723181.
+      Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
+      v1.4.232 is the release-version floor. This combines all released code and
+      54 subsequent main commits while preserving the shipped Mercurai enhancements.
+      Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,
+      packaging and final review remain required. No prior 229 receipt approves this pin.
+      Registered tests retain the predecessor union and new per-message speed,
+      async credential, pairing serialization and partial-template compaction regressions.
+      CI-only dry-run assembly may use this pin. Default registration/publication remain
+      blocked until exact-candidate gates pass. See release-notes-v1.4.232.md.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.

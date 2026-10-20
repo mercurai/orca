@@ -248,6 +248,9 @@ jobs:
           set -euo pipefail
           pnpm install --frozen-lockfile --ignore-scripts
           git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+          if [ -d node_modules/bun ]; then
+            pnpm rebuild bun
+          fi
           pnpm run --if-present build:packages
           node config/scripts/ensure-native-runtime.mjs --runtime=electron
           cd mobile
