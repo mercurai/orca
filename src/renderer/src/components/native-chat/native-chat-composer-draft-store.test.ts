@@ -7,6 +7,13 @@ import {
   type NativeChatComposerDraftStorage
 } from './native-chat-composer-draft-storage'
 
+// These store tests exercise imperative image checks, never the React store hook.
+vi.mock('@/store', () => ({
+  useAppStore: () => {
+    throw new Error('Draft verification must not call the application store hook')
+  }
+}))
+
 type DraftModules = {
   drafts: typeof DraftCache
   attachments: typeof DraftCache
@@ -799,15 +806,28 @@ describe('native-chat composer draft store', () => {
     const restored = () => modules.store.readNativeChatComposerDraft(scope)
     const old = Promise.withResolvers<boolean>()
     const next = Promise.withResolvers<boolean>()
-    const pathExists = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
+    const pathExists = vi.fn(({ filePath }: { filePath: string }) => {
+      if (filePath === IMAGES[0].path) {
+        return old.promise
+      }
+      if (filePath === '/repo/new.png') {
+        return next.promise
+      }
+      throw new Error(`Unexpected image check: ${filePath}`)
+    })
     Object.assign(window, { api: { fs: { pathExists } } })
     other.attachments.appendNativeChatAttachmentCache('tab-1:pane', [IMAGES[0]])
     await vi.waitFor(() => expect(restored().images).toEqual([IMAGES[0]]))
     const first = checks.verifyRestoredNativeChatComposerDraftImages('tab-1:pane')
+    expect(pathExists.mock.calls).toEqual([[{ filePath: IMAGES[0].path }]])
     const replacement = { ...IMAGES[0], path: '/repo/new.png' }
     other.store.updateNativeChatComposerDraft(scope, { images: [replacement] }, 'immediate')
     await vi.waitFor(() => expect(restored().images).toEqual([replacement]))
     const second = checks.verifyRestoredNativeChatComposerDraftImages('tab-1:pane')
+    expect(pathExists.mock.calls).toEqual([
+      [{ filePath: IMAGES[0].path }],
+      [{ filePath: replacement.path }]
+    ])
     old.resolve(false)
     await first
     expect(memory.restoredImageChecks.get('tab-1:pane')).toHaveLength(1)
