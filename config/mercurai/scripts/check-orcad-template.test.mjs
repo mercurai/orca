@@ -178,11 +178,7 @@ for (const damage of ['missing', 'tampered']) {
   test(`refuses ${damage} compacted shared ripgrep`, async () => {
     const fixture = await compactedReleaseFixture()
     const binary = join(fixture.resourcesDir, fixture.binary)
-    if (damage === 'missing') {
-      await rm(binary)
-    } else {
-      await writeFile(binary, 'changed')
-    }
+    await (damage === 'missing' ? rm(binary) : writeFile(binary, 'changed'))
     const problems = await checkOrcadTemplate({ ...fixture, targets: [SHIPPED] })
     assert.ok(problems.length > 0)
     assert.ok(
