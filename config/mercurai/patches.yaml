@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-1bfb4565
     status: ours-only
     base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
-    commit: f9f8471478400fd47a55e1ed41236b590d5ce5cc
+    commit: 6bedca40867ecc17bb236a81cb21fa06db4a8076
     owner: harness
     added: 2026-10-20
     tests:
@@ -215,10 +215,17 @@ patches:
       - src/main/runtime/rpc/methods/usage-credentials.test.ts
       - config/scripts/compact-packaged-orcad-ripgrep.test.mjs
       - src/shared/runtime-environment-store-same-server.test.ts
+      - src/cli/runtime/environments.test.ts
+      - src/main/ipc/repos-execution-host-catalog.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts
+      - src/main/managed-server/install/remote-install-model.test.ts
+      - src/main/managed-server/posix-host-op-byte-budget.test.ts
+      - src/main/ssh/ssh-remote-commands.test.ts
     notes: >-
-      Provisional exact candidate f9f8471478400fd47a55e1ed41236b590d5ce5cc,
-      source 7cfffc2ff56d9b7f226471f49ae00b6d35ca5845,
-      tree 15ea9a981da2040a9e8eab0d6169c5b29664950f.
+      Provisional exact candidate 6bedca40867ecc17bb236a81cb21fa06db4a8076,
+      source acbcf653a703ec350e44e3b636ebb266d5792787,
+      tree fb4827762275d8ca25eb18a1bcec4773bbbff887.
       Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
       v1.4.232 is the release-version floor. This combines all released code and
       54 subsequent main commits while preserving the shipped Mercurai enhancements.

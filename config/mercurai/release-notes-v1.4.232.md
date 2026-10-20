@@ -18,8 +18,8 @@ package version. This candidate carries all released code and 54 subsequent main
 336 upstream commits after the prior Mercurai boundary `613c5986`.
 Later official changes belong to a subsequent frozen cut.
 
-Candidate `f9f8471478400fd47a55e1ed41236b590d5ce5cc`, tree `15ea9a981da2040a9e8eab0d6169c5b29664950f`,
-source `7cfffc2ff56d9b7f226471f49ae00b6d35ca5845`; trees are identical.
+Candidate `6bedca40867ecc17bb236a81cb21fa06db4a8076`, tree `fb4827762275d8ca25eb18a1bcec4773bbbff887`,
+source `acbcf653a703ec350e44e3b636ebb266d5792787`; trees are identical.
 Product candidate: [PR61](https://github.com/mercurai/orca/pull/61).
 The initial candidate failed CI; fixture, omission and toolchain corrections are included here.
 Exact-head CI and protected release receipts remain pending.
@@ -50,6 +50,10 @@ queue speed-only changes until the next turn, preserve explicit retry options an
 and retain catalog/older-host refusal behavior. New host credential commands must await durable saves.
 New pairing deduplication must retain whole-profile serialization, ordered sidecars and rollback fences.
 Packaging must combine upstream ripgrep compaction with the fork's explicit target inventory.
+The remote install probe binds the directory once while preserving every required artifact check.
+Its regression coverage applies the standard 6 KiB sent-command budget and checks quoted paths,
+missing search binaries, the packaged worker and the completion sentinel. New upstream fixtures
+await durable pairing, device removal and WSL journal setup before asserting state.
 
 Home/harness synchronization and manually resumed sessions across Codex homes remain separate
 investigations. Those proposed fixes were not shipped in the previous Mercurai release and are not
