@@ -53,7 +53,10 @@ export function withStructuredSpeedCatalog(
 }
 
 /** A local pick can outlive a failed refresh; the old support verdict is not its admission. */
-function speedForSelection(speed: AgentSessionSpeed, tierId: string | undefined): AgentSessionSpeed {
+function speedForSelection(
+  speed: AgentSessionSpeed,
+  tierId: string | undefined
+): AgentSessionSpeed {
   if (
     tierId === undefined ||
     (speed.requested && 'tierId' in speed.requested && speed.requested.tierId === tierId) ||

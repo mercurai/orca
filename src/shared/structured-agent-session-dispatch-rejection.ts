@@ -30,7 +30,10 @@ export const DISPATCH_REJECTED_CODEX_QUEUE_FULL = 'codex structured dispatch que
 export const DISPATCH_REJECTED_CANCELLED = 'provider_cancelled_before_start'
 
 /** The durable marker older clients hide, where this refusal historically had one. */
-export function legacyDispatchRejectionMarker(kind: SubmissionRejectionKind, provider?: string): string | undefined {
+export function legacyDispatchRejectionMarker(
+  kind: SubmissionRejectionKind,
+  provider?: string
+): string | undefined {
   if (kind === 'cancelled') {
     return DISPATCH_REJECTED_CANCELLED
   }
@@ -38,8 +41,11 @@ export function legacyDispatchRejectionMarker(kind: SubmissionRejectionKind, pro
     return DISPATCH_REJECTED_WRITE_FAILED
   }
   if (kind === 'queueFull') {
-    return provider === 'codex' ? DISPATCH_REJECTED_CODEX_QUEUE_FULL :
-      provider === 'claude' ? DISPATCH_REJECTED_QUEUE_FULL : undefined
+    return provider === 'codex'
+      ? DISPATCH_REJECTED_CODEX_QUEUE_FULL
+      : provider === 'claude'
+        ? DISPATCH_REJECTED_QUEUE_FULL
+        : undefined
   }
   return undefined
 }

@@ -17,7 +17,9 @@ import { useStructuredAgentSessionMutate } from './use-structured-agent-session-
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((done) => { resolve = done })
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
   return { promise, resolve }
 }
 const fields = { key: 'serviceTier', value: 'synthetic-exact-tier' }
@@ -43,14 +45,19 @@ describe('speed negotiation retains its action context', () => {
       const negotiation = deferred<{ options: Record<string, string> }>()
       mocks.prepare.mockReturnValue(negotiation.promise)
       const hook = render()
-      const pending = hook.result.current.write('agentSession.setOption', 'agentSession.setOption', fields)
+      const pending = hook.result.current.write(
+        'agentSession.setOption',
+        'agentSession.setOption',
+        fields
+      )
       expect(mocks.prepare).toHaveBeenCalledOnce()
       if (change === 'unmount') {
         hook.unmount()
       } else {
         hook.rerender({
           sessionId: change === 'session' ? 'synthetic-session-b' : 'synthetic-session-a',
-          target: change === 'target' ? { kind: 'environment', environmentId: 'synthetic-host' } : local
+          target:
+            change === 'target' ? { kind: 'environment', environmentId: 'synthetic-host' } : local
         })
       }
       let outcome: unknown
@@ -69,8 +76,14 @@ describe('speed negotiation retains its action context', () => {
     mocks.prepare.mockResolvedValue({ options: { serviceTier: fields.value } })
     mocks.call.mockReturnValue(reply.promise)
     const hook = render()
-    const pending = hook.result.current.write('agentSession.setOption', 'agentSession.setOption', fields)
-    await act(async () => { await Promise.resolve() })
+    const pending = hook.result.current.write(
+      'agentSession.setOption',
+      'agentSession.setOption',
+      fields
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(mocks.call).toHaveBeenCalledOnce()
     hook.rerender({ sessionId: 'synthetic-session-b', target: local })
     let outcome: unknown

@@ -177,10 +177,15 @@ describe('WSL move desktop rewrite', () => {
   it('preserves competing renderer acknowledgements while a main store finishes', async () => {
     let entered!: () => void
     let release!: () => void
-    const running = new Promise<void>((resolve) => { entered = resolve })
-    const finish = new Promise<void>((resolve) => { release = resolve })
+    const running = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const finish = new Promise<void>((resolve) => {
+      release = resolve
+    })
     registerWslMoveDesktopRewriteStore({
-      id: 'main-held', side: 'main',
+      id: 'main-held',
+      side: 'main',
       run: () => {
         entered()
         return finish
@@ -193,14 +198,18 @@ describe('WSL move desktop rewrite', () => {
     const rewriting = runWslMoveDesktopRewritePass({ userDataPath })
     await running
     try {
-      expect(await Promise.all([
-        recordWslMoveRendererStoreRewritten(userDataPath, {
-          migrationId: 'move-1', storeId: 'renderer-a'
-        }),
-        recordWslMoveRendererStoreRewritten(userDataPath, {
-          migrationId: 'move-1', storeId: 'renderer-b'
-        })
-      ])).toEqual([{ recorded: true }, { recorded: true }])
+      expect(
+        await Promise.all([
+          recordWslMoveRendererStoreRewritten(userDataPath, {
+            migrationId: 'move-1',
+            storeId: 'renderer-a'
+          }),
+          recordWslMoveRendererStoreRewritten(userDataPath, {
+            migrationId: 'move-1',
+            storeId: 'renderer-b'
+          })
+        ])
+      ).toEqual([{ recorded: true }, { recorded: true }])
       expect(record()?.rewrittenStores).toEqual(['renderer-a', 'renderer-b'])
       expect(record()?.phase).toBe('destination-committed')
     } finally {

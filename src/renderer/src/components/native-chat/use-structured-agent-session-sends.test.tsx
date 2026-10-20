@@ -80,7 +80,6 @@ it('takes no second send while the first is out', () => {
   expect(second).toBe(false)
 })
 
-
 it('retains the composer message and reports a speed selection refusal before queueing or RPC', () => {
   mocks.call.mockClear()
   const reason = 'Speed support is unknown. Refresh the speed choices and retry.'
@@ -93,7 +92,9 @@ it('retains the composer message and reports a speed selection refusal before qu
       queuedMessageIds: [],
       queue: QUEUEING,
       historyLoaded: false,
-      sendOptions: () => { throw new CodexSpeedSelectionError(reason) }
+      sendOptions: () => {
+        throw new CodexSpeedSelectionError(reason)
+      }
     })
   )
   let admitted: boolean | 'queued' = true

@@ -76,7 +76,8 @@ describe('durable first-sighting admission', () => {
     const rotating = registry.rotatePendingDevice('Replacement phone', 'mobile')
     // Rotation has queued ahead of admission but has not replaced its row yet.
     const admission = Promise.resolve(registry.prepareDeviceAuthentication(principal)).then(
-      () => null, (error: unknown) => error
+      () => null,
+      (error: unknown) => error
     )
     expect((await rotating).deviceId).not.toBe(row.deviceId)
     expect(await admission).toBeInstanceOf(Error)
@@ -87,7 +88,8 @@ describe('durable first-sighting admission', () => {
     const { registry, row, principal } = await paired()
     const { entered, gate } = gatedWrite()
     const admission = Promise.resolve(registry.prepareDeviceAuthentication(principal)).then(
-      () => null, (error: unknown) => error
+      () => null,
+      (error: unknown) => error
     )
     await entered.promise
     const release = registry.beginRevocation(row.deviceId)

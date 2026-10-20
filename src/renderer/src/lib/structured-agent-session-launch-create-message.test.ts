@@ -384,7 +384,10 @@ describe('the first message owned by create', () => {
     expect(mocks.call).toHaveBeenCalledWith(
       { kind: 'environment', environmentId: 'server-1' },
       'agentSession.create',
-      expect.objectContaining({ firstMessage: expect.any(Object), options: { model: 'host-default' } }),
+      expect.objectContaining({
+        firstMessage: expect.any(Object),
+        options: { model: 'host-default' }
+      }),
       undefined
     )
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
@@ -452,21 +455,26 @@ describe('the first message owned by create', () => {
       throw new Error(`Unexpected mutation during opening-message recovery: ${method}`)
     })
     markStructuredAgentSessionLaunchPublished('workspace-1', launch.sessionId, 'local')
-    await vi.waitFor(() => expect(mocks.call.mock.calls.filter(([, method]) =>
-      method === 'agentSession.history')).toHaveLength(1))
+    await vi.waitFor(() =>
+      expect(
+        mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.history')
+      ).toHaveLength(1)
+    )
     const restored = getStructuredLaunchStateBySessionId(launch.sessionId)
     if (!restored) {
       throw new Error('Expected publication to retain the unconfirmed launch')
     }
     await expect(restored.promise).rejects.toBeInstanceOf(Error)
-    expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId))
-      .toBe('visibility-unknown')
+    expect(getStructuredAgentSessionLaunchLifecycle('workspace-1', launch.sessionId)).toBe(
+      'visibility-unknown'
+    )
     expect(readStructuredAgentLaunchRecord(launch.sessionId)).toEqual({
       ...originalRecord,
       lifecycle: 'visibility-unknown'
     })
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual([
-      'agentSession.create', 'agentSession.history'
+      'agentSession.create',
+      'agentSession.history'
     ])
 
     expect(retryStructuredAgentSessionLaunch('workspace-1', launch.sessionId)).toBe(true)

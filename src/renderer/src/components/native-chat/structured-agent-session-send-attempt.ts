@@ -128,7 +128,8 @@ export async function attemptStructuredAgentSessionSend(args: {
       options: entry.options,
       frozenOptions: entry.wireRequest?.params.options
     })
-    fence = entry.wireRequest?.params.envelope.expectedRuntimeFence ??
+    fence =
+      entry.wireRequest?.params.envelope.expectedRuntimeFence ??
       (await knownFence(target, entry.sessionId))
   } catch (error) {
     return args.abandoned() ? null : { kind: 'not-sent', parts: notSentParts(error) }
@@ -141,17 +142,19 @@ export async function attemptStructuredAgentSessionSend(args: {
   }
   if (!entry.wireRequest) {
     entry.wireRequest = {
-      params: structuredClone(structuredAgentSessionMessageSendMutation({
-        sessionId: entry.sessionId,
-        clientOperationId: entry.clientMessageId,
-        expectedRuntimeFence: fence,
-        body: entry.body,
-        ...(entry.delivery ? { delivery: entry.delivery } : {}),
-        ...(prepared.options ? { options: prepared.options } : {}),
-        ...(entry.usageLimitContinuationOfTurnItemId
-          ? { usageLimitContinuationOfTurnItemId: entry.usageLimitContinuationOfTurnItemId }
-          : {})
-      })),
+      params: structuredClone(
+        structuredAgentSessionMessageSendMutation({
+          sessionId: entry.sessionId,
+          clientOperationId: entry.clientMessageId,
+          expectedRuntimeFence: fence,
+          body: entry.body,
+          ...(entry.delivery ? { delivery: entry.delivery } : {}),
+          ...(prepared.options ? { options: prepared.options } : {}),
+          ...(entry.usageLimitContinuationOfTurnItemId
+            ? { usageLimitContinuationOfTurnItemId: entry.usageLimitContinuationOfTurnItemId }
+            : {})
+        })
+      ),
       ...(prepared.authority ? { authority: { ...prepared.authority } } : {})
     }
   }
@@ -161,10 +164,15 @@ export async function attemptStructuredAgentSessionSend(args: {
   let answer: StructuredAgentSessionSendAnswer
   try {
     // Checked above, so the request goes out now or not at all.
-    const result = await callStructuredAgentSession<SendAnswer>(target, 'agentSession.send', params, {
-      ...(target.kind === 'environment' ? { skipCompatibilityCheck: true as const } : {}),
-      ...authority
-    })
+    const result = await callStructuredAgentSession<SendAnswer>(
+      target,
+      'agentSession.send',
+      params,
+      {
+        ...(target.kind === 'environment' ? { skipCompatibilityCheck: true as const } : {}),
+        ...authority
+      }
+    )
     answer = { kind: 'result', result }
   } catch (error) {
     // This window answers it before forwarding anything (the server was re-paired, as a managed

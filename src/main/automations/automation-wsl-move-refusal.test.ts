@@ -156,7 +156,10 @@ describe('scheduled automations under a WSL move', () => {
     const store = await createStore()
     const automation = seedAutomation(store, true)
     runAutomationPrecheckMock.mockImplementation(async () => {
-      await seedWslMoveCutover(fenceDir, cutover('move-1', 'source-fenced', {}, { repoIds: ['r1'] }))
+      await seedWslMoveCutover(
+        fenceDir,
+        cutover('move-1', 'source-fenced', {}, { repoIds: ['r1'] })
+      )
       return {
         command: 'true',
         exitCode: 0,

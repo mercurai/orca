@@ -117,7 +117,10 @@ describe('lists while a converted host keeps its source rows', () => {
       const lookup = { getSshTarget: () => FENCED }
       expect(visibleProjectGroups(store, () => userDataPath)).toHaveLength(2)
       expect(isFrozenOrcadSourceSessionPartition(lookup, 'ssh:ssh-box')).toBe(true)
-      await writeOrcadMigrationSourceCutover(userDataPath, { ...cutover, phase: 'destination-committed' })
+      await writeOrcadMigrationSourceCutover(userDataPath, {
+        ...cutover,
+        phase: 'destination-committed'
+      })
       expect(visibleProjectGroups(store, () => userDataPath)).toHaveLength(1)
       expect(isFrozenOrcadSourceSessionPartition(lookup, 'local')).toBe(false)
       const changed = { ...FENCED, orcadFence: { environmentId: 'env-1', sourceChangedAt: 'x' } }
@@ -163,10 +166,10 @@ describe('project host setups of a converted host', () => {
   })
   const store = (targets: SshTarget[]): SetupCatalog => catalogOf(targets, [sourceRepo, localRepo])
   let dir = ''
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'orcad-retained-setups-'))
     userData.dir = dir
-    writeOrcadMigrationSourceCutover(dir, {
+    await writeOrcadMigrationSourceCutover(dir, {
       ...orcadMigrationCutoverFixture('m-0', FENCED.id),
       phase: 'destination-committed'
     })

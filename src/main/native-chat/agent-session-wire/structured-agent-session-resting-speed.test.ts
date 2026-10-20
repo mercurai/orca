@@ -1,14 +1,25 @@
 import { structuredAgentSessionOptionOverridesRefusal } from './structured-agent-session-options-read'
 import { closeTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
 import { afterEach, describe, expect, it } from 'vitest'
-import { agentSessionLeaseFixture, agentSessionRecordFixture } from '../../../shared/agent-session-record.test-fixture'
+import {
+  agentSessionLeaseFixture,
+  agentSessionRecordFixture
+} from '../../../shared/agent-session-record.test-fixture'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import { seedTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
 import { createAgentModelCatalogService } from '../agent-model-catalog/agent-model-catalog-service'
-import { AgentModelCatalogStore, type AgentModelCatalogSuccess } from '../agent-model-catalog/agent-model-catalog-store'
+import {
+  AgentModelCatalogStore,
+  type AgentModelCatalogSuccess
+} from '../agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogFingerprint } from '../agent-model-catalog/agent-model-catalog-fingerprint'
-import { createRestTestRig, REST_TEST_CALLER as CALLER, REST_TEST_SESSION as SESSION, type RestTestRig } from './structured-agent-session-rest-test-rig'
+import {
+  createRestTestRig,
+  REST_TEST_CALLER as CALLER,
+  REST_TEST_SESSION as SESSION,
+  type RestTestRig
+} from './structured-agent-session-rest-test-rig'
 import { hostTestOperationId } from './structured-agent-session-host-test-data'
 
 const MODEL = 'synthetic-resting-model'
@@ -30,25 +41,35 @@ afterEach(async () => {
 
 function fingerprint(accountHomePath: string) {
   return agentModelCatalogFingerprint({
-    agent: 'codex', accountHomeVariable: 'CODEX_HOME', accountHomePath, wslDistro: null
+    agent: 'codex',
+    accountHomeVariable: 'CODEX_HOME',
+    accountHomePath,
+    wslDistro: null
   })
 }
 
 async function resting(options: Record<string, string>, provider: 'codex' | 'claude' = 'codex') {
   const rig = await createRestTestRig()
   rigs.push(rig)
-  const record = agentSessionRecordFixture(agentSessionLeaseFixture({
-    sessionId: SESSION,
-    claimStatus: 'released',
-    ownerProcess: null,
-    deathEvidence: { kind: 'exit-observed', detail: 'Synthetic released owner', observedAt: rig.clock.now }
-  }))
+  const record = agentSessionRecordFixture(
+    agentSessionLeaseFixture({
+      sessionId: SESSION,
+      claimStatus: 'released',
+      ownerProcess: null,
+      deathEvidence: {
+        kind: 'exit-observed',
+        detail: 'Synthetic released owner',
+        observedAt: rig.clock.now
+      }
+    })
+  )
   record.provider = provider
   record.options = options
   if (provider === 'codex') {
     record.accountHome = { variable: 'CODEX_HOME', path: PINNED }
     record.providerHandleChain = record.providerHandleChain.map((link) => ({
-      ...link, handle: codexProviderHandle('synthetic-resting-thread')
+      ...link,
+      handle: codexProviderHandle('synthetic-resting-thread')
     }))
   }
   await seedTestAgentSessionRecordStore(rig.root, { records: [record] })
@@ -69,20 +90,31 @@ async function resting(options: Record<string, string>, provider: 'codex' | 'cla
         clientOperationId: hostTestOperationId(),
         expectedRuntimeFence: rig.store.getRecord(SESSION)?.lease.runtimeFence ?? 7,
         payloadFingerprint: computeAgentSessionPayloadFingerprint({
-          method: 'agentSession.setOption', sessionId: SESSION, fields
+          method: 'agentSession.setOption',
+          sessionId: SESSION,
+          fields
         })
       }
     })
   }
-  const list = (account = PINNED, tiers = [TIER], model = MODEL) => catalogStore.recordSuccess(
-    fingerprint(account), 'codex', {
-      models: [{
-        id: model, label: 'Synthetic model', isDefault: true, efforts: [],
-        serviceTiers: tiers.map((value) => ({ value, label: value === TIER ? 'Fast' : value }))
-      }],
-      origin: 'live-session'
-    }, 'discovery'
-  )
+  const list = (account = PINNED, tiers = [TIER], model = MODEL) =>
+    catalogStore.recordSuccess(
+      fingerprint(account),
+      'codex',
+      {
+        models: [
+          {
+            id: model,
+            label: 'Synthetic model',
+            isDefault: true,
+            efforts: [],
+            serviceTiers: tiers.map((value) => ({ value, label: value === TIER ? 'Fast' : value }))
+          }
+        ],
+        origin: 'live-session'
+      },
+      'discovery'
+    )
   return { rig, pick, list, catalogStore, read: () => rig.host.readOptions(SESSION) }
 }
 
@@ -92,9 +124,13 @@ describe('Codex speed intent while the provider is at rest', () => {
     expect(await fixture.pick('fastMode', 'true')).toMatchObject({ ok: true })
     expect(fixture.rig.store.getRecord(SESSION)?.options).toMatchObject({ fastMode: 'true' })
     expect(fixture.rig.store.getRecord(SESSION)?.options).not.toHaveProperty('serviceTier')
-    expect(await fixture.read()).toMatchObject({ speed: {
-      requested: { legacyFast: true }, support: 'unknown', processing: { status: 'unknown' }
-    } })
+    expect(await fixture.read()).toMatchObject({
+      speed: {
+        requested: { legacyFast: true },
+        support: 'unknown',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
 
@@ -103,9 +139,13 @@ describe('Codex speed intent while the provider is at rest', () => {
     expect(await fixture.pick('fastMode', 'false')).toMatchObject({ ok: true })
     expect(fixture.rig.store.getRecord(SESSION)?.options).toMatchObject({ serviceTier: 'default' })
     expect(fixture.rig.store.getRecord(SESSION)?.options).not.toHaveProperty('fastMode')
-    expect(await fixture.read()).toMatchObject({ speed: {
-      requested: { tierId: 'default' }, support: 'unknown', processing: { status: 'unknown' }
-    } })
+    expect(await fixture.read()).toMatchObject({
+      speed: {
+        requested: { tierId: 'default' },
+        support: 'unknown',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
 
@@ -122,9 +162,13 @@ describe('Codex speed intent while the provider is at rest', () => {
     const fixture = await resting({ model: MODEL, serviceTier: TIER, fastMode: 'false' })
     fixture.list()
     const result = await fixture.read()
-    expect(result).toMatchObject({ speed: {
-      requested: { tierId: TIER }, support: 'available', processing: { status: 'unknown' }
-    } })
+    expect(result).toMatchObject({
+      speed: {
+        requested: { tierId: TIER },
+        support: 'available',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(result).not.toHaveProperty('speed.applied')
     expect(fixture.rig.store.getRecord(SESSION)?.options?.serviceTier).toBe(TIER)
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
@@ -136,15 +180,22 @@ describe('Codex speed intent while the provider is at rest', () => {
     fixture.list(PINNED, [], MODEL)
     fixture.list(PINNED, [TIER], 'synthetic-different-model')
     const result = await fixture.read()
-    expect(result).toMatchObject({ speed: {
-      requested: { tierId: TIER }, support: 'unknown', processing: { status: 'unknown' }
-    } })
+    expect(result).toMatchObject({
+      speed: {
+        requested: { tierId: TIER },
+        support: 'unknown',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(result).not.toHaveProperty('speed.applied')
     expect(fixture.rig.store.getRecord(SESSION)?.options?.serviceTier).toBe(TIER)
     fixture.list(PINNED, [], MODEL)
-    expect(await fixture.read()).toMatchObject({ speed: {
-      requested: { tierId: TIER }, support: 'unavailable'
-    } })
+    expect(await fixture.read()).toMatchObject({
+      speed: {
+        requested: { tierId: TIER },
+        support: 'unavailable'
+      }
+    })
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
 
@@ -154,9 +205,13 @@ describe('Codex speed intent while the provider is at rest', () => {
     const probe = async () => pending.promise
     const listing = fixture.catalogStore.refresh(fingerprint(PINNED), 'codex', probe, probe)
     try {
-      expect(await fixture.read()).toMatchObject({ speed: {
-        requested: { tierId: TIER }, support: 'loading', processing: { status: 'unknown' }
-      } })
+      expect(await fixture.read()).toMatchObject({
+        speed: {
+          requested: { tierId: TIER },
+          support: 'loading',
+          processing: { status: 'unknown' }
+        }
+      })
       expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
     } finally {
       pending.resolve({ models: [], origin: 'probe' })
@@ -182,9 +237,13 @@ describe('Codex speed intent while the provider is at rest', () => {
     const fixture = await resting({ model: MODEL, serviceTier: TIER })
     fixture.list()
     fixture.catalogStore.recordFailure(fingerprint(PINNED), 'Synthetic catalog failure', 'codex')
-    expect(await fixture.read()).toMatchObject({ speed: {
-      requested: { tierId: TIER }, support: 'unknown', processing: { status: 'unknown' }
-    } })
+    expect(await fixture.read()).toMatchObject({
+      speed: {
+        requested: { tierId: TIER },
+        support: 'unknown',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(fixture.rig.store.getRecord(SESSION)?.options?.serviceTier).toBe(TIER)
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
@@ -196,9 +255,13 @@ describe('Codex speed intent while the provider is at rest', () => {
     const probe = async () => pending.promise
     const listing = fixture.catalogStore.refresh(fingerprint(PINNED), 'codex', probe, probe)
     try {
-      expect(await fixture.read()).toMatchObject({ speed: {
-        requested: { tierId: TIER }, support: 'available', processing: { status: 'unknown' }
-      } })
+      expect(await fixture.read()).toMatchObject({
+        speed: {
+          requested: { tierId: TIER },
+          support: 'available',
+          processing: { status: 'unknown' }
+        }
+      })
       expect(fixture.rig.store.getRecord(SESSION)?.options?.serviceTier).toBe(TIER)
       expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
     } finally {
@@ -210,10 +273,14 @@ describe('Codex speed intent while the provider is at rest', () => {
   it('rejects malformed initial overrides through the registered provider rules', async () => {
     const saved = { model: MODEL, serviceTier: TIER }
     const fixture = await resting(saved)
-    expect(structuredAgentSessionOptionOverridesRefusal(
-      fixture.rig.host.deps.agents, 'codex', { model: MODEL, fastMode: 'maybe' }
-    )).toMatchObject({
-      code: 'agent_session_operation_invalid', details: { reason: 'optionRejected' }
+    expect(
+      structuredAgentSessionOptionOverridesRefusal(fixture.rig.host.deps.agents, 'codex', {
+        model: MODEL,
+        fastMode: 'maybe'
+      })
+    ).toMatchObject({
+      code: 'agent_session_operation_invalid',
+      details: { reason: 'optionRejected' }
     })
     expect(fixture.rig.store.getRecord(SESSION)?.options).toEqual(saved)
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
@@ -221,18 +288,26 @@ describe('Codex speed intent while the provider is at rest', () => {
 
   it('reads a restored legacy false preference as explicit Standard without a catalog', async () => {
     const fixture = await resting({ model: MODEL, fastMode: 'false' })
-    expect(await fixture.read()).toMatchObject({ speed: {
-      requested: { tierId: 'default' }, support: 'unknown', processing: { status: 'unknown' }
-    } })
+    expect(await fixture.read()).toMatchObject({
+      speed: {
+        requested: { tierId: 'default' },
+        support: 'unknown',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
 
   it('resolves restored legacy Fast to its fresh advertised exact request ID', async () => {
     const fixture = await resting({ model: MODEL, fastMode: 'true' })
     fixture.list()
-    expect(await fixture.read()).toMatchObject({ speed: {
-      requested: { tierId: TIER }, support: 'available', processing: { status: 'unknown' }
-    } })
+    expect(await fixture.read()).toMatchObject({
+      speed: {
+        requested: { tierId: TIER },
+        support: 'available',
+        processing: { status: 'unknown' }
+      }
+    })
     expect(fixture.rig.adapter.acquire).not.toHaveBeenCalled()
   })
 

@@ -1,6 +1,9 @@
 import type { DirectoryAccountAgentDefinition } from '../native-chat/agent-session-wire/structured-agent-definition'
 import { CODEX_STRUCTURED_HANDLE_NAMESPACE } from '../../shared/agent-session-provider-handle-encoding'
-import { normalizeCodexRestingOptionPick, readCodexRestingSpeed } from './codex-structured-resting-speed'
+import {
+  normalizeCodexRestingOptionPick,
+  readCodexRestingSpeed
+} from './codex-structured-resting-speed'
 import { isCodexTurnOptionKey } from './codex-structured-turn-start'
 
 export const CODEX_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {

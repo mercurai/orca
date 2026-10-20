@@ -106,7 +106,7 @@ export async function runOrcadDeltaMove(args: OrcadDeltaMoveArgs): Promise<Orcad
         'This host changed while the move was starting. Try the move again.'
       )
     }
-    const cutover = plan.resumes ?? await journalDelta(args, plan, planned, settled, now)
+    const cutover = plan.resumes ?? (await journalDelta(args, plan, planned, settled, now))
     return commitDelta(args, plan, cutover, changedAt, now)
   })
 }

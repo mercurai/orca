@@ -71,13 +71,13 @@ describe('WSL host deployment store', () => {
   })
 
   async function addSshManaged() {
-    return (await addManagedOrcadEnvironment(userDataPath, {
+    return await addManagedOrcadEnvironment(userDataPath, {
       id: 'ssh-managed',
       name: 'Build box',
       pairingCode: encodePairingOffer({ ...pairing, endpoint: 'ws://127.0.0.1:41000/runtime' }),
       orcadDeployment: sshTunnel,
       now: 100
-    }))
+    })
   }
 
   // Why a plain pairing: orca-environments.json holds nothing an older build cannot read.
@@ -112,7 +112,10 @@ describe('WSL host deployment store', () => {
 
     const [environment] = listEnvironments(userDataPath)
     expect(environment?.orcadDeployment).toEqual(sshTunnel)
-    await writeEnvironmentStoreSnapshotAsync(userDataPath, readPersistedEnvironmentStore(userDataPath))
+    await writeEnvironmentStoreSnapshotAsync(
+      userDataPath,
+      readPersistedEnvironmentStore(userDataPath)
+    )
     await recordManagedOrcadMigration(userDataPath, 'ssh-managed', '2026-10-01T00:00:00.000Z')
 
     expect({ store: bytes(storePath), sidecar: bytes(sidecarPath) }).toEqual(before)
@@ -231,9 +234,9 @@ describe('WSL host deployment store', () => {
         new Set([wslId])
       )
       expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual(['ssh-managed'])
-      await expect(async () => (await writeWslHostDeployment(userDataPath, wslId, null))).rejects.toThrow(
-        WslHostDeploymentStoreInvalidError
-      )
+      await expect(
+        async () => await writeWslHostDeployment(userDataPath, wslId, null)
+      ).rejects.toThrow(WslHostDeploymentStoreInvalidError)
       expect(JSON.parse(bytes(getWslHostDeploymentStorePath(userDataPath))).deployments).toEqual([
         future
       ])
@@ -252,9 +255,9 @@ describe('WSL host deployment store', () => {
       await addSshManaged()
       writeFileSync(getWslHostDeploymentStorePath(userDataPath), '{"version":1,"deployments":{}}')
       expect(() => listEnvironments(userDataPath)).toThrow(RuntimeEnvironmentStoreError)
-      await expect(async () => (await writeWslHostDeployment(userDataPath, 'x', null))).rejects.toThrow(
-        WslHostDeploymentStoreInvalidError
-      )
+      await expect(
+        async () => await writeWslHostDeployment(userDataPath, 'x', null)
+      ).rejects.toThrow(WslHostDeploymentStoreInvalidError)
     })
 
     // Regression: with the gate closed a corrupt WSL file must not hide SSH and paired servers.
@@ -317,12 +320,20 @@ describe('WSL host deployment store', () => {
   })
 
   it('rejects a record written under another environment id or with an invalid distro', async () => {
-    await expect(async () => (await writeWslHostDeployment(userDataPath, 'other', wslRecord()))).rejects.toThrow()
-    await expect(async () =>
-      await writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distro: 'Ubuntu 24.04' }))
+    await expect(
+      async () => await writeWslHostDeployment(userDataPath, 'other', wslRecord())
     ).rejects.toThrow()
-    await expect(async () =>
-      await writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distroId: '{ABC}' }))
+    await expect(
+      async () =>
+        await writeWslHostDeployment(
+          userDataPath,
+          'wsl-ubuntu',
+          wslRecord({ distro: 'Ubuntu 24.04' })
+        )
+    ).rejects.toThrow()
+    await expect(
+      async () =>
+        await writeWslHostDeployment(userDataPath, 'wsl-ubuntu', wslRecord({ distroId: '{ABC}' }))
     ).rejects.toThrow()
   })
 })

@@ -67,7 +67,9 @@ function fakeDatabase(options: { manualRead?: boolean } = {}): {
         onabort: null,
         error: null,
         objectStore: () => store,
-        commit: () => { commits.push(transaction) },
+        commit: () => {
+          commits.push(transaction)
+        },
         abort: () => {
           aborts.push(transaction)
           queueMicrotask(() => transaction.onabort?.())
@@ -88,8 +90,16 @@ function fakeDatabase(options: { manualRead?: boolean } = {}): {
     }
   }
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a stand-in exposing only the calls the adapter makes.
-  return { factory: factory as unknown as IDBFactory, transactions, puts,
-    deletes, commits, aborts, reads, readStarted: readStarted.promise }
+  return {
+    factory: factory as unknown as IDBFactory,
+    transactions,
+    puts,
+    deletes,
+    commits,
+    aborts,
+    reads,
+    readStarted: readStarted.promise
+  }
 }
 
 const DRAFT = { text: 'unsent', images: [], savedAt: 1 }
@@ -135,17 +145,26 @@ describe('the IndexedDB draft storage', () => {
   })
 
   it('aborts and rejects an update whose application callback throws without writing a result', async () => {
-    const { factory, readStarted, reads, puts, deletes, commits, aborts } = fakeDatabase({ manualRead: true })
+    const { factory, readStarted, reads, puts, deletes, commits, aborts } = fakeDatabase({
+      manualRead: true
+    })
     const failure = new Error('Synthetic recovery receipt capacity exceeded')
     let observed: unknown
-    const update = createIndexedDbNativeChatComposerDraftStorage(factory).update('scope', (stored) => {
-      observed = stored
-      throw failure
-    })
+    const update = createIndexedDbNativeChatComposerDraftStorage(factory).update(
+      'scope',
+      (stored) => {
+        observed = stored
+        throw failure
+      }
+    )
     let outcome = 'pending'
     const settled = update.then(
-      () => { outcome = 'committed' },
-      () => { outcome = 'rejected' }
+      () => {
+        outcome = 'committed'
+      },
+      () => {
+        outcome = 'rejected'
+      }
     )
     await readStarted
     const read = reads[0]

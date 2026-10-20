@@ -12,7 +12,10 @@ import {
   type CodexAppServerConnection
 } from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
-import { assertCodexSpeedAdmitted, CodexSpeedAdmissionError } from './codex-structured-speed-admission'
+import {
+  assertCodexSpeedAdmitted,
+  CodexSpeedAdmissionError
+} from './codex-structured-speed-admission'
 import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'

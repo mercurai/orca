@@ -93,11 +93,8 @@ describe('runProcessOnWorker', () => {
     const { table, sent } = createTable()
     const onStderr = vi.fn()
     expect(
-      runProcessOnWorker(
-        table,
-        { program: 'x', onStderr },
-        'head',
-        () => Promise.resolve(LOCAL_RESULT)
+      runProcessOnWorker(table, { program: 'x', onStderr }, 'head', () =>
+        Promise.resolve(LOCAL_RESULT)
       )
     ).toBeNull()
     expect(sent).toEqual([])

@@ -61,13 +61,14 @@ describe('WSL host environment store', () => {
   })
 
   it('refuses a pairing that does not point at the bridge port', async () => {
-    await expect(async () =>
-      await addWslHostEnvironment(userDataPath, {
-        id: 'wsl:ubuntu',
-        name: 'Ubuntu (WSL)',
-        pairingCode: code(43000),
-        record
-      })
+    await expect(
+      async () =>
+        await addWslHostEnvironment(userDataPath, {
+          id: 'wsl:ubuntu',
+          name: 'Ubuntu (WSL)',
+          pairingCode: code(43000),
+          record
+        })
     ).rejects.toThrow(/does not point at its bridge/)
     expect(listEnvironments(userDataPath)).toEqual([])
   })
@@ -81,19 +82,21 @@ describe('WSL host environment store', () => {
       now: 100
     })
     expect(
-      (await refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
-        pairingCode: code(42000),
-        localPort: 42000,
-        remotePort: 6768
-      })).pairingChanged
+      (
+        await refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
+          pairingCode: code(42000),
+          localPort: 42000,
+          remotePort: 6768
+        })
+      ).pairingChanged
     ).toBe(false)
 
-    const refreshed = (await refreshWslHostPairing(
+    const refreshed = await refreshWslHostPairing(
       userDataPath,
       'wsl:ubuntu',
       { pairingCode: code(42001, 'token-2'), localPort: 42001, remotePort: 6770 },
       500
-    ))
+    )
     expect(refreshed.pairingChanged).toBe(true)
     expect(getPreferredPairingOffer(refreshed.environment).deviceToken).toBe('token-2')
     expect(refreshed.environment.pairingRevision).toBe(500)

@@ -55,10 +55,12 @@ describe('persisted speed authorization', () => {
 
   it('accepts bounded optional held prompt drafts without changing older records', () => {
     expect(validRecord(record)).toBe(true)
-    expect(validRecord({
-      ...record,
-      heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 'unsent legacy prompt' }]
-    })).toBe(true)
+    expect(
+      validRecord({
+        ...record,
+        heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 'unsent legacy prompt' }]
+      })
+    ).toBe(true)
   })
 
   it.each([
@@ -66,7 +68,11 @@ describe('persisted speed authorization', () => {
     { heldPromptDrafts: [{ clientMessageId: '', text: 'unsent legacy prompt' }] },
     { heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 42 }] },
     { heldPromptDrafts: [{ clientMessageId: 'x'.repeat(513), text: 'unsent legacy prompt' }] },
-    { heldPromptDrafts: [{ clientMessageId: 'legacy-held-message', text: 'x'.repeat(MAX_PROMPT_BYTES + 1) }] }
+    {
+      heldPromptDrafts: [
+        { clientMessageId: 'legacy-held-message', text: 'x'.repeat(MAX_PROMPT_BYTES + 1) }
+      ]
+    }
   ])('refuses malformed held prompt recovery records', ({ heldPromptDrafts }) => {
     expect(validRecord({ ...record, heldPromptDrafts })).toBe(false)
   })

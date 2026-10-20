@@ -133,8 +133,10 @@ export function replayNativeChatComposerDraftJournal(
       continue
     }
     // Explicit removal stays destructive; a newer whole-draft edit retains committed receipts.
-    drafts.set(entry.scopeKey, entry.draft
-      ? preserveDraftRecoveryReceipts(entry.draft, stored ?? null) : null)
+    drafts.set(
+      entry.scopeKey,
+      entry.draft ? preserveDraftRecoveryReceipts(entry.draft, stored ?? null) : null
+    )
     if (!entry.draft) {
       removedAt.set(entry.scopeKey, entry.at)
     }

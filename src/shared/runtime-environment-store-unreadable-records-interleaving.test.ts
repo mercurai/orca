@@ -155,7 +155,11 @@ describe('runtime environment store under interleaved writers and unreadable rec
         )
         if (ownedElsewhere) {
           await expect(
-            async () => (await writeEnvironmentStoreSnapshotAsync(userDataPath, { version: 1, environments: next })),
+            async () =>
+              await writeEnvironmentStoreSnapshotAsync(userDataPath, {
+                version: 1,
+                environments: next
+              }),
             label
           ).rejects.toThrow('newer version of Orca')
           expect(readFileSync(storePath(), 'utf8'), label).toBe(before)
@@ -207,9 +211,13 @@ describe('runtime environment store under interleaved writers and unreadable rec
         const target = pick(environments)
         if (target && target.id in unreadableEntries) {
           const before = readFileSync(storePath(), 'utf8')
-          await expect(async () => (await removeEnvironment(userDataPath, target.id)), label).rejects.toThrow()
           await expect(
-            async () => (await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, target, null)),
+            async () => await removeEnvironment(userDataPath, target.id),
+            label
+          ).rejects.toThrow()
+          await expect(
+            async () =>
+              await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, target, null),
             label
           ).rejects.toThrow('newer version of Orca')
           expect(readFileSync(storePath(), 'utf8'), label).toBe(before)

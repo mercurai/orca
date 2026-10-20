@@ -42,39 +42,61 @@ function composer(agent = 'codex', takesSendOptions = true) {
   const seed = agent === 'claude' ? CLAUDE_SESSION_OPTION_CATALOG : CODEX_SESSION_OPTION_CATALOG
   const optionStateRef = {
     current: applyStructuredAgentSessionOptions(
-      createStructuredAgentSessionOptionState(agent, seed), seed, {
-        models: [{
-          id: MODEL, label: 'Synthetic', isDefault: true,
-          // A single advertised effort intentionally has no picker in discoveredModel.
-          efforts: [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }],
-          serviceTiers: [{ value: FAST, label: 'Fast' }, { value: ULTRA, label: 'Ultrafast' }]
-        }],
+      createStructuredAgentSessionOptionState(agent, seed),
+      seed,
+      {
+        models: [
+          {
+            id: MODEL,
+            label: 'Synthetic',
+            isDefault: true,
+            // A single advertised effort intentionally has no picker in discoveredModel.
+            efforts: [
+              { value: 'low', label: 'Low' },
+              { value: 'high', label: 'High' }
+            ],
+            serviceTiers: [
+              { value: FAST, label: 'Fast' },
+              { value: ULTRA, label: 'Ultrafast' }
+            ]
+          }
+        ],
         current: { model: MODEL, effort: 'high', serviceTier: FAST }
       }
     )
   }
   const pendingOptionsRef: { current: Record<string, string> } = { current: {} }
-  const hook = renderHook(() => useStructuredAgentSessionSendOptions(SESSION, undefined, {
-    optionStateRef,
-    pendingOptionsRef,
-    takesSendOptions,
-    optionView: (state, launchSeed, held) =>
-      structuredAgentSessionOptionView(state, launchSeed, held, takesSendOptions)
-  }))
+  const hook = renderHook(() =>
+    useStructuredAgentSessionSendOptions(SESSION, undefined, {
+      optionStateRef,
+      pendingOptionsRef,
+      takesSendOptions,
+      optionView: (state, launchSeed, held) =>
+        structuredAgentSessionOptionView(state, launchSeed, held)
+    })
+  )
   return { read: () => hook.result.current(), optionStateRef, pendingOptionsRef }
 }
 
 async function sendComposer(c: ReturnType<typeof composer>) {
   const entry: StructuredAgentSessionPendingSend = {
-    clientMessageId: 'synthetic-composer-message', sessionId: SESSION,
+    clientMessageId: 'synthetic-composer-message',
+    sessionId: SESSION,
     body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'selected speed' }] },
-    previewUris: [], queuedAt: 1_700_000_000_000,
+    previewUris: [],
+    queuedAt: 1_700_000_000_000,
     // Read through the actual composer hook, including pending picks; no hand-built speed payload.
-    options: c.read(), phase: 'sending', issued: false
+    options: c.read(),
+    phase: 'sending',
+    issued: false
   }
   return attemptStructuredAgentSessionSend({
-    entry, target: { kind: 'local' },
-    beforeIssue: () => { entry.issued = true }, abandoned: () => false
+    entry,
+    target: { kind: 'local' },
+    beforeIssue: () => {
+      entry.issued = true
+    },
+    abandoned: () => false
   })
 }
 
@@ -82,7 +104,8 @@ beforeEach(() => {
   mocks.rpc.mockReset()
   mocks.send.mockReset()
   mocks.rpc.mockResolvedValue({
-    runtimeId: 'synthetic-runtime', capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY]
+    runtimeId: 'synthetic-runtime',
+    capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY]
   })
   mocks.send.mockImplementation(async (_target, _method, params) => {
     SendParams.parse(params)
@@ -104,8 +127,11 @@ describe('Codex composer speed on the send path', () => {
     expect(c.read()).toMatchObject({ model: MODEL, serviceTier: ULTRA })
     await sendComposer(c)
     expect(mocks.send).toHaveBeenCalledWith(
-      { kind: 'local' }, 'agentSession.send',
-      expect.objectContaining({ options: expect.objectContaining({ model: MODEL, serviceTier: ULTRA }) }),
+      { kind: 'local' },
+      'agentSession.send',
+      expect.objectContaining({
+        options: expect.objectContaining({ model: MODEL, serviceTier: ULTRA })
+      }),
       expect.anything()
     )
     expect(SendParams.safeParse(mocks.send.mock.calls[0]?.[2]).success).toBe(true)
@@ -118,7 +144,10 @@ describe('Codex composer speed on the send path', () => {
 
     expect(await sendComposer(c)).toMatchObject({ kind: 'not-sent' })
     expect(mocks.rpc).toHaveBeenCalledWith(
-      { kind: 'local' }, 'status.get', undefined, expect.anything()
+      { kind: 'local' },
+      'status.get',
+      undefined,
+      expect.anything()
     )
     expect(mocks.send).not.toHaveBeenCalled()
   })

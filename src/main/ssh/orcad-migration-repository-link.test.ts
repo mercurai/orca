@@ -535,7 +535,7 @@ describe('moving the host again after its server was stopped', () => {
     })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateFolderWorkspace(folder.id, { comment: 'edited on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getFolderWorkspace(folder.id)?.comment).toBe('edited on the server')
@@ -546,7 +546,7 @@ describe('moving the host again after its server was stopped', () => {
     const group = targetGroup('Empty')
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, group.id)).toBe('Renamed on the server')
@@ -562,7 +562,7 @@ describe('moving the host again after its server was stopped', () => {
     const child = targetGroup('Child', parent.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
@@ -573,7 +573,7 @@ describe('moving the host again after its server was stopped', () => {
     const group = targetGroup('Empty')
     await convert()
     server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     const remoteCopy = server.getProjectGroups().find((entry) => entry.id === group.id)!
     // The server's row sits on one of its own SSH hosts, so it is not this desktop's group.
     const serverCatalog = async () => ({
@@ -597,7 +597,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await convert()
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     const folder = store.createFolderWorkspace({
       projectGroupId: groupId,
@@ -630,7 +630,7 @@ describe('moving the host again after its server was stopped', () => {
       const groupId = groupDesktopRepo()
       await convert()
       if (relink) {
-        stopServer()
+        await stopServer()
         await convert()
       }
       server.moveProjectToGroup(server.getRepo('desktop-repo')!, null)

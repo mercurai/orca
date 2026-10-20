@@ -73,8 +73,8 @@ function applyLoaded(
     }
   }
   for (const [scopeKey, stored] of drafts) {
-    const deletedWhileLoading = stored &&
-      load.deletionsBeforeLoad.some((matches) => matches(scopeKey, stored))
+    const deletedWhileLoading =
+      stored && load.deletionsBeforeLoad.some((matches) => matches(scopeKey, stored))
     if (deletedWhileLoading) {
       disposedDraftScopes.add(scopeKey)
     }

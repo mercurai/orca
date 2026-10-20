@@ -249,7 +249,10 @@ export class AgentModelCatalogStore {
     lister: AgentModelCatalogLister,
     listModels: () => Promise<AgentModelCatalogSuccess>
   ): Promise<AgentModelCatalogEntry | null> {
-    const refresh: InFlightListings = this.refreshes.get(fingerprint) ?? { agent, listings: new Map() }
+    const refresh: InFlightListings = this.refreshes.get(fingerprint) ?? {
+      agent,
+      listings: new Map()
+    }
     const listers = refresh.listings
     const inFlight = listers.get(lister)
     if (inFlight) {

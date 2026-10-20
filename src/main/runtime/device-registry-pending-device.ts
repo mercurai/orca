@@ -2,7 +2,12 @@ import type { DeviceScope } from '../../shared/runtime-types'
 import type { RuntimePairingReach } from '../../shared/runtime-pairing-reach'
 import { mintDeviceCredential } from './device-credential'
 import { validGrants } from './device-registry-row-validation'
-import { isPendingTokenRow, sameGrants, type DeviceEntry, type TokenDeviceEntry } from './device-entry'
+import {
+  isPendingTokenRow,
+  sameGrants,
+  type DeviceEntry,
+  type TokenDeviceEntry
+} from './device-entry'
 import type { RuntimeDeviceGrant } from './rpc/rpc-method-permission'
 
 /** Builds a pending credential row; its caller must persist it before exposing the token. */

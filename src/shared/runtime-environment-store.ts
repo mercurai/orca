@@ -138,15 +138,15 @@ async function saveEnvironmentFromPairingCode(
       runtimeId: null,
       ...(args.source ? { source: args.source } : {}),
       ...getPairingConnectionDependency(args.connectionDependency, offer)
-  })
-  const next = {
-    version: 1 as const,
-    environments: [
-      ...store.environments.filter((entry) => entry.id !== environment.id),
-      environment
-    ].sort((a, b) => a.name.localeCompare(b.name))
-  }
-  return { store: next, result: { environment, updatedExisting: false } }
+    })
+    const next = {
+      version: 1 as const,
+      environments: [
+        ...store.environments.filter((entry) => entry.id !== environment.id),
+        environment
+      ].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    return { store: next, result: { environment, updatedExisting: false } }
   })
 }
 
@@ -184,7 +184,12 @@ export async function removeEnvironment(
       }
     })
     // A leftover entry would read as stale anyway; dropping it keeps the sidecar from growing.
-    await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, removal.remaining, removal.persisted, null)
+    await writeRuntimeEnvironmentSidecarEntryWithinMutation(
+      userDataPath,
+      removal.remaining,
+      removal.persisted,
+      null
+    )
     return removal.environment
   })
 }
@@ -305,7 +310,8 @@ function mutateEnvironmentStore<TResult>(
   compute: (store: RuntimeEnvironmentStore) => { store: RuntimeEnvironmentStore; result: TResult }
 ): Promise<TResult> {
   return withRuntimeEnvironmentMutation(userDataPath, () =>
-    mutateEnvironmentStoreWithinMutation(userDataPath, compute))
+    mutateEnvironmentStoreWithinMutation(userDataPath, compute)
+  )
 }
 
 /** Read-modify-write on the async lane; `compute` runs on a fresh snapshot per attempt and may throw. */

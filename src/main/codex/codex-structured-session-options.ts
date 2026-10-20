@@ -28,7 +28,9 @@ export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 export function restoredCodexSessionOptions(
   options: Readonly<Record<string, string>> | undefined
 ): Map<string, string> {
-  const restored = new Map(Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key)))
+  const restored = new Map(
+    Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key))
+  )
   if (!restored.has('serviceTier') && options?.fastMode === 'false') {
     restored.set('serviceTier', CODEX_DEFAULT_SERVICE_TIER)
   } else if (!restored.has('serviceTier') && options?.fastMode === 'true') {
@@ -52,7 +54,8 @@ export function reportedCodexSessionOptions(
     ...(effort ? { effort } : {}),
     ...(serviceTier ? { serviceTier } : {}),
     ...(serviceTier === undefined && session.options.get('fastMode') === 'true'
-      ? { fastMode: true } : {})
+      ? { fastMode: true }
+      : {})
   }
 }
 
@@ -99,8 +102,11 @@ export async function codexSessionCatalogListingForPicker(
     }
     return listingFromEntry(entry)
   }
-  return initialCodexSessionPickerListing(session, () => fetchCodexListingThroughStore(session, timeoutMs))
-    ?? fetchCodexListingThroughStore(session, timeoutMs)
+  return (
+    initialCodexSessionPickerListing(session, () =>
+      fetchCodexListingThroughStore(session, timeoutMs)
+    ) ?? fetchCodexListingThroughStore(session, timeoutMs)
+  )
 }
 
 export async function readCodexStructuredSessionOptions(input: {

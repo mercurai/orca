@@ -10,10 +10,7 @@ import {
 } from './structured-agent-session-launch-registry'
 
 /** Publication proves existence; held intent and the opening receipt still need their own proof. */
-export function confirmStructuredLaunchPublication(
-  worktreeId: string,
-  sessionId: string
-): void {
+export function confirmStructuredLaunchPublication(worktreeId: string, sessionId: string): void {
   const state =
     getStructuredLaunchStateBySessionId(sessionId) ??
     restorePersistedStructuredLaunchState(worktreeId, sessionId)
@@ -21,8 +18,10 @@ export function confirmStructuredLaunchPublication(
     return
   }
   const hasHeldOptions = Object.keys(state.selection.held).length > 0
-  if (!state.intent.params.firstMessage &&
-      (state.heldPromptDrafts?.length || state.draftRecovery || hasHeldOptions)) {
+  if (
+    !state.intent.params.firstMessage &&
+    (state.heldPromptDrafts?.length || state.draftRecovery || hasHeldOptions)
+  ) {
     void recoverStructuredLaunchDrafts(state)
     return
   }

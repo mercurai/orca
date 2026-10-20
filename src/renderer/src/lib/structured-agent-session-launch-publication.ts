@@ -8,15 +8,10 @@ import {
   notifyStructuredLaunchListeners
 } from './structured-agent-session-launch-registry'
 
-function confirmStructuredLaunchPublication(
-  worktreeId: string,
-  sessionId: string
-): void {
+function confirmStructuredLaunchPublication(worktreeId: string, sessionId: string): void {
   // Store teardown imports publication bookkeeping; recovery may read the store after it exists.
   void import('./structured-agent-session-launch-publication-confirmation')
-    .then((confirmation) =>
-      confirmation.confirmStructuredLaunchPublication(worktreeId, sessionId)
-    )
+    .then((confirmation) => confirmation.confirmStructuredLaunchPublication(worktreeId, sessionId))
     .catch((error: unknown) => {
       console.warn('[native-chat] confirming a published opening message failed', error)
     })
@@ -34,8 +29,11 @@ export function markStructuredAgentSessionLaunchPublished(
     if (persisted?.executionHostId !== executionHostId) {
       return false
     }
-    if (persisted.firstMessage || persisted.heldPromptDrafts?.length ||
-        Object.keys(persisted.heldOptions ?? {}).length > 0) {
+    if (
+      persisted.firstMessage ||
+      persisted.heldPromptDrafts?.length ||
+      Object.keys(persisted.heldOptions ?? {}).length > 0
+    ) {
       confirmStructuredLaunchPublication(worktreeId, sessionId)
       return false
     }
@@ -53,8 +51,11 @@ export function markStructuredAgentSessionLaunchPublished(
   if (state.callers.outcome === 'published') {
     return true
   }
-  if (state.heldPromptDrafts?.length || state.draftRecovery ||
-      Object.keys(state.selection.held).length > 0) {
+  if (
+    state.heldPromptDrafts?.length ||
+    state.draftRecovery ||
+    Object.keys(state.selection.held).length > 0
+  ) {
     confirmStructuredLaunchPublication(worktreeId, sessionId)
     return false
   }

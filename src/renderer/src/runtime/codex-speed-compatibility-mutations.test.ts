@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { CreateIntentParams, SendParams } from '../../../shared/rpc-contract/structured-agent-session-params'
+import {
+  CreateIntentParams,
+  SendParams
+} from '../../../shared/rpc-contract/structured-agent-session-params'
 import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
 import { structuredAgentSessionMessageSendMutation } from '../../../shared/structured-agent-session-send-mutation'
@@ -11,8 +14,12 @@ const mocks = vi.hoisted(() => {
   const state: { capabilities: string[] | null } = { capabilities: [] }
   return {
     call: vi.fn<(target: unknown, method: string, params?: unknown) => Promise<unknown>>(),
-    get capabilities() { return state.capabilities },
-    set capabilities(value: string[] | null) { state.capabilities = value },
+    get capabilities() {
+      return state.capabilities
+    },
+    set capabilities(value: string[] | null) {
+      state.capabilities = value
+    },
     compatible: vi.fn(async () => undefined)
   }
 })
@@ -48,7 +55,11 @@ const SPEED_CAPABILITY = 'agent-session.codex-speed-selection.v1'
 const ULTRA = 'synthetic-ultrafast-exact-request-id'
 const SESSION = 'codex_synthetic_speed_bridge'
 const TARGET = { kind: 'local' } as const
-const BODY = { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'synthetic message' }] } as const
+const BODY = {
+  kind: 'message',
+  role: 'user',
+  blocks: [{ type: 'text', text: 'synthetic message' }]
+} as const
 
 function intent(tier: string): StructuredAgentSessionLaunchIntent {
   return {
@@ -86,7 +97,9 @@ function attempt(pending: StructuredAgentSessionPendingSend) {
   return attemptStructuredAgentSessionSend({
     entry: pending,
     target: TARGET,
-    beforeIssue: () => { pending.issued = true },
+    beforeIssue: () => {
+      pending.issued = true
+    },
     abandoned: () => false
   })
 }
@@ -117,7 +130,9 @@ describe('Codex speed compatibility is negotiated before mutation fingerprints',
     async (host) => {
       mocks.capabilities = host === 'unknown' ? null : []
       const launch = intent(ULTRA)
-      await expect(launchStructuredAgentSession(launch)).rejects.toThrow(/speed|tier|update|support/i)
+      await expect(launchStructuredAgentSession(launch)).rejects.toThrow(
+        /speed|tier|update|support/i
+      )
       expect(callsFor('agentSession.create')).toEqual([])
       expect(launch.seedOptions).toEqual({ serviceTier: ULTRA })
     }
@@ -142,12 +157,16 @@ describe('Codex speed compatibility is negotiated before mutation fingerprints',
     await expect(launchStructuredAgentSession(launch)).rejects.toThrow('Synthetic transport loss')
     const original = CreateIntentParams.parse(callsFor('agentSession.create')[0]?.[2])
     expect(original.options).toEqual({ fastMode: 'false' })
-    expect(original.envelope.payloadFingerprint).toBe(structuredAgentSessionCreateFingerprint({
-      sessionId: SESSION,
-      ...original
-    }))
+    expect(original.envelope.payloadFingerprint).toBe(
+      structuredAgentSessionCreateFingerprint({
+        sessionId: SESSION,
+        ...original
+      })
+    )
     mocks.capabilities = [SPEED_CAPABILITY]
-    await expect(launchStructuredAgentSession(launch, undefined, true)).rejects.toThrow('Synthetic transport loss')
+    await expect(launchStructuredAgentSession(launch, undefined, true)).rejects.toThrow(
+      'Synthetic transport loss'
+    )
     const replay = CreateIntentParams.parse(callsFor('agentSession.create')[1]?.[2])
     expect(replay).toEqual(original)
     expect(launch.seedOptions).toEqual({ serviceTier: 'default' })

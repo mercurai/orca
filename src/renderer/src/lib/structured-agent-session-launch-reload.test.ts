@@ -284,17 +284,19 @@ describe('structured agent launch reload recovery', () => {
     expect(restored?.selection.held).toEqual(heldOptions)
     expect(restored?.visibilityUnknown).toBe(true)
     expect(restored?.promptDelivery).toBe('draft')
-    expect(mocks.restoreIntent).toHaveBeenCalledWith(expect.objectContaining({
-      worktreeId,
-      sessionId,
-      executionHostId: original.executionHostId,
-      clientOperationId: original.clientOperationId,
-      payloadFingerprint: original.payloadFingerprint,
-      expectedRuntimeFence: original.expectedRuntimeFence,
-      options: original.options,
-      createCanonicalOptions: original.createCanonicalOptions,
-      createSpeedAuthority: original.createSpeedAuthority
-    }))
+    expect(mocks.restoreIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        worktreeId,
+        sessionId,
+        executionHostId: original.executionHostId,
+        clientOperationId: original.clientOperationId,
+        payloadFingerprint: original.payloadFingerprint,
+        expectedRuntimeFence: original.expectedRuntimeFence,
+        options: original.options,
+        createCanonicalOptions: original.createCanonicalOptions,
+        createSpeedAuthority: original.createSpeedAuthority
+      })
+    )
     expect(mocks.retryIntent).not.toHaveBeenCalled()
     expect(mocks.launch).not.toHaveBeenCalled()
     expect(mocks.callStructuredAgentSession).not.toHaveBeenCalled()
@@ -330,7 +332,9 @@ describe('structured agent launch reload recovery', () => {
         expectedEnvironmentRuntimeId: 'original-runtime'
       },
       heldOptions: { model: 'model-held', serviceTier: 'tier-held-exact-id' },
-      heldPromptDrafts: [{ clientMessageId: 'original-legacy-reservation', text: 'held unsent text' }]
+      heldPromptDrafts: [
+        { clientMessageId: 'original-legacy-reservation', text: 'held unsent text' }
+      ]
     }
     localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
     const actual = await vi.importActual<typeof LaunchIntentModule>(
@@ -377,7 +381,10 @@ describe('structured agent launch reload recovery', () => {
           return { snapshots: [publishedSnapshot(worktreeId, sessionId)] }
         }
         if (method === 'status.get') {
-          return { runtimeId: 'original-runtime', capabilities: ['agent-session.codex-speed-selection.v1'] }
+          return {
+            runtimeId: 'original-runtime',
+            capabilities: ['agent-session.codex-speed-selection.v1']
+          }
         }
         throw new Error(`Unexpected recovery RPC: ${method}`)
       })
@@ -403,7 +410,9 @@ describe('structured agent launch reload recovery', () => {
       expect(mocks.retryIntent).not.toHaveBeenCalled()
       expect(mocks.launch).not.toHaveBeenCalled()
       expect(mocks.callStructuredAgentSession.mock.calls.map(([, method]) => method)).toEqual([
-        'agentSession.history', 'agentSession.setOption', 'agentSession.setOption'
+        'agentSession.history',
+        'agentSession.setOption',
+        'agentSession.setOption'
       ])
     } finally {
       refuseJournal.mockRestore()
@@ -424,7 +433,9 @@ describe('structured agent launch reload recovery', () => {
     callers.outcome = 'published'
     const heldOptions = { serviceTier: 'tier-modern-held-exact-id' }
     const state: StructuredLaunchState = {
-      identity: 'codex:wt-modern-held', intent, callers,
+      identity: 'codex:wt-modern-held',
+      intent,
+      callers,
       promptDelivery: 'auto-submit',
       promise: Promise.resolve({ sessionId: intent.sessionId, fence: 4 }),
       visibilityUnknown: false,
@@ -458,17 +469,24 @@ describe('structured agent launch reload recovery', () => {
     const worktreeId = 'wt-pending-backend-recovery'
     const sessionId = 'codex-pending-backend-recovery'
     const original = {
-      sessionId, executionHostId: 'runtime:pending-host', agent: 'codex',
-      lifecycle: 'visibility-unknown', clientOperationId: 'frozen-pending-create',
-      payloadFingerprint: 'frozen-pending-fingerprint', expectedRuntimeFence: null,
+      sessionId,
+      executionHostId: 'runtime:pending-host',
+      agent: 'codex',
+      lifecycle: 'visibility-unknown',
+      clientOperationId: 'frozen-pending-create',
+      payloadFingerprint: 'frozen-pending-fingerprint',
+      expectedRuntimeFence: null,
       options: { model: 'model-original', fastMode: 'false' },
       createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
       createMessageSupport: false,
       createSpeedAuthority: {
-        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+        expectedEnvironmentPairingRevision: 7,
+        expectedEnvironmentRuntimeId: 'original-runtime'
       },
       heldOptions: { model: 'model-held', serviceTier: 'default' },
-      heldPromptDrafts: [{ clientMessageId: 'pending-backend-reservation', text: 'wait for durable recovery' }]
+      heldPromptDrafts: [
+        { clientMessageId: 'pending-backend-reservation', text: 'wait for durable recovery' }
+      ]
     }
     localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
     const actual = await vi.importActual<typeof LaunchIntentModule>(
@@ -490,7 +508,10 @@ describe('structured agent launch reload recovery', () => {
         return { snapshots: [publishedSnapshot(worktreeId, sessionId)] }
       }
       if (method === 'status.get') {
-        return { runtimeId: 'original-runtime', capabilities: ['agent-session.codex-speed-selection.v1'] }
+        return {
+          runtimeId: 'original-runtime',
+          capabilities: ['agent-session.codex-speed-selection.v1']
+        }
       }
       throw new Error(`Unexpected pending-recovery RPC: ${method}`)
     })
@@ -499,7 +520,10 @@ describe('structured agent launch reload recovery', () => {
         return { ok: true, page: { fence: 4 } }
       }
       if (method === 'agentSession.setOption') {
-        return { ok: true, value: { ...SetOptionParams.parse(params), options: { ...original.heldOptions } } }
+        return {
+          ok: true,
+          value: { ...SetOptionParams.parse(params), options: { ...original.heldOptions } }
+        }
       }
       throw new Error(`Unexpected pending-recovery mutation: ${method}`)
     })
@@ -513,14 +537,24 @@ describe('structured agent launch reload recovery', () => {
       expect(retryStructuredAgentSessionLaunch(worktreeId, sessionId)).toBe(true)
       const started = await Promise.race([
         updateStarted.promise.then(() => 'update-started'),
-        restored.promise.then(() => 'retry-completed', () => 'retry-rejected')
+        restored.promise.then(
+          () => 'retry-completed',
+          () => 'retry-rejected'
+        )
       ])
       expect(started).toBe('update-started')
       expect(storage.drafts.size).toBe(0)
       expect(restored.heldPromptDrafts).toEqual(original.heldPromptDrafts)
       expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
       let retrySettled = false
-      void restored.promise.then(() => { retrySettled = true }, () => { retrySettled = true })
+      void restored.promise.then(
+        () => {
+          retrySettled = true
+        },
+        () => {
+          retrySettled = true
+        }
+      )
       await flushLaunchSettlement()
 
       expect(retrySettled).toBe(false)
@@ -543,7 +577,9 @@ describe('structured agent launch reload recovery', () => {
       expect(restored.intent.params.envelope.payloadFingerprint).toBe(original.payloadFingerprint)
       expect(restored.intent.createSpeedAuthority).toEqual(original.createSpeedAuthority)
       expect(mocks.callStructuredAgentSession.mock.calls.map(([, method]) => method)).toEqual([
-        'agentSession.history', 'agentSession.setOption', 'agentSession.setOption'
+        'agentSession.history',
+        'agentSession.setOption',
+        'agentSession.setOption'
       ])
       expect(mocks.launch).not.toHaveBeenCalled()
     } finally {

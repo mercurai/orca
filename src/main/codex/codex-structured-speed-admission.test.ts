@@ -47,13 +47,19 @@ describe('Codex next-turn speed admission', () => {
           reason: expect.stringMatching(/Standard|refresh/i),
           rejection: { neverReachedAgent: true }
         })
-        expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
+        expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual(
+          []
+        )
         expect((await adapter.readOptions(identity)).current).toMatchObject({
           serviceTier: 'priority-exact-id'
         })
 
         await adapter.setOption({ ...identity, key: 'serviceTier', value: 'default' })
-        await adapter.dispatch({ ...identity, clientMessageId: 'standard-speed', body: USER_MESSAGE })
+        await adapter.dispatch({
+          ...identity,
+          clientMessageId: 'standard-speed',
+          body: USER_MESSAGE
+        })
         expect(
           codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
         ).toMatchObject({ serviceTier: 'default' })
