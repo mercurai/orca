@@ -9,6 +9,7 @@ on:
       - 'src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts'
       - 'src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts'
       - 'src/main/managed-server/install/remote-install-model.test.ts'
+      - 'src/main/managed-server/install/remote-versioned-install.test.ts'
       - 'src/main/managed-server/posix-host-op-byte-budget.test.ts'
       - 'src/main/ssh/ssh-remote-commands.ts'
       - 'src/main/ssh/ssh-remote-commands.test.ts'
@@ -59,6 +60,7 @@ jobs:
           src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts
           src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts
           src/main/managed-server/install/remote-install-model.test.ts
+          src/main/managed-server/install/remote-versioned-install.test.ts
           src/main/managed-server/posix-host-op-byte-budget.test.ts
           src/main/ssh/ssh-remote-commands.test.ts
           src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
