@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-1bfb4565
     status: ours-only
     base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
-    commit: 2aafac5aea4d2eb69effada90990870d0dc06113
+    commit: fef054f34069a0506e2ff27e92191c59155503cf
     owner: harness
     added: 2026-10-20
     tests:
@@ -220,12 +220,13 @@ patches:
       - src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts
       - src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts
       - src/main/managed-server/install/remote-install-model.test.ts
+      - src/main/managed-server/install/remote-versioned-install.test.ts
       - src/main/managed-server/posix-host-op-byte-budget.test.ts
       - src/main/ssh/ssh-remote-commands.test.ts
     notes: >-
-      Provisional exact candidate 2aafac5aea4d2eb69effada90990870d0dc06113,
-      source 459db1804be0a744265be10ed6f6b7a18a6357db,
-      tree b876f99a70b1dce32c20da3c9826704208e17ee2.
+      Provisional exact candidate fef054f34069a0506e2ff27e92191c59155503cf,
+      source d13c1f651ae673adaf2c337fff2b67e71e6aabef,
+      tree f949142d05e222bfa63ac7b0c53be8237f723181.
       Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
       v1.4.232 is the release-version floor. This combines all released code and
       54 subsequent main commits while preserving the shipped Mercurai enhancements.
