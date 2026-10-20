@@ -1,3 +1,4 @@
+import type { StructuredAgentSessionSendRequest } from './structured-agent-session-send-slot'
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { CodexSpeedSelectionError } from '@/runtime/codex-speed-selection'
 import type {
@@ -95,7 +96,8 @@ export function useStructuredAgentSessionSends(args: {
   const send = useCallback(
     (
       text: string,
-      attachments: readonly StructuredAgentSessionAttachment[] = []
+      attachments: readonly StructuredAgentSessionAttachment[] = [],
+      request?: StructuredAgentSessionSendRequest
     ): boolean | 'queued' => {
       if (!text.trim() && attachments.length === 0) {
         return false
@@ -116,6 +118,10 @@ export function useStructuredAgentSessionSends(args: {
         target,
         text,
         attachments,
+        ...(request?.callerKeepsText ? { callerKeepsText: request.callerKeepsText } : {}),
+        ...(request?.usageLimitContinuationOfTurnItemId
+          ? { usageLimitContinuationOfTurnItemId: request.usageLimitContinuationOfTurnItemId }
+          : {}),
         ...(delivery ? { delivery } : {}),
         ...(options ? { options } : {}),
         ...(stopping ? { sentWhileStopping: true as const } : {})
@@ -123,6 +129,9 @@ export function useStructuredAgentSessionSends(args: {
       // Refused while the chat's send is out: the text stays in the box.
       if (!sent) {
         return false
+      }
+      if (request?.onSettled) {
+        void sent.outcome.then(request.onSettled)
       }
       // The same projection that draws the transcript decides it.
       const admitted = getStructuredAgentSessionPendingSends(sessionId).filter(

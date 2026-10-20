@@ -197,13 +197,14 @@ function toWireSpec(spec: ProcessSpec): WireProcessSpec | null {
     signal: _signal,
     onChildTerminated: _onChildTerminated,
     onSpawn,
+    onStderr,
     stdio,
     serialization,
     terminationBarrier,
     ...rest
   } = spec
   // Why null: these cannot cross the thread, so the caller keeps them in-process.
-  if (onSpawn || stdio !== undefined || serialization !== undefined) {
+  if (onSpawn || onStderr || stdio !== undefined || serialization !== undefined) {
     return null
   }
   if (typeof terminationBarrier !== 'object') {

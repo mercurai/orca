@@ -142,11 +142,11 @@ describe('managed orcad environment store', () => {
   it('keeps a managed server from being removed or re-paired outside its lifecycle', async () => {
     await add()
     await expect(removeEnvironment(userDataPath, 'Managed')).rejects.toThrow(
-      'managed by Orca over SSH'
+      'Orca runs this server on an SSH host for you'
     )
     await expect(
       updateEnvironmentFromPairingCode(userDataPath, 'Managed', { pairingCode: pairingCode() })
-    ).rejects.toThrow('managed by Orca over SSH')
+    ).rejects.toThrow('Orca runs this server on an SSH host for you')
     expect(listEnvironments(userDataPath)).toHaveLength(1)
   })
 

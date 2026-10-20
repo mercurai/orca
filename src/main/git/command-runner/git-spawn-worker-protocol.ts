@@ -29,7 +29,13 @@ export type SerializedSpawnError = {
 /** The part of a ProcessSpec that crosses the thread; callbacks and the signal stay on main. */
 export type WireProcessSpec = Omit<
   ProcessSpec,
-  'signal' | 'stdio' | 'serialization' | 'terminationBarrier' | 'onChildTerminated' | 'onSpawn'
+  | 'signal'
+  | 'stdio'
+  | 'serialization'
+  | 'terminationBarrier'
+  | 'onChildTerminated'
+  | 'onSpawn'
+  | 'onStderr'
 > & { terminationBarrier?: boolean | WorkerBarrierDescriptor }
 
 /** A ProcessResult as structured clone delivers it: byte output arrives as a plain Uint8Array. */

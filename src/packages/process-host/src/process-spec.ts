@@ -46,6 +46,8 @@ export type ProcessSpec = {
   onChildTerminated?: () => void
   /** Called with the child right after it was started, before any output is read. */
   onSpawn?: (child: ChildProcess) => void
+  /** Every raw stderr chunk as it arrives, including any past the capture cap. */
+  onStderr?: (chunk: Buffer | string) => void
 }
 
 export type PipedChildProcess = ChildProcessWithoutNullStreams

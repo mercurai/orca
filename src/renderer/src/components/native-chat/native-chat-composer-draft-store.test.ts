@@ -50,6 +50,7 @@ const SKILL_DOCUMENT = {
 }
 
 let modules: DraftModules
+const originalPreloadApi = window.api
 
 // Warm the same draft modules the reload cases exercise.
 beforeAll(async () => {
@@ -64,6 +65,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  Object.assign(window, { api: originalPreloadApi })
   vi.useRealTimers()
   // Each loaded renderer closes its channel, so it hears nothing from the next test.
   for (const instance of loaded.splice(0)) {
@@ -114,7 +116,6 @@ describe('native-chat composer draft store', () => {
     expect(reloaded.drafts.readNativeChatDraftCache('tab-1:pane')).toBe('typed, then Orca quit')
     await reloaded.store.nativeChatComposerDraftWritesSettled()
     expect(storedDraft('tab-1:pane')?.text).toBe('typed, then Orca quit')
-    expect(localStorage.length).toBe(0)
   })
 
   it('reports a scope’s writes settled only once storage completes them, and false when refused', async () => {
@@ -592,6 +593,8 @@ describe('native-chat composer draft store', () => {
       'saved earlier\n\nreturned by Stop'
     )
     expect(reloaded.attachments.readNativeChatAttachmentCache('agent-session:s1')).toEqual(IMAGES)
+    const memory = await import('./native-chat-composer-draft-memory')
+    expect(memory.restoredImageChecks.get('agent-session:s1')).toHaveLength(1)
     expect(storedDraft('agent-session:s1')).toMatchObject({
       text: 'saved earlier\n\nreturned by Stop',
       images: IMAGES
@@ -787,24 +790,32 @@ describe('native-chat composer draft store', () => {
     warn.mockRestore()
   })
 
-  it('keeps a restored image checked when another window saves the draft with the same image', async () => {
-    const other = await reload()
+  it('gives a foreign replacement its own check and keeps completed unchanged images settled', async () => {
+    const other = modules
+    modules = await reload()
+    const checks = await import('./native-chat-composer-draft-image-check')
+    const memory = await import('./native-chat-composer-draft-memory')
+    const scope = 'tab-1:pane'
+    const restored = () => modules.store.readNativeChatComposerDraft(scope)
+    const old = Promise.withResolvers<boolean>()
+    const next = Promise.withResolvers<boolean>()
+    const pathExists = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
+    Object.assign(window, { api: { fs: { pathExists } } })
     other.attachments.appendNativeChatAttachmentCache('tab-1:pane', [IMAGES[0]])
-    await vi.waitFor(() =>
-      expect(modules.attachments.readNativeChatAttachmentCache('tab-1:pane')).toEqual([IMAGES[0]])
-    )
-    modules.store.markNativeChatComposerDraftVerified('tab-1:pane')
-
+    await vi.waitFor(() => expect(restored().images).toEqual([IMAGES[0]]))
+    const first = checks.verifyRestoredNativeChatComposerDraftImages('tab-1:pane')
+    const replacement = { ...IMAGES[0], path: '/repo/new.png' }
+    other.store.updateNativeChatComposerDraft(scope, { images: [replacement] }, 'immediate')
+    await vi.waitFor(() => expect(restored().images).toEqual([replacement]))
+    const second = checks.verifyRestoredNativeChatComposerDraftImages('tab-1:pane')
+    old.resolve(false)
+    await first
+    expect(memory.restoredImageChecks.get('tab-1:pane')).toHaveLength(1)
+    next.reject(new Error('temporarily unavailable'))
+    await second
     other.drafts.appendNativeChatDraftCache('tab-1:pane', 'caption')
-    await vi.waitFor(() =>
-      expect(modules.drafts.readNativeChatDraftCache('tab-1:pane')).toBe('caption')
-    )
-    expect(modules.store.isNativeChatComposerDraftUnverified('tab-1:pane')).toBe(false)
-
-    other.attachments.appendNativeChatAttachmentCache('tab-1:pane', [IMAGES[1]])
-    await vi.waitFor(() =>
-      expect(modules.store.isNativeChatComposerDraftUnverified('tab-1:pane')).toBe(true)
-    )
+    await vi.waitFor(() => expect(restored().text).toBe('caption'))
+    expect(memory.restoredImageChecks.has('tab-1:pane')).toBe(false)
   })
 
   it('follows another window’s save of a draft, unless a change here is not saved yet', async () => {

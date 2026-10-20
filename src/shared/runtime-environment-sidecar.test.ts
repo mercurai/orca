@@ -141,7 +141,10 @@ describe('runtime environment sidecar across a downgrade', () => {
     await expect(removeEnvironment(userDataPath, access.id)).rejects.toThrow('Unlink')
     const plain = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Plain',
-      pairingCode: encodePairingOffer(pairing)
+      pairingCode: encodePairingOffer({
+        ...pairing,
+        publicKeyB64: Buffer.alloc(32, 2).toString('base64')
+      })
     })
     await removeEnvironment(userDataPath, plain.id)
     expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual([access.id])

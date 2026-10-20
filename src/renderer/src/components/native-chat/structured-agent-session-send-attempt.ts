@@ -147,7 +147,10 @@ export async function attemptStructuredAgentSessionSend(args: {
         expectedRuntimeFence: fence,
         body: entry.body,
         ...(entry.delivery ? { delivery: entry.delivery } : {}),
-        ...(prepared.options ? { options: prepared.options } : {})
+        ...(prepared.options ? { options: prepared.options } : {}),
+        ...(entry.usageLimitContinuationOfTurnItemId
+          ? { usageLimitContinuationOfTurnItemId: entry.usageLimitContinuationOfTurnItemId }
+          : {})
       })),
       ...(prepared.authority ? { authority: { ...prepared.authority } } : {})
     }

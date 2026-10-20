@@ -48,7 +48,16 @@ export async function callRuntimeEnvironment(
       expectedEnvironmentPairingRevision,
       method
     )
-    return failure ?? getRuntimeEnvironmentStatus(userDataPath, selector, timeoutMs, options)
+    return (
+      failure ??
+      getRuntimeEnvironmentStatus(
+        userDataPath,
+        selector,
+        timeoutMs,
+        options,
+        expectedEnvironmentPairingRevision === undefined
+      )
+    )
   }
   const environment = resolveEnvironment(userDataPath, selector)
   // Why: connection failures reject (they don't resolve as ok:false), so the
@@ -112,6 +121,7 @@ export async function callRuntimeEnvironment(
             params,
             timeoutMs: effectiveTimeoutMs,
             expectedPairingRevision: expectedEnvironmentPairingRevision,
+            expectedRuntimeId: options?.expectedEnvironmentRuntimeId,
             envelope: sharedControlEnvelope,
             signal: options?.signal
           })

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import {
+  acquireReadyCodexForTest,
+  codexStartReport,
   THREAD_ID,
   USER_MESSAGE,
   adapterFor,
@@ -16,7 +18,6 @@ import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catal
 import { createAgentModelCatalogSettingsExpiry } from '../native-chat/agent-model-catalog/agent-model-catalog-account-expiry'
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
-import { nativeSessionOptionsFromReport } from '../native-chat/agent-session-wire/structured-agent-session-option-restoration'
 
 function listing(tier = 'priority') {
   return {
@@ -34,7 +35,7 @@ function listing(tier = 'priority') {
 async function acquire(
   adapter: CodexStructuredSessionAdapter, sessionId = 'session-1', serviceTier = 'priority'
 ) {
-  return adapter.acquire({
+  return acquireReadyCodexForTest(adapter, {
     identity: identityFor(sessionId),
     fence: 7,
     spawnToken: `spawn-${sessionId}`,
@@ -64,7 +65,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     const adapter = adapterFor(codex)
 
     await acquire(adapter)
-    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toMatchObject({
+    expect(codexStartReport(adapter).reportedOptions).toMatchObject({
       serviceTier: 'priority'
     })
     expect(await send(adapter, 'first')).toMatchObject({
@@ -92,7 +93,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       state: 'rejected', rejection: { neverReachedAgent: true }
     })
     expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
-    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
       .toMatchObject({ serviceTier: 'priority' })
     pending.resolve(listing())
   })
@@ -110,7 +111,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     const steer = codex.connections[0].calls.find((call) => call.method === 'turn/steer')
     expect(steer).toBeDefined()
     expect(steer?.params).not.toHaveProperty('serviceTier')
-    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
       .toMatchObject({ serviceTier: 'priority' })
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
       1
@@ -138,7 +139,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     const starts = codex.connections[0].calls.filter((call) => call.method === 'turn/start')
     expect(starts).toHaveLength(1)
     expect(starts[0]?.params).toMatchObject({ serviceTier: 'default' })
-    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
       .toMatchObject({ serviceTier: 'priority' })
     pending.resolve(listing())
   })
@@ -243,7 +244,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(false)
       expect(modelCatalog.failure(fingerprint)).toBeNull()
       expect(modelCatalog.isListing(fingerprint)).toBe(false)
-      expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 }))
+      expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
         .toMatchObject({ serviceTier: 'priority' })
       expect(codex.connections).toHaveLength(1)
     }
@@ -263,7 +264,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     const adapter = adapterFor(codex, {
       codexHome: '/codex/home', resumeThreadId: THREAD_ID
     }, [], { modelCatalog })
-    await adapter.acquire({
+    await acquireReadyCodexForTest(adapter, {
       identity: identityFor('session-1'),
       fence: 7,
       spawnToken: 'spawn-resume',
@@ -271,7 +272,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     })
 
     expect(codex.connections[0].calls.some((call) => call.method === 'thread/resume')).toBe(true)
-    expect(adapter.readAcquisitionOptions({ sessionId: 'session-1', fence: 7 })).toEqual({
+    expect(codexStartReport(adapter).reportedOptions).toEqual({
       model: 'synthetic-resume-model',
       serviceTier: 'synthetic-ultra-request-id'
     })
@@ -312,7 +313,11 @@ describe('Codex service tier across clients and rest', () => {
       'discovery'
     )
     const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
-    await adapter.acquire({ identity: identityFor('session-1'), fence: 7, spawnToken: 'spawn-1' })
+    await acquireReadyCodexForTest(adapter, {
+      identity: identityFor('session-1'),
+      fence: 7,
+      spawnToken: 'spawn-1'
+    })
 
     await expect(
       adapter.setOption({ sessionId: 'session-1', key: 'fastMode', value: 'true', fence: 7 })
@@ -329,19 +334,5 @@ describe('Codex service tier across clients and rest', () => {
   it('takes a tier and an older client Fast toggle at rest', () => {
     expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('serviceTier')).toBe(true)
     expect(CODEX_STRUCTURED_AGENT.restingOptions?.acceptsKey('fastMode')).toBe(true)
-  })
-
-  it('keeps only the reported tier, not the Fast it implies, on the record', () => {
-    expect(
-      nativeSessionOptionsFromReport({
-        reported: { model: 'gpt-live', serviceTier: 'priority', fastMode: true },
-        restoreSkipped: [],
-        priorOptions: { fastMode: 'true', serviceTier: 'ultrafast' }
-      })
-    ).toEqual({ model: 'gpt-live', serviceTier: 'priority' })
-    // An agent that reports Fast with no tier still keeps it.
-    expect(
-      nativeSessionOptionsFromReport({ reported: { fastMode: true }, restoreSkipped: [] })
-    ).toEqual({ fastMode: 'true' })
   })
 })

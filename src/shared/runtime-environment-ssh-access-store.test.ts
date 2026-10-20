@@ -177,9 +177,13 @@ describe('independent paired runtime SSH access persistence', () => {
 
   it('refuses a second registration of the same execution runtime', async () => {
     const original = await seed()
+    // Why another key: one key is one server, which the store would refresh instead of adding.
     const duplicate = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Duplicate host',
-      pairingCode: encodePairingOffer(pairing)
+      pairingCode: encodePairingOffer({
+        ...pairing,
+        publicKeyB64: Buffer.alloc(32, 2).toString('base64')
+      })
     })
     await markEnvironmentUsed(userDataPath, duplicate.id, { runtimeId: 'host-runtime' })
     const before = listEnvironments(userDataPath)
@@ -280,7 +284,7 @@ describe('independent paired runtime SSH access persistence', () => {
     })
     expect(JSON.parse(readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')).version).toBe(1)
     expect(
-      await prepareRuntimeEnvironmentSshAccessUnlink(userDataPath, {
+      prepareRuntimeEnvironmentSshAccessUnlink(userDataPath, {
         expectedEnvironment: prepared,
         requestId: 'release-request'
       })
@@ -315,7 +319,7 @@ describe('independent paired runtime SSH access persistence', () => {
     expect(cancelling.pendingSshAccessOperation?.operation).toBe('unlink')
     expect(cancelling.sshAccess).toBeUndefined()
     expect(
-      await cancelRuntimeEnvironmentSshAccessLink(userDataPath, {
+      cancelRuntimeEnvironmentSshAccessLink(userDataPath, {
         expectedEnvironment: cancelling,
         requestId: 'link-request'
       })

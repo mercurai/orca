@@ -89,6 +89,21 @@ describe('runProcessOnWorker', () => {
     expect(sent).toEqual([])
   })
 
+  it('keeps stderr observers on the calling thread without cloning callbacks', () => {
+    const { table, sent } = createTable()
+    const onStderr = vi.fn()
+    expect(
+      runProcessOnWorker(
+        table,
+        { program: 'x', onStderr },
+        'head',
+        () => Promise.resolve(LOCAL_RESULT)
+      )
+    ).toBeNull()
+    expect(sent).toEqual([])
+    expect(onStderr).not.toHaveBeenCalled()
+  })
+
   it('passes a barrier descriptor as data', () => {
     const { table, sent } = createTable()
     const worker = { kind: 'wsl-process-group', distro: 'Ubuntu', marker: 'm=' } as const

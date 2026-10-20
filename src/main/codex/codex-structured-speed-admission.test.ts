@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import {
+  acquireReadyCodexForTest,
   USER_MESSAGE,
   adapterFor,
   answerWithOpenedTurn,
@@ -27,7 +28,7 @@ describe('Codex next-turn speed admission', () => {
       })
       const identity = { sessionId: 'session-1', fence: 7 }
       try {
-        await adapter.acquire({
+        await acquireReadyCodexForTest(adapter, {
           fence: identity.fence,
           identity: identityFor(identity.sessionId),
           spawnToken: 'speed-admission-spawn',
@@ -47,7 +48,7 @@ describe('Codex next-turn speed admission', () => {
           rejection: { neverReachedAgent: true }
         })
         expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
-        expect(adapter.readAcquisitionOptions(identity)).toMatchObject({
+        expect((await adapter.readOptions(identity)).current).toMatchObject({
           serviceTier: 'priority-exact-id'
         })
 

@@ -6,7 +6,7 @@ import { writeSecureJsonFileWithinLimit } from '../../shared/bounded-secure-json
 import {
   MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS,
   parseOrcadMigrationSourceCutover
-} from '../../shared/orcad-migration-source-cutover'
+} from '../../shared/orcad-migration/orcad-migration-source-cutover'
 import { orcadMigrationCutoverFixture as cutover } from './orcad-migration-cutover-fixture'
 import {
   findOrcadMigrationSourceCutoverForTarget,
@@ -47,7 +47,7 @@ describe('migration cutover journal sidecar', () => {
     expect(() => listOrcadMigrationSourceCutovers(userDataPath)).toThrow('stays fenced')
   })
 
-  it("reads a newer build's journal that adds an optional field", () => {
+  it("reads a newer build's journal that adds an optional field", async () => {
     mkdirSync(orcadMigrationCutoverJournalDirectory(userDataPath), { recursive: true })
     writeFileSync(journalPath('migration-1'), JSON.stringify({ ...cutover(), addedLater: true }))
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([cutover()])
@@ -64,7 +64,7 @@ describe('migration cutover journal sidecar', () => {
     expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.phase).toBe('destination-staged')
   })
 
-  it('fails closed on a file whose name disagrees with its migration', () => {
+  it('fails closed on a file whose name disagrees with its migration', async () => {
     mkdirSync(orcadMigrationCutoverJournalDirectory(userDataPath), { recursive: true })
     writeFileSync(journalPath('other'), JSON.stringify(cutover()))
     expect(() => listOrcadMigrationSourceCutovers(userDataPath)).toThrow('stays fenced')

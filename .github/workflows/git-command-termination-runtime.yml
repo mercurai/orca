@@ -81,6 +81,36 @@ jobs:
           src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
           src/main/native-chat/agent-model-catalog/agent-model-catalog-unavailable.test.ts
           src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
+          src/main/codex/codex-structured-message-options.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-message-choices.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-store.test.ts
+          src/shared/runtime-environment-store-pairing-serialization.test.ts
+          src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
+          src/shared/runtime-environment-store.test.ts
+          src/shared/runtime-environment-managed-orcad-store.test.ts
+          src/main/ipc/runtime-environments/runtime-environments-pairing.test.ts
+          src/main/ipc/minimax-credentials.test.ts
+          src/main/ipc/zcode-plan-credentials.test.ts
+          src/main/runtime/rpc/methods/usage-credentials.test.ts
+          src/main/git/command-runner/git-spawn-worker-client-runprocess.test.ts
+          config/scripts/packaged-orcad-template-targets.test.mjs
+          config/scripts/compact-packaged-orcad-ripgrep.test.mjs
+      # Diagnostic only: formatting runs after tests and never changes the tested source revision.
+      - name: Capture formatting corrections for source review
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/oxfmt/bin/oxfmt --write .
+          git diff --binary --output="$RUNNER_TEMP/format-corrections.patch"
+      - name: Upload formatting corrections
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: format-corrections-${{ github.sha }}
+          path: ${{ runner.temp }}/format-corrections.patch
+          if-no-files-found: warn
+          retention-days: 7
   fork-costs:
     name: Deterministic fork costs (${{ matrix.os }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft != true

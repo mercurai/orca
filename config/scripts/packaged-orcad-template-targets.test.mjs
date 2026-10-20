@@ -1,13 +1,14 @@
 // mercurai fork: a desktop build may ship the orcad template for some targets only.
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { assembleOrcadArtifact } from '../../src/main/orcad/orcad-artifact-materializer'
 import {
   ORCAD_TEMPLATE_MANIFEST_FILENAME,
-  ORCAD_TEMPLATE_TARGETS_DIR
+  ORCAD_TEMPLATE_TARGETS_DIR,
+  orcadRipgrepArtifact
 } from '../../src/shared/orcad-artifacts.ts'
 import { writeOrcadTemplateTestFixture } from './orcad-template-test-fixture.mjs'
 
@@ -85,6 +86,29 @@ describe('packaging a partial orcad template', () => {
     const { resourcesDir } = await resourcesWith([SHIPPED])
 
     await expect(finalize(resourcesDir, SHIPPED)).resolves.toBeUndefined()
+  })
+
+  it('compacts a partial template while retaining a deployable host artifact', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { resourcesDir, templateDir } = await resourcesWith([SHIPPED])
+    const manifestPath = join(templateDir, ORCAD_TEMPLATE_MANIFEST_FILENAME)
+    const original = JSON.parse(await readFile(manifestPath, 'utf8'))
+    const filename = orcadRipgrepArtifact(SHIPPED)
+    const desktopBinary = join(resourcesDir, filename)
+    await mkdir(dirname(desktopBinary), { recursive: true })
+    await copyFile(join(templateDir, ORCAD_TEMPLATE_TARGETS_DIR, SHIPPED, filename), desktopBinary)
+
+    await finalize(resourcesDir, SHIPPED)
+
+    const compacted = JSON.parse(await readFile(manifestPath, 'utf8'))
+    expect(compacted.targets[SHIPPED].packagedRipgrep).toBe(true)
+    expect(compacted.targets[SHIPPED].files[filename]).toBe(original.targets[SHIPPED].files[filename])
+    const deployed = await assembleOrcadArtifact({
+      templateDir,
+      cacheRoot: join(resourcesDir, 'cache'),
+      target: SHIPPED
+    })
+    expect(await readFile(join(deployed, filename))).toEqual(await readFile(desktopBinary))
   })
 
   // `--targets linux-x64-glibc` also stages the glibc 2.17 slot when one was built.

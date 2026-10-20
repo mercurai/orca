@@ -3,6 +3,7 @@ import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent
 import { CodexAppServerRequestError } from './codex-app-server-connection'
 import { startCodexTurn } from './codex-structured-turn-start'
 import {
+  acquireReadyCodexForTest,
   THREAD_ID,
   USER_MESSAGE,
   adapterFor,
@@ -44,7 +45,7 @@ async function setup(
   const adapter = adapterFor(codex, { codexHome: '/synthetic/speed-state' }, [], {
     modelCatalog
   })
-  const acquire = () => adapter.acquire({
+  const acquire = () => acquireReadyCodexForTest(adapter, {
     ...IDENTITY,
     identity: identityFor(IDENTITY.sessionId),
     spawnToken: 'speed-state-spawn',

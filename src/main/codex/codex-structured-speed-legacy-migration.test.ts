@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
-import { nativeSessionOptionsFromReport } from '../native-chat/agent-session-wire/structured-agent-session-option-restoration'
 import { restoredCodexSessionOptions } from './codex-structured-session-options'
 import {
+  acquireReadyCodexForTest,
   USER_MESSAGE,
   adapterFor,
   answerWithOpenedTurn,
@@ -29,18 +29,22 @@ function adapterWithCatalog(codex: ReturnType<typeof fakeCodex>) {
 }
 
 describe('saved Codex Fast migration', () => {
-  it('retains unresolved true through generic native persistence and another restore', () => {
-    const restored = restoredCodexSessionOptions({ model: MODEL, fastMode: 'true' })
-    expect(Object.fromEntries(restored)).toEqual({ model: MODEL, fastMode: 'true' })
-
-    const persisted = nativeSessionOptionsFromReport({
-      priorOptions: Object.fromEntries(restored),
-      reported: { model: MODEL, fastMode: true },
-      restoreSkipped: []
-    })
-
-    expect(persisted).toEqual({ model: MODEL, fastMode: 'true' })
-    expect(Object.fromEntries(restoredCodexSessionOptions(persisted))).toEqual(persisted)
+  it('reports unresolved Fast intent without replacing the saved preference on startup', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    const codex = fakeCodex({ 'model/list': () => pending.promise })
+    const adapter = adapterWithCatalog(codex)
+    const saved = { model: MODEL, fastMode: 'true' }
+    try {
+      await acquireReadyCodexForTest(adapter, {
+        identity: identityFor(identity.sessionId), fence: identity.fence,
+        spawnToken: 'legacy-fast-report', options: saved
+      })
+      expect((await adapter.readOptions(identity)).current).toMatchObject({ model: MODEL, fastMode: true })
+      expect(Object.fromEntries(restoredCodexSessionOptions(saved))).toEqual(saved)
+    } finally {
+      pending.resolve(listing)
+      await adapter.closeAll()
+    }
   })
 
   it.each(['default', FAST_ID, 'synthetic-ultra-request-id'])(
@@ -57,7 +61,7 @@ describe('saved Codex Fast migration', () => {
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'migrated-fast-turn')
     const adapter = adapterWithCatalog(codex)
     try {
-      await adapter.acquire({
+      await acquireReadyCodexForTest(adapter, {
         identity: identityFor(identity.sessionId),
         fence: identity.fence,
         spawnToken: 'legacy-fast-spawn',
@@ -75,13 +79,9 @@ describe('saved Codex Fast migration', () => {
       expect(starts[0].params).toMatchObject({ model: MODEL, serviceTier: FAST_ID })
       expect(starts[0].params).not.toHaveProperty('fastMode')
       const report = await adapter.readOptions(identity)
-      const persisted = nativeSessionOptionsFromReport({
-        reported: report.current,
-        priorOptions: { model: MODEL, fastMode: 'true' },
-        restoreSkipped: []
-      })
-      expect(persisted).toMatchObject({ model: MODEL, serviceTier: FAST_ID })
-      expect(persisted).not.toHaveProperty('fastMode')
+      expect(report.current).toMatchObject({ model: MODEL, serviceTier: FAST_ID })
+      const persisted = { model: MODEL, serviceTier: FAST_ID }
+      expect(Object.fromEntries(restoredCodexSessionOptions(persisted))).toEqual(persisted)
     } finally {
       await adapter.closeAll()
     }
@@ -93,7 +93,7 @@ describe('saved Codex Fast migration', () => {
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'must-not-start')
     const adapter = adapterWithCatalog(codex)
     try {
-      await adapter.acquire({
+      await acquireReadyCodexForTest(adapter, {
         identity: identityFor(identity.sessionId),
         fence: identity.fence,
         spawnToken: 'pending-legacy-fast-spawn',
@@ -109,8 +109,8 @@ describe('saved Codex Fast migration', () => {
         rejection: { neverReachedAgent: true }
       })
       expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
-      const saved = adapter.readAcquisitionOptions(identity)
-      expect(saved).toMatchObject({ model: MODEL, fastMode: 'true' })
+      const saved = (await adapter.readOptions(identity)).current
+      expect(saved).toMatchObject({ model: MODEL, fastMode: true })
       expect(saved).not.toHaveProperty('serviceTier')
     } finally {
       pending.resolve(listing)

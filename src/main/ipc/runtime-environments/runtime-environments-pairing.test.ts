@@ -1,5 +1,8 @@
 import type { RuntimeHostStatusSnapshot } from '../../../shared/runtime-host-status'
-import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-request-connections'
+import {
+  getRuntimeEnvironmentStatusSnapshots,
+  resetRuntimeEnvironmentStatusOwners
+} from './runtime-environment-request-connections'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { tmpdir } from 'node:os'
@@ -168,7 +171,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       expect(listeners.listenerCount('runtimeEnvironments:subscriptionBinary')).toBe(1)
       expect(channels.has('runtimeEnvironments:restartOrcad')).toBe(true)
       const list = handler<undefined, unknown[]>('runtimeEnvironments:list')
-      expect(await list(null, undefined)).toEqual([])
+      expect(list(null, undefined)).toEqual([])
     } finally {
       handleMock.mockReset()
       removeHandlerMock.mockReset()
@@ -220,13 +223,13 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(JSON.stringify(added)).not.toContain('device-token')
     expect(JSON.stringify(added)).not.toContain('publicKeyB64')
     const list = handler<undefined, { id: string; name: string }[]>('runtimeEnvironments:list')
-    expect(await list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
+    expect(list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
     expect(JSON.stringify(await list(null, undefined))).not.toContain('device-token')
 
     const resolve = handler<{ selector: string }, { id: string; name: string }>(
       'runtimeEnvironments:resolve'
     )
-    expect(await resolve(null, { selector: 'desk' })).toMatchObject({
+    expect(resolve(null, { selector: 'desk' })).toMatchObject({
       id: added.environment.id,
       name: 'desk'
     })
@@ -247,7 +250,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     )
     expect(store.setRemoteLayoutSnapshot).toHaveBeenCalledWith(added.environment.id, null, 'now')
     expect(JSON.stringify(removed)).not.toContain('device-token')
-    expect(await list(null, undefined)).toEqual([])
+    expect(list(null, undefined)).toEqual([])
   })
 
   it('blocks loopback before verification unless an SSH tunnel is declared', async () => {
@@ -410,7 +413,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     await expect(
       verifyAndAdd(null, {
         name: 'desk',
-        pairingCode: pairingCode('ws://100.76.32.125:6768')
+        pairingCode: pairingCode('ws://100.76.32.125:6768', { keyByte: 2 })
       })
     ).resolves.toMatchObject({
       ok: false,
@@ -418,6 +421,103 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       message: 'A server named "desk" already exists.'
     })
     expect(environmentStore.listEnvironments(userDataPath)).toHaveLength(1)
+  })
+
+  it('refreshes the saved server when a verified link is for it, and retires its old connection', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const saved = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+      name: 'desk',
+      pairingCode: pairingCode('ws://100.76.32.125:6768')
+    })
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: runtimeStatus(),
+      _meta: { runtimeId: 'runtime-a' }
+    })
+    const verifyAndAdd = handler<
+      { name: string; pairingCode: string },
+      { ok: boolean; updatedExisting?: boolean; environment?: { id: string; name: string } }
+    >('runtimeEnvironments:verifyAndAddFromPairingCode')
+
+    await expect(
+      verifyAndAdd(null, {
+        name: 'desk over relay',
+        pairingCode: pairingCode('ws://192.0.2.10:6768', { deviceToken: 'second-token' })
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      updatedExisting: true,
+      environment: { id: saved.id, name: 'desk' }
+    })
+    expect(environmentStore.listEnvironments(userDataPath)).toHaveLength(1)
+    expect(environmentStore.resolveEnvironmentPairingOffer(userDataPath, saved.id)).toMatchObject({
+      endpoint: 'ws://192.0.2.10:6768',
+      deviceToken: 'second-token'
+    })
+    expect(closeRemoteRuntimeRequestConnectionMock).toHaveBeenCalledWith(saved.id)
+  })
+
+  it('does not stamp a refresh that a newer one overtook with its stale verification', async () => {
+    registerRuntimeEnvironmentHandlers(store as never)
+    const saved = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+      name: 'desk',
+      pairingCode: pairingCode('ws://100.76.32.125:6768')
+    })
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: runtimeStatus(),
+      _meta: { runtimeId: 'runtime-a' }
+    })
+    // An overlapping re-add lands while this one retires the old connection.
+    let overtaken = false
+    let newerWrite: Promise<unknown> | undefined
+    closeRemoteRuntimeRequestConnectionMock.mockImplementation(async () => {
+      const current = environmentStore.resolveEnvironmentPairingOffer(userDataPath, saved.id)
+      if (overtaken || current.deviceToken !== 'second-token') {
+        return
+      }
+      overtaken = true
+      // The newer pairing answers as another process, so only a stale stamp reads runtime-a.
+      const newer = { ...runtimeStatus(), runtimeId: 'runtime-b' }
+      for (const mock of [
+        sendRemoteRuntimeRequestMock,
+        sendRemoteRuntimeSharedControlRequestMock
+      ]) {
+        mock.mockImplementation(async () => {
+          await newerWrite
+          return {
+          id: 'status',
+          ok: true,
+          result: newer,
+          _meta: { runtimeId: 'runtime-b' }
+          }
+        })
+      }
+      newerWrite = environmentStore.addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+        name: 'desk',
+        pairingCode: pairingCode('ws://192.0.2.11:6768', { deviceToken: 'third-token' }),
+        now: Date.now() + 60_000
+      })
+      await newerWrite
+    })
+    const verifyAndAdd = handler<{ name: string; pairingCode: string }, { ok: boolean }>(
+      'runtimeEnvironments:verifyAndAddFromPairingCode'
+    )
+
+    await verifyAndAdd(null, {
+      name: 'desk again',
+      pairingCode: pairingCode('ws://192.0.2.10:6768', { deviceToken: 'second-token' })
+    })
+
+    await newerWrite
+    expect(overtaken).toBe(true)
+    const snapshot = getRuntimeEnvironmentStatusSnapshots().find(
+      (entry) => entry.environmentId === saved.id
+    )
+    expect(snapshot).toBeDefined()
+    expect(['runtime-b', undefined]).toContain(snapshot?.status?.runtimeId)
   })
 
   it('requires an explicit Advanced selection before removing the Active Server', async () => {
@@ -433,7 +533,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     )
 
     await expect(remove(null, { selector: added.environment.id })).rejects.toThrow(
-      'Choose another one in Advanced before removing it.'
+      'Choose another one under New projects open on before removing it.'
     )
     expect(activeRuntimeEnvironmentId).toBe(added.environment.id)
     expect(store.updateSettings).not.toHaveBeenCalled()
@@ -458,7 +558,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { selector: string },
       { disconnected: { id: string; name: string } }
     >('runtimeEnvironments:disconnect')
-    expect(await disconnect(null, { selector: 'desk' })).toMatchObject({
+    expect(disconnect(null, { selector: 'desk' })).toMatchObject({
       disconnected: { id: added.environment.id, name: 'desk' }
     })
 
@@ -466,7 +566,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(closeRemoteRuntimeRequestConnectionMock).toHaveBeenCalledWith('desk')
 
     const list = handler<undefined, { id: string; name: string }[]>('runtimeEnvironments:list')
-    expect(await list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
+    expect(list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
 
     const getStatus = handler<{ selector: string }, { ok: boolean; error?: { code: string } }>(
       'runtimeEnvironments:getStatus'
@@ -479,7 +579,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:getStatusSnapshots'
     )
     // A new renderer only has the snapshot read, not the earlier disconnect event.
-    expect(await getSnapshots(null, undefined)).toMatchObject([
+    expect(getSnapshots(null, undefined)).toMatchObject([
       { environmentId: added.environment.id, retired: true, transport: 'disconnected' }
     ])
     const call = handler<
@@ -507,7 +607,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       result: { runtimeId: 'runtime-remote' }
     })
     expect(sendRemoteRuntimeRequestMock).toHaveBeenCalledOnce()
-    expect(await getSnapshots(null, undefined)).toMatchObject([
+    expect(getSnapshots(null, undefined)).toMatchObject([
       { environmentId: added.environment.id, verification: 'verified' }
     ])
     expect((await getSnapshots(null, undefined))[0].retired).not.toBe(true)
@@ -529,7 +629,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:list'
     )
 
-    expect(await list(null, undefined)).toMatchObject([
+    expect(list(null, undefined)).toMatchObject([
       { id: added.id, name: 'orca VM abc12345', source: 'ephemeral-vm' }
     ])
   })

@@ -85,11 +85,7 @@ describe('session.tabs tab delta across mixed client versions', () => {
       runtime.registerPty(`pty-${index + 1}`, SESSION_WORKTREE_ID)
     }
     const hostDataPath = mkdtempSync(join(tmpdir(), 'orca-tab-delta-host-'))
-    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-tab-delta-client-'))
-    cleanups.push(() => {
-      rmSync(hostDataPath, { recursive: true, force: true })
-      rmSync(userDataPath, { recursive: true, force: true })
-    })
+    cleanups.push(() => rmSync(hostDataPath, { recursive: true, force: true }))
     const server = new OrcaRuntimeRpcServer({
       runtime,
       userDataPath: hostDataPath,
@@ -98,22 +94,31 @@ describe('session.tabs tab delta across mixed client versions', () => {
     })
     await server.start()
     cleanups.push(() => server.stop())
-    const pair = async (name: string): Promise<string> => {
+    // Why a profile per desktop: one profile saves a server once, so each desktop needs its own.
+    const pair = async (name: string): Promise<{ userDataPath: string; id: string }> => {
       const offer = await server.createPairingOffer({ address: '127.0.0.1', name, scope: 'runtime' })
       if (!offer.available) {
         throw new Error('pairing_unavailable')
       }
-      const environment = await addEnvironmentFromPairingCode(userDataPath, {
+      const userDataPath = mkdtempSync(join(tmpdir(), 'orca-tab-delta-client-'))
+      cleanups.push(() => rmSync(userDataPath, { recursive: true, force: true }))
+      const { id } = await addEnvironmentFromPairingCode(userDataPath, {
         name,
         pairingCode: offer.pairingUrl
       })
-      return environment.id
+      return { userDataPath, id }
+    }
+    const pairedConnection = async (name: string) => {
+      const desktop = await pair(name)
+      return getPreferredPairedRuntimeConnection(
+        resolveEnvironment(desktop.userDataPath, desktop.id)
+      )
     }
 
     // A desktop released before the delta: same handshake, minus the one capability.
     const legacy = recorder()
     const legacySubscription = await subscribeRemoteRuntimeRequest(
-      getPreferredPairedRuntimeConnection(resolveEnvironment(userDataPath, await pair('old-desktop'))),
+      await pairedConnection('old-desktop'),
       'session.tabs.subscribe',
       { worktree: `id:${SESSION_WORKTREE_ID}` },
       10_000,
@@ -129,7 +134,7 @@ describe('session.tabs tab delta across mixed client versions', () => {
     // What a new desktop's socket carries before main decodes it.
     const wire = recorder()
     const wireSubscription = await subscribeRemoteRuntimeRequest(
-      getPreferredPairedRuntimeConnection(resolveEnvironment(userDataPath, await pair('new-wire'))),
+      await pairedConnection('new-wire'),
       'session.tabs.subscribe',
       { worktree: `id:${SESSION_WORKTREE_ID}` },
       10_000,
@@ -140,9 +145,10 @@ describe('session.tabs tab delta across mixed client versions', () => {
 
     // This desktop: the real main-process path, which decodes before the window sees a frame.
     const current = recorder()
+    const desktop = await pair('new-desktop')
     const currentSubscription = await subscribeRuntimeEnvironment(
-      userDataPath,
-      await pair('new-desktop'),
+      desktop.userDataPath,
+      desktop.id,
       'session.tabs.subscribe',
       { worktree: `id:${SESSION_WORKTREE_ID}` },
       10_000,

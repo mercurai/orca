@@ -45,6 +45,13 @@ export function isCodexTurnOptionKey(key: string): boolean {
   return CODEX_TURN_OPTION_KEYS.has(key)
 }
 
+function checkDispatchAuthority(host: CodexTurnHost, id: string, signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    host.dispatchEchoes.disarm(id)
+    signal.throwIfAborted()
+  }
+}
+
 /** The session state one turn needs. */
 export type CodexTurnHost = CodexSpeedRequestState & {
   account?: AgentSessionAccountKind
@@ -52,6 +59,7 @@ export type CodexTurnHost = CodexSpeedRequestState & {
   threadId: string
   options: Map<string, string>
   catalogAccess?: CodexSessionCatalogAccess
+  appliedTurnOptions?: Readonly<Record<string, string>>
   reportedOptions?: { model?: string }
   dispatchEchoes: CodexDispatchEchoes
   activeTurnIds?: ReadonlySet<string>
@@ -86,10 +94,12 @@ async function steerCodexTurn(
     clientMessageId: string
     body: AgentJournalMessageItem
     timeoutMs?: number
+    signal?: AbortSignal
     onReply?: () => void
   }
 ): Promise<{ turnId: string; via: 'steer' } | null> {
   try {
+    checkDispatchAuthority(host, input.clientMessageId, input.signal)
     const answer = await host.connection.request(
       'turn/steer',
       {
@@ -121,6 +131,8 @@ export async function startCodexTurn(
     body: AgentJournalMessageItem
     requestedAt?: number
     timeoutMs?: number
+    turnOptions?: Readonly<Record<string, string>>
+    signal?: AbortSignal
     /** Stamped as each reply is read (`CodexDispatchEchoes.tick`); the last is this send's. */
     onReply?: () => void
   }
@@ -134,7 +146,13 @@ export async function startCodexTurn(
   // the send opens its own turn.
   const steerable = (turnId: string | null | undefined): turnId is string =>
     typeof turnId === 'string' && turnId !== '' && !host.abortedTurnIds?.has(turnId)
-  const runningTurnId = await codexRunningOrOpeningTurn(host)
+  let runningTurnId: string | null
+  try {
+    runningTurnId = await codexRunningOrOpeningTurn(host, input.signal)
+  } catch (error) {
+    host.dispatchEchoes.disarm(input.clientMessageId)
+    throw error
+  }
   let steered = steerable(runningTurnId) ? await steerCodexTurn(host, runningTurnId, input) : null
   // Refused because a turn Orca heard of meanwhile is running: steer that one, once.
   const runningSince = steered ? undefined : [...(host.activeTurnIds ?? [])].at(-1)
@@ -144,20 +162,46 @@ export async function startCodexTurn(
   if (steered) {
     return steered
   }
-  assertCodexSpeedAdmitted(host)
-  const options = Object.fromEntries([...host.options].filter(([key]) => isCodexTurnOptionKey(key)))
+  checkDispatchAuthority(host, input.clientMessageId, input.signal)
+  // Validate the message's frozen choices, not a later picker update. Legacy Fast is
+  // resolved against this message's model before filtering it off the provider wire.
+  const selected = new Map(Object.entries(input.turnOptions ?? Object.fromEntries(host.options)))
+  assertCodexSpeedAdmitted({ ...host, options: selected })
+  const options = Object.fromEntries([...selected].filter(([key]) => isCodexTurnOptionKey(key)))
+  const previousApplied = host.appliedTurnOptions
+  const previousOptions = input.turnOptions ? new Map(host.options) : null
+  host.options.clear()
+  for (const [key, value] of Object.entries(options)) {
+    host.options.set(key, value)
+  }
+  host.appliedTurnOptions = options
   const sequence = (host.speedDispatchSequence ?? 0) + 1
   host.speedDispatchSequence = sequence
-  const answer = await host.connection.request(
-    'turn/start',
-    {
-      threadId: host.threadId,
-      clientUserMessageId: input.clientMessageId,
-      input: turnInputFor(input.body),
-      ...options
-    },
-    { timeoutMs: input.timeoutMs, onReply: input.onReply }
-  )
+  let answer: unknown
+  try {
+    answer = await host.connection.request(
+      'turn/start',
+      {
+        threadId: host.threadId,
+        clientUserMessageId: input.clientMessageId,
+        input: turnInputFor(input.body),
+        ...options
+      },
+      { timeoutMs: input.timeoutMs, onReply: input.onReply }
+    )
+  } catch (error) {
+    if (
+      previousOptions &&
+      (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error))
+    ) {
+      host.appliedTurnOptions = previousApplied
+      host.options.clear()
+      for (const [key, value] of previousOptions) {
+        host.options.set(key, value)
+      }
+    }
+    throw error
+  }
   const turnId = readCodexTurnId(answer)
   acknowledgeCodexSpeed(host, sequence, options.serviceTier, turnId)
   return { turnId, via: 'start' }
@@ -176,6 +220,8 @@ export async function dispatchCodexTurn(
     clientMessageId: string
     body: AgentJournalMessageItem
     requestedAt?: number
+    turnOptions?: Readonly<Record<string, string>>
+    signal?: AbortSignal
   },
   timeoutMs: number | undefined
 ): Promise<AgentSessionDispatchOutcome> {

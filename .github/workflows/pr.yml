@@ -53,10 +53,12 @@ jobs:
       package: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.package }}
       package_windows: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.package_windows }}
       layout_oracle: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.layout_oracle }}
+      dependency_isolation: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.dependency_isolation }}
       e2e_should_run: ${{ steps.e2e_filter.outputs.should_run }}
       test_files: ${{ steps.e2e_filter.outputs.test_files }}
       e2e_run_changed: ${{ steps.e2e_filter.outputs.e2e_run_changed }}
       e2e_needs_build: ${{ steps.e2e_filter.outputs.e2e_needs_build }}
+      e2e_ssh_shards: ${{ steps.e2e_filter.outputs.e2e_ssh_shards }}
       native_ime_source_changed: ${{ steps.e2e_filter.outputs.native_ime_source_changed }}
       wsl_source_changed: ${{ steps.e2e_filter.outputs.wsl_source_changed }}
     steps:
@@ -81,6 +83,7 @@ jobs:
             /config/.bun-version
             /config/scripts/check-readme-local-links.mjs
             /config/scripts/pr-code-change-scope.mjs
+            /.oxfmtrc.json
             /config/scripts/pr-package-test-paths.mjs
             /config/scripts/pr-layout-oracle-route.mjs
             /config/scripts/pr-e2e-source-routing.mjs
@@ -271,6 +274,11 @@ jobs:
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
           node node_modules/oxlint/bin/oxlint --format github
 
+      # Why the full tree: it takes ~2s, and the pre-commit hook is skippable.
+      - name: Check formatting
+        if: needs.code_paths.outputs.static_analysis == 'true'
+        run: node node_modules/oxfmt/bin/oxfmt --check .
+
       - name: Reject low-evidence patterns
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: |
@@ -402,10 +410,6 @@ jobs:
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: bun config/scripts/check-layout-writer-ratchets.mjs
 
-      - name: Enforce deprecated runtime-owner importer ratchet
-        if: needs.code_paths.outputs.static_analysis == 'true'
-        run: node config/scripts/check-deprecated-runtime-owner-ratchet.mjs
-
       - name: Enforce path-literal ratchet
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: node config/scripts/check-path-literal-ratchet.mjs
@@ -421,6 +425,14 @@ jobs:
       - name: Enforce legacy relay fence ratchet
         if: needs.code_paths.outputs.static_analysis == 'true'
         run: node config/scripts/check-legacy-relay-fence-ratchet.mjs
+
+      - name: Enforce unproven PTY retirement ratchet
+        if: needs.code_paths.outputs.static_analysis == 'true'
+        run: node config/scripts/check-unproven-pty-retirement-ratchet.mjs
+
+      - name: Enforce id-only store write ratchet
+        if: needs.code_paths.outputs.static_analysis == 'true'
+        run: node config/scripts/check-id-only-store-write-ratchet.mjs
 
       - name: Check Node runtime pin
         if: needs.code_paths.outputs.static_analysis == 'true'
@@ -545,6 +557,7 @@ jobs:
           PREFLIGHT_PHASE_SELECTED: ${{ needs.code_paths.outputs.typecheck == 'true' }}
           PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
           ORCA_UNIT_SELECTION_MODE: ${{ vars.ORCA_UNIT_SELECTION_MODE || 'shadow' }}
+          ORCA_PULL_REQUEST_DRAFT: ${{ github.event.pull_request.draft }}
           # Five shards use fewer runner minutes; the repository variable can still request ten.
           ORCA_UNIT_FULL_SHARD_COUNT: ${{ vars.ORCA_UNIT_FULL_SHARD_COUNT || '5' }}
         run: |
@@ -573,7 +586,7 @@ jobs:
           ORCA_BALANCE_UNIT_SHARDS: '1'
         run: >-
           node config/scripts/run-vitest.mjs run --config config/vitest.config.ts
-          --maxWorkers=4 --isolate --retry=0 --bail=0
+          --maxWorkers=${{ github.repository == 'mercurai/orca' && 2 || 4 }} --isolate --retry=0 --bail=0
           config/scripts/mobile-release-check-scope.test.mjs
           config/scripts/mobile-test-change-scope.test.mjs
           config/scripts/pr-ready-check-reuse.test.mjs
@@ -1127,11 +1140,20 @@ jobs:
           restore-keys: |
             electron-builder-linux-
 
+      # Restore in the foreground: background steps may only be single run steps (ci-background-steps.test.mjs).
       - uses: ./.github/actions/prepare-linux-package-fixture
-        id: daemon-fixture-cache
-        background: true
+        id: daemon-fixture-cache-restore
         with:
           fixture: daemon-shutdown-descendants
+          load: 'false'
+
+      - name: Load daemon shutdown fixture image
+        id: daemon-fixture-cache
+        background: true
+        env:
+          FIXTURE: daemon-shutdown-descendants
+          CACHE_HIT: ${{ steps.daemon-fixture-cache-restore.outputs.cache-hit }}
+        run: bash .github/actions/prepare-linux-package-fixture/load-fixture.sh
 
       - uses: ./.github/actions/install-node-dependencies
         with:
@@ -1157,6 +1179,8 @@ jobs:
       # probe carries its own in-process deadline. Four at once on a 4-vCPU runner starve each other
       # past those deadlines; serial, every probe owns the runner.
       - name: Test Linux Electron lifecycle boundary
+        env:
+          ORCA_BACKGROUND_LAUNCH: '1'
         run: >-
           xvfb-run --auto-servernum pnpm exec vitest run --config config/vitest.config.ts
           --no-file-parallelism
@@ -1166,28 +1190,55 @@ jobs:
           src/main/browser/browser-route-h3-egress.electron.test.ts
           src/main/browser/browser-route-dns-prefetch.electron.test.ts
           src/main/persistence/profile-state/profile-state-writer-stall.electron.test.ts
+          src/main/browser/popup-origin-chrome.electron.test.ts
+          src/main/browser/browser-link-materialization.electron.test.ts
           src/main/browser/browser-popup-compatibility.electron.test.ts
+          src/main/browser/browser-popup-adapter-compatibility.electron.test.ts
           src/main/browser/browser-popup-native-compatibility.electron.test.ts
           src/main/browser/browser-popup-background-compatibility.electron.test.ts
+
+      - name: Restore native components
+        id: linux-native-restore
+        uses: ./.github/actions/prepare-wayland-clipboard
+        with:
+          build: 'false'
 
       # The isolated glibc-floor build writes only the Wayland helper, so JavaScript can overlap.
       - name: Build native components
         id: linux-native
         background: true
-        uses: ./.github/actions/prepare-wayland-clipboard
+        env:
+          CACHE_HIT: ${{ steps.linux-native-restore.outputs.cache-hit }}
+        run: bash .github/actions/prepare-wayland-clipboard/build-or-validate.sh
 
-      # Restore independent fixtures during builds; keep native lifecycle probes serial.
+      # Load independent fixtures during builds; keep native lifecycle probes serial.
       - uses: ./.github/actions/prepare-linux-package-fixture
-        id: shutdown-fixture-cache
-        background: true
+        id: shutdown-fixture-cache-restore
         with:
           fixture: headless-serve-shutdown
+          load: 'false'
+
+      - name: Load headless serve shutdown fixture image
+        id: shutdown-fixture-cache
+        background: true
+        env:
+          FIXTURE: headless-serve-shutdown
+          CACHE_HIT: ${{ steps.shutdown-fixture-cache-restore.outputs.cache-hit }}
+        run: bash .github/actions/prepare-linux-package-fixture/load-fixture.sh
 
       - uses: ./.github/actions/prepare-linux-package-fixture
-        id: cli-fixture-cache
-        background: true
+        id: cli-fixture-cache-restore
         with:
           fixture: cli-launch-contract
+          load: 'false'
+
+      - name: Load CLI launch contract fixture image
+        id: cli-fixture-cache
+        background: true
+        env:
+          FIXTURE: cli-launch-contract
+          CACHE_HIT: ${{ steps.cli-fixture-cache-restore.outputs.cache-hit }}
+        run: bash .github/actions/prepare-linux-package-fixture/load-fixture.sh
 
       - name: Install Linux package tooling
         id: linux-package-tools
@@ -1519,6 +1570,7 @@ jobs:
       test_files: ${{ needs.code_paths.outputs.test_files }}
       run_changed_e2e: ${{ needs.code_paths.outputs.e2e_run_changed != 'false' }}
       needs_build: ${{ needs.code_paths.outputs.e2e_needs_build != 'false' }}
+      managed_ssh_shards: ${{ needs.code_paths.outputs.e2e_ssh_shards || '["1/2","2/2"]' }}
 
   # Why its own required job, apart from `e2e`: the rest of the suite is red on main, but the
   # layout oracle is green there, and its known-on-main list absorbs today's findings. Only the two
@@ -1568,6 +1620,66 @@ jobs:
     with:
       ref: ${{ github.event.pull_request.head.sha }}
 
+  # Why: pnpm's global virtual store links each package to only its declared dependencies, which
+  # is how developers install. Hoisting hides an undeclared one everywhere else, so install that way
+  # here with HOME and the store in an empty temp dir, where no stray node_modules can mask it.
+  dependency_isolation:
+    name: dependency isolation under the global virtual store
+    needs: [code_paths]
+    if: >-
+      !cancelled() &&
+      needs.code_paths.result == 'success' &&
+      needs.code_paths.outputs.dependency_isolation == 'true'
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    env:
+      ORCA_PNPM_FORCE_GLOBAL_VIRTUAL_STORE_IN_CI: '1'
+
+    steps:
+      # Job-wide (via GITHUB_ENV, since job env cannot read runner.temp) so every pnpm command,
+      # including pnpm run's own install check, keeps this layout.
+      - name: Point HOME and the pnpm store at empty temp dirs
+        run: |
+          mkdir -p "$RUNNER_TEMP/empty-home"
+          {
+            echo "HOME=$RUNNER_TEMP/empty-home"
+            echo "pnpm_config_store_dir=$RUNNER_TEMP/isolated-store"
+          } >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v2
+        with:
+          install: false
+
+      - name: Install with every package isolated in its own store slot
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          if [ -d node_modules/bun ]; then
+            pnpm rebuild bun
+          fi
+
+      - name: Typecheck and check undeclared dependency resolution
+        run: |
+          set -euo pipefail
+          pnpm tc
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=${{ github.repository == 'mercurai/orca' && 2 || 4 }} config/scripts/undeclared-dependency-resolution.test.ts
+          # Pointless if any pnpm command above fell back to the hoisted layout or another store.
+          case "$(realpath node_modules/zod)" in
+            "$(realpath "$pnpm_config_store_dir")"/*) ;;
+            *) echo "node_modules/zod is not in the isolated store"; exit 1 ;;
+          esac
+
   verify:
     name: PR checks passed
     # Publish an explicit result after every required dependency settles.
@@ -1586,6 +1698,7 @@ jobs:
       - package
       - package_windows
       - layout_oracle
+      - dependency_isolation
     # Report settled results without competing with the GitHub-hosted test queue.
     runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2204' }}
     timeout-minutes: 5
@@ -1629,6 +1742,8 @@ jobs:
           PACKAGE_WINDOWS_SHOULD_RUN: ${{ needs.code_paths.outputs.package_windows }}
           LAYOUT_ORACLE: ${{ needs.layout_oracle.result }}
           LAYOUT_ORACLE_SHOULD_RUN: ${{ needs.code_paths.outputs.layout_oracle }}
+          DEPENDENCY_ISOLATION: ${{ needs.dependency_isolation.result }}
+          DEPENDENCY_ISOLATION_SHOULD_RUN: ${{ needs.code_paths.outputs.dependency_isolation }}
         run: |
           if [ "$CODE_PATHS" != "success" ]; then
             exit 1
@@ -1671,4 +1786,5 @@ jobs:
           check_job package "$PACKAGE" "$PACKAGE_SHOULD_RUN"
           check_job package_windows "$PACKAGE_WINDOWS" "$PACKAGE_WINDOWS_SHOULD_RUN"
           check_job layout_oracle "$LAYOUT_ORACLE" "$LAYOUT_ORACLE_SHOULD_RUN"
+          check_job dependency_isolation "$DEPENDENCY_ISOLATION" "$DEPENDENCY_ISOLATION_SHOULD_RUN"
           exit "$failed"

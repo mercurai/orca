@@ -30,7 +30,7 @@ import {
   records,
   refusedScopes,
   scopeListeners,
-  unverifiedScopes,
+  reconcileRestoredImageChecks,
   type DraftAppend,
   type DraftRecord
 } from './native-chat-composer-draft-memory'
@@ -113,17 +113,6 @@ export function subscribeToNativeChatComposerDraft(
   }
 }
 
-/** A draft read back from storage this run whose image files have not been checked yet. */
-export function isNativeChatComposerDraftUnverified(scopeKey: string): boolean {
-  return unverifiedScopes.has(scopeKey)
-}
-
-export function markNativeChatComposerDraftVerified(scopeKey: string): void {
-  if (unverifiedScopes.delete(scopeKey)) {
-    notifyScope(scopeKey)
-  }
-}
-
 /** A draft storage refused to save: it is kept in memory only until a later write lands. */
 export function isNativeChatComposerDraftUnsaved(scopeKey: string): boolean {
   return refusedScopes.has(scopeKey) && records.has(scopeKey)
@@ -133,7 +122,9 @@ function isEmptyDraft(draft: NativeChatComposerDraft): boolean {
   return draft.text === '' && draft.images.length === 0 && !draft.recoveredMessageIds?.length
 }
 
-export function readNativeChatComposerDraft(scopeKey: string): NativeChatComposerDraft {
+export function readNativeChatComposerDraft(
+  scopeKey: string
+): NativeChatComposerDraft & Pick<StoredNativeChatComposerDraft, 'owner'> {
   return records.get(scopeKey) ?? EMPTY_DRAFT
 }
 
@@ -168,6 +159,7 @@ export function updateNativeChatComposerDraft(
   }
   if (isEmptyDraft({ text, images, recoveredMessageIds })) {
     records.delete(scopeKey)
+    reconcileRestoredImageChecks(scopeKey, [])
     notifyScope(scopeKey)
     persistNativeChatComposerDraft(scopeKey, 'immediate', append)
     return
@@ -184,6 +176,7 @@ export function updateNativeChatComposerDraft(
     ...(unsavedText === undefined ? {} : { unsavedText })
   }
   records.set(scopeKey, record)
+  reconcileRestoredImageChecks(scopeKey, record.images)
   notifyScope(scopeKey)
   persistNativeChatComposerDraft(scopeKey, persist, append)
   if (!load.hydrated) {
@@ -281,6 +274,7 @@ function deleteDraftsWhere(
     if (recovering.includes(scopeKey) || matches(scopeKey, draft)) {
       disposedDraftScopes.add(scopeKey)
       records.delete(scopeKey)
+      reconcileRestoredImageChecks(scopeKey, [])
       notifyScope(scopeKey)
       if (draft || recovering.includes(scopeKey)) {
         persistNativeChatComposerDraft(scopeKey, 'immediate')

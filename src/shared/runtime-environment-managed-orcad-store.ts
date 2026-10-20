@@ -20,6 +20,7 @@ import {
   writeRuntimeEnvironmentSidecarEntryWithinMutation
 } from './runtime-environment-sidecar'
 import { resolveEnvironmentFromStore } from './runtime-environment-store'
+import { findCollidingEnvironmentName } from './runtime-environment-name-collision'
 
 /** Registers a server Orca deployed over SSH, paired through its own loopback tunnel. */
 export function addManagedOrcadEnvironment(
@@ -50,10 +51,11 @@ async function addManagedOrcadEnvironmentWithinMutation(
       `A server with id "${args.id}" already exists.`
     )
   }
-  if (known.some((entry) => entry.name === args.name)) {
+  const namesake = findCollidingEnvironmentName(known, args.name)
+  if (namesake) {
     throw new RuntimeEnvironmentStoreError(
       'invalid_argument',
-      `A server named "${args.name}" already exists.`
+      `A server named "${namesake.name}" already exists.`
     )
   }
   const environment = createEnvironmentFromPairingOffer({
@@ -87,7 +89,7 @@ async function addManagedOrcadEnvironmentWithinMutation(
   if (!registered?.orcadDeployment) {
     throw new RuntimeEnvironmentStoreError(
       'runtime_error',
-      'The managed server was saved without its deployment link.'
+      'This host’s Orca server was saved without its deployment link.'
     )
   }
   return registered
@@ -125,7 +127,8 @@ async function refreshManagedOrcadPairingWithinMutation(
   userDataPath: string,
   environmentId: string,
   pairingCode: string,
-  now = Date.now()
+  now = Date.now(),
+  options: { expectedPairingRevision?: number } = {}
 ): Promise<KnownRuntimeEnvironment> {
   const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const offer = parsePairingCode(pairingCode)
@@ -133,6 +136,14 @@ async function refreshManagedOrcadPairingWithinMutation(
     throw new RuntimeEnvironmentStoreError('invalid_argument', 'Invalid managed pairing code.')
   }
   const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  // The profile lane may have queued behind a newer update after repair read SSH.
+  // A refused revision is authority to replace only that revision, never its successor.
+  if (
+    options.expectedPairingRevision !== undefined &&
+    (current.pairingRevision ?? current.createdAt) !== options.expectedPairingRevision
+  ) {
+    return current
+  }
   if (!current.orcadDeployment) {
     throw new RuntimeEnvironmentStoreError('invalid_argument', 'This server is not managed.')
   }

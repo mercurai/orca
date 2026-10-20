@@ -5,6 +5,7 @@ import {
 } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogFingerprint } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
 import {
+  acquireReadyCodexForTest,
   THREAD_ID,
   USER_MESSAGE,
   adapterFor,
@@ -52,7 +53,7 @@ async function setup(store: AgentModelCatalogStore, serviceTier = TIER, account 
   const codex = fakeCodex({ 'model/list': () => pending.promise })
   codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'catalog-turn')
   const adapter = adapterFor(codex, { codexHome: account }, [], { modelCatalog: store })
-  await adapter.acquire({
+  await acquireReadyCodexForTest(adapter, {
     ...IDENTITY,
     identity: identityFor(IDENTITY.sessionId),
     spawnToken: 'catalog-admission-spawn',
@@ -98,7 +99,7 @@ describe('Codex speed admission uses the execution account catalog', () => {
         rejection: { neverReachedAgent: true }
       })
       expect(fixture.starts()).toEqual([])
-      expect(fixture.adapter.readAcquisitionOptions(IDENTITY)).toMatchObject({ serviceTier: TIER })
+      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({ serviceTier: TIER })
       recordListing(store)
       expect(await fixture.send('refreshed-tier')).toMatchObject({ state: 'admitted' })
       expect(fixture.starts()).toHaveLength(1)
@@ -118,7 +119,7 @@ describe('Codex speed admission uses the execution account catalog', () => {
         rejection: { neverReachedAgent: true }
       })
       expect(fixture.starts()).toEqual([])
-      expect(fixture.adapter.readAcquisitionOptions(IDENTITY)).toMatchObject({ serviceTier: TIER })
+      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({ serviceTier: TIER })
     } finally {
       await fixture.cleanup()
     }
@@ -146,7 +147,7 @@ describe('Codex speed admission uses the execution account catalog', () => {
       })
       expect(fixture.starts()).toHaveLength(1)
       expect(fixture.starts()[0]?.params).toMatchObject({ serviceTier: 'default' })
-      expect(fixture.adapter.readAcquisitionOptions(IDENTITY)).toMatchObject({ serviceTier: TIER })
+      expect((await fixture.adapter.readOptions(IDENTITY)).current).toMatchObject({ serviceTier: TIER })
     } finally {
       await fixture.cleanup()
     }

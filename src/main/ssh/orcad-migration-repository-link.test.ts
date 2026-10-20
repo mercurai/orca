@@ -4,13 +4,15 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getManagedOrcadFenceEnvironmentId } from '../../shared/managed-orcad-ssh-owner'
 import { encodePairingOffer, PAIRING_OFFER_VERSION } from '../../shared/pairing'
-import type { OrcadMigrationManifest } from '../../shared/orcad-migration-manifest'
+import type { OrcadMigrationManifest } from '../../shared/orcad-migration/orcad-migration-manifest'
 import {
   addManagedOrcadEnvironment,
   removeManagedOrcadEnvironment
 } from '../../shared/runtime-environment-managed-orcad-store'
-import { listEnvironments } from '../../shared/runtime-environment-store'
+import { listEnvironments, resolveEnvironment } from '../../shared/runtime-environment-store'
 import type { Repo } from '../../shared/repo-types'
+import { LOCAL_EXECUTION_HOST_ID, toSshExecutionHostId } from '../../shared/execution-host'
+import { hostWorktreeTarget } from '../../shared/worktree/host-qualified-identity'
 import type { SshTarget } from '../../shared/ssh-types'
 import { closeTestStores, createSqliteTestStore } from '../persistence-test-harness'
 import { Store } from '../persistence/loading-store/store'
@@ -30,13 +32,13 @@ import {
   type OrcadServerFolderCatalog
 } from './orcad-server-folder-workspaces'
 import { reconcileManagedOrcadSshTargets, visibleRepos } from './orcad-retained-source'
-import { SshConnectionStore } from './ssh-connection-store'
+import { SshConnectionStore } from './connection/ssh-connection-store'
 
 const mocks = vi.hoisted(() => {
   const state: { targetStore: unknown } = { targetStore: null }
   return { state, deploy: vi.fn(), ensureTunnel: vi.fn() }
 })
-vi.mock('./ssh-target-registry', () => ({
+vi.mock('./targets/ssh-target-registry', () => ({
   getSshConnectionManager: () => ({}),
   getSshTargetRegistryStore: () => mocks.state.targetStore
 }))
@@ -61,6 +63,9 @@ const TARGET: SshTarget = {
   username: 'root',
   generation: 2
 }
+const onSsh = (id: string, targetId = TARGET.id) =>
+  hostWorktreeTarget({ id, hostId: toSshExecutionHostId(targetId) })
+const onServer = (id: string) => hostWorktreeTarget({ id, hostId: LOCAL_EXECUTION_HOST_ID })
 
 function repo(id: string, path: string, connectionId: string | null = TARGET.id): Repo {
   return {
@@ -95,6 +100,7 @@ function serverDestination(): typeof destination {
       const result = server.abortStagedOrcadMigrationCatalog(manifest)
       return result.aborted ? result : { ...result, durableAbsent: true as const }
     },
+    abortByReference: vi.fn(),
     stageChunk: async (request) => server.stageOrcadMigrationSnapshotChunk(request)
   }
 }
@@ -115,7 +121,7 @@ beforeEach(() => {
   targetStore = new SshConnectionStore(store as never)
   mocks.state.targetStore = targetStore
   destination = serverDestination()
-  mocks.ensureTunnel.mockResolvedValue(undefined)
+  mocks.ensureTunnel.mockImplementation(resolveEnvironment)
   mocks.deploy.mockImplementation(
     async (path: string, args: { name: string; sshTargetId: string }) => {
       const owner = getManagedOrcadFenceEnvironmentId(store.getSshTarget(args.sshTargetId))
@@ -246,8 +252,8 @@ describe('moving onto a server another desktop already added the same project to
 
   it('leaves the linked project’s saved state to the server, moving only the rest', async () => {
     otherDesktopAddsSameCheckout()
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'from this desktop' })
-    store.setWorktreeMeta('desktop-only::/root/tool', { comment: 'moves' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo'), { comment: 'from this desktop' })
+    store.setWorktreeMeta(onSsh('desktop-only::/root/tool'), { comment: 'moves' })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getWorktreeMeta('desktop-only::/root/tool')?.comment).toBe('moves')
     expect(server.getWorktreeMeta('desktop-repo::/root/migrepo')).toBeUndefined()
@@ -345,7 +351,7 @@ describe('moving onto a server another desktop already added the same project to
     })
     await expect(convert()).rejects.toThrow('socket closed')
     otherDesktopAddsSameCheckout()
-    store.updateRepo('desktop-only', { displayName: 'Renamed' })
+    store.updateRepo(store.getRepo('desktop-only')!, { displayName: 'Renamed' })
     await expect(convert()).rejects.toThrow('orcad_migration_source_changed')
     expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.linkedRepositoryIds).toBeUndefined()
   })
@@ -365,10 +371,14 @@ describe('moving the host again after its server was stopped', () => {
   }
 
   it('links the projects the server kept from the first move instead of conflicting', async () => {
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'before the first move' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo'), {
+      comment: 'before the first move'
+    })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     // Used on the server while it was managed.
-    server.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited on the server' })
+    server.setWorktreeMeta(onServer('desktop-repo::/root/migrepo'), {
+      comment: 'edited on the server'
+    })
     await stopServer()
 
     await expect(convert()).resolves.toMatchObject({
@@ -387,6 +397,14 @@ describe('moving the host again after its server was stopped', () => {
     )
   })
 
+  const targetGroup = (name: string, parentGroupId?: string) =>
+    store.createProjectGroup({
+      name,
+      parentPath: '/root',
+      ...(parentGroupId ? { parentGroupId } : {}),
+      connectionId: TARGET.id,
+      createdFrom: 'manual'
+    })
   function groupDesktopRepo(): string {
     const group = store.createProjectGroup({
       name: 'Before',
@@ -394,7 +412,7 @@ describe('moving the host again after its server was stopped', () => {
       connectionId: TARGET.id,
       createdFrom: 'manual'
     })
-    store.moveProjectToGroup('desktop-repo', group.id)
+    store.moveProjectToGroup(store.getRepo('desktop-repo')!, group.id)
     return group.id
   }
   const groupName = (owner: Store, id: string) =>
@@ -408,9 +426,8 @@ describe('moving the host again after its server was stopped', () => {
       claims: targetStore.getOrcadRuntimeClaims(),
       target: store.getSshTarget(TARGET.id)!,
       environment: listEnvironments(userDataPath)[0]!,
-      destination,
+      connectDestination: async () => destination,
       censusHost: async () => ({ verdict: 'exited', count: 0 }),
-      ensureTunnel: async () => {},
       runTargetLifecycle
     })
   }
@@ -435,7 +452,7 @@ describe('moving the host again after its server was stopped', () => {
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
     await stopServer()
     store.addRepo(repo('added-after-stop', '/root/later'))
-    store.moveProjectToGroup('added-after-stop', groupId)
+    store.moveProjectToGroup(store.getRepo('added-after-stop')!, groupId)
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getRepo('added-after-stop')?.projectGroupId).toBe(groupId)
@@ -470,7 +487,7 @@ describe('moving the host again after its server was stopped', () => {
       connectionId: TARGET.id,
       createdFrom: 'manual'
     })
-    store.moveProjectToGroup('desktop-repo', child.id)
+    store.moveProjectToGroup(store.getRepo('desktop-repo')!, child.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
     await stopServer()
@@ -504,10 +521,131 @@ describe('moving the host again after its server was stopped', () => {
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, groupId)).toBe('Before')
     store.addRepo(repo('added-later', '/root/later'))
-    store.moveProjectToGroup('added-later', groupId)
+    store.moveProjectToGroup(store.getRepo('added-later')!, groupId)
     await expect(runDelta()).resolves.toMatchObject({ outcome: 'moved' })
     expect(server.getRepo('added-later')?.projectGroupId).toBe(groupId)
   })
+
+  // Review repro: a folder the server edited while managed must link on reconnect.
+  it('links a folder workspace the server edited while managed', async () => {
+    const group = targetGroup('Notes')
+    const folder = store.createFolderWorkspace({
+      projectGroupId: group.id,
+      folderPath: '/root/notes'
+    })
+    await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    server.updateFolderWorkspace(folder.id, { comment: 'edited on the server' })
+    stopServer()
+
+    await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    expect(server.getFolderWorkspace(folder.id)?.comment).toBe('edited on the server')
+  })
+
+  // Review repro: an empty group no server row sits in was re-imported over the server's.
+  it('keeps the server’s empty project group when it was renamed while managed', async () => {
+    const group = targetGroup('Empty')
+    await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
+    stopServer()
+
+    await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    expect(groupName(server, group.id)).toBe('Renamed on the server')
+    expect(groupName(store, group.id)).toBe('Empty')
+    store.addRepo(repo('added-later', '/root/later'))
+    reconcileManagedOrcadSshTargets(userDataPath, store)
+    const plan = planOrcadDeltaMove(userDataPath, store, store.getSshTarget(TARGET.id)!)
+    expect(plan.added.map((row) => row.id)).toEqual(['added-later'])
+  })
+
+  it('keeps the server’s empty nested groups when their parent was renamed while managed', async () => {
+    const parent = targetGroup('Parent')
+    const child = targetGroup('Child', parent.id)
+    await convert()
+    server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
+    stopServer()
+
+    await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
+    expect(groupName(server, child.id)).toBe('Child')
+  })
+
+  it('does not link a same-id group the server keeps for another host', async () => {
+    const group = targetGroup('Empty')
+    await convert()
+    server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
+    stopServer()
+    const remoteCopy = server.getProjectGroups().find((entry) => entry.id === group.id)!
+    // The server's row sits on one of its own SSH hosts, so it is not this desktop's group.
+    const serverCatalog = async () => ({
+      folderWorkspaces: [],
+      projectGroups: [{ ...remoteCopy, connectionId: 'server-ssh-host' }]
+    })
+    await expect(
+      convertSshTargetToManagedOrcad(userDataPath, {
+        sshTargetId: TARGET.id,
+        name: 'Managed',
+        censusHost: async () => ({ verdict: 'exited', count: 0 }),
+        destinationFor: () => destination,
+        serverRepositoriesFor: async () => [],
+        serverFolderCatalogFor: serverCatalog
+      })
+    ).rejects.toThrow(`orcad_migration_project_group_id_conflict:${group.id}`)
+  })
+
+  // Review repro: a later folder in the relinked group re-exported this desktop's old group.
+  it('moves a later folder into the server’s renamed group without re-exporting it', async () => {
+    const groupId = groupDesktopRepo()
+    await convert()
+    server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
+    stopServer()
+    await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    const folder = store.createFolderWorkspace({
+      projectGroupId: groupId,
+      folderPath: '/root/notes'
+    })
+    await expect(runDelta()).resolves.toMatchObject({ outcome: 'moved' })
+    expect(server.getFolderWorkspace(folder.id)?.projectGroupId).toBe(groupId)
+    expect(groupName(server, groupId)).toBe('Renamed on the server')
+  })
+
+  // Opus repro: a group the first move imported, changed on the server, was re-exported too.
+  it('moves a later row into a group the first move imported and the server changed', async () => {
+    const groupId = groupDesktopRepo()
+    await convert()
+    server.updateProjectGroup(groupId, { name: 'Renamed on the server', isCollapsed: true })
+    store.addRepo(repo('added-later', '/root/later'))
+    store.moveProjectToGroup(store.getRepo('added-later')!, groupId)
+    await expect(runDelta()).resolves.toMatchObject({ outcome: 'moved' })
+    expect(server.getRepo('added-later')?.projectGroupId).toBe(groupId)
+    expect(groupName(server, groupId)).toBe('Renamed on the server')
+  })
+
+  // The server's deletion stands: the move is refused whole and the host stays marked changed.
+  it.each([
+    ['linked', true],
+    ['moved', false]
+  ])(
+    'refuses, without resurrecting it, a later row in a %s group the server deleted',
+    async (_kind, relink) => {
+      const groupId = groupDesktopRepo()
+      await convert()
+      if (relink) {
+        stopServer()
+        await convert()
+      }
+      server.moveProjectToGroup(server.getRepo('desktop-repo')!, null)
+      server.deleteProjectGroup(groupId)
+      store.addRepo(repo('added-later', '/root/later'))
+      store.moveProjectToGroup(store.getRepo('added-later')!, groupId)
+      await expect(runDelta()).resolves.toMatchObject({
+        outcome: 'refused',
+        code: 'orcad_delta_refused_by_server'
+      })
+      expect(server.getRepo('added-later')).toBeUndefined()
+      expect(groupName(server, groupId)).toBeUndefined()
+      expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeDefined()
+    }
+  )
 
   it('resumes, not relinks, a move the server committed before the reply was lost', async () => {
     const commit = destination.commit
@@ -535,13 +673,19 @@ describe('moving the host again after its SSH target was deleted and re-created'
   }
 
   it('links the projects and saved state the server kept under the old target', async () => {
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'before the first move' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo'), {
+      comment: 'before the first move'
+    })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
-    server.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited on the server' })
+    server.setWorktreeMeta(onServer('desktop-repo::/root/migrepo'), {
+      comment: 'edited on the server'
+    })
     const recreated = recreateTarget()
     expect(store.getRepo('desktop-repo')?.connectionId).toBe(recreated)
     // Used on this desktop under the new target before it was moved again.
-    store.setWorktreeMeta('desktop-repo::/root/migrepo', { comment: 'edited after re-creating' })
+    store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo', recreated), {
+      comment: 'edited after re-creating'
+    })
 
     await expect(convert(true, 'exited', recreated)).resolves.toMatchObject({
       outcome: 'converted'
@@ -649,7 +793,7 @@ describe('moving the host again after its SSH target was deleted and re-created'
 })
 
 describe('what a linked project leaves behind', () => {
-  it('counts this desktop’s automations on each linked project only', () => {
+  it('counts this desktop’s automations on each linked project only', async () => {
     const runIn = (repoId: string) => ({
       kind: 'workspace-run' as const,
       projectId: repoId,
@@ -685,18 +829,18 @@ describe('which projects are the same checkout', () => {
   const incoming = [{ id: 'mine', path: '/root/app' }]
   const NONE = { otherId: [], sameId: [] }
 
-  it('links the same absolute path on the host, spelled with a trailing slash', () => {
+  it('links the same absolute path on the host, spelled with a trailing slash', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/app/' }])).toEqual({
       otherId: ['mine'],
       sameId: []
     })
   })
 
-  it('keeps a POSIX path that differs only in case apart', () => {
+  it('keeps a POSIX path that differs only in case apart', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/App' }])).toEqual(NONE)
   })
 
-  it('folds case on a Windows host', () => {
+  it('folds case on a Windows host', async () => {
     expect(
       repositoriesHeldByServer(
         [{ id: 'mine', path: 'C:\\src\\app' }],
@@ -705,14 +849,14 @@ describe('which projects are the same checkout', () => {
     ).toEqual({ otherId: ['mine'], sameId: [] })
   })
 
-  it('tells apart a project the server holds under the same id', () => {
+  it('tells apart a project the server holds under the same id', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'mine', path: '/root/app' }])).toEqual({
       otherId: [],
       sameId: ['mine']
     })
   })
 
-  it('does not link a different path', () => {
+  it('does not link a different path', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/app2' }])).toEqual(NONE)
   })
 })
@@ -735,26 +879,26 @@ describe('which folder workspaces the server already holds', () => {
       serverRepos
     )
 
-  it('links the same id at the same folder', () => {
+  it('links the same id at the same folder', async () => {
     expect(held({})).toEqual(['notes'])
   })
 
-  it('keeps a same-id row at another folder apart, so the server refuses it', () => {
+  it('keeps a same-id row at another folder apart, so the server refuses it', async () => {
     expect(held({ folderPath: '/root/other' })).toEqual([])
   })
 
-  it('keeps a same-path row under another id apart', () => {
+  it('keeps a same-path row under another id apart', async () => {
     expect(held({ id: 'other' })).toEqual([])
   })
 
-  it('keeps a row whose files are on another host apart', () => {
+  it('keeps a row whose files are on another host apart', async () => {
     expect(held({ connectionId: 'nested-target' })).toEqual([])
     expect(held({ executionHostId: 'ssh:nested-target' })).toEqual([])
     expect(held({}, [], { connectionId: 'nested-target' })).toEqual([])
   })
 
   // Codex repro: a bare row its group's nested SSH project places on another host.
-  it('keeps a bare row apart when its group puts it on another host', () => {
+  it('keeps a bare row apart when its group puts it on another host', async () => {
     const nested = { id: 'r', path: '/srv/app', projectGroupId: 'group', connectionId: 'nested' }
     expect(held({}, [nested])).toEqual([])
     expect(held({}, [{ ...nested, connectionId: null }])).toEqual(['notes'])

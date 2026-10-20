@@ -14,7 +14,7 @@ import {
 } from '../../../../shared/execution-host'
 import { resolveRuntimeBrowserNetworkExecutionHost } from '../../runtime-browser-network-execution-host'
 import { resolveLocalProjectRuntimeForWorktreeId } from '../../../local-project-runtime-resolution'
-import { getRegisteredSshState } from '../../../ssh/ssh-target-registry'
+import { getRegisteredSshState } from '../../../ssh/targets/ssh-target-registry'
 import {
   resolveWorktreeHostRouting,
   resolveWorktreeLaunchHost

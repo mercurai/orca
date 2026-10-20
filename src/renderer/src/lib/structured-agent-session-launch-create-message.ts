@@ -57,8 +57,7 @@ function structuredLaunchCreateOptions(
   const view = structuredAgentSessionOptionView(
     firstFrame,
     intent.seedOptions,
-    selection.held,
-    true
+    selection.held
   )
   const options = {
     ...selection.held,

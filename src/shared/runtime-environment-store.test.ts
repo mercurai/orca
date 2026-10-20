@@ -17,12 +17,16 @@ import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
 
 vi.mock('@orca/process-host', () => ({ runProcess: vi.fn(), runProcessSync: vi.fn() }))
 
-function pairingCode(endpoint = 'ws://127.0.0.1:6768', pairedDeviceId?: string): string {
+function pairingCode(
+  endpoint = 'ws://127.0.0.1:6768',
+  pairedDeviceId?: string,
+  keyFill = 1
+): string {
   return encodePairingOffer({
     v: 2,
     endpoint,
     deviceToken: 'device-token',
-    publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64'),
+    publicKeyB64: Buffer.from(new Uint8Array(32).fill(keyFill)).toString('base64'),
     ...(pairedDeviceId ? { pairedDeviceId } : {})
   })
 }
@@ -108,9 +112,29 @@ describe('runtime environment store', () => {
     await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'dev box',
-        pairingCode: pairingCode('ws://192.0.2.10:6768')
+        pairingCode: pairingCode('ws://192.0.2.10:6768', undefined, 2)
       })
     ).rejects.toThrow(RuntimeEnvironmentStoreError)
+    expect(listEnvironments(userDataPath)).toEqual([first])
+  })
+
+  it('rejects a name that differs only in case or surrounding spaces, as --environment resolves it', async () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
+      name: 'build',
+      pairingCode: pairingCode('ws://127.0.0.1:6768')
+    })
+
+    for (const name of ['Build', ' build ', '"build"']) {
+      await expect(
+      addEnvironmentFromPairingCode(userDataPath, {
+          name,
+          pairingCode: pairingCode('ws://192.0.2.10:6768', undefined, 2)
+        })
+      ).rejects.toThrow('A server named "build" already exists.')
+    }
     expect(listEnvironments(userDataPath)).toEqual([first])
   })
 
@@ -160,7 +184,7 @@ describe('runtime environment store', () => {
 
     const direct = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'direct box',
-      pairingCode: pairingCode('ws://192.0.2.11:6768'),
+      pairingCode: pairingCode('ws://192.0.2.11:6768', undefined, 2),
       connectionDependency: 'ssh-tunnel'
     })
     expect(direct).not.toHaveProperty('connectionDependency')
@@ -217,7 +241,7 @@ describe('runtime environment store', () => {
     })
     const legacy = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'legacy box',
-      pairingCode: pairingCode('ws://192.0.2.10:6768'),
+      pairingCode: pairingCode('ws://192.0.2.10:6768', undefined, 2),
       now: 1_000
     })
 
@@ -233,7 +257,7 @@ describe('runtime environment store', () => {
     })
   })
 
-  it('rejects an oversized sparse environment store before parsing it', () => {
+  it('rejects an oversized sparse environment store before parsing it', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-bound-'))
     tempDirs.push(userDataPath)
     const path = getEnvironmentStorePath(userDataPath)
@@ -254,7 +278,7 @@ describe('runtime environment store', () => {
     await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'x'.repeat(MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES),
-        pairingCode: pairingCode('ws://192.0.2.10:6768')
+        pairingCode: pairingCode('ws://192.0.2.10:6768', undefined, 2)
       })
     ).rejects.toThrow(RuntimeEnvironmentStoreError)
     expect(listEnvironments(userDataPath)).toEqual([first])
@@ -271,7 +295,7 @@ describe('runtime environment store', () => {
       }),
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'second box',
-        pairingCode: pairingCode('ws://192.0.2.10:6768')
+        pairingCode: pairingCode('ws://192.0.2.10:6768', undefined, 2)
       })
     ])
 
