@@ -89,8 +89,8 @@ function fakeDatabase(options: { manualRead?: boolean } = {}): {
       return request
     }
   }
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a stand-in exposing only the calls the adapter makes.
   return {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a stand-in exposing only the calls the adapter makes.
     factory: factory as unknown as IDBFactory,
     transactions,
     puts,
