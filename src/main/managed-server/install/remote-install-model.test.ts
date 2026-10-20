@@ -57,19 +57,31 @@ describe('remote install namespace', () => {
     }
   })
 
-  it.skipIf(process.platform === 'win32')('rejects an install missing its search binary', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'orcad-remote-probe-'))
+  it.skipIf(process.platform === 'win32').each([
+    orcadRipgrepArtifact('linux-x64'),
+    'git-spawn-worker-entry.js',
+    '.install-complete'
+  ])('rejects an install missing %s with quoted and normalized paths', (missing) => {
+    const dir = mkdtempSync(join(tmpdir(), "orcad ' $probe;-"))
     try {
       const host = getRemoteHostPlatform('linux-x64')
-      const required = [...ORCAD_INSTALL_MODEL.requiredArtifacts(host), '.install-complete']
+      const required = [
+        ...ORCAD_INSTALL_MODEL.requiredArtifacts(host),
+        '.install-complete',
+        "nested/a ' $probe; [x].txt"
+      ]
       for (const filename of required) {
         const path = join(dir, filename)
         mkdirSync(dirname(path), { recursive: true })
         writeFileSync(path, '')
       }
-      const command = probeRemoteInstallCompleteCommand(host, dir, required)
+      const command = probeRemoteInstallCompleteCommand(
+        host,
+        `${dir}///`,
+        required.map((file) => `/${file}`)
+      )
       expect(execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()).toBe('OK')
-      rmSync(join(dir, orcadRipgrepArtifact('linux-x64')))
+      rmSync(join(dir, missing))
       expect(execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()).toBe('MISSING')
     } finally {
       rmSync(dir, { recursive: true, force: true })
