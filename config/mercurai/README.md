@@ -165,7 +165,9 @@ series.
   inputs and ref, which no build step can change.
   `config/mercurai/scripts/release-workflow-token-scope.test.mjs` pins all of this.
 Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
-CLI/hook native assets through `build:release`. The workflow refuses refs that still contain
+CLI/hook native assets through `build:release`. After the script-free dependency install, the Windows
+build links the manifest-pinned Bun package with `pnpm rebuild bun`, matching the official install action;
+current CLI compilation requires that local binary. The workflow refuses refs that still contain
 `config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
 Use an existing published installer for an older release rather than rebuilding a relay-era ref
 through this workflow. Installed-profile downgrade compatibility still requires separate verification.

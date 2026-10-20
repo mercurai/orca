@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-1bfb4565
     status: ours-only
     base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
-    commit: 820b64f496a42d7b43b9ea6e2b31fd98d5ecc209
+    commit: 647af7c383f604b78a57ee663b6b78c4807f975d
     owner: harness
     added: 2026-10-20
     tests:
@@ -213,10 +213,11 @@ patches:
       - src/main/ipc/zcode-plan-credentials.test.ts
       - src/main/runtime/rpc/methods/usage-credentials.test.ts
       - config/scripts/compact-packaged-orcad-ripgrep.test.mjs
+      - src/shared/runtime-environment-store-same-server.test.ts
     notes: >-
-      Provisional exact candidate 820b64f496a42d7b43b9ea6e2b31fd98d5ecc209,
-      source ba17e3b2dbd8256486ae7671322390f594e5b003,
-      tree 9b756b3e9aa072610ff1d142d97835ff8238a5c5.
+      Provisional exact candidate 647af7c383f604b78a57ee663b6b78c4807f975d,
+      source 02ed98ed7c90088a39d7d7827c4153ffc371aa58,
+      tree f1a47484a107f65712d32e4574eaf7b390a54e7d.
       Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
       v1.4.232 is the release-version floor. This combines all released code and
       54 subsequent main commits while preserving the shipped Mercurai enhancements.
