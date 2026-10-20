@@ -33,8 +33,12 @@ type AccessContext = {
   view: KnownRuntimeEnvironment
 }
 
-export const prepareRuntimeEnvironmentSshAccessLink = (...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessLinkWithinMutation>) =>
-  withRuntimeEnvironmentMutation(args[0], () => prepareRuntimeEnvironmentSshAccessLinkWithinMutation(...args))
+export const prepareRuntimeEnvironmentSshAccessLink = (
+  ...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessLinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    prepareRuntimeEnvironmentSshAccessLinkWithinMutation(...args)
+  )
 
 async function prepareRuntimeEnvironmentSshAccessLinkWithinMutation(
   userDataPath: string,
@@ -64,8 +68,12 @@ async function prepareRuntimeEnvironmentSshAccessLinkWithinMutation(
   return commit(userDataPath, context, { ...context.entry, pendingSshAccessOperation: intent })
 }
 
-export const linkVerifiedRuntimeEnvironmentSshAccess = (...args: Parameters<typeof linkVerifiedRuntimeEnvironmentSshAccessWithinMutation>) =>
-  withRuntimeEnvironmentMutation(args[0], () => linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(...args))
+export const linkVerifiedRuntimeEnvironmentSshAccess = (
+  ...args: Parameters<typeof linkVerifiedRuntimeEnvironmentSshAccessWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(...args)
+  )
 
 async function linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(
   userDataPath: string,
@@ -106,7 +114,9 @@ async function linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(
   ) {
     throw invalid('The SSH endpoint did not verify as this paired server.')
   }
-  if (views.some((entry) => entry.id !== existing.id && entry.runtimeId === args.verifiedRuntimeId)) {
+  if (
+    views.some((entry) => entry.id !== existing.id && entry.runtimeId === args.verifiedRuntimeId)
+  ) {
     throw invalid(
       'This runtime is registered more than once. Reconcile its existing registrations first.'
     )
@@ -135,8 +145,12 @@ async function linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(
   })
 }
 
-export const prepareRuntimeEnvironmentSshAccessUnlink = (...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation>) =>
-  withRuntimeEnvironmentMutation(args[0], () => prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation(...args))
+export const prepareRuntimeEnvironmentSshAccessUnlink = (
+  ...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation(...args)
+  )
 
 async function prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation(
   userDataPath: string,
@@ -172,8 +186,12 @@ async function prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation(
   })
 }
 
-export const completeRuntimeEnvironmentSshAccessUnlink = (...args: Parameters<typeof completeRuntimeEnvironmentSshAccessUnlinkWithinMutation>) =>
-  withRuntimeEnvironmentMutation(args[0], () => completeRuntimeEnvironmentSshAccessUnlinkWithinMutation(...args))
+export const completeRuntimeEnvironmentSshAccessUnlink = (
+  ...args: Parameters<typeof completeRuntimeEnvironmentSshAccessUnlinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    completeRuntimeEnvironmentSshAccessUnlinkWithinMutation(...args)
+  )
 
 async function completeRuntimeEnvironmentSshAccessUnlinkWithinMutation(
   userDataPath: string,
@@ -188,8 +206,12 @@ async function completeRuntimeEnvironmentSshAccessUnlinkWithinMutation(
   return commit(userDataPath, context, remaining)
 }
 
-export const cancelRuntimeEnvironmentSshAccessLink = (...args: Parameters<typeof cancelRuntimeEnvironmentSshAccessLinkWithinMutation>) =>
-  withRuntimeEnvironmentMutation(args[0], () => cancelRuntimeEnvironmentSshAccessLinkWithinMutation(...args))
+export const cancelRuntimeEnvironmentSshAccessLink = (
+  ...args: Parameters<typeof cancelRuntimeEnvironmentSshAccessLinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    cancelRuntimeEnvironmentSshAccessLinkWithinMutation(...args)
+  )
 
 async function cancelRuntimeEnvironmentSshAccessLinkWithinMutation(
   userDataPath: string,
@@ -281,7 +303,12 @@ async function commit(
   ) {
     throw invalid('The SSH access state is inconsistent with this paired server.')
   }
-  await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, context.environments, context.persisted, next)
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(
+    userDataPath,
+    context.environments,
+    context.persisted,
+    next
+  )
   return view
 }
 

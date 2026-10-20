@@ -116,7 +116,10 @@ describe('a saved-only catalog read', () => {
 
   it('answers unknown with nothing saved, and starts no listing for it', async () => {
     const { store, probe, service } = rig()
-    expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({ origin: 'unknown', catalogState: 'unknown' })
+    expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(store.pendingListing(FINGERPRINT)).toBeNull()
     expect(probe).not.toHaveBeenCalled()
   })

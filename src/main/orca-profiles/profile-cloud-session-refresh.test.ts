@@ -264,12 +264,12 @@ describe('refresh-token replay after an ambiguous attempt', () => {
     organizations: [],
     capabilities: { flags: { 'relay.use': true }, refreshedAt: 2 },
     cloud: {
-        userId: 'user-1',
-        cloudProfileId: 'cloud-profile-1',
-        activeOrgId: 'org-1',
-        email: 'u@example.com',
-        linkedAt: 1
-      }
+      userId: 'user-1',
+      cloudProfileId: 'cloud-profile-1',
+      activeOrgId: 'org-1',
+      email: 'u@example.com',
+      linkedAt: 1
+    }
   }
 
   beforeEach(async () => {

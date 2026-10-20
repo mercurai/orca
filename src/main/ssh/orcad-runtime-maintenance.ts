@@ -240,7 +240,12 @@ export function rollbackManagedOrcadEnvironment(
         { ...slot, remoteInstallDir: targetDir },
         { buildHash: targetBuildHash, fullVersion: result.target }
       )
-      const updated = await refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+      const updated = await refreshPairing(
+        userDataPath,
+        environment,
+        readiness,
+        deployment.localPort
+      )
       await followLaunchedServerPort(userDataPath, environment.id)
       return {
         outcome: 'rolled-back',

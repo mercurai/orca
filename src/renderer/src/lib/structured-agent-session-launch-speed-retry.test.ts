@@ -8,9 +8,11 @@ import type { StructuredAgentSessionLaunchIntent } from './launch-structured-age
 import type { StructuredLaunchState } from './structured-agent-session-launch-registry'
 
 const mocks = vi.hoisted(() => ({
-  authorize: vi.fn<(input: { options?: Readonly<Record<string, string>> }) => Promise<{
-    options?: Readonly<Record<string, string>>
-  }>>(),
+  authorize: vi.fn<
+    (input: { options?: Readonly<Record<string, string>> }) => Promise<{
+      options?: Readonly<Record<string, string>>
+    }>
+  >(),
   call: vi.fn()
 }))
 vi.mock('@/runtime/codex-speed-selection', () => ({
@@ -28,11 +30,12 @@ vi.mock('./structured-agent-session-create-hydration', () => ({
   publishStructuredAgentSessionCreateHydration: vi.fn()
 }))
 vi.mock('./launch-structured-agent-session', async (importOriginal) => ({
-  ...await importOriginal<typeof LaunchIntentModule>(),
+  ...(await importOriginal<typeof LaunchIntentModule>()),
   abandonStructuredAgentSessionLaunchIntent: vi.fn()
 }))
 vi.mock('@/components/native-chat/use-structured-agent-session-option-state', async () => {
-  const { createStructuredAgentSessionOptionState } = await import('../../../shared/structured-agent-session-options')
+  const { createStructuredAgentSessionOptionState } =
+    await import('../../../shared/structured-agent-session-options')
   return { firstFrameOptionState: () => createStructuredAgentSessionOptionState('codex') }
 })
 vi.mock('@/store', () => ({
@@ -57,9 +60,7 @@ import {
   setStructuredLaunchState
 } from './structured-agent-session-launch-registry'
 import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
-import {
-  getStructuredAgentSessionPendingSends
-} from '../components/native-chat/structured-agent-session-pending-sends'
+import { getStructuredAgentSessionPendingSends } from '../components/native-chat/structured-agent-session-pending-sends'
 import { resetStructuredAgentSessionSendsForTests } from '../components/native-chat/structured-agent-session-message-sender'
 import { holdStructuredAgentSessionLaunchOption } from './structured-agent-session-launch-options'
 
@@ -116,20 +117,28 @@ describe('create prompt ownership waits for speed authorization', () => {
     mocks.authorize.mockImplementation(async ({ options }) => ({ options }))
     mocks.call.mockRejectedValue(new Error('Synthetic transport loss after authorization'))
 
-    await expect(launchStructuredAgentSession(intent)).rejects.toThrow('Synthetic speed support unknown')
+    await expect(launchStructuredAgentSession(intent)).rejects.toThrow(
+      'Synthetic speed support unknown'
+    )
     expect(prompt.createOwned).toBeUndefined()
     expect(prompt.delivery).toBeUndefined()
     expect(intent.createPrepared).toBeUndefined()
-    expect(structuredAgentLaunchRecordFor(intent, 'pending')).not.toHaveProperty('createMessageSupport')
+    expect(structuredAgentLaunchRecordFor(intent, 'pending')).not.toHaveProperty(
+      'createMessageSupport'
+    )
     expect(mocks.call).not.toHaveBeenCalled()
 
-    await expect(launchStructuredAgentSession(intent)).rejects.toThrow('Synthetic transport loss after authorization')
+    await expect(launchStructuredAgentSession(intent)).rejects.toThrow(
+      'Synthetic transport loss after authorization'
+    )
     const params = CreateIntentParams.parse(mocks.call.mock.calls[0]?.[2])
     expect(params.firstMessage).toMatchObject({
       clientMessageId: pending?.clientMessageId,
       body: { blocks: [{ type: 'text', text: 'original opening text' }] }
     })
-    expect(getStructuredAgentSessionPendingSends(SESSION)[0]?.clientMessageId).toBe(pending?.clientMessageId)
+    expect(getStructuredAgentSessionPendingSends(SESSION)[0]?.clientMessageId).toBe(
+      pending?.clientMessageId
+    )
     expect(prompt.createOwned).toBe(true)
     expect(prompt.delivery).toBeDefined()
     expect(mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.send')).toEqual([])
@@ -138,23 +147,37 @@ describe('create prompt ownership waits for speed authorization', () => {
   it('rebuilds a definitively failed create with its newly staged opening and held speed', async () => {
     const worktreeId = 'synthetic-definitive-retry'
     const intent: StructuredAgentSessionLaunchIntent = {
-      sessionId: SESSION, worktreeId, executionHostId: 'local', target: { kind: 'local' }, agent: 'codex',
+      sessionId: SESSION,
+      worktreeId,
+      executionHostId: 'local',
+      target: { kind: 'local' },
+      agent: 'codex',
       seedOptions: { serviceTier: 'default' },
       params: structuredAgentSessionCreateParams({
-        sessionId: SESSION, worktree: `id:${worktreeId}`, agent: 'codex',
+        sessionId: SESSION,
+        worktree: `id:${worktreeId}`,
+        agent: 'codex',
         options: { serviceTier: 'default' },
-        randomUuid: () => '00000000-0000-4000-8000-000000000002', now: 1_760_000_000_000
+        randomUuid: () => '00000000-0000-4000-8000-000000000002',
+        now: 1_760_000_000_000
       })
     }
     const originalEnvelope = { ...intent.params.envelope }
     const state: StructuredLaunchState = {
-      identity: `codex:${worktreeId}`, intent, promptDelivery: 'auto-submit',
+      identity: `codex:${worktreeId}`,
+      intent,
+      promptDelivery: 'auto-submit',
       callers: createStructuredLaunchCallerGroup({ kind: 'retry' }),
       promise: Promise.resolve({ sessionId: SESSION, fence: 0 }),
-      visibilityUnknown: false, cancelled: false,
-      selection: { seed: intent.seedOptions, held: {
-        model: 'synthetic-selected-model', serviceTier: 'synthetic-held-exact-tier'
-      } }
+      visibilityUnknown: false,
+      cancelled: false,
+      selection: {
+        seed: intent.seedOptions,
+        held: {
+          model: 'synthetic-selected-model',
+          serviceTier: 'synthetic-held-exact-tier'
+        }
+      }
     }
     // A definitive refusal permits a new operation; a new explicit send stages this opening.
     state.callers.outcome = 'failed'
@@ -168,16 +191,28 @@ describe('create prompt ownership waits for speed authorization', () => {
         throw new Error(`Unexpected retry mutation ${method}`)
       }
       const params = CreateIntentParams.parse(raw)
-      const firstMessage = params.firstMessage ? {
-        clientMessageId: params.firstMessage.clientMessageId, fence: 7,
-        payloadFingerprint: 'synthetic-opening-receipt', dispatchState: 'accepted',
-        handoverRecorded: true, providerItemId: null, reason: null,
-        submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000
-      } : undefined
-      return { ok: true, value: {
-        sessionId: SESSION, fence: 7, page: { submissions: firstMessage ? [firstMessage] : [] },
-        ...(firstMessage ? { firstMessage } : {})
-      } }
+      const firstMessage = params.firstMessage
+        ? {
+            clientMessageId: params.firstMessage.clientMessageId,
+            fence: 7,
+            payloadFingerprint: 'synthetic-opening-receipt',
+            dispatchState: 'accepted',
+            handoverRecorded: true,
+            providerItemId: null,
+            reason: null,
+            submittedAt: 1_760_000_000_000,
+            resolvedAt: 1_760_000_000_000
+          }
+        : undefined
+      return {
+        ok: true,
+        value: {
+          sessionId: SESSION,
+          fence: 7,
+          page: { submissions: firstMessage ? [firstMessage] : [] },
+          ...(firstMessage ? { firstMessage } : {})
+        }
+      }
     })
 
     expect(retryStructuredAgentSessionLaunch(worktreeId, SESSION)).toBe(true)
@@ -186,7 +221,8 @@ describe('create prompt ownership waits for speed authorization', () => {
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
     const params = CreateIntentParams.parse(mocks.call.mock.calls[0]?.[2])
     expect(params.options).toEqual({
-      model: 'synthetic-selected-model', serviceTier: 'synthetic-held-exact-tier'
+      model: 'synthetic-selected-model',
+      serviceTier: 'synthetic-held-exact-tier'
     })
     expect(params.firstMessage).toMatchObject({
       clientMessageId: pending?.clientMessageId,
@@ -205,7 +241,9 @@ describe('create prompt ownership waits for speed authorization', () => {
     const worktreeId = 'synthetic-cli-source-race'
     const providerSessionId = 'synthetic-existing-conversation'
     const options = { model: 'synthetic-model', serviceTier: 'synthetic-exact-tier' }
-    const authorizationStarted = Promise.withResolvers<Readonly<Record<string, string>> | undefined>()
+    const authorizationStarted = Promise.withResolvers<
+      Readonly<Record<string, string>> | undefined
+    >()
     const authorization = Promise.withResolvers<{ options?: Readonly<Record<string, string>> }>()
     mocks.authorize.mockImplementation(async (input) => {
       authorizationStarted.resolve(input.options)
@@ -216,22 +254,32 @@ describe('create prompt ownership waits for speed authorization', () => {
         throw new Error(`Unexpected source-handoff mutation ${method}`)
       }
       const params = CreateIntentParams.parse(raw)
-      return { ok: true, value: {
-        sessionId: params.envelope.sessionId, fence: 7, page: { submissions: [] }
-      } }
+      return {
+        ok: true,
+        value: {
+          sessionId: params.envelope.sessionId,
+          fence: 7,
+          page: { submissions: [] }
+        }
+      }
     })
     let paneLive = true
     const handoff = vi.fn(() => paneLive)
     const first = startStructuredAgentLaunch(worktreeId, 'codex', {
-      requestId: 'synthetic-cli-source-action', executionHostId: 'local', beforeCreate: handoff,
+      requestId: 'synthetic-cli-source-action',
+      executionHostId: 'local',
+      beforeCreate: handoff,
       resumeFrom: {
-        providerSessionId, cliSource: { workspaceId: worktreeId, paneKey: 'synthetic-pane' }
+        providerSessionId,
+        cliSource: { workspaceId: worktreeId, paneKey: 'synthetic-pane' }
       }
     })
-    expect(holdStructuredAgentSessionLaunchOption(first.sessionId, 'serviceTier', options.serviceTier))
-      .not.toBeNull()
-    expect(holdStructuredAgentSessionLaunchOption(first.sessionId, 'model', options.model))
-      .not.toBeNull()
+    expect(
+      holdStructuredAgentSessionLaunchOption(first.sessionId, 'serviceTier', options.serviceTier)
+    ).not.toBeNull()
+    expect(
+      holdStructuredAgentSessionLaunchOption(first.sessionId, 'model', options.model)
+    ).not.toBeNull()
     expect(await authorizationStarted.promise).toEqual(options)
     expect(mocks.call).not.toHaveBeenCalled()
     const state = getStructuredLaunchStateBySessionId(first.sessionId)
@@ -239,12 +287,15 @@ describe('create prompt ownership waits for speed authorization', () => {
       throw new Error('Expected launch to remain pending speed authorization')
     }
     expect(state.intent.params.resumeFrom?.cliSource).toEqual({
-      workspaceId: worktreeId, paneKey: 'synthetic-pane'
+      workspaceId: worktreeId,
+      paneKey: 'synthetic-pane'
     })
     const originalOperationId = state.intent.params.envelope.clientOperationId
 
     const joiner = startStructuredAgentLaunch(worktreeId, 'codex', {
-      requestId: 'synthetic-history-action', executionHostId: 'local', resumeFrom: { providerSessionId }
+      requestId: 'synthetic-history-action',
+      executionHostId: 'local',
+      resumeFrom: { providerSessionId }
     })
     expect(joiner.joined).toBe(true)
     expect(joiner.sessionId).toBe(first.sessionId)
@@ -255,16 +306,24 @@ describe('create prompt ownership waits for speed authorization', () => {
     paneLive = false
     authorization.resolve({ options })
 
-    await expect(joiner.launchResult).resolves.toMatchObject({ sessionId: first.sessionId, fence: 7 })
+    await expect(joiner.launchResult).resolves.toMatchObject({
+      sessionId: first.sessionId,
+      fence: 7
+    })
     expect(handoff).toHaveBeenCalledOnce()
     expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
     const params = CreateIntentParams.parse(mocks.call.mock.calls[0]?.[2])
     expect(params.resumeFrom).toEqual({ providerSessionId })
     expect(params.options).toEqual(options)
     expect(params.envelope.clientOperationId).toBe(originalOperationId)
-    expect(params.envelope.payloadFingerprint).toBe(structuredAgentSessionCreateFingerprint({
-      sessionId: first.sessionId, worktree: `id:${worktreeId}`, agent: 'codex',
-      resumeFrom: { providerSessionId }, options
-    }))
+    expect(params.envelope.payloadFingerprint).toBe(
+      structuredAgentSessionCreateFingerprint({
+        sessionId: first.sessionId,
+        worktree: `id:${worktreeId}`,
+        agent: 'codex',
+        resumeFrom: { providerSessionId },
+        options
+      })
+    )
   })
 })

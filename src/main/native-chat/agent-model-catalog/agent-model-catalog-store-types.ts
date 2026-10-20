@@ -22,7 +22,6 @@ export type AgentModelCatalogSessionAccess = {
   accountHomePath: string
 }
 
-
 export type {
   AgentModelCatalogEntry,
   AgentModelCatalogListing,

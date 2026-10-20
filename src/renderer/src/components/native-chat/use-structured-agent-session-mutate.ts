@@ -100,7 +100,8 @@ export function useStructuredAgentSessionMutate(args: {
   useEffect(() => {
     const context: SessionMutationActionContext = {
       sessionId,
-      target: targetKey === null ? { kind: 'local' } : { kind: 'environment', environmentId: targetKey }
+      target:
+        targetKey === null ? { kind: 'local' } : { kind: 'environment', environmentId: targetKey }
     }
     actionContext.current = context
     inFlightStops.current.clear()
@@ -128,8 +129,13 @@ export function useStructuredAgentSessionMutate(args: {
       pressedFence: number | null = stateRef.current.fence,
       pressedContext: SessionMutationActionContext | null = actionContext.current
     ): Promise<StructuredAgentSessionWriteOutcome<T>> => {
-      if (!enabled || !enabledRef.current || pressedFence === null ||
-        pressedContext === null || actionContext.current !== pressedContext) {
+      if (
+        !enabled ||
+        !enabledRef.current ||
+        pressedFence === null ||
+        pressedContext === null ||
+        actionContext.current !== pressedContext
+      ) {
         return { kind: 'dropped' }
       }
       const targetFence = pressedFence
@@ -149,41 +155,60 @@ export function useStructuredAgentSessionMutate(args: {
         if (waitedOn) {
           commandInFlight.current = null
         }
-        return enabledRef.current && actionContext.current === pressedContext &&
+        return (
+          enabledRef.current &&
+          actionContext.current === pressedContext &&
           (stateRef.current.fence === targetFence || waitedOn)
+        )
       }
       let result: AgentSessionMutationResult<T>
-      const selectedTier = fingerprintMethod === 'agentSession.setOption' &&
-        fields.key === 'serviceTier' && typeof fields.value === 'string' ? fields.value : undefined
+      const selectedTier =
+        fingerprintMethod === 'agentSession.setOption' &&
+        fields.key === 'serviceTier' &&
+        typeof fields.value === 'string'
+          ? fields.value
+          : undefined
       let wireFields = fields
       try {
-        const prepared = selectedTier === undefined ? undefined : await prepareCodexSpeedWireOptions({
-          target,
-          sessionId,
-          options: { serviceTier: selectedTier }
-        })
-        if (!enabledRef.current || actionContext.current !== pressedContext ||
-          stateRef.current.fence !== targetFence) {
+        const prepared =
+          selectedTier === undefined
+            ? undefined
+            : await prepareCodexSpeedWireOptions({
+                target,
+                sessionId,
+                options: { serviceTier: selectedTier }
+              })
+        if (
+          !enabledRef.current ||
+          actionContext.current !== pressedContext ||
+          stateRef.current.fence !== targetFence
+        ) {
           return { kind: 'dropped' }
         }
         if (prepared?.options) {
-          wireFields = prepared.options.serviceTier !== undefined
-            ? { ...fields, key: 'serviceTier', value: prepared.options.serviceTier }
-            : { ...fields, key: 'fastMode', value: prepared.options.fastMode }
+          wireFields =
+            prepared.options.serviceTier !== undefined
+              ? { ...fields, key: 'serviceTier', value: prepared.options.serviceTier }
+              : { ...fields, key: 'fastMode', value: prepared.options.fastMode }
         }
-        result = await callStructuredAgentSession<AgentSessionMutationResult<T>>(target, method, {
-          envelope: {
-            sessionId,
-            clientOperationId: structuredSessionOperationId(),
-            expectedRuntimeFence: targetFence,
-            payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-              method: fingerprintMethod,
+        result = await callStructuredAgentSession<AgentSessionMutationResult<T>>(
+          target,
+          method,
+          {
+            envelope: {
               sessionId,
-              fields: wireFields
-            })
+              clientOperationId: structuredSessionOperationId(),
+              expectedRuntimeFence: targetFence,
+              payloadFingerprint: structuredAgentSessionPayloadFingerprint({
+                method: fingerprintMethod,
+                sessionId,
+                fields: wireFields
+              })
+            },
+            ...wireFields
           },
-          ...wireFields
-        }, prepared?.authority)
+          prepared?.authority
+        )
       } catch (error) {
         if (error instanceof CodexSpeedSelectionError) {
           return settlesHere()
@@ -216,14 +241,24 @@ export function useStructuredAgentSessionMutate(args: {
         return { kind: 'dropped' }
       }
       // The execution host may only understand Fast; saved preferences retain the canonical pick.
-      if (selectedTier !== undefined && wireFields.key === 'fastMode' &&
-        result.value && typeof result.value === 'object') {
-        const returned = 'options' in result.value && result.value.options &&
-          typeof result.value.options === 'object' ? result.value.options : {}
+      if (
+        selectedTier !== undefined &&
+        wireFields.key === 'fastMode' &&
+        result.value &&
+        typeof result.value === 'object'
+      ) {
+        const returned =
+          'options' in result.value &&
+          result.value.options &&
+          typeof result.value.options === 'object'
+            ? result.value.options
+            : {}
         const { fastMode: _legacy, ...options } = Object.assign({ fastMode: undefined }, returned)
         return {
           kind: 'done',
-          value: Object.assign({}, result.value, { options: { ...options, serviceTier: selectedTier } })
+          value: Object.assign({}, result.value, {
+            options: { ...options, serviceTier: selectedTier }
+          })
         }
       }
       return { kind: 'done', value: result.value }

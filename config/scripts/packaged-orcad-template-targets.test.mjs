@@ -102,7 +102,9 @@ describe('packaging a partial orcad template', () => {
 
     const compacted = JSON.parse(await readFile(manifestPath, 'utf8'))
     expect(compacted.targets[SHIPPED].packagedRipgrep).toBe(true)
-    expect(compacted.targets[SHIPPED].files[filename]).toBe(original.targets[SHIPPED].files[filename])
+    expect(compacted.targets[SHIPPED].files[filename]).toBe(
+      original.targets[SHIPPED].files[filename]
+    )
     const deployed = await assembleOrcadArtifact({
       templateDir,
       cacheRoot: join(resourcesDir, 'cache'),

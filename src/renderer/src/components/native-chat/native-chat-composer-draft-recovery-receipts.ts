@@ -6,9 +6,20 @@ export function readDraftRecoveryReceipts(value: unknown): readonly string[] {
   if (value === undefined) {
     return []
   }
-  if (!Array.isArray(value) || value.length > MAX_DRAFT_RECOVERY_RECEIPTS ||
-    value.some((id) => typeof id !== 'string' || !id.trim() || id.length > 256 || Array.from(id).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) ||
-    new Set(value).size !== value.length) {
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_DRAFT_RECOVERY_RECEIPTS ||
+    value.some(
+      (id) =>
+        typeof id !== 'string' ||
+        !id.trim() ||
+        id.length > 256 ||
+        Array.from(id).some(
+          (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127
+        )
+    ) ||
+    new Set(value).size !== value.length
+  ) {
     throw new Error('Invalid composer recovery receipts')
   }
   return value
@@ -28,8 +39,15 @@ export function preserveDraftRecoveryReceipts(
   previous: StoredNativeChatComposerDraft | null
 ): StoredNativeChatComposerDraft | null {
   const ids = unionDraftRecoveryReceipts(draft?.recoveredMessageIds, previous?.recoveredMessageIds)
-  return ids.length === 0 ? draft : {
-    ...(draft ?? { text: '', images: [], savedAt: previous?.savedAt ?? 0, owner: previous?.owner }),
-    recoveredMessageIds: ids
-  }
+  return ids.length === 0
+    ? draft
+    : {
+        ...(draft ?? {
+          text: '',
+          images: [],
+          savedAt: previous?.savedAt ?? 0,
+          owner: previous?.owner
+        }),
+        recoveredMessageIds: ids
+      }
 }

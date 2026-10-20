@@ -164,7 +164,11 @@ export async function abortOrcadMigrationCutover(
     state = await abortWithRecovery(destination, cutover.manifest)
   }
   if (state.state === 'committed') {
-    await recordObservedState(context, cutover, await confirmDurableCommit(destination, cutover.manifest))
+    await recordObservedState(
+      context,
+      cutover,
+      await confirmDurableCommit(destination, cutover.manifest)
+    )
     return committedRefusal()
   }
   if (state.state !== 'absent') {

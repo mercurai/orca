@@ -28,7 +28,10 @@ export function recoverStructuredLaunchDrafts(state: StructuredLaunchState): Pro
   const recovery = recoverStructuredLaunchPromptDrafts(state.intent.sessionId, drafts)
     .catch(() => false)
     .then((committed) => {
-      if (state.cancelled || getStructuredLaunchStateBySessionId(state.intent.sessionId) !== state) {
+      if (
+        state.cancelled ||
+        getStructuredLaunchStateBySessionId(state.intent.sessionId) !== state
+      ) {
         return false
       }
       if (!committed) {
@@ -55,7 +58,9 @@ export function recoverStructuredLaunchDrafts(state: StructuredLaunchState): Pro
 }
 
 /** Retry cannot replace the launch identity until unsent text has durable ownership. */
-export async function requireStructuredLaunchDraftRecovery(state: StructuredLaunchState): Promise<void> {
+export async function requireStructuredLaunchDraftRecovery(
+  state: StructuredLaunchState
+): Promise<void> {
   if (!(await recoverStructuredLaunchDrafts(state))) {
     throw new Error('Unsent message recovery needs durable storage')
   }

@@ -81,14 +81,17 @@ function harness(relay?: (deviceId: string) => MobileSocketTransportMetadata) {
     )
     let reply: unknown = null
     return {
-      ws, transcriptHashB64,
+      ws,
+      transcriptHashB64,
       get reply() {
         if (reply === null && ws.sent[1]) {
           reply = JSON.parse(peer.openText(String(ws.sent[1]))!)
         }
         return reply
       },
-      get socket() { return ready.length > before ? ready.at(-1) : null }
+      get socket() {
+        return ready.length > before ? ready.at(-1) : null
+      }
     }
   }
   return {

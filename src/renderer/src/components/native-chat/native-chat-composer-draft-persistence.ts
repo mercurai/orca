@@ -111,25 +111,28 @@ function persist(scopeKey: string): void {
   const change: UnconfirmedDraftChange = { draft, at: draft?.savedAt ?? nextSavedAt() }
   unconfirmed.set(scopeKey, change)
   const storage = nativeChatComposerDraftStorage()
-  const written = Promise.resolve().then(() =>
-    disposedDraftScopes.has(scopeKey)
-      ? storage.remove([scopeKey])
-      : storage.update(scopeKey, (raw) => {
-          const previous = parseStoredNativeChatComposerDraft(raw)
-          return preserveDraftRecoveryReceipts(
-            includeCommittedDraftRecoveries(scopeKey, draft, previous), previous
-          )
-        })
-  ).then(
-    () => {
-      confirm(scopeKey, change)
-      return true
-    },
-    (error: unknown) => {
-      refuse(scopeKey, change, error)
-      return false
-    }
-  )
+  const written = Promise.resolve()
+    .then(() =>
+      disposedDraftScopes.has(scopeKey)
+        ? storage.remove([scopeKey])
+        : storage.update(scopeKey, (raw) => {
+            const previous = parseStoredNativeChatComposerDraft(raw)
+            return preserveDraftRecoveryReceipts(
+              includeCommittedDraftRecoveries(scopeKey, draft, previous),
+              previous
+            )
+          })
+    )
+    .then(
+      () => {
+        confirm(scopeKey, change)
+        return true
+      },
+      (error: unknown) => {
+        refuse(scopeKey, change, error)
+        return false
+      }
+    )
   track(scopeKey, written)
 }
 

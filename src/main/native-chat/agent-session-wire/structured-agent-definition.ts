@@ -7,7 +7,10 @@
 import type { AgentSessionCapabilities } from '../../../shared/agent-session-capabilities'
 import type { AgentSessionStoredAgent } from '../../../shared/agent-session-stored-agent'
 import type { AgentSessionSpeed } from '../../../shared/agent-session-speed'
-import type { AgentSessionModelCatalogResult, AgentSessionModelOption } from '../../../shared/agent-session-wire'
+import type {
+  AgentSessionModelCatalogResult,
+  AgentSessionModelOption
+} from '../../../shared/agent-session-wire'
 
 /** `agent` names the Orca agent whose sessions this describes; the storage fields bound its records. */
 export type StructuredAgentDefinition = AgentSessionStoredAgent & {

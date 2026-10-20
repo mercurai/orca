@@ -32,7 +32,8 @@ const MAX_CONSECUTIVE_DECRYPT_FAILURES = 5
 export type { E2EEChannelOptions, E2EEAuthenticatedDevice } from './mobile-e2ee-auth-admission'
 
 export class E2EEChannel {
-  private state: 'awaiting_hello' | 'awaiting_auth' | 'authenticating' | 'ready' | 'closed' = 'awaiting_hello'
+  private state: 'awaiting_hello' | 'awaiting_auth' | 'authenticating' | 'ready' | 'closed' =
+    'awaiting_hello'
   private sharedKey: Uint8Array | null = null
   private consecutiveFailures = 0
   private handshakeTimer: ReturnType<typeof setTimeout> | null = null

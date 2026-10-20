@@ -9,14 +9,17 @@ import {
 import { HOST_TEST_SESSION as SESSION } from './structured-agent-session-host-test-data'
 
 let rig: QueuedMessageTestRig
-beforeEach(async () => { rig = await createQueuedMessageTestRig({ restartable: true }) })
+beforeEach(async () => {
+  rig = await createQueuedMessageTestRig({ restartable: true })
+})
 afterEach(() => rig.dispose())
 
 // Choices now travel with the durable submission, rather than mutating a live child
 // through setOption. A refusal must still settle that submission without fallback.
 describe('message-carried speed admission', () => {
   it.each([
-    ['serviceTier', 'synthetic-fast-request-id'], ['fastMode', 'true']
+    ['serviceTier', 'synthetic-fast-request-id'],
+    ['fastMode', 'true']
   ] as const)('retains captured %s through dispatch and a provider refusal', async (key, value) => {
     const requested = { [key]: value }
     rig.dispatch.mockResolvedValueOnce({
@@ -28,9 +31,12 @@ describe('message-carried speed admission', () => {
     })
     const send = rig.send('requested speed', undefined, { carried: requested })
     expect(await send.result).toMatchObject({ ok: true })
-    await eventually(async () => expect(await rig.submission(send.id)).toMatchObject({
-      dispatchState: 'rejected', rejection: { kind: 'speedUnavailable', neverReachedAgent: true }
-    }))
+    await eventually(async () =>
+      expect(await rig.submission(send.id)).toMatchObject({
+        dispatchState: 'rejected',
+        rejection: { kind: 'speedUnavailable', neverReachedAgent: true }
+      })
+    )
     expect(rig.dispatch).toHaveBeenCalledOnce()
     expect(rig.dispatch.mock.calls[0]?.[0].executionOptions).toEqual(requested)
     expect(rig.setOption).not.toHaveBeenCalled()

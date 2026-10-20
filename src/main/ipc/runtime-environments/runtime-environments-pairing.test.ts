@@ -1,3 +1,5 @@
+import type * as BrowserClientHostRuntime from '../../browser/paired-runtime-browser-client-host-runtime'
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import type { RuntimeHostStatusSnapshot } from '../../../shared/runtime-host-status'
 import {
   getRuntimeEnvironmentStatusSnapshots,
@@ -45,6 +47,12 @@ const {
   retryRemoteRuntimeSharedControlConnectionsNowMock: vi.fn(),
   retryRemoteRuntimeSharedControlConnectionNowMock: vi.fn(),
   closeRemoteRuntimeRequestConnectionMock: vi.fn()
+}))
+
+const retireBrowserClientHostMock = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('../../browser/paired-runtime-browser-client-host-runtime', async (importOriginal) => ({
+  ...(await importOriginal<typeof BrowserClientHostRuntime>()),
+  retirePairedRuntimeBrowserClientHostEnvironment: retireBrowserClientHostMock
 }))
 
 vi.mock('electron', () => ({
@@ -136,9 +144,12 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     retryRemoteRuntimeSharedControlConnectionsNowMock.mockReset()
     retryRemoteRuntimeSharedControlConnectionNowMock.mockReset()
     closeRemoteRuntimeRequestConnectionMock.mockReset()
+    retireBrowserClientHostMock.mockReset()
+    retireBrowserClientHostMock.mockResolvedValue(undefined)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await drainPendingPathWrites()
     resetRuntimeEnvironmentStatusOwners()
     rmSync(userDataPath, { recursive: true, force: true })
   })
@@ -473,7 +484,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     // An overlapping re-add lands while this one retires the old connection.
     let overtaken = false
     let newerWrite: Promise<unknown> | undefined
-    closeRemoteRuntimeRequestConnectionMock.mockImplementation(async () => {
+    closeRemoteRuntimeRequestConnectionMock.mockImplementation(() => {
       const current = environmentStore.resolveEnvironmentPairingOffer(userDataPath, saved.id)
       if (overtaken || current.deviceToken !== 'second-token') {
         return
@@ -488,10 +499,10 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         mock.mockImplementation(async () => {
           await newerWrite
           return {
-          id: 'status',
-          ok: true,
-          result: newer,
-          _meta: { runtimeId: 'runtime-b' }
+            id: 'status',
+            ok: true,
+            result: newer,
+            _meta: { runtimeId: 'runtime-b' }
           }
         })
       }
@@ -500,6 +511,9 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         pairingCode: pairingCode('ws://192.0.2.11:6768', { deviceToken: 'third-token' }),
         now: Date.now() + 60_000
       })
+    })
+    // Invalidation actually awaits browser-host retirement; request close is synchronous.
+    retireBrowserClientHostMock.mockImplementation(async () => {
       await newerWrite
     })
     const verifyAndAdd = handler<{ name: string; pairingCode: string }, { ok: boolean }>(
@@ -558,7 +572,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { selector: string },
       { disconnected: { id: string; name: string } }
     >('runtimeEnvironments:disconnect')
-    expect(disconnect(null, { selector: 'desk' })).toMatchObject({
+    await expect(disconnect(null, { selector: 'desk' })).resolves.toMatchObject({
       disconnected: { id: added.environment.id, name: 'desk' }
     })
 

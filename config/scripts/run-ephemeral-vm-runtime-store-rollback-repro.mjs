@@ -82,16 +82,20 @@ function makeDataDir(name) {
 
 function runOracle(label, targetRoot, operation, userDataPath, options = {}) {
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-  const result = spawnSync(pnpm, ['exec', 'vitest', 'run', driver, '--config', config, '--maxWorkers=2'], {
-    cwd: root,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      STA_4274_TARGET_ROOT: resolve(targetRoot),
-      STA_4274_OPERATION: operation,
-      STA_4274_USER_DATA_PATH: userDataPath
+  const result = spawnSync(
+    pnpm,
+    ['exec', 'vitest', 'run', driver, '--config', config, '--maxWorkers=2'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        STA_4274_TARGET_ROOT: resolve(targetRoot),
+        STA_4274_OPERATION: operation,
+        STA_4274_USER_DATA_PATH: userDataPath
+      }
     }
-  })
+  )
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   if (options.expectFailure) {
     if (result.status === 0 || !output.includes(options.expectFailure)) {

@@ -33,7 +33,9 @@ function listing(tier = 'priority') {
 }
 
 async function acquire(
-  adapter: CodexStructuredSessionAdapter, sessionId = 'session-1', serviceTier = 'priority'
+  adapter: CodexStructuredSessionAdapter,
+  sessionId = 'session-1',
+  serviceTier = 'priority'
 ) {
   return acquireReadyCodexForTest(adapter, {
     identity: identityFor(sessionId),
@@ -69,13 +71,20 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       serviceTier: 'priority'
     })
     expect(await send(adapter, 'first')).toMatchObject({
-      state: 'rejected', rejection: { neverReachedAgent: true }
+      state: 'rejected',
+      rejection: { neverReachedAgent: true }
     })
     expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
-    await adapter.setOption({ sessionId: 'session-1', fence: 7, key: 'serviceTier', value: 'default' })
+    await adapter.setOption({
+      sessionId: 'session-1',
+      fence: 7,
+      key: 'serviceTier',
+      value: 'default'
+    })
     expect(await send(adapter, 'standard')).toMatchObject({ state: 'admitted' })
-    expect(codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params)
-      .toMatchObject({ serviceTier: 'default' })
+    expect(
+      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
+    ).toMatchObject({ serviceTier: 'default' })
   })
 
   it('refuses the saved tier while its own bounded listing is still pending', async () => {
@@ -90,11 +99,13 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(true)
     )
     expect(await send(adapter, 'first')).toMatchObject({
-      state: 'rejected', rejection: { neverReachedAgent: true }
+      state: 'rejected',
+      rejection: { neverReachedAgent: true }
     })
     expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
-    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
-      .toMatchObject({ serviceTier: 'priority' })
+    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current).toMatchObject(
+      { serviceTier: 'priority' }
+    )
     pending.resolve(listing())
   })
 
@@ -103,16 +114,26 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'running-turn')
     codex.routes['turn/steer'] = () => ({ turn: { id: 'running-turn' } })
-    const adapter = adapterFor(codex)
+    // Production adapters always have the host catalog store. Its initial picker
+    // read exposes loading instead of joining this intentionally stalled listing.
+    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
+      modelCatalog: new AgentModelCatalogStore()
+    })
     await acquire(adapter, 'session-1', 'default')
     await send(adapter, 'first')
-    await adapter.setOption({ sessionId: 'session-1', fence: 7, key: 'serviceTier', value: 'priority' })
+    await adapter.setOption({
+      sessionId: 'session-1',
+      fence: 7,
+      key: 'serviceTier',
+      value: 'priority'
+    })
     expect(await send(adapter, 'follow-up')).toMatchObject({ state: 'admitted' })
     const steer = codex.connections[0].calls.find((call) => call.method === 'turn/steer')
     expect(steer).toBeDefined()
     expect(steer?.params).not.toHaveProperty('serviceTier')
-    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
-      .toMatchObject({ serviceTier: 'priority' })
+    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current).toMatchObject(
+      { serviceTier: 'priority' }
+    )
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
       1
     )
@@ -123,10 +144,19 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'running-turn')
-    const adapter = adapterFor(codex)
+    // Production adapters always have the host catalog store. Its initial picker
+    // read exposes loading instead of joining this intentionally stalled listing.
+    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
+      modelCatalog: new AgentModelCatalogStore()
+    })
     await acquire(adapter, 'session-1', 'default')
     await send(adapter, 'first')
-    await adapter.setOption({ sessionId: 'session-1', fence: 7, key: 'serviceTier', value: 'priority' })
+    await adapter.setOption({
+      sessionId: 'session-1',
+      fence: 7,
+      key: 'serviceTier',
+      value: 'priority'
+    })
 
     await expect(adapter.cancelTurn({ sessionId: 'session-1', fence: 7 })).resolves.toMatchObject({
       cancelled: true
@@ -134,13 +164,15 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     finishTurn(codex, 'running-turn')
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'replacement-turn')
     expect(await send(adapter, 'replacement')).toMatchObject({
-      state: 'rejected', rejection: { neverReachedAgent: true }
+      state: 'rejected',
+      rejection: { neverReachedAgent: true }
     })
     const starts = codex.connections[0].calls.filter((call) => call.method === 'turn/start')
     expect(starts).toHaveLength(1)
     expect(starts[0]?.params).toMatchObject({ serviceTier: 'default' })
-    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
-      .toMatchObject({ serviceTier: 'priority' })
+    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current).toMatchObject(
+      { serviceTier: 'priority' }
+    )
     pending.resolve(listing())
   })
 
@@ -166,7 +198,8 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       await acquire(adapter)
       await vi.waitFor(() => expect(modelCatalog.hasActiveFailure(access.fingerprint)).toBe(true))
       expect(await send(adapter, 'first')).toMatchObject({
-        state: 'rejected', rejection: { neverReachedAgent: true }
+        state: 'rejected',
+        rejection: { neverReachedAgent: true }
       })
       expect(codex.connections[0].calls.some((call) => call.method === 'turn/start')).toBe(false)
       await acquire(adapter, 'session-2')
@@ -176,8 +209,9 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       await vi.waitFor(() => expect(listModels).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(modelCatalog.hasActiveFailure(access.fingerprint)).toBe(false))
       expect(await send(adapter, 'after-refresh', 'session-3')).toMatchObject({ state: 'admitted' })
-      expect(codex.connections.at(-1)?.calls.find((call) => call.method === 'turn/start')?.params)
-        .toMatchObject({ serviceTier: 'priority' })
+      expect(
+        codex.connections.at(-1)?.calls.find((call) => call.method === 'turn/start')?.params
+      ).toMatchObject({ serviceTier: 'priority' })
     } finally {
       clock.mockRestore()
     }
@@ -223,17 +257,32 @@ describe('Codex structured service tier without send-path catalog waits', () => 
         throw new Error('Expected the acquired session and pinned catalog access')
       }
       const { fingerprint } = session.catalogAccess
-      await vi.waitFor(() => expect(codex.connections[0].calls
-        .filter((call) => call.method === 'model/list')).toHaveLength(1))
+      await vi.waitFor(() =>
+        expect(
+          codex.connections[0].calls.filter((call) => call.method === 'model/list')
+        ).toHaveLength(1)
+      )
       expect(session.catalogListingInProgress).toBe(true)
       expect(modelCatalog.get(fingerprint)).toBeNull()
       const expire = createAgentModelCatalogSettingsExpiry(modelCatalog, {})
-      expire({ codexManagedAccounts: [{
-        id: 'same-account', email: 'reauthenticated@example.test',
-        managedHomePath: '/codex/home', providerAccountId: 'new-principal',
-        workspaceLabel: null, workspaceAccountId: null,
-        createdAt: 1, updatedAt: 2, lastAuthenticatedAt: 2
-      }] }, {})
+      expire(
+        {
+          codexManagedAccounts: [
+            {
+              id: 'same-account',
+              email: 'reauthenticated@example.test',
+              managedHomePath: '/codex/home',
+              providerAccountId: 'new-principal',
+              workspaceLabel: null,
+              workspaceAccountId: null,
+              createdAt: 1,
+              updatedAt: 2,
+              lastAuthenticatedAt: 2
+            }
+          ]
+        },
+        {}
+      )
       if (outcome === 'resolve') {
         pending.resolve(listing('old-account-paid-id'))
       } else {
@@ -244,26 +293,42 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(false)
       expect(modelCatalog.failure(fingerprint)).toBeNull()
       expect(modelCatalog.isListing(fingerprint)).toBe(false)
-      expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current)
-        .toMatchObject({ serviceTier: 'priority' })
+      expect(
+        (await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current
+      ).toMatchObject({ serviceTier: 'priority' })
       expect(codex.connections).toHaveLength(1)
     }
   )
 
   it('restores the saved model and tier over the resumed thread’s', async () => {
-    const codex = fakeCodex({ 'model/list': () => ({
-      data: [{ model: 'synthetic-resume-model', supportedReasoningEfforts: [],
-        serviceTiers: [{ id: 'synthetic-ultra-request-id', name: 'Ultrafast' }] }],
-      nextCursor: null
-    }) })
+    const codex = fakeCodex({
+      'model/list': () => ({
+        data: [
+          {
+            model: 'synthetic-resume-model',
+            supportedReasoningEfforts: [],
+            serviceTiers: [{ id: 'synthetic-ultra-request-id', name: 'Ultrafast' }]
+          }
+        ],
+        nextCursor: null
+      })
+    })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-tier')
     const modelCatalog = new AgentModelCatalogStore()
     const access = agentModelCatalogSessionAccess(
-      modelCatalog, CODEX_STRUCTURED_AGENT, '/codex/home'
+      modelCatalog,
+      CODEX_STRUCTURED_AGENT,
+      '/codex/home'
     )!
-    const adapter = adapterFor(codex, {
-      codexHome: '/codex/home', resumeThreadId: THREAD_ID
-    }, [], { modelCatalog })
+    const adapter = adapterFor(
+      codex,
+      {
+        codexHome: '/codex/home',
+        resumeThreadId: THREAD_ID
+      },
+      [],
+      { modelCatalog }
+    )
     await acquireReadyCodexForTest(adapter, {
       identity: identityFor('session-1'),
       fence: 7,
@@ -276,8 +341,9 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       model: 'synthetic-resume-model',
       serviceTier: 'synthetic-ultra-request-id'
     })
-    await vi.waitFor(() => expect(modelCatalog.get(access.fingerprint)?.models[0]?.id)
-      .toBe('synthetic-resume-model'))
+    await vi.waitFor(() =>
+      expect(modelCatalog.get(access.fingerprint)?.models[0]?.id).toBe('synthetic-resume-model')
+    )
     expect(await send(adapter, 'first')).toMatchObject({ state: 'admitted' })
     expect(
       codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params

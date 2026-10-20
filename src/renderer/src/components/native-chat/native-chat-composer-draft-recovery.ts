@@ -1,17 +1,29 @@
 import { MAX_PROMPT_BYTES } from '../../../../shared/rpc-contract/structured-agent-session-params'
 import {
-  disposedDraftScopes, hasLocalChange, load, nextSavedAt, notifyScope, records,
+  disposedDraftScopes,
+  hasLocalChange,
+  load,
+  nextSavedAt,
+  notifyScope,
+  records,
   type DraftRecord
 } from './native-chat-composer-draft-memory'
 import {
-  nativeChatComposerDraftStorage, parseStoredNativeChatComposerDraft,
-  type NativeChatComposerDraftOwner, type StoredNativeChatComposerDraft
+  nativeChatComposerDraftStorage,
+  parseStoredNativeChatComposerDraft,
+  type NativeChatComposerDraftOwner,
+  type StoredNativeChatComposerDraft
 } from './native-chat-composer-draft-storage'
 import {
-  broadcastNativeChatComposerDraftChange, nativeChatComposerDraftWriteSettled, persistNativeChatComposerDraft
+  broadcastNativeChatComposerDraftChange,
+  nativeChatComposerDraftWriteSettled,
+  persistNativeChatComposerDraft
 } from './native-chat-composer-draft-persistence'
 import { hydrateNativeChatComposerDrafts } from './native-chat-composer-draft-load'
-import { readDraftRecoveryReceipts, unionDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
+import {
+  readDraftRecoveryReceipts,
+  unionDraftRecoveryReceipts
+} from './native-chat-composer-draft-recovery-receipts'
 
 export type DraftRecoveryMessage = { clientMessageId: string; text: string }
 type Recovery = {
@@ -24,19 +36,22 @@ const active = new Set<Recovery>()
 const empty = (): StoredNativeChatComposerDraft => ({ text: '', images: [], savedAt: 0 })
 
 function appendMessages<T extends StoredNativeChatComposerDraft>(
-  draft: T, messages: readonly DraftRecoveryMessage[]
+  draft: T,
+  messages: readonly DraftRecoveryMessage[]
 ): T {
   const seen = new Set(draft.recoveredMessageIds)
   const pending = messages.filter((message) => !seen.has(message.clientMessageId))
   const recoveredMessageIds = unionDraftRecoveryReceipts(
-    draft.recoveredMessageIds, pending.map((message) => message.clientMessageId)
+    draft.recoveredMessageIds,
+    pending.map((message) => message.clientMessageId)
   )
   if (!pending.length) {
     return draft
   }
   const addition = pending.map((message) => message.text).join('\n\n')
   return {
-    ...draft, document: undefined,
+    ...draft,
+    document: undefined,
     text: draft.text.trimEnd() ? `${draft.text.trimEnd()}\n\n${addition}` : addition,
     recoveredMessageIds
   }
@@ -81,7 +96,10 @@ function validMessages(messages: readonly DraftRecoveryMessage[]): boolean {
   }
   try {
     readDraftRecoveryReceipts(messages.map((message) => message.clientMessageId))
-    return new TextEncoder().encode(messages.map((message) => message.text).join('\n\n')).length <= MAX_PROMPT_BYTES
+    return (
+      new TextEncoder().encode(messages.map((message) => message.text).join('\n\n')).length <=
+      MAX_PROMPT_BYTES
+    )
   } catch {
     return false
   }
@@ -100,14 +118,20 @@ export async function recoverNativeChatDraftMessages(
     return true
   }
   const recovery: Recovery = {
-    scopeKey, cancelled: false, added: [],
+    scopeKey,
+    cancelled: false,
+    added: [],
     base: records.get(scopeKey) ?? { ...empty(), ...(owner ? { owner } : {}) }
   }
   active.add(recovery)
   try {
     await hydrateNativeChatComposerDrafts()
-    if (!load.hydrated || recovery.cancelled || disposedDraftScopes.has(scopeKey) ||
-        !(await nativeChatComposerDraftWriteSettled(scopeKey))) {
+    if (
+      !load.hydrated ||
+      recovery.cancelled ||
+      disposedDraftScopes.has(scopeKey) ||
+      !(await nativeChatComposerDraftWriteSettled(scopeKey))
+    ) {
       return false
     }
     const committed: { value?: StoredNativeChatComposerDraft } = {}
@@ -120,8 +144,13 @@ export async function recoverNativeChatDraftMessages(
         }
         const stored = parseStoredNativeChatComposerDraft(raw)
         observed = records.get(scopeKey)
-        const base = hasLocalChange(scopeKey) ? observed ?? empty() : stored ?? observed ?? empty()
-        const ids = unionDraftRecoveryReceipts(base.recoveredMessageIds, stored?.recoveredMessageIds)
+        const base = hasLocalChange(scopeKey)
+          ? (observed ?? empty())
+          : (stored ?? observed ?? empty())
+        const ids = unionDraftRecoveryReceipts(
+          base.recoveredMessageIds,
+          stored?.recoveredMessageIds
+        )
         const seen = new Set(ids)
         recovery.added = messages.filter((message) => !seen.has(message.clientMessageId))
         committed.value = {
@@ -135,7 +164,12 @@ export async function recoverNativeChatDraftMessages(
         throw error
       }
     })
-    if (callbackFailed || !committed.value || recovery.cancelled || disposedDraftScopes.has(scopeKey)) {
+    if (
+      callbackFailed ||
+      !committed.value ||
+      recovery.cancelled ||
+      disposedDraftScopes.has(scopeKey)
+    ) {
       return false
     }
     const durable = committed.value
@@ -143,7 +177,10 @@ export async function recoverNativeChatDraftMessages(
     const next = latest === observed ? durable : appendMessages(latest ?? empty(), recovery.added)
     records.set(scopeKey, {
       ...next,
-      recoveredMessageIds: unionDraftRecoveryReceipts(next.recoveredMessageIds, durable.recoveredMessageIds),
+      recoveredMessageIds: unionDraftRecoveryReceipts(
+        next.recoveredMessageIds,
+        durable.recoveredMessageIds
+      ),
       savedAt: nextSavedAt(),
       ...(next.owner || !durable.owner ? {} : { owner: durable.owner })
     })
@@ -151,7 +188,7 @@ export async function recoverNativeChatDraftMessages(
     broadcastNativeChatComposerDraftChange(scopeKey)
     if (latest !== observed) {
       persistNativeChatComposerDraft(scopeKey, 'immediate')
-      return await nativeChatComposerDraftWriteSettled(scopeKey) && !recovery.cancelled
+      return (await nativeChatComposerDraftWriteSettled(scopeKey)) && !recovery.cancelled
     }
     return !recovery.cancelled
   } catch {

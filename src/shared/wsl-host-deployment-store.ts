@@ -1,4 +1,8 @@
-import { captureEnvironmentStoreVersion, captureRuntimeEnvironmentFileVersion, withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
+import {
+  captureEnvironmentStoreVersion,
+  captureRuntimeEnvironmentFileVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
 import { serializePathWrite } from './path-write-serializer'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -129,7 +133,9 @@ export function readWslHostDeployments(userDataPath: string): WslHostDeployments
 export function writeWslHostDeployment(
   ...args: Parameters<typeof writeWslHostDeploymentWithinMutation>
 ): Promise<void> {
-  return withRuntimeEnvironmentMutation(args[0], () => writeWslHostDeploymentWithinMutation(...args))
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    writeWslHostDeploymentWithinMutation(...args)
+  )
 }
 
 export async function writeWslHostDeploymentWithinMutation(
@@ -140,7 +146,9 @@ export async function writeWslHostDeploymentWithinMutation(
 ): Promise<void> {
   return serializePathWrite(`${getWslHostDeploymentStorePath(userDataPath)}#mutation`, async () => {
     const isCurrent = captureEnvironmentStoreVersion(userDataPath)
-    const fileIsCurrent = captureRuntimeEnvironmentFileVersion(getWslHostDeploymentStorePath(userDataPath))
+    const fileIsCurrent = captureRuntimeEnvironmentFileVersion(
+      getWslHostDeploymentStorePath(userDataPath)
+    )
     const path = getWslHostDeploymentStorePath(userDataPath)
     const next = deployment ? WslHostDeploymentRecordSchema.parse(deployment) : null
     if (next && next.environmentId !== environmentId) {
@@ -160,7 +168,10 @@ export async function writeWslHostDeploymentWithinMutation(
       path,
       { version: 1, deployments: raws },
       MAX_WSL_HOST_DEPLOYMENTS_FILE_BYTES,
-      { durable: true, shouldPublish: () => isCurrent() && fileIsCurrent() && shouldPublish?.() !== false }
+      {
+        durable: true,
+        shouldPublish: () => isCurrent() && fileIsCurrent() && shouldPublish?.() !== false
+      }
     )
   })
 }

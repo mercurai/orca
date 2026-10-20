@@ -52,13 +52,15 @@ function withPendingValue(
       ...descriptor,
       valueSource: 'dispatched',
       kind: { ...kind, currentValue: pending.value },
-      ...(descriptor.id === 'serviceTier' && descriptor.speed ? {
-        speed: {
-          ...descriptor.speed,
-          requested: { tierId: pending.value },
-          support: 'unknown' as const
-        }
-      } : {})
+      ...(descriptor.id === 'serviceTier' && descriptor.speed
+        ? {
+            speed: {
+              ...descriptor.speed,
+              requested: { tierId: pending.value },
+              support: 'unknown' as const
+            }
+          }
+        : {})
     }
   }
   if (kind.type === 'boolean' && typeof pending.value === 'boolean') {

@@ -1,4 +1,7 @@
-import { CodexSpeedSelectionError, prepareCodexSpeedWireOptions } from '@/runtime/codex-speed-selection'
+import {
+  CodexSpeedSelectionError,
+  prepareCodexSpeedWireOptions
+} from '@/runtime/codex-speed-selection'
 import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
 import { notifyStructuredLaunchListeners } from './structured-agent-session-launch-registry'
 import type {
@@ -80,11 +83,14 @@ async function requireHostCreateSupport(
 }
 
 type PreparedSpeedOptions = Awaited<ReturnType<typeof prepareCodexSpeedWireOptions>>
-const preparingCreates = new WeakMap<StructuredAgentSessionLaunchIntent, Promise<PreparedSpeedOptions>>()
+const preparingCreates = new WeakMap<
+  StructuredAgentSessionLaunchIntent,
+  Promise<PreparedSpeedOptions>
+>()
 
 function authorizeCreateSpeed(
   intent: StructuredAgentSessionLaunchIntent,
-  options = intent.createCanonicalOptions ?? intent.params.options ?? intent.seedOptions
+  options: Readonly<Record<string, string>> | undefined
 ) {
   return prepareCodexSpeedWireOptions({
     target: intent.target,
@@ -104,15 +110,21 @@ async function prepareCreateWireOptions(
   }
   if (intent.createPrepared) {
     // A retry reauthorizes the selection but cannot reinterpret its frozen wire payload.
-    const prepared = await authorizeCreateSpeed(intent)
+    const prepared = await authorizeCreateSpeed(
+      intent,
+      intent.createCanonicalOptions ?? intent.params.options
+    )
     const original = intent.createSpeedAuthority
     if (
       (original?.expectedEnvironmentPairingRevision !== undefined &&
-        original.expectedEnvironmentPairingRevision !== prepared.authority?.expectedEnvironmentPairingRevision) ||
+        original.expectedEnvironmentPairingRevision !==
+          prepared.authority?.expectedEnvironmentPairingRevision) ||
       (original?.expectedEnvironmentRuntimeId !== undefined &&
         original.expectedEnvironmentRuntimeId !== prepared.authority?.expectedEnvironmentRuntimeId)
     ) {
-      throw new CodexSpeedSelectionError('The execution host changed. Reconnect and retry the speed selection.')
+      throw new CodexSpeedSelectionError(
+        'The execution host changed. Reconnect and retry the speed selection.'
+      )
     }
     return { ...prepared, authority: original ?? prepared.authority }
   }
@@ -125,7 +137,9 @@ async function prepareCreateWireOptions(
     }
     const preparation = intent.prepareCreate?.()
     const staged = preparation?.params ?? intent.params
-    const canonical = staged.options ?? intent.seedOptions
+    // A prepared first frame may deliberately omit an unlisted remembered model.
+    // Undefined here is a decision, not permission to resurrect the launch seed.
+    const canonical = preparation ? staged.options : staged.options ?? intent.seedOptions
     const prepared = await authorizeCreateSpeed(intent, canonical)
     // No prompt ownership or persisted negotiation marker changes before authorization.
     intent.createMessageSupport = supported

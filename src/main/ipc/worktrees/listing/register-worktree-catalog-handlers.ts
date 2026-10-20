@@ -75,7 +75,9 @@ export function registerWorktreeCatalogHandlers(context: WorktreeIpcContext): vo
       // A repo the WSL host owns is listed by the host; this build must not scan its old path.
       const repos = withoutWslMovedRepos(store.getRepos())
       const legacyMetadata =
-        typeof store.getAllWorktreeMetaForHost === 'function' ? undefined : store.getAllWorktreeMeta()
+        typeof store.getAllWorktreeMetaForHost === 'function'
+          ? undefined
+          : store.getAllWorktreeMeta()
       const metadataByHost = new Map<ExecutionHostId, Record<string, WorktreeMeta>>()
       const metadataForRepo = (repo: (typeof repos)[number]): Record<string, WorktreeMeta> => {
         const hostId = getRepoExecutionHostId(repo)
@@ -106,51 +108,57 @@ export function registerWorktreeCatalogHandlers(context: WorktreeIpcContext): vo
       }
 
       // Why: each local repo listing can spawn `git worktree list`; cap fan-out so large fleets don't start unbounded subprocesses.
-      const results = await mapWithConcurrency(repos, WORKTREE_LIST_ALL_CONCURRENCY, async (repo) => {
-        const connectionId = getSshTargetIdForExecutionHost(getRepoExecutionHostId(repo))
-        try {
-          const pendingAtScan = snapshotPendingWorktreeRemovals()
-          if (isFolderRepo(repo)) {
-            return listVisibleFolderWorkspaces(store, repo)
-          }
-          // An `ssh:` repo is not served here, so it lists from metadata, never from this machine.
-          if (connectionId) {
-            return listDisconnectedSshWorktrees(store, repo, sshMetaIndexForRepo(repo))
-          }
-          const scan = await listDetectedGitWorktrees(store, repo)
-          if (scan.fresh) {
-            await applyFreshDetectedWorktreeScanSideEffects(
-              store,
-              repo,
-              scan.gitWorktrees,
-              scan.metadataPrune,
-              {
-                sideEffectToken: scan.sideEffectToken,
-                ...(scan.hygieneDue === undefined ? {} : { hygieneDue: scan.hygieneDue })
-              }
+      const results = await mapWithConcurrency(
+        repos,
+        WORKTREE_LIST_ALL_CONCURRENCY,
+        async (repo) => {
+          const connectionId = getSshTargetIdForExecutionHost(getRepoExecutionHostId(repo))
+          try {
+            const pendingAtScan = snapshotPendingWorktreeRemovals()
+            if (isFolderRepo(repo)) {
+              return listVisibleFolderWorkspaces(store, repo)
+            }
+            // An `ssh:` repo is not served here, so it lists from metadata, never from this machine.
+            if (connectionId) {
+              return listDisconnectedSshWorktrees(store, repo, sshMetaIndexForRepo(repo))
+            }
+            const scan = await listDetectedGitWorktrees(store, repo)
+            if (scan.fresh) {
+              await applyFreshDetectedWorktreeScanSideEffects(
+                store,
+                repo,
+                scan.gitWorktrees,
+                scan.metadataPrune,
+                {
+                  sideEffectToken: scan.sideEffectToken,
+                  ...(scan.hygieneDue === undefined ? {} : { hygieneDue: scan.hygieneDue })
+                }
+              )
+            }
+            loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
+            const metadata = metadataForRepo(repo)
+            const rows = await withUnregisteredRemovalCheckouts(
+              repo.id,
+              withoutInFlightWorktreeCreates(repo.id, scan.gitWorktrees)
             )
+            const worktrees = buildDetectedGitWorktrees(store, repo, rows, metadata)
+              .filter((worktree) => worktree.visible)
+              .map((worktree) =>
+                stampAndMergeVisibleDetectedWorktree(store, repo, worktree, metadata)
+              )
+            return markLocalWorktreesUnderRemoval(worktrees, pendingAtScan)
+          } catch (err) {
+            warnOnce(
+              loggedWorktreeListFailures,
+              `${repo.id}:${repo.path}`,
+              `[worktrees] failed to list worktrees for repo "${repo.displayName}" (${repo.id}) at ${repo.path}`,
+              err
+            )
+            // Why: do NOT seed empty success â€” it flags the repo registered, blocking access to legit linked worktrees until the cache is invalidated.
+            return []
           }
-          loggedWorktreeListFailures.delete(`${repo.id}:${repo.path}`)
-          const metadata = metadataForRepo(repo)
-          const rows = await withUnregisteredRemovalCheckouts(
-            repo.id,
-            withoutInFlightWorktreeCreates(repo.id, scan.gitWorktrees)
-          )
-          const worktrees = buildDetectedGitWorktrees(store, repo, rows, metadata)
-            .filter((worktree) => worktree.visible)
-            .map((worktree) => stampAndMergeVisibleDetectedWorktree(store, repo, worktree, metadata))
-          return markLocalWorktreesUnderRemoval(worktrees, pendingAtScan)
-        } catch (err) {
-          warnOnce(
-            loggedWorktreeListFailures,
-            `${repo.id}:${repo.path}`,
-            `[worktrees] failed to list worktrees for repo "${repo.displayName}" (${repo.id}) at ${repo.path}`,
-            err
-          )
-          // Why: do NOT seed empty success â€” it flags the repo registered, blocking access to legit linked worktrees until the cache is invalidated.
-          return []
         }
-      })
+      )
 
       return results.flat()
     })

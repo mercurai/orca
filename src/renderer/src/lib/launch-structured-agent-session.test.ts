@@ -75,7 +75,11 @@ describe('structured agent session launch', () => {
     expect(callStructuredAgentSession).toHaveBeenCalledWith(
       { kind: 'local' },
       'agentSession.create',
-      expect.objectContaining({ worktree: 'id:workspace-1', agent: 'codex', options: expectedOptions }),
+      expect.objectContaining({
+        worktree: 'id:workspace-1',
+        agent: 'codex',
+        options: expectedOptions
+      }),
       undefined
     )
     expect(params.envelope.payloadFingerprint).toBe(

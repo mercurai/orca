@@ -1,5 +1,9 @@
 import { SecureWriteSupersededError } from './secure-file-async-write'
-import { captureEnvironmentStoreVersion, captureRuntimeEnvironmentFileVersion, withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
+import {
+  captureEnvironmentStoreVersion,
+  captureRuntimeEnvironmentFileVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
 import { serializePathWrite } from './path-write-serializer'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
@@ -192,7 +196,9 @@ export function overlayRuntimeEnvironmentSidecar(
 export function writeRuntimeEnvironmentSidecarEntry(
   ...args: Parameters<typeof writeRuntimeEnvironmentSidecarEntryWithinMutation>
 ): Promise<void> {
-  return withRuntimeEnvironmentMutation(args[0], () => writeRuntimeEnvironmentSidecarEntryWithinMutation(...args))
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    writeRuntimeEnvironmentSidecarEntryWithinMutation(...args)
+  )
 }
 
 export async function writeRuntimeEnvironmentSidecarEntryWithinMutation(
@@ -202,72 +208,87 @@ export async function writeRuntimeEnvironmentSidecarEntryWithinMutation(
   entry: Omit<RuntimeEnvironmentSidecarEntry, 'binding'> | null,
   pendingEnvironment?: PersistedRuntimeEnvironment
 ): Promise<void> {
-  return serializePathWrite(`${getRuntimeEnvironmentSidecarPath(userDataPath)}#mutation`, async () => {
-    const isCurrent = captureEnvironmentStoreVersion(userDataPath)
-    const fileIsCurrent = captureRuntimeEnvironmentFileVersion(getRuntimeEnvironmentSidecarPath(userDataPath))
-    const current = readRuntimeEnvironmentSidecar(userDataPath)
-    // Never replace what we cannot read: it may hold this server's SSH pin or deployment link.
-    if (Object.hasOwn(current.unreadable, environment.id)) {
-      throw new RuntimeEnvironmentSidecarInvalidError(
+  return serializePathWrite(
+    `${getRuntimeEnvironmentSidecarPath(userDataPath)}#mutation`,
+    async () => {
+      const isCurrent = captureEnvironmentStoreVersion(userDataPath)
+      const fileIsCurrent = captureRuntimeEnvironmentFileVersion(
+        getRuntimeEnvironmentSidecarPath(userDataPath)
+      )
+      const current = readRuntimeEnvironmentSidecar(userDataPath)
+      // Never replace what we cannot read: it may hold this server's SSH pin or deployment link.
+      if (Object.hasOwn(current.unreadable, environment.id)) {
+        throw new RuntimeEnvironmentSidecarInvalidError(
+          getRuntimeEnvironmentSidecarPath(userDataPath),
+          environment.id
+        )
+      }
+      const records = readEnvironmentStoreRecords(userDataPath)
+      if (records.unreadable.some((record) => record.id === environment.id)) {
+        throw new RuntimeEnvironmentSidecarInvalidError(
+          getRuntimeEnvironmentSidecarPath(userDataPath),
+          environment.id
+        )
+      }
+      const actual = records.environments.find((candidate) => candidate.id === environment.id)
+      if (
+        actual &&
+        JSON.stringify(runtimeEnvironmentSidecarBinding(actual)) !==
+          JSON.stringify(runtimeEnvironmentSidecarBinding(environment))
+      ) {
+        throw new SecureWriteSupersededError(getRuntimeEnvironmentSidecarPath(userDataPath))
+      }
+      // Caller snapshots may precede queue admission; current owners win over provisional rows.
+      const live = new Map(
+        [...environments, ...records.environments].map((candidate) => [candidate.id, candidate])
+      )
+      // Servers whose main record this build cannot read still own their entries.
+      const foreignOwners = new Set(records.unreadable.map((record) => record.id))
+      const entries: Record<string, RuntimeEnvironmentSidecarEntry> = {}
+      for (const [id, existing] of Object.entries(current.entries)) {
+        const owner = live.get(id)
+        if (
+          id !== environment.id &&
+          ((owner && isCurrentEntry(owner, existing)) || (!owner && foreignOwners.has(id)))
+        ) {
+          entries[id] = existing
+        }
+      }
+      const basePairingRevision = environment.pairingRevision ?? environment.createdAt
+      const hasState =
+        entry !== null &&
+        ((entry.runtimeId !== undefined && environment.runtimeId === null) ||
+          entry.sshAccess !== undefined ||
+          entry.pendingSshAccessOperation !== undefined ||
+          entry.orcadDeployment !== undefined ||
+          entry.orcadMigratedAt !== undefined ||
+          entry.reconciliation !== undefined ||
+          (entry.pairingRevisionFloor ?? basePairingRevision) > basePairingRevision)
+      if (entry && hasState) {
+        const { pendingBinding: _staleTarget, ...state } = entry
+        entries[environment.id] = SidecarEntrySchema.parse({
+          ...state,
+          binding: runtimeEnvironmentSidecarBinding(environment),
+          ...(pendingEnvironment
+            ? { pendingBinding: runtimeEnvironmentSidecarBinding(pendingEnvironment) }
+            : {})
+        })
+      }
+      await writeSecureJsonFileWithinLimitAsync(
         getRuntimeEnvironmentSidecarPath(userDataPath),
-        environment.id
+        {
+          version: 1,
+          // Unreadable entries are never pruned: this build cannot tell whether they are stale.
+          entries: {
+            ...SidecarSchema.parse({ version: 1, entries }).entries,
+            ...current.unreadable
+          }
+        },
+        MAX_SIDECAR_FILE_BYTES,
+        { durable: true, shouldPublish: () => isCurrent() && fileIsCurrent() }
       )
     }
-    const records = readEnvironmentStoreRecords(userDataPath)
-    if (records.unreadable.some((record) => record.id === environment.id)) {
-      throw new RuntimeEnvironmentSidecarInvalidError(getRuntimeEnvironmentSidecarPath(userDataPath), environment.id)
-    }
-    const actual = records.environments.find((candidate) => candidate.id === environment.id)
-    if (actual && JSON.stringify(runtimeEnvironmentSidecarBinding(actual)) !==
-        JSON.stringify(runtimeEnvironmentSidecarBinding(environment))) {
-      throw new SecureWriteSupersededError(getRuntimeEnvironmentSidecarPath(userDataPath))
-    }
-    // Caller snapshots may precede queue admission; current owners win over provisional rows.
-    const live = new Map([...environments, ...records.environments]
-      .map((candidate) => [candidate.id, candidate]))
-    // Servers whose main record this build cannot read still own their entries.
-    const foreignOwners = new Set(records.unreadable.map((record) => record.id))
-    const entries: Record<string, RuntimeEnvironmentSidecarEntry> = {}
-    for (const [id, existing] of Object.entries(current.entries)) {
-      const owner = live.get(id)
-      if (
-        id !== environment.id &&
-        ((owner && isCurrentEntry(owner, existing)) || (!owner && foreignOwners.has(id)))
-      ) {
-        entries[id] = existing
-      }
-    }
-    const basePairingRevision = environment.pairingRevision ?? environment.createdAt
-    const hasState =
-      entry !== null &&
-      ((entry.runtimeId !== undefined && environment.runtimeId === null) ||
-        entry.sshAccess !== undefined ||
-        entry.pendingSshAccessOperation !== undefined ||
-        entry.orcadDeployment !== undefined ||
-        entry.orcadMigratedAt !== undefined ||
-        entry.reconciliation !== undefined ||
-        (entry.pairingRevisionFloor ?? basePairingRevision) > basePairingRevision)
-    if (entry && hasState) {
-      const { pendingBinding: _staleTarget, ...state } = entry
-      entries[environment.id] = SidecarEntrySchema.parse({
-        ...state,
-        binding: runtimeEnvironmentSidecarBinding(environment),
-        ...(pendingEnvironment
-          ? { pendingBinding: runtimeEnvironmentSidecarBinding(pendingEnvironment) }
-          : {})
-      })
-    }
-    await writeSecureJsonFileWithinLimitAsync(
-      getRuntimeEnvironmentSidecarPath(userDataPath),
-      {
-        version: 1,
-        // Unreadable entries are never pruned: this build cannot tell whether they are stale.
-        entries: { ...SidecarSchema.parse({ version: 1, entries }).entries, ...current.unreadable }
-      },
-      MAX_SIDECAR_FILE_BYTES,
-      { durable: true, shouldPublish: () => isCurrent() && fileIsCurrent() }
-    )
-  })
+  )
 }
 
 /** The current sidecar entry for an environment, or none when absent or stale. Throws when unreadable. */

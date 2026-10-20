@@ -8,7 +8,11 @@ export function captureProcess(
   program: string,
   args: readonly string[],
   options: CaptureProcessOptions,
-  onResult: (error: ExecFileException | null, stdout: string | Buffer, stderr: string | Buffer) => void
+  onResult: (
+    error: ExecFileException | null,
+    stdout: string | Buffer,
+    stderr: string | Buffer
+  ) => void
 ): ChildProcessHandle {
   return execFile(program, [...args], { ...options, windowsHide: true }, onResult)
 }

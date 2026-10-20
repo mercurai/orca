@@ -308,7 +308,10 @@ describe('host descriptor publication', () => {
     const descriptor = await statusOf(first.runtime)
     expect(descriptor?.installationId).toBeTruthy()
     const runtimeOffer = await first.server.createPairingOffer({ address: '127.0.0.1' })
-    const mobileOffer = await first.server.createPairingOffer({ address: '127.0.0.1', scope: 'mobile' })
+    const mobileOffer = await first.server.createPairingOffer({
+      address: '127.0.0.1',
+      scope: 'mobile'
+    })
     expect(
       runtimeOffer.available && parsePairingCode(runtimeOffer.pairingUrl)?.hostDescriptor
     ).toEqual(descriptor)

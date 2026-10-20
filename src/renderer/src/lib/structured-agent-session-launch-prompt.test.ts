@@ -100,7 +100,9 @@ function faultableLocalStorage(): Storage {
   const backing = localStorage
   // Happy DOM's Storage proxy cannot delete an instance method spy during restoration.
   const boundary: Storage = {
-    get length() { return backing.length },
+    get length() {
+      return backing.length
+    },
     clear: () => backing.clear(),
     key: (index) => backing.key(index),
     getItem: (key) => backing.getItem(key),
@@ -370,13 +372,17 @@ describe('settleStructuredAgentLaunchPrompt', () => {
 
     // Optional lookup keeps the pre-implementation RED an assertion failure, not a missing-export error.
     const capture = () => {
-      const implementation = 'captureStructuredLaunchPromptDrafts' in LaunchPrompt
-        ? LaunchPrompt.captureStructuredLaunchPromptDrafts : undefined
+      const implementation =
+        'captureStructuredLaunchPromptDrafts' in LaunchPrompt
+          ? LaunchPrompt.captureStructuredLaunchPromptDrafts
+          : undefined
       return typeof implementation === 'function' ? implementation(SESSION) : undefined
     }
     const recover = (drafts: readonly { clientMessageId: string; text: string }[]) => {
-      const implementation = 'recoverStructuredLaunchPromptDrafts' in LaunchPrompt
-        ? LaunchPrompt.recoverStructuredLaunchPromptDrafts : undefined
+      const implementation =
+        'recoverStructuredLaunchPromptDrafts' in LaunchPrompt
+          ? LaunchPrompt.recoverStructuredLaunchPromptDrafts
+          : undefined
       return typeof implementation === 'function' ? implementation(SESSION, drafts) : undefined
     }
 
@@ -388,7 +394,9 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       createOwned.createOwned = true
 
       expect(pending).toBeDefined()
-      expect(capture()).toEqual([{ clientMessageId: pending?.clientMessageId, text: eligible.text }])
+      expect(capture()).toEqual([
+        { clientMessageId: pending?.clientMessageId, text: eligible.text }
+      ])
       expect(draft()).toBe('')
       expect(sends()).toEqual([])
     })
@@ -443,7 +451,9 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       await hydrateNativeChatComposerDrafts()
       storage.refuseWrites = true
       vi.spyOn(console, 'warn').mockImplementation(() => {})
-      const held = [{ clientMessageId: 'backend-refused-reservation', text: 'backend must confirm this' }]
+      const held = [
+        { clientMessageId: 'backend-refused-reservation', text: 'backend must confirm this' }
+      ]
       const original = structuredClone(held)
 
       expect(await recover(held)).toBe(false)
@@ -460,10 +470,12 @@ describe('settleStructuredAgentLaunchPrompt', () => {
       setNativeChatComposerDraftStorageForTests(storage)
       await hydrateNativeChatComposerDrafts()
 
-      expect(await recover([
-        { clientMessageId: 'first-held-reservation', text: 'first held prompt' },
-        { clientMessageId: 'second-held-reservation', text: 'second held prompt' }
-      ])).toBe(true)
+      expect(
+        await recover([
+          { clientMessageId: 'first-held-reservation', text: 'first held prompt' },
+          { clientMessageId: 'second-held-reservation', text: 'second held prompt' }
+        ])
+      ).toBe(true)
       await nativeChatComposerDraftWritesSettled()
 
       expect(draft()).toBe(`first held prompt
@@ -479,17 +491,26 @@ second held prompt`)
       const storage = createMemoryNativeChatComposerDraftStorage()
       setNativeChatComposerDraftStorageForTests(storage)
       await hydrateNativeChatComposerDrafts()
-      const heldPromptDrafts = [{ clientMessageId: 'stable-legacy-reservation', text: 'recovered opening text' }]
+      const heldPromptDrafts = [
+        { clientMessageId: 'stable-legacy-reservation', text: 'recovered opening text' }
+      ]
       const request = structuredAgentSessionCreateParams({
-        sessionId: SESSION, worktree: 'id:original-worktree', agent: 'codex',
-        randomUuid: () => '00000000-0000-4000-8000-000000000004', now: 1_760_000_000_000
+        sessionId: SESSION,
+        worktree: 'id:original-worktree',
+        agent: 'codex',
+        randomUuid: () => '00000000-0000-4000-8000-000000000004',
+        now: 1_760_000_000_000
       })
       const source: StructuredAgentLaunchPersistedRecord = {
-        sessionId: SESSION, executionHostId: 'local', agent: 'codex', lifecycle: 'visibility-unknown',
+        sessionId: SESSION,
+        executionHostId: 'local',
+        agent: 'codex',
+        lifecycle: 'visibility-unknown',
         clientOperationId: request.envelope.clientOperationId,
         payloadFingerprint: request.envelope.payloadFingerprint,
         expectedRuntimeFence: request.envelope.expectedRuntimeFence,
-        createMessageSupport: false, heldPromptDrafts
+        createMessageSupport: false,
+        heldPromptDrafts
       }
       expect(validRecord(source)).toBe(true)
       resetStructuredAgentLaunchPersistenceForTests()
@@ -503,15 +524,19 @@ second held prompt`)
       expect(localStorageBoundary.getItem(sourceKey)).toBe(persistedSource)
       const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
       const removeItem = localStorageBoundary.removeItem.bind(localStorageBoundary)
-      const refuseSourceClear = vi.spyOn(localStorageBoundary, 'removeItem').mockImplementation((key) => {
-        if (key === sourceKey) {
-          throw new DOMException('Synthetic source-clear refusal', 'QuotaExceededError')
-        }
-        removeItem(key)
-      })
+      const refuseSourceClear = vi
+        .spyOn(localStorageBoundary, 'removeItem')
+        .mockImplementation((key) => {
+          if (key === sourceKey) {
+            throw new DOMException('Synthetic source-clear refusal', 'QuotaExceededError')
+          }
+          removeItem(key)
+        })
       deleteStructuredAgentLaunchRecord(SESSION)
       expect(refuseSourceClear).toHaveBeenCalledWith(sourceKey)
-      expect(warning).toHaveBeenCalledWith('[structured-agent-launch] could not persist launch state')
+      expect(warning).toHaveBeenCalledWith(
+        '[structured-agent-launch] could not persist launch state'
+      )
       expect(readStructuredAgentLaunchRecord(SESSION)).toBeUndefined()
       expect(localStorageBoundary.getItem(sourceKey)).toBe(persistedSource)
       resetStructuredAgentLaunchPersistenceForTests()
@@ -521,9 +546,11 @@ second held prompt`)
 
       // A fresh renderer must deduplicate by recovery identity, even after later draft edits.
       vi.resetModules()
-      const reloadedStorage = await import('@/components/native-chat/native-chat-composer-draft-storage')
+      const reloadedStorage =
+        await import('@/components/native-chat/native-chat-composer-draft-storage')
       reloadedStorage.setNativeChatComposerDraftStorageForTests(storage)
-      const reloadedStore = await import('@/components/native-chat/native-chat-composer-draft-store')
+      const reloadedStore =
+        await import('@/components/native-chat/native-chat-composer-draft-store')
       const reloadedCache = await import('@/components/native-chat/native-chat-draft-cache')
       const reloadedPrompt = await import('./structured-agent-session-launch-prompt')
       try {
@@ -534,15 +561,21 @@ second held prompt`)
         reloadedStore.flushNativeChatComposerDrafts()
         await reloadedStore.nativeChatComposerDraftWritesSettled()
 
-        const implementation = 'recoverStructuredLaunchPromptDrafts' in reloadedPrompt
-          ? reloadedPrompt.recoverStructuredLaunchPromptDrafts : undefined
-        expect(typeof implementation === 'function'
-          ? await implementation(SESSION, staleSource?.heldPromptDrafts ?? [])
-          : undefined).toBe(true)
+        const implementation =
+          'recoverStructuredLaunchPromptDrafts' in reloadedPrompt
+            ? reloadedPrompt.recoverStructuredLaunchPromptDrafts
+            : undefined
+        expect(
+          typeof implementation === 'function'
+            ? await implementation(SESSION, staleSource?.heldPromptDrafts ?? [])
+            : undefined
+        ).toBe(true)
         await reloadedStore.nativeChatComposerDraftWritesSettled()
 
         expect(reloadedCache.readNativeChatDraftCache(scope)).toBe(edited)
-        expect(reloadedCache.readNativeChatDraftCache(scope).split('recovered opening text')).toHaveLength(2)
+        expect(
+          reloadedCache.readNativeChatDraftCache(scope).split('recovered opening text')
+        ).toHaveLength(2)
         expect(storage.drafts.get(scope)?.text).toBe(edited)
         expect(sends()).toEqual([])
       } finally {

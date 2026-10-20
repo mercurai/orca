@@ -39,6 +39,8 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
       - name: Verify process termination and worker stderr progress
         run: >-
           node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
@@ -87,6 +89,14 @@ jobs:
           src/shared/runtime-environment-store-pairing-serialization.test.ts
           src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
           src/shared/runtime-environment-store.test.ts
+          src/shared/runtime-environment-store-same-server.test.ts
+          src/shared/runtime-environment-ssh-access-store.test.ts
+          src/shared/runtime-environment-usage-detached.test.ts
+          src/main/ssh/orcad-migration-repository-link.test.ts
+          src/main/ssh/orcad-retained-source-lists.test.ts
+          src/main/ipc/runtime-environments/runtime-environment-host-dispatch.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-conversation-stop.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-create-message.test.ts
           src/shared/runtime-environment-managed-orcad-store.test.ts
           src/main/ipc/runtime-environments/runtime-environments-pairing.test.ts
           src/main/ipc/minimax-credentials.test.ts

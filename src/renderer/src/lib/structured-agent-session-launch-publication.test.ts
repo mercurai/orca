@@ -12,10 +12,12 @@ vi.mock('@/runtime/codex-speed-selection', () => ({
   CodexSpeedSelectionError: class extends Error {}
 }))
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: rpc }))
-vi.mock('@/store', () => ({ useAppStore: {
-  getState: () => ({ settings: {}, unifiedTabsByWorktree: {} }),
-  subscribe: () => () => {}
-} }))
+vi.mock('@/store', () => ({
+  useAppStore: {
+    getState: () => ({ settings: {}, unifiedTabsByWorktree: {} }),
+    subscribe: () => () => {}
+  }
+}))
 
 import { markStructuredAgentSessionLaunchPublished } from './structured-agent-session-launch-publication'
 import { restorePersistedStructuredLaunchState } from './structured-agent-session-launch-reload'
@@ -105,7 +107,8 @@ describe('publication arriving before launch restoration', () => {
     markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
 
     expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
-    const restored = getStructuredLaunchStateBySessionId(sessionId) ??
+    const restored =
+      getStructuredLaunchStateBySessionId(sessionId) ??
       restorePersistedStructuredLaunchState(worktreeId, sessionId)
     await nativeChatComposerDraftWritesSettled()
     expect(restored?.selection.held).toEqual(original.heldOptions)
@@ -123,96 +126,153 @@ describe('publication arriving before launch restoration', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
-  it.each([true, false])('confirms a modern publication read-only with held speed when opening receipt present=%s', async (hasReceipt) => {
-    const worktreeId = 'wt-modern-publication-held'
-    const sessionId = 'codex-modern-publication-held'
-    const original: StructuredAgentLaunchPersistedRecord = {
-      sessionId, executionHostId: 'runtime:original-host', agent: 'codex', lifecycle: 'visibility-unknown',
-      clientOperationId: 'lost-reply-create-operation', payloadFingerprint: 'lost-reply-create-fingerprint',
-      expectedRuntimeFence: null, createMessageSupport: true,
-      options: { model: 'model-original', serviceTier: 'default' },
-      createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
-      createSpeedAuthority: {
-        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
-      },
-      firstMessage: {
+  it.each([true, false])(
+    'confirms a modern publication read-only with held speed when opening receipt present=%s',
+    async (hasReceipt) => {
+      const worktreeId = 'wt-modern-publication-held'
+      const sessionId = 'codex-modern-publication-held'
+      const original: StructuredAgentLaunchPersistedRecord = {
+        sessionId,
+        executionHostId: 'runtime:original-host',
+        agent: 'codex',
+        lifecycle: 'visibility-unknown',
+        clientOperationId: 'lost-reply-create-operation',
+        payloadFingerprint: 'lost-reply-create-fingerprint',
+        expectedRuntimeFence: null,
+        createMessageSupport: true,
+        options: { model: 'model-original', serviceTier: 'default' },
+        createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
+        createSpeedAuthority: {
+          expectedEnvironmentPairingRevision: 7,
+          expectedEnvironmentRuntimeId: 'original-runtime'
+        },
+        firstMessage: {
+          clientMessageId: 'immutable-opening-message',
+          body: {
+            kind: 'message',
+            role: 'user',
+            blocks: [{ type: 'text', text: 'immutable opening text' }]
+          }
+        },
+        heldOptions: { serviceTier: 'next-turn-exact-held-tier' }
+      }
+      const opening: AgentJournalSubmission = {
         clientMessageId: 'immutable-opening-message',
-        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'immutable opening text' }] }
-      },
-      heldOptions: { serviceTier: 'next-turn-exact-held-tier' }
-    }
-    const opening: AgentJournalSubmission = {
-      clientMessageId: 'immutable-opening-message', fence: 7, payloadFingerprint: 'opening-fingerprint',
-      dispatchState: 'accepted', handoverRecorded: true, providerItemId: null, reason: null,
-      submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000
-    }
-    const cursor = { epoch: 'modern-publication-epoch', sequence: hasReceipt ? 1 : 0 }
-    const page: AgentSessionHistoryPage = {
-      sessionId, epoch: cursor.epoch, fence: 7, direction: 'tail', items: [], removedItemIds: [],
-      submissions: hasReceipt ? [opening] : [],
-      window: { oldest: null, newest: null, nextCursor: cursor }, liveCursor: cursor,
-      hasOlder: false, hasNewer: false, latestTurn: null
-    }
-    rpc.mockImplementation(async (_target, method) => {
-      if (method === 'session.tabs.listAll') {
-        return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
+        fence: 7,
+        payloadFingerprint: 'opening-fingerprint',
+        dispatchState: 'accepted',
+        handoverRecorded: true,
+        providerItemId: null,
+        reason: null,
+        submittedAt: 1_760_000_000_000,
+        resolvedAt: 1_760_000_000_000
       }
-      if (method === 'agentSession.history') {
-        return { ok: true, page }
+      const cursor = { epoch: 'modern-publication-epoch', sequence: hasReceipt ? 1 : 0 }
+      const page: AgentSessionHistoryPage = {
+        sessionId,
+        epoch: cursor.epoch,
+        fence: 7,
+        direction: 'tail',
+        items: [],
+        removedItemIds: [],
+        submissions: hasReceipt ? [opening] : [],
+        window: { oldest: null, newest: null, nextCursor: cursor },
+        liveCursor: cursor,
+        hasOlder: false,
+        hasNewer: false,
+        latestTurn: null
       }
-      throw new Error(`Publication must not issue a mutation: ${method}`)
-    })
-    vi.spyOn(console, 'warn').mockImplementation(() => {})
-    writeStructuredAgentLaunchRecord(original)
-    expect(getStructuredLaunchStateBySessionId(sessionId)).toBeUndefined()
+      rpc.mockImplementation(async (_target, method) => {
+        if (method === 'session.tabs.listAll') {
+          return {
+            snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }]
+          }
+        }
+        if (method === 'agentSession.history') {
+          return { ok: true, page }
+        }
+        throw new Error(`Publication must not issue a mutation: ${method}`)
+      })
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      writeStructuredAgentLaunchRecord(original)
+      expect(getStructuredLaunchStateBySessionId(sessionId)).toBeUndefined()
 
-    markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
-    await vi.waitFor(() => expect(rpc.mock.calls.filter(([, method]) =>
-      method === 'agentSession.history')).toHaveLength(1))
-    const state = getStructuredLaunchStateBySessionId(sessionId)
-    expect(state).toBeDefined()
-    if (!state) {
-      throw new Error('Expected restored modern publication state')
+      markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, original.executionHostId)
+      await vi.waitFor(() =>
+        expect(
+          rpc.mock.calls.filter(([, method]) => method === 'agentSession.history')
+        ).toHaveLength(1)
+      )
+      const state = getStructuredLaunchStateBySessionId(sessionId)
+      expect(state).toBeDefined()
+      if (!state) {
+        throw new Error('Expected restored modern publication state')
+      }
+      const outcome = await state.promise.then(
+        () => 'confirmed',
+        () => 'missing-receipt'
+      )
+
+      expect(outcome).toBe(hasReceipt ? 'confirmed' : 'missing-receipt')
+      expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
+        'session.tabs.listAll',
+        'agentSession.history'
+      ])
+      expect(state.selection.held).toEqual(original.heldOptions)
+      expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
+      expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
     }
-    const outcome = await state.promise.then(() => 'confirmed', () => 'missing-receipt')
-
-    expect(outcome).toBe(hasReceipt ? 'confirmed' : 'missing-receipt')
-    expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
-      'session.tabs.listAll', 'agentSession.history'
-    ])
-    expect(state.selection.held).toEqual(original.heldOptions)
-    expect(state.intent.params.firstMessage).toEqual(original.firstMessage)
-    expect(readStructuredAgentLaunchRecord(sessionId)).toMatchObject(original)
-  })
+  )
 
   it('does not replay a missing opening receipt after speed is selected during the history read', async () => {
     const worktreeId = 'wt-publication-history-race'
     const sessionId = 'codex-publication-history-race'
     const original: StructuredAgentLaunchPersistedRecord = {
-      sessionId, executionHostId: 'runtime:original-host', agent: 'codex', lifecycle: 'visibility-unknown',
-      clientOperationId: 'history-race-create-operation', payloadFingerprint: 'history-race-create-fingerprint',
-      expectedRuntimeFence: null, createMessageSupport: true,
+      sessionId,
+      executionHostId: 'runtime:original-host',
+      agent: 'codex',
+      lifecycle: 'visibility-unknown',
+      clientOperationId: 'history-race-create-operation',
+      payloadFingerprint: 'history-race-create-fingerprint',
+      expectedRuntimeFence: null,
+      createMessageSupport: true,
       options: { model: 'model-original', serviceTier: 'default' },
       createCanonicalOptions: { model: 'model-original', serviceTier: 'default' },
       createSpeedAuthority: {
-        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+        expectedEnvironmentPairingRevision: 7,
+        expectedEnvironmentRuntimeId: 'original-runtime'
       },
       firstMessage: {
         clientMessageId: 'history-race-opening',
-        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'immutable opening' }] }
+        body: {
+          kind: 'message',
+          role: 'user',
+          blocks: [{ type: 'text', text: 'immutable opening' }]
+        }
       }
     }
     const cursor = { epoch: 'history-race-epoch', sequence: 0 }
     const page: AgentSessionHistoryPage = {
-      sessionId, epoch: cursor.epoch, fence: 7, direction: 'tail', items: [], removedItemIds: [],
-      submissions: [], window: { oldest: null, newest: null, nextCursor: cursor }, liveCursor: cursor,
-      hasOlder: false, hasNewer: false, latestTurn: null
+      sessionId,
+      epoch: cursor.epoch,
+      fence: 7,
+      direction: 'tail',
+      items: [],
+      removedItemIds: [],
+      submissions: [],
+      window: { oldest: null, newest: null, nextCursor: cursor },
+      liveCursor: cursor,
+      hasOlder: false,
+      hasNewer: false,
+      latestTurn: null
     }
     const historyStarted = Promise.withResolvers<void>()
     const historyReply = Promise.withResolvers<{ ok: true; page: AgentSessionHistoryPage }>()
     rpc.mockImplementation(async (_target, method) => {
       if (method === 'session.tabs.listAll') {
-        return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
+        return {
+          snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }]
+        }
       }
       if (method === 'agentSession.history') {
         historyStarted.resolve()
@@ -230,16 +290,21 @@ describe('publication arriving before launch restoration', () => {
       throw new Error('Expected restored launch awaiting publication history')
     }
     expect(state.selection.held).toEqual({})
-    const outcome = state.promise.then(() => 'confirmed', () => 'unconfirmed')
+    const outcome = state.promise.then(
+      () => 'confirmed',
+      () => 'unconfirmed'
+    )
     const heldOptions = { serviceTier: 'history-race-exact-held-tier' }
-    expect(holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', heldOptions.serviceTier))
-      .not.toBeNull()
+    expect(
+      holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', heldOptions.serviceTier)
+    ).not.toBeNull()
     expect(readStructuredAgentLaunchRecord(sessionId)?.heldOptions).toEqual(heldOptions)
     historyReply.resolve({ ok: true, page })
 
     expect(await outcome).toBe('unconfirmed')
     expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
-      'session.tabs.listAll', 'agentSession.history'
+      'session.tabs.listAll',
+      'agentSession.history'
     ])
     expect(state.visibilityUnknown).toBe(true)
     expect(state.selection.held).toEqual(heldOptions)
@@ -252,41 +317,71 @@ describe('publication arriving before launch restoration', () => {
     const worktreeId = 'wt-publication-explicit-retry'
     const sessionId = 'codex_publication_explicit_retry'
     const request = structuredAgentSessionCreateParams({
-      sessionId, worktree: `id:${worktreeId}`, agent: 'codex',
+      sessionId,
+      worktree: `id:${worktreeId}`,
+      agent: 'codex',
       options: { model: 'model-original', serviceTier: 'default' },
       firstMessage: {
         clientMessageId: 'explicit-retry-original-opening',
-        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'original explicit opening' }] }
+        body: {
+          kind: 'message',
+          role: 'user',
+          blocks: [{ type: 'text', text: 'original explicit opening' }]
+        }
       },
-      randomUuid: () => '00000000-0000-4000-8000-000000000003', now: 1_760_000_000_000
+      randomUuid: () => '00000000-0000-4000-8000-000000000003',
+      now: 1_760_000_000_000
     })
     const original: StructuredAgentLaunchPersistedRecord = {
-      sessionId, executionHostId: 'runtime:original-host', agent: 'codex', lifecycle: 'visibility-unknown',
+      sessionId,
+      executionHostId: 'runtime:original-host',
+      agent: 'codex',
+      lifecycle: 'visibility-unknown',
       clientOperationId: request.envelope.clientOperationId,
       payloadFingerprint: request.envelope.payloadFingerprint,
-      expectedRuntimeFence: request.envelope.expectedRuntimeFence, createMessageSupport: true,
-      options: request.options, createCanonicalOptions: request.options,
+      expectedRuntimeFence: request.envelope.expectedRuntimeFence,
+      createMessageSupport: true,
+      options: request.options,
+      createCanonicalOptions: request.options,
       createSpeedAuthority: {
-        expectedEnvironmentPairingRevision: 7, expectedEnvironmentRuntimeId: 'original-runtime'
+        expectedEnvironmentPairingRevision: 7,
+        expectedEnvironmentRuntimeId: 'original-runtime'
       },
       firstMessage: request.firstMessage
     }
     const opening: AgentJournalSubmission = {
-      clientMessageId: 'explicit-retry-original-opening', fence: 7, payloadFingerprint: 'b'.repeat(64),
-      dispatchState: 'accepted', handoverRecorded: true, providerItemId: null, reason: null,
-      submittedAt: 1_760_000_000_000, resolvedAt: 1_760_000_000_000
+      clientMessageId: 'explicit-retry-original-opening',
+      fence: 7,
+      payloadFingerprint: 'b'.repeat(64),
+      dispatchState: 'accepted',
+      handoverRecorded: true,
+      providerItemId: null,
+      reason: null,
+      submittedAt: 1_760_000_000_000,
+      resolvedAt: 1_760_000_000_000
     }
     const cursor = { epoch: 'explicit-retry-epoch', sequence: 0 }
     const missingPage: AgentSessionHistoryPage = {
-      sessionId, epoch: cursor.epoch, fence: 7, direction: 'tail', items: [], removedItemIds: [],
-      submissions: [], window: { oldest: null, newest: null, nextCursor: cursor }, liveCursor: cursor,
-      hasOlder: false, hasNewer: false, latestTurn: null
+      sessionId,
+      epoch: cursor.epoch,
+      fence: 7,
+      direction: 'tail',
+      items: [],
+      removedItemIds: [],
+      submissions: [],
+      window: { oldest: null, newest: null, nextCursor: cursor },
+      liveCursor: cursor,
+      hasOlder: false,
+      hasNewer: false,
+      latestTurn: null
     }
     const historyStarted = Promise.withResolvers<void>()
     let explicitRetry = false
     rpc.mockImplementation(async (_target, method) => {
       if (method === 'session.tabs.listAll') {
-        return { snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }] }
+        return {
+          snapshots: [{ worktree: worktreeId, tabs: [{ type: 'agent-session', sessionId }] }]
+        }
       }
       if (method === 'agentSession.history') {
         historyStarted.resolve()
@@ -296,16 +391,24 @@ describe('publication arriving before launch restoration', () => {
         return { supported: true }
       }
       if (explicitRetry && method === 'agentSession.create') {
-        return { ok: true, value: {
-          sessionId, fence: 7, firstMessage: opening,
-          page: { ...missingPage, submissions: [opening] }
-        } }
+        return {
+          ok: true,
+          value: {
+            sessionId,
+            fence: 7,
+            firstMessage: opening,
+            page: { ...missingPage, submissions: [opening] }
+          }
+        }
       }
       throw new Error(`Mutation requires an explicit Retry: ${method}`)
     })
-    authorizeSpeed.mockImplementation(async (input: { options?: Readonly<Record<string, string>> }) => ({
-      options: input.options, authority: original.createSpeedAuthority
-    }))
+    authorizeSpeed.mockImplementation(
+      async (input: { options?: Readonly<Record<string, string>> }) => ({
+        options: input.options,
+        authority: original.createSpeedAuthority
+      })
+    )
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     writeStructuredAgentLaunchRecord(original)
 
@@ -317,7 +420,8 @@ describe('publication arriving before launch restoration', () => {
     }
     await expect(state.promise).rejects.toBeInstanceOf(Error)
     expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
-      'session.tabs.listAll', 'agentSession.history'
+      'session.tabs.listAll',
+      'agentSession.history'
     ])
     expect(authorizeSpeed).not.toHaveBeenCalled()
     expect(state.visibilityUnknown).toBe(true)
@@ -328,11 +432,19 @@ describe('publication arriving before launch restoration', () => {
 
     explicitRetry = true
     expect(retryStructuredAgentSessionLaunch(worktreeId, sessionId)).toBe(true)
-    await expect(state.promise).resolves.toMatchObject({ sessionId, fence: 7, firstMessage: opening })
+    await expect(state.promise).resolves.toMatchObject({
+      sessionId,
+      fence: 7,
+      firstMessage: opening
+    })
 
     expect(rpc.mock.calls.map(([, method]) => method)).toEqual([
-      'session.tabs.listAll', 'agentSession.history',
-      'session.tabs.listAll', 'agentSession.history', 'agentSession.createSupport', 'agentSession.create'
+      'session.tabs.listAll',
+      'agentSession.history',
+      'session.tabs.listAll',
+      'agentSession.history',
+      'agentSession.createSupport',
+      'agentSession.create'
     ])
     const creates = rpc.mock.calls.filter(([, method]) => method === 'agentSession.create')
     expect(creates).toHaveLength(1)

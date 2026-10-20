@@ -215,7 +215,10 @@ describe('agent model catalog service', () => {
       },
       probes: { codex: probe }
     })
-    expect(await service.read({ agent: 'codex' })).toEqual({ origin: 'unknown', catalogState: 'unknown' })
+    expect(await service.read({ agent: 'codex' })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(probe).not.toHaveBeenCalled()
   })
 
@@ -428,7 +431,10 @@ describe('agent model catalog service', () => {
         origin: 'unknown',
         catalogState: 'unknown'
       })
-      expect(await service.read({ agent: 'codex' })).toEqual({ origin: 'unknown', catalogState: 'unknown' })
+      expect(await service.read({ agent: 'codex' })).toEqual({
+        origin: 'unknown',
+        catalogState: 'unknown'
+      })
       expect(probe).not.toHaveBeenCalled()
     })
 

@@ -34,12 +34,6 @@ import { attachmentProblemSentence } from './agent-session-attachment-failure-wo
 import { joinSentences } from './sentence-joining'
 import { legacyDispatchRejectionMarker } from './structured-agent-session-dispatch-rejection'
 import { requestTimeoutSeconds } from './agent-session-request-timeout'
-import {
-  DISPATCH_REJECTED_CANCELLED,
-  DISPATCH_REJECTED_CODEX_QUEUE_FULL,
-  DISPATCH_REJECTED_QUEUE_FULL,
-  DISPATCH_REJECTED_WRITE_FAILED
-} from './structured-agent-session-dispatch-rejection'
 
 declare const failureSentence: unique symbol
 

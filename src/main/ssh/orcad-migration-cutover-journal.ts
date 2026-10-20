@@ -119,7 +119,10 @@ export function updateOrcadMigrationSourceCutover(
       return current
     }
     const next = parseOrcadMigrationSourceCutover(updated)
-    if (next.migrationId !== current.migrationId || next.manifestSha256 !== current.manifestSha256) {
+    if (
+      next.migrationId !== current.migrationId ||
+      next.manifestSha256 !== current.manifestSha256
+    ) {
       throw new Error('orcad_migration_destination_state_mismatch')
     }
     await write(next)
@@ -142,7 +145,10 @@ export function removeOrcadMigrationJournalsForDestination(
 ): Promise<void> {
   return journals.transact(userDataPath, async ({ remove }) => {
     for (const cutover of listOrcadMigrationSourceCutovers(userDataPath)) {
-      if (cutover.sshTargetId === sshTargetId && cutover.destinationEnvironmentId === environmentId) {
+      if (
+        cutover.sshTargetId === sshTargetId &&
+        cutover.destinationEnvironmentId === environmentId
+      ) {
         await remove(cutover.migrationId)
       }
     }

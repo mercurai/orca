@@ -1,4 +1,8 @@
-import { bumpEnvironmentWriteGeneration, captureEnvironmentStoreVersion, withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
+import {
+  bumpEnvironmentWriteGeneration,
+  captureEnvironmentStoreVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
 import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import {
@@ -122,8 +126,13 @@ export function readEnvironmentStore(
  * Writes only persisted fields; sidecar state is written by the sidecar module. Records on disk
  * this build cannot read are appended verbatim, in their original order.
  */
-export function writeEnvironmentStoreSnapshotAsync(userDataPath: string, store: RuntimeEnvironmentStore): Promise<void> {
-  return withRuntimeEnvironmentMutation(userDataPath, () => writeEnvironmentStoreAsync(userDataPath, store))
+export function writeEnvironmentStoreSnapshotAsync(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore
+): Promise<void> {
+  return withRuntimeEnvironmentMutation(userDataPath, () =>
+    writeEnvironmentStoreAsync(userDataPath, store)
+  )
 }
 
 /** Publication inside a caller-owned transaction; the caller must compute from a current snapshot. */
@@ -153,13 +162,15 @@ export async function writeEnvironmentStoreAsync(
         environments: [...environments, ...onDisk.unreadable.map((record) => record.raw)]
       },
       MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
-      { shouldPublish: () => {
-        if (!isCurrent() || options.shouldPublish?.() === false) {
-          return false
+      {
+        shouldPublish: () => {
+          if (!isCurrent() || options.shouldPublish?.() === false) {
+            return false
+          }
+          bumpEnvironmentWriteGeneration()
+          return true
         }
-        bumpEnvironmentWriteGeneration()
-        return true
-      } }
+      }
     )
   } catch (error) {
     if (error instanceof JsonStringifyByteLimitError) {

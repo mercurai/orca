@@ -16,7 +16,10 @@ let storage: ReturnType<typeof createMemoryNativeChatComposerDraftStorage>
 const loaded: Modules[] = []
 
 /** Independent renderer memory over the same durable backend, as in the existing draft tests. */
-async function reload(using: NativeChatComposerDraftStorage = storage, hydrate = true): Promise<Modules> {
+async function reload(
+  using: NativeChatComposerDraftStorage = storage,
+  hydrate = true
+): Promise<Modules> {
   vi.resetModules()
   const backend = await import('./native-chat-composer-draft-storage')
   backend.setNativeChatComposerDraftStorageForTests(using)
@@ -33,8 +36,10 @@ async function reload(using: NativeChatComposerDraftStorage = storage, hydrate =
 
 /** Missing implementation must fail a behavioral assertion, not module loading. */
 async function recover(modules: Modules, messages: readonly Message[]) {
-  const implementation = 'recoverNativeChatComposerDraftMessages' in modules.store
-    ? modules.store.recoverNativeChatComposerDraftMessages : undefined
+  const implementation =
+    'recoverNativeChatComposerDraftMessages' in modules.store
+      ? modules.store.recoverNativeChatComposerDraftMessages
+      : undefined
   return typeof implementation === 'function' ? await implementation(SCOPE, messages) : undefined
 }
 function text(modules: Modules): string {
@@ -68,7 +73,8 @@ describe('durable composer recovery receipts', () => {
   })
 
   it.each(['typing', 'clearing'] as const)(
-    'never replays a recovered message after %s and a renderer reload', async (edit) => {
+    'never replays a recovered message after %s and a renderer reload',
+    async (edit) => {
       const modules = await reload()
       expect(await recover(modules, [MESSAGE])).toBe(true)
       await settled(modules)
@@ -133,7 +139,9 @@ describe('durable composer recovery receipts', () => {
     expect(storage.drafts.get(SCOPE)).toEqual(persisted)
     expect(overflow).toEqual(original)
     const restored = await reload()
-    expect(await recover(restored, [{ clientMessageId: 'synthetic-capacity-0', text: 'recovery 0' }])).toBe(true)
+    expect(
+      await recover(restored, [{ clientMessageId: 'synthetic-capacity-0', text: 'recovery 0' }])
+    ).toBe(true)
     expect(text(restored)).toBe(before)
   })
 
@@ -194,7 +202,9 @@ describe('durable composer recovery receipts', () => {
     await settled(initial)
     const storedBeforeEdit = new Map(storage.drafts)
     let resolve!: (value: ReadonlyMap<string, unknown>) => void
-    const pendingRead = new Promise<ReadonlyMap<string, unknown>>((done) => { resolve = done })
+    const pendingRead = new Promise<ReadonlyMap<string, unknown>>((done) => {
+      resolve = done
+    })
     const delayed = await reload({ ...storage, loadAll: () => pendingRead }, false)
     const loading = delayed.store.hydrateNativeChatComposerDrafts()
     delayed.cache.writeNativeChatDraftCache(SCOPE, 'typed before hydration finished')
@@ -211,12 +221,17 @@ describe('durable composer recovery receipts', () => {
   it('refuses recovery when its stored workspace is deleted before hydration exposes its owner', async () => {
     const owner = { workspaceId: 'synthetic-workspace', executionHostId: 'local' as const }
     storage.drafts.set(SCOPE, {
-      text: 'owned draft', images: [], savedAt: 1, owner,
+      text: 'owned draft',
+      images: [],
+      savedAt: 1,
+      owner,
       recoveredMessageIds: ['synthetic-previous-recovery']
     })
     const snapshot = new Map(storage.drafts)
     let release!: (value: ReadonlyMap<string, unknown>) => void
-    const pending = new Promise<ReadonlyMap<string, unknown>>((resolve) => { release = resolve })
+    const pending = new Promise<ReadonlyMap<string, unknown>>((resolve) => {
+      release = resolve
+    })
     const modules = await reload({ ...storage, loadAll: () => pending }, false)
     // No resolver: only the still-loading stored record can establish this draft's owner.
     const recovering = recover(modules, [MESSAGE])
@@ -233,7 +248,8 @@ describe('durable composer recovery receipts', () => {
     const seed = await reload()
     for (let start = 0; start < CAPACITY - 1; start += 32) {
       const batch = Array.from({ length: Math.min(32, CAPACITY - 1 - start) }, (_, offset) => ({
-        clientMessageId: `synthetic-race-${start + offset}`, text: `receipt ${start + offset}`
+        clientMessageId: `synthetic-race-${start + offset}`,
+        text: `receipt ${start + offset}`
       }))
       expect(await recover(seed, batch)).toBe(true)
     }
@@ -259,9 +275,9 @@ describe('durable composer recovery receipts', () => {
     const second = await reload()
     const shared = { clientMessageId: 'synthetic-shared', text: 'shared recovery' }
     const tail = { clientMessageId: 'synthetic-tail', text: 'tail recovery' }
-    expect(await Promise.all([
-      recover(first, [MESSAGE, shared]), recover(second, [shared, tail])
-    ])).toEqual([true, true])
+    expect(
+      await Promise.all([recover(first, [MESSAGE, shared]), recover(second, [shared, tail])])
+    ).toEqual([true, true])
     const restored = await reload()
     for (const message of [MESSAGE, shared, tail]) {
       expect(text(restored).split(message.text)).toHaveLength(2)
@@ -274,8 +290,12 @@ describe('durable composer recovery receipts', () => {
   it('keeps user text typed during a deferred recovery commit', async () => {
     let release!: () => void
     let entered!: () => void
-    const gate = new Promise<void>((done) => { release = done })
-    const started = new Promise<void>((done) => { entered = done })
+    const gate = new Promise<void>((done) => {
+      release = done
+    })
+    const started = new Promise<void>((done) => {
+      entered = done
+    })
     const delayed: NativeChatComposerDraftStorage = {
       ...storage,
       update: async (scopeKey, apply) => {
@@ -302,8 +322,12 @@ describe('durable composer recovery receipts', () => {
   it('preserves typing after the backend committed but before its acknowledgement resumes recovery', async () => {
     let release!: () => void
     let entered!: () => void
-    const acknowledgement = new Promise<void>((done) => { release = done })
-    const committed = new Promise<void>((done) => { entered = done })
+    const acknowledgement = new Promise<void>((done) => {
+      release = done
+    })
+    const committed = new Promise<void>((done) => {
+      entered = done
+    })
     const delayed: NativeChatComposerDraftStorage = {
       ...storage,
       update: async (scopeKey, apply) => {
@@ -339,5 +363,4 @@ describe('durable composer recovery receipts', () => {
     expect(text(restored)).toBe(MESSAGE.text)
     expect(text(await reload())).toBe(MESSAGE.text)
   })
-
 })

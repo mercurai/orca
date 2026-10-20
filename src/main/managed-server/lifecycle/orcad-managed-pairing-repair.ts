@@ -43,7 +43,11 @@ export type ManagedOrcadPairingRepairDeps = {
     target: SshTarget
     connection: OrcadHostTransport
   }) => Promise<ServeReadiness | null>
-  refresh: (environmentId: string, pairingCode: string, expectedPairingRevision: number) => KnownRuntimeEnvironment | Promise<KnownRuntimeEnvironment>
+  refresh: (
+    environmentId: string,
+    pairingCode: string,
+    expectedPairingRevision: number
+  ) => KnownRuntimeEnvironment | Promise<KnownRuntimeEnvironment>
   /** Retires every transport still authenticating with the refused token, once per repair. */
   repaired: (environmentId: string) => void | Promise<void>
   now: () => number

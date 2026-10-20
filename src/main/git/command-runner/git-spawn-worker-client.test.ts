@@ -50,11 +50,17 @@ describe('GitSpawnWorkerClient', () => {
     expect(observer).toHaveBeenCalledOnce()
     expect(workers[0]?.requests.at(-1)).toEqual({ type: 'ack', id: 1, chunks: 2 })
     workers[0]?.reply({
-      type: 'result', id: 1, error: null, stdout: 'complete',
-      stderr: 'progressprogress', terminating: false
+      type: 'result',
+      id: 1,
+      error: null,
+      stdout: 'complete',
+      stderr: 'progressprogress',
+      terminating: false
     })
     await expect(handle?.outcome).resolves.toMatchObject({
-      kind: 'result', stdout: 'complete', stderr: 'progressprogress'
+      kind: 'result',
+      stdout: 'complete',
+      stderr: 'progressprogress'
     })
     workers[0]?.reply({ type: 'closed', id: 1, code: 0, signal: null })
     client.dispose()

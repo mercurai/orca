@@ -1,6 +1,9 @@
 import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
-import type { AgentSessionModelCatalogResult, AgentSessionOptionsResult } from '../../../shared/agent-session-wire'
+import type {
+  AgentSessionModelCatalogResult,
+  AgentSessionOptionsResult
+} from '../../../shared/agent-session-wire'
 import { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } from '../../../shared/agent-session-create-capabilities'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
@@ -33,11 +36,12 @@ export async function prepareCodexSpeedWireOptions(input: SpeedWireInput) {
   if (!frozen || tier === undefined) {
     return prepared
   }
-  const canonicalStillAccepted = frozen.serviceTier !== undefined &&
-    frozen.serviceTier === prepared.options?.serviceTier
+  const canonicalStillAccepted =
+    frozen.serviceTier !== undefined && frozen.serviceTier === prepared.options?.serviceTier
   const standardStillSafe = frozen.fastMode === 'false' && tier === 'default'
-  const fastStillExact = frozen.fastMode === 'true' &&
-    await verifiedLegacyFastTier(input, tier, prepared.authority ?? {})
+  const fastStillExact =
+    frozen.fastMode === 'true' &&
+    (await verifiedLegacyFastTier(input, tier, prepared.authority ?? {}))
   if (!canonicalStillAccepted && !standardStillSafe && !fastStillExact) {
     throw new CodexSpeedSelectionError(
       'The pending speed request cannot be replayed safely. Refresh the speed choices and retry.'
@@ -55,9 +59,14 @@ async function prepareCurrentCodexSpeedWireOptions(input: SpeedWireInput): Promi
   if (tier === undefined || (input.agent !== undefined && input.agent !== 'codex')) {
     return { options: input.options }
   }
-  const authority: CodexSpeedWireAuthority = input.target.kind === 'environment'
-    ? { expectedEnvironmentPairingRevision: captureRuntimeEnvironmentRequestRevision(input.target.environmentId) }
-    : {}
+  const authority: CodexSpeedWireAuthority =
+    input.target.kind === 'environment'
+      ? {
+          expectedEnvironmentPairingRevision: captureRuntimeEnvironmentRequestRevision(
+            input.target.environmentId
+          )
+        }
+      : {}
   let status: RuntimeStatus
   try {
     // Fresh per action: a reconnect or an account/model change cannot inherit a cached verdict.
@@ -108,16 +117,25 @@ async function verifiedLegacyFastTier(
       },
       authority
     )
-    if (catalog.origin === 'unknown' || catalog.listingInProgress || catalog.unavailable ||
+    if (
+      catalog.origin === 'unknown' ||
+      catalog.listingInProgress ||
+      catalog.unavailable ||
       (catalog.catalogState !== undefined && catalog.catalogState !== 'available') ||
-      !Number.isFinite(catalog.fetchedAt) || catalog.fetchedAt > Date.now() ||
-      Date.now() - catalog.fetchedAt >= AGENT_MODEL_CATALOG_FRESH_MS) {
+      !Number.isFinite(catalog.fetchedAt) ||
+      catalog.fetchedAt > Date.now() ||
+      Date.now() - catalog.fetchedAt >= AGENT_MODEL_CATALOG_FRESH_MS
+    ) {
       return false
     }
     let modelId = input.options?.model
     if (!modelId && input.sessionId) {
-      const session = await callRuntimeRpc<AgentSessionOptionsResult>(input.target, 'agentSession.options',
-        { sessionId: input.sessionId }, authority)
+      const session = await callRuntimeRpc<AgentSessionOptionsResult>(
+        input.target,
+        'agentSession.options',
+        { sessionId: input.sessionId },
+        authority
+      )
       modelId = session.current.model
     }
     const model = modelId
@@ -125,8 +143,13 @@ async function verifiedLegacyFastTier(
       : !input.sessionId && catalog.listingNamesConfiguredModel
         ? catalog.models.find((row) => row.isDefault)
         : undefined
-    return model?.serviceTiers?.some((row) => row.value === tier &&
-      (/^fast$/i.test(row.label.trim()) || /^fast$/i.test(row.value.trim()))) === true
+    return (
+      model?.serviceTiers?.some(
+        (row) =>
+          row.value === tier &&
+          (/^fast$/i.test(row.label.trim()) || /^fast$/i.test(row.value.trim()))
+      ) === true
+    )
   } catch {
     return false
   }

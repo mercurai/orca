@@ -162,7 +162,9 @@ describe('repository registration probe batching', () => {
     const probe = vi.spyOn(runner, 'gitExecFileAsync')
     expect(await isGitRepoAsync(bare)).toBe(true)
     expect(probe).toHaveBeenCalledOnce()
-    expect((await inspectGitRepoForRegistrationAsync(join(directory, 'missing'))).isRepo).toBe(false)
+    expect((await inspectGitRepoForRegistrationAsync(join(directory, 'missing'))).isRepo).toBe(
+      false
+    )
     expect(probe).toHaveBeenCalledOnce()
   })
 })

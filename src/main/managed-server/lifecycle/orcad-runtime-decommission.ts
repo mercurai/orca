@@ -177,7 +177,11 @@ async function unlinkEnvironmentLocally(
   clearManagedOrcadUpdateDeferral(environment.id)
   await claims.flush()
   // After the fence: a crash between leaves a stale journal a later conversion clears.
-  await removeOrcadMigrationJournalsForDestination(userDataPath, deployment.sshTargetId, environment.id)
+  await removeOrcadMigrationJournalsForDestination(
+    userDataPath,
+    deployment.sshTargetId,
+    environment.id
+  )
 }
 
 /** Withdraws a stop orcad has not acted on yet; the server then keeps serving. */

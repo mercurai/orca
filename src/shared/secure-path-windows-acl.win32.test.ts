@@ -232,10 +232,12 @@ describeOnWindows('Windows secure paths against a real filesystem', () => {
     const startedAt = performance.now()
     while (performance.now() - startedAt < 1000) {
       try {
-        restricted +=
-          (await writeSecureFileAsync(target, JSON.stringify({ secretKey: 'x'.repeat(64) })))
-            ? 1
-            : 0
+        restricted += (await writeSecureFileAsync(
+          target,
+          JSON.stringify({ secretKey: 'x'.repeat(64) })
+        ))
+          ? 1
+          : 0
       } catch (error) {
         // The observer's own open handle can make a replace-rename fail; that is the racer, not us.
         expect(error).toMatchObject({ code: 'EPERM', syscall: 'rename' })

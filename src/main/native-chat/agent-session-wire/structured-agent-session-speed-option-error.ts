@@ -14,7 +14,9 @@ export class StructuredAgentSessionSpeedOptionError extends Error {
 export function speedOptionDeliveryFailure(error: unknown) {
   return {
     startKey: null,
-    cause: error instanceof StructuredAgentSessionSpeedOptionError
-      ? { failure: error.failure } : { hostFault: true as const }
+    cause:
+      error instanceof StructuredAgentSessionSpeedOptionError
+        ? { failure: error.failure }
+        : { hostFault: true as const }
   }
 }

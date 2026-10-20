@@ -49,12 +49,12 @@ async function idle(): Promise<void> {
   }
 }
 
-function pairingCode(endpoint = 'ws://127.0.0.1:6768'): string {
+function pairingCode(endpoint = 'ws://127.0.0.1:6768', keyFill = 1): string {
   return encodePairingOffer({
     v: 2,
     endpoint,
     deviceToken: 'device-token',
-    publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
+    publicKeyB64: Buffer.from(new Uint8Array(32).fill(keyFill)).toString('base64')
   })
 }
 
@@ -119,7 +119,8 @@ it('folds a call that lands mid-write into one follow-up stamp carrying the newe
 })
 
 it.each([undefined, 'previous-pairing-token'])(
-  'refuses paired identity without the current authenticated token (%s)', async (pairingDeviceToken) => {
+  'refuses paired identity without the current authenticated token (%s)',
+  async (pairingDeviceToken) => {
     const { userDataPath, id } = await seededStore()
     markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-1' })
     markEnvironmentUsedDetached(userDataPath, id, {
@@ -164,7 +165,7 @@ it('does not let two concurrent stamps for different environments roll each othe
   const { userDataPath, id } = await seededStore()
   const other = await addEnvironmentFromPairingCode(userDataPath, {
     name: 'second box',
-    pairingCode: pairingCode('ws://127.0.0.1:6769')
+    pairingCode: pairingCode('ws://127.0.0.1:6769', 2)
   })
 
   markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'runtime-a' })
@@ -175,7 +176,6 @@ it('does not let two concurrent stamps for different environments roll each othe
   expect(stored.find((env) => env.id === id)?.runtimeId).toBe('runtime-a')
   expect(stored.find((env) => env.id === other.id)?.runtimeId).toBe('runtime-b')
 })
-
 
 it('queues detached stamps behind the complete profile transaction', async () => {
   const { userDataPath, id } = await seededStore()
@@ -188,7 +188,9 @@ it('queues detached stamps behind the complete profile transaction', async () =>
   await entered.promise
   try {
     markEnvironmentUsedDetached(userDataPath, id, { runtimeId: 'queued-runtime' })
-    expect(() => markEnvironmentUsedDetached(userDataPath, 'missing')).toThrow('Unknown environment')
+    expect(() => markEnvironmentUsedDetached(userDataPath, 'missing')).toThrow(
+      'Unknown environment'
+    )
     await Promise.resolve()
     expect(writes).toHaveLength(0)
     expect(listEnvironments(userDataPath)[0]?.runtimeId).toBeNull()

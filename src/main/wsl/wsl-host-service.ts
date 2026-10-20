@@ -5,9 +5,7 @@ import { completeWslHostAdd, WslHostConnectionChanges } from './wsl-host-connect
  * or while a project or terminal the user has open needs it; never for background work.
  */
 import { errorMessage } from '../../shared/error-message'
-import {
-  removeWslHostEnvironment
-} from '../../shared/runtime-environment-wsl-host-store'
+import { removeWslHostEnvironment } from '../../shared/runtime-environment-wsl-host-store'
 import {
   readWslHostDeployments,
   type WslHostDeploymentRecord
@@ -81,7 +79,8 @@ export class WslHostService {
       record: (distro) => this.recordForDistro(distro),
       generation: () => this.disableGeneration,
       current: (record, generation) => this.connectionIsCurrent(record, generation),
-      persist: (record, connection, current) => persistWslHostConnection(deps.userDataPath(), record, connection, current),
+      persist: (record, connection, current) =>
+        persistWslHostConnection(deps.userDataPath(), record, connection, current),
       pairingChanged: deps.pairingChanged,
       publish: (record, status, connection) => {
         this.setStatus(record, status, connection)
@@ -105,15 +104,23 @@ export class WslHostService {
   }
 
   /** C5's `onChange`: persist what moved, then tell the UI. */
-  handleConnectionChange(distro: string, connection: WslOrcadConnection | null,
-    status: WslOrcadConnectionStatus): Promise<void> {
+  handleConnectionChange(
+    distro: string,
+    connection: WslOrcadConnection | null,
+    status: WslOrcadConnectionStatus
+  ): Promise<void> {
     return this.connectionChanges.handle(distro, connection, status)
   }
 
   private connectionIsCurrent(record: WslHostDeploymentRecord, generation: number): boolean {
     const owner = this.recordForEnvironment(record.environmentId)
-    return this.disableGeneration === generation && !this.removing.has(record.environmentId) &&
-      owner?.createdAt === record.createdAt && owner.distroId === record.distroId && this.canRun()
+    return (
+      this.disableGeneration === generation &&
+      !this.removing.has(record.environmentId) &&
+      owner?.createdAt === record.createdAt &&
+      owner.distroId === record.distroId &&
+      this.canRun()
+    )
   }
 
   getStatuses(): WslHostStatus[] {
@@ -315,9 +322,12 @@ export class WslHostService {
     }
     const { connection } = connected
     return completeWslHostAdd({
-      userDataPath, distro, environmentId, connection,
-      isCurrent: () => generation === this.disableGeneration && this.canRun() &&
-        !this.removing.has(environmentId),
+      userDataPath,
+      distro,
+      environmentId,
+      connection,
+      isCurrent: () =>
+        generation === this.disableGeneration && this.canRun() && !this.removing.has(environmentId),
       abandon: () => abandonWslHostAdd(this.wsl, distro.name),
       publish: () => {
         const record = this.recordForEnvironment(environmentId)

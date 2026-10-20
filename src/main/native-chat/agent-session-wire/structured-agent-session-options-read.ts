@@ -55,7 +55,9 @@ export function structuredAgentSessionOptionOverridesRefusal(
       return true
     }
     const normalize = agents.definition(provider)?.restingOptions.normalizePick
-    return key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID && normalize?.(options, { key, value }) === null
+    return (
+      key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID && normalize?.(options, { key, value }) === null
+    )
   })
   return key === undefined
     ? null

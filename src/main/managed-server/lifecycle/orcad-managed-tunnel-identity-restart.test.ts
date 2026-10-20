@@ -163,7 +163,7 @@ describe('reopening a managed tunnel after orcad restarted elsewhere', () => {
     server.getDeviceRegistry()!.removeDevice(paired.pairedDeviceId!)
     await expect(connect()).rejects.toThrow('orcad_pairing_rejected')
     await refreshWslHostPairing(desktopProfile, 'wsl:ubuntu', {
-      pairingCode: encodePairingOffer(pairingOffer(server)),
+      pairingCode: encodePairingOffer(await pairingOffer(server)),
       localPort: restarted.connection.localPort,
       remotePort: restarted.connection.remotePort
     })
