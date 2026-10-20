@@ -40,12 +40,12 @@ import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup-dia
 import { startEventLoopStallProbe } from './event-loop-stall-probe'
 import { startEventLoopDelayProbe } from '../diagnostics/event-loop-delay-probe'
 import {
-  isMainThreadDiagnosticsEnabled,
   recordSubprocessSpawn,
   startMainThreadChurnProbe
 } from '../diagnostics/main-thread-churn-probe'
 import { setSpawnObserver } from '@orca/process-host/spawn-observer'
 import { settledDiffCache } from '../git/source-control/git-read-cache-invalidation'
+import { installRunProcessWorkerRoute } from '../git/command-runner/git-spawn-worker-access'
 import { reserveServeStdoutForReadiness } from '../server/serve-stdout-boundary'
 import { createServeDesktopActivationGate } from './serve-desktop-activation'
 import {
@@ -208,6 +208,8 @@ function initializeMainProcessPreflight(options: MainProcessPreflightOptions): b
   // Why before any spawn: `signalProcessTree` is shared with the CLI and relay, so
   // it can only reach the main-process guard and breadcrumb store once this is registered.
   installMainProcessTreeKillGate()
+  // Why: runProcess captures spawn on the git spawn worker instead of the UI loop (#1091).
+  installRunProcessWorkerRoute()
   configureDevUserDataPath(is.dev)
   configureOrcaUserDataPathEnv()
   // Why these four lines are one step (#16761): the two above decide where userData lives, and
@@ -242,14 +244,12 @@ function initializeMainProcessPreflight(options: MainProcessPreflightOptions): b
     })
     startEventLoopStallProbe()
   }
-  // Self-gated on ORCA_MAIN_THREAD_DIAGNOSTICS; runs the whole session to catch steady-state churn (issue #7576).
+  // Always on: feeds the per-minute main.loop trace span; only the 5s stderr line is gated on ORCA_MAIN_THREAD_DIAGNOSTICS (issue #7576).
   // Why the diff-cache counters ride along: a stamp the filesystem reports unstably makes the cache
   // look exactly like a cold start, and only the hit/miss/unprovable split tells the two apart.
-  if (isMainThreadDiagnosticsEnabled()) {
-    // Why here too: the probe's own call sites only cover src/main/git, so without
-    // this every spawnProcess/runProcess child (rg, ps, pty helpers) is invisible.
-    setSpawnObserver(recordSubprocessSpawn)
-  }
+  // Why here too: the probe's own call sites only cover src/main/git, so without
+  // this every spawnProcess/runProcess child (rg, ps, pty helpers) is invisible.
+  setSpawnObserver(recordSubprocessSpawn)
   startMainThreadChurnProbe({ extraStats: () => ({ diffCache: settledDiffCache.stats() }) })
   // Why: acquire AFTER configureDevUserDataPath — Electron derives lock identity from `userData`, so dev/packaged lock in separate namespaces.
   // Why dev locks too: two processes on one profile corrupt its stores (PR #1326 / #1312); parallel `pnpm dev` needs ORCA_DEV_USER_DATA_PATH per copy.

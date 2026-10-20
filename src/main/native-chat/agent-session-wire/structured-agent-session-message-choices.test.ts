@@ -127,7 +127,7 @@ it('steers a matching choice but holds an empty default choice for a new turn', 
     )
   await rig.host.flushStreamedEvents(SESSION)
 
-  const extras = { ...choices, personality: 'friendly', serviceTier: 'priority', fastMode: 'true' }
+  const extras = { ...choices }
   const matching = rig.send('same choices', undefined, { carried: extras })
 
   await matching.result
@@ -153,3 +153,32 @@ it('steers a matching choice but holds an empty default choice for a new turn', 
   await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(3))
   expect(rig.dispatch.mock.calls[2]?.[0].executionOptions).toEqual({})
 })
+
+it.each(['serviceTier', 'fastMode', 'personality'] as const)(
+  'holds a message whose %s alone changes until the running turn ends',
+  async (key) => {
+    const choices = { model: 'model-a', effort: 'high', [key]: key === 'fastMode' ? 'false' : 'default' }
+    const first = rig.send('first', undefined, { carried: choices })
+    await first.result
+    await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(1))
+    await rig.settleAccepted(first.id, 'a')
+    rig.providerEvents().appendItem(
+      { provider: 'codex', threadId: THREAD, turnId: 'turn-a', ordinal: 0 },
+      { kind: 'turn', turnId: 'turn-a', state: 'running' },
+      { turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+    )
+    await rig.host.flushStreamedEvents(SESSION)
+    const changed = { ...choices, [key]: key === 'fastMode' ? 'true' : 'synthetic-next-choice' }
+    const next = rig.send('new choice', undefined, { carried: changed })
+    await next.result
+    expect(rig.dispatch).toHaveBeenCalledTimes(1)
+    rig.providerEvents().appendItem(
+      { provider: 'codex', threadId: THREAD, turnId: 'turn-a', ordinal: 0 },
+      { kind: 'turn', turnId: 'turn-a', state: 'completed' },
+      { turnScope: AGENT_JOURNAL_THREAD_SCOPE }
+    )
+    await rig.host.flushStreamedEvents(SESSION)
+    await eventually(() => expect(rig.dispatch).toHaveBeenCalledTimes(2))
+    expect(rig.dispatch.mock.calls[1]?.[0].executionOptions).toEqual(changed)
+  }
+)

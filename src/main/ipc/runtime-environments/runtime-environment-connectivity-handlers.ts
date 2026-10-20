@@ -88,12 +88,12 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
   })
   ipcMain.handle(
     'runtimeEnvironments:addFromPairingCode',
-    (
+    async (
       _event,
       args: { name: string; pairingCode: string }
-    ): { environment: PublicKnownRuntimeEnvironment } => {
-      // Why refuse, not refresh: nothing here proves the code works before it would replace one that does.
-      const environment = addEnvironmentFromPairingCode(getUserDataPath(), args)
+    ): Promise<{ environment: PublicKnownRuntimeEnvironment }> => {
+      // Refuse unverified refreshes of a saved server.
+      const environment = await addEnvironmentFromPairingCode(getUserDataPath(), args)
       clearRuntimeEnvironmentManualDisconnect(environment.id)
       return { environment: redactRuntimeEnvironment(environment) }
     }
@@ -117,12 +117,10 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
   )
   ipcMain.handle(
     'runtimeEnvironments:remove',
-    (
+    async (
       _event,
       args: { selector: string }
-    ):
-      | { removed: PublicKnownRuntimeEnvironment }
-      | Promise<{ removed: PublicKnownRuntimeEnvironment }> => {
+    ): Promise<{ removed: PublicKnownRuntimeEnvironment }> => {
       const environment = resolveEnvironment(getUserDataPath(), args.selector)
       if (store.getSettings().activeRuntimeEnvironmentId === environment.id) {
         throw new Error(
@@ -135,7 +133,7 @@ export function registerRuntimeEnvironmentConnectivityHandlers({
       if (ownedRemoval) {
         return ownedRemoval.then(() => ({ removed: redactRuntimeEnvironment(environment) }))
       }
-      const removed = removeEnvironment(getUserDataPath(), args.selector)
+      const removed = await removeEnvironment(getUserDataPath(), args.selector)
       void retireRemovedRuntimeEnvironment(removed.id, invalidateTransport, store)
       closeLegacySelectorTransport(args.selector, removed.id)
       return { removed: redactRuntimeEnvironment(removed) }

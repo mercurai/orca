@@ -1,3 +1,4 @@
+import { readCodexSessionSpeed } from './codex-structured-speed-state'
 import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import type { CodexSession } from './codex-structured-session-state'
@@ -8,22 +9,32 @@ import {
   CODEX_DEFAULT_SERVICE_TIER,
   codexFastServiceTier,
   codexOffersServiceTier,
-  dropUnlistedCodexServiceTier
+  setCodexServiceTier
 } from './codex-structured-service-tier'
 import {
   composeCodexSessionOptionCatalog,
   fetchCodexModelCatalogListing,
   readCodexStructuredSessionOptionCatalog,
-  type CodexModelCatalogListing,
-  type CodexSessionOptionCatalog
+  type CodexModelCatalogListing
 } from './codex-structured-model-catalog'
-import { codexAcquireCatalogListing, listingFromEntry } from './codex-structured-catalog-entry'
+import {
+  codexAcquireCatalogListing,
+  initialCodexSessionPickerListing,
+  listingFromEntry
+} from './codex-structured-catalog-entry'
 export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 
+/** Canonical overrides plus legacy Fast intent that must never be sent as a turn parameter. */
 export function restoredCodexSessionOptions(
   options: Readonly<Record<string, string>> | undefined
 ): Map<string, string> {
-  return new Map(Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key)))
+  const restored = new Map(Object.entries(options ?? {}).filter(([key]) => isCodexTurnOptionKey(key)))
+  if (!restored.has('serviceTier') && options?.fastMode === 'false') {
+    restored.set('serviceTier', CODEX_DEFAULT_SERVICE_TIER)
+  } else if (!restored.has('serviceTier') && options?.fastMode === 'true') {
+    restored.set('fastMode', 'true')
+  }
+  return restored
 }
 
 /** Startup reports the thread's defaults together with the saved next-turn intent. */
@@ -39,7 +50,9 @@ export function reportedCodexSessionOptions(
   return {
     model,
     ...(effort ? { effort } : {}),
-    ...(serviceTier ? { serviceTier } : {})
+    ...(serviceTier ? { serviceTier } : {}),
+    ...(serviceTier === undefined && session.options.get('fastMode') === 'true'
+      ? { fastMode: true } : {})
   }
 }
 
@@ -86,7 +99,8 @@ export async function codexSessionCatalogListingForPicker(
     }
     return listingFromEntry(entry)
   }
-  return fetchCodexListingThroughStore(session, timeoutMs)
+  return initialCodexSessionPickerListing(session, () => fetchCodexListingThroughStore(session, timeoutMs))
+    ?? fetchCodexListingThroughStore(session, timeoutMs)
 }
 
 export async function readCodexStructuredSessionOptions(input: {
@@ -102,35 +116,32 @@ export async function readCodexStructuredSessionOptions(input: {
 function composeLiveCodexCatalog(
   session: CodexSession,
   listing: CodexModelCatalogListing
-): CodexSessionOptionCatalog {
+): AgentSessionOptionsResult {
   const model = session.options.get('model') ?? session.reportedOptions.model
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const serviceTier = session.options.get('serviceTier')
-  return composeCodexSessionOptionCatalog(listing, {
+  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
+  if (!model && listing.models.length === 0) {
+    return { models: [], current: {}, speed: readCodexSessionSpeed(session, listing) }
+  }
+  const result = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(serviceTier ? { serviceTier } : {})
     },
-    ...(session.reportedOptions.serviceTierKnown
+    ...(session.reportedOptions.serviceTierKnown && !pendingFast
       ? {
           reportedServiceTier: session.reportedOptions.serviceTier ?? null,
           reportedServiceTierKnown: true
         }
       : {})
   })
-}
-
-function applyLiveCodexCatalog(
-  session: CodexSession,
-  listing: CodexModelCatalogListing
-): AgentSessionOptionsResult {
-  dropUnlistedCodexServiceTier(
-    session,
-    session.options.get('model') ?? session.reportedOptions.model,
-    listing.models
-  )
-  return composeLiveCodexCatalog(session, listing)
+  return {
+    ...result,
+    ...(pendingFast ? { current: { ...result.current, fastMode: true } } : {}),
+    speed: readCodexSessionSpeed(session, listing)
+  }
 }
 
 export async function readLiveCodexSessionOptions(
@@ -138,7 +149,7 @@ export async function readLiveCodexSessionOptions(
   timeoutMs: number | undefined
 ): Promise<AgentSessionOptionsResult> {
   const listing = await codexSessionCatalogListingForPicker(session, timeoutMs)
-  return applyLiveCodexCatalog(session, listing)
+  return composeLiveCodexCatalog(session, listing)
 }
 
 /** Fetch outside the session lane; apply against current options inside it. */
@@ -147,7 +158,7 @@ export async function prepareLiveCodexSessionOptions(
   timeoutMs: number | undefined
 ): Promise<() => AgentSessionOptionsResult> {
   const listing = await codexSessionCatalogListingForPicker(session, timeoutMs)
-  return () => applyLiveCodexCatalog(session, listing)
+  return () => composeLiveCodexCatalog(session, listing)
 }
 
 export async function applyCodexStructuredSessionOption(
@@ -164,7 +175,7 @@ export async function applyCodexStructuredSessionOption(
 
 /**
  * With no listing known, a pick is kept as the next turn's intent rather than refused: catalog
- * bookkeeping must not gate it. Codex judges the model and tier on `turn/start`.
+ * bookkeeping does not discard it. New-turn admission validates speed support before sending.
  */
 function applyUnlistedCodexSessionOption(
   session: CodexSession,
@@ -178,7 +189,11 @@ function applyUnlistedCodexSessionOption(
     // An effort saved under another model is unverified for this one; its default applies.
     session.options.delete('effort')
   }
-  session.options.set(key, value)
+  if (key === 'serviceTier') {
+    setCodexServiceTier(session.options, value)
+  } else {
+    session.options.set(key, value)
+  }
   return Object.fromEntries(session.options)
 }
 
@@ -208,7 +223,7 @@ function applyValidatedCodexStructuredSessionOption(
     return Object.fromEntries(session.options)
   }
   if (key === 'serviceTier' && value === CODEX_DEFAULT_SERVICE_TIER) {
-    session.options.set(key, value)
+    setCodexServiceTier(session.options, value)
     return Object.fromEntries(session.options)
   }
   if (!catalog) {
@@ -223,7 +238,7 @@ function applyValidatedCodexStructuredSessionOption(
     if (!codexOffersServiceTier(session, model, catalog.models, value)) {
       throw new Error(`codex app-server model ${modelId} does not offer the ${value} tier`)
     }
-    session.options.set(key, value)
+    setCodexServiceTier(session.options, value)
     return Object.fromEntries(session.options)
   }
   const priorEffort = session.options.get('effort') ?? session.reportedOptions.effort
@@ -246,7 +261,6 @@ function applyValidatedCodexStructuredSessionOption(
   } else {
     session.options.delete('effort')
   }
-  dropUnlistedCodexServiceTier(session, modelId, catalog.models)
   return Object.fromEntries(session.options)
 }
 

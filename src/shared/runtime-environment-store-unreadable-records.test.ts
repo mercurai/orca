@@ -8,11 +8,11 @@ import {
   addOrUpdateEnvironmentFromPairingCode,
   getEnvironmentStorePath,
   listEnvironments,
-  markEnvironmentUsed,
   removeEnvironment,
   resolveEnvironment,
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
+import { markEnvironmentUsed } from './runtime-environment-usage'
 import {
   getRuntimeEnvironmentSidecarPath,
   readCurrentRuntimeEnvironmentSidecarEntry,
@@ -24,7 +24,7 @@ import {
 } from './runtime-environment-managed-orcad-store'
 import {
   readPersistedEnvironmentStore,
-  writeEnvironmentStore
+  writeEnvironmentStoreSnapshotAsync
 } from './runtime-environment-store-file'
 
 const pairing = {
@@ -42,11 +42,11 @@ function readJson(path: string): { environments?: unknown[]; entries?: Record<st
 
 describe('runtime environment store with records this build cannot read', () => {
   let userDataPath: string
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-environment-unreadable-'))
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
   })
@@ -94,11 +94,11 @@ describe('runtime environment store with records this build cannot read', () => 
     distro: { name: 'Ubuntu', futureField: true }
   }
 
-  it('lists readable records and rewrites unreadable ones verbatim and in order', () => {
-    const alpha = add('Alpha')
+  it('lists readable records and rewrites unreadable ones verbatim and in order', async () => {
+    const alpha = await add('Alpha')
     appendRawRecords(corrupt, 'not-an-object', futureKind)
-    const zulu = add('Zulu')
-    const beta = add('Beta')
+    const zulu = await add('Zulu')
+    const beta = await add('Beta')
 
     expect(listEnvironments(userDataPath).map((environment) => environment.id)).toEqual([
       alpha.id,
@@ -108,29 +108,29 @@ describe('runtime environment store with records this build cannot read', () => 
     const tail = [corrupt, 'not-an-object', futureKind]
     expect(readJson(getEnvironmentStorePath(userDataPath)).environments?.slice(-3)).toEqual(tail)
 
-    markEnvironmentUsed(userDataPath, alpha.id, { now: 1_000_000 })
-    removeEnvironment(userDataPath, beta.id)
+    await markEnvironmentUsed(userDataPath, alpha.id, { now: 1_000_000 })
+    await removeEnvironment(userDataPath, beta.id)
     const environments = readJson(getEnvironmentStorePath(userDataPath)).environments
     expect(environments?.slice(-3)).toEqual(tail)
     expect(environments).toHaveLength(5)
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('corrupt, <none>, future'))
   })
 
-  it('refuses to add a readable record under an id an unreadable record owns', () => {
-    const alpha = add('Alpha')
+  it('refuses to add a readable record under an id an unreadable record owns', async () => {
+    const alpha = await add('Alpha')
     appendRawRecords(futureKind)
     const store = readPersistedEnvironmentStore(userDataPath)
-    expect(() =>
-      writeEnvironmentStore(userDataPath, {
+    await expect(async () =>
+      await writeEnvironmentStoreSnapshotAsync(userDataPath, {
         version: 1,
         environments: [...store.environments, { ...alpha, id: futureKind.id, name: 'Other' }]
       })
-    ).toThrow('newer version of Orca')
+    ).rejects.toThrow('newer version of Orca')
     expect(readJson(getEnvironmentStorePath(userDataPath)).environments).toContainEqual(futureKind)
   })
 
-  it('keeps a sidecar entry owned by an unreadable record when another server writes its links', () => {
-    const alpha = add('Alpha')
+  it('keeps a sidecar entry owned by an unreadable record when another server writes its links', async () => {
+    const alpha = await add('Alpha')
     appendRawRecords(futureKind)
     const futureEntry = { binding: { createdAt: 1, pairingRevision: 1, preferredEndpointId: 'ws' } }
     writeFileSync(
@@ -138,7 +138,7 @@ describe('runtime environment store with records this build cannot read', () => 
       JSON.stringify({ version: 1, entries: { future: futureEntry } })
     )
 
-    writeRuntimeEnvironmentSidecarEntry(
+    await writeRuntimeEnvironmentSidecarEntry(
       userDataPath,
       readPersistedEnvironmentStore(userDataPath).environments,
       alpha,
@@ -156,15 +156,15 @@ describe('runtime environment store with records this build cannot read', () => 
       sshAccess: { ...tunnel, targetFingerprint: 'pinned', endpoint: 'newer-shape' }
     }
 
-    function setup() {
-      const pinned = addManagedOrcadEnvironment(userDataPath, {
+    async function setup() {
+      const pinned = (await addManagedOrcadEnvironment(userDataPath, {
         id: 'pinned',
         name: 'Pinned',
         pairingCode: encodePairingOffer({ ...pairing, endpoint: 'ws://127.0.0.1:41000/runtime' }),
         orcadDeployment: tunnel,
         now: 100
-      })
-      const other = add('Other')
+      }))
+      const other = await add('Other')
       const sidecarPath = getRuntimeEnvironmentSidecarPath(userDataPath)
       const file = readJson(sidecarPath)
       writeFileSync(
@@ -174,52 +174,52 @@ describe('runtime environment store with records this build cannot read', () => 
       return { pinned, other, sidecarPath }
     }
 
-    it('hides only its server and keeps it unusable rather than unpinned', () => {
-      const { pinned, other } = setup()
+    it('hides only its server and keeps it unusable rather than unpinned', async () => {
+      const { pinned, other } = await setup()
 
       expect(listEnvironments(userDataPath)).toEqual([other])
       expect(() => resolveEnvironment(userDataPath, pinned.id)).toThrow('Unknown environment')
-      expect(() => removeEnvironment(userDataPath, pinned.id)).toThrow('Unknown environment')
-      expect(() =>
+      await expect(removeEnvironment(userDataPath, pinned.id)).rejects.toThrow('Unknown environment')
+      await expect(
         updateEnvironmentFromPairingCode(userDataPath, pinned.id, {
           pairingCode: encodePairingOffer(pairing)
         })
-      ).toThrow('Unknown environment')
+      ).rejects.toThrow('Unknown environment')
       expect(() => readCurrentRuntimeEnvironmentSidecarEntry(userDataPath, pinned)).toThrow(
         'newer version of Orca'
       )
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Hiding 1 server'))
     })
 
-    it('refuses a second entry for its server even though it is hidden', () => {
-      const { other } = setup()
-      expect(() =>
-        addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+    it('refuses a second entry for its server even though it is hidden', async () => {
+      const { other } = await setup()
+      await expect(
+      addOrUpdateEnvironmentFromPairingCode(userDataPath, {
           name: 'Pinned again',
           pairingCode: encodePairingOffer({ ...pairing, endpoint: 'ws://192.0.2.10:6768' })
         })
-      ).toThrow('already paired as "Pinned"')
+      ).rejects.toThrow('already paired as "Pinned"')
       expect(listEnvironments(userDataPath)).toEqual([other])
     })
 
-    it('is never replaced, pruned, or orphaned by writes', () => {
-      const { pinned, other, sidecarPath } = setup()
+    it('is never replaced, pruned, or orphaned by writes', async () => {
+      const { pinned, other, sidecarPath } = await setup()
       const storeBefore = readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')
 
-      expect(() => removeManagedOrcadEnvironment(userDataPath, pinned.id)).toThrow(
+      await expect(async () => (await removeManagedOrcadEnvironment(userDataPath, pinned.id))).rejects.toThrow(
         'newer version of Orca'
       )
       expect(readFileSync(getEnvironmentStorePath(userDataPath), 'utf8')).toBe(storeBefore)
-      expect(() =>
-        writeRuntimeEnvironmentSidecarEntry(
+      await expect(async () =>
+        await writeRuntimeEnvironmentSidecarEntry(
           userDataPath,
           readPersistedEnvironmentStore(userDataPath).environments,
           pinned,
           null
         )
-      ).toThrow('newer version of Orca')
+      ).rejects.toThrow('newer version of Orca')
 
-      removeEnvironment(userDataPath, other.id)
+      await removeEnvironment(userDataPath, other.id)
       expect(readJson(sidecarPath).entries?.pinned).toEqual(unreadableEntry)
       expect(readPersistedEnvironmentStore(userDataPath).environments.map((e) => e.id)).toEqual([
         pinned.id

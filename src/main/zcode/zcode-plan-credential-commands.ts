@@ -53,15 +53,15 @@ function refreshAfterChange(rateLimits: UsageRefresher | null, action: 'save' | 
   )
 }
 
-export function saveZcodePlanApiKeyCredential(
+export async function saveZcodePlanApiKeyCredential(
   rateLimits: UsageRefresher | null,
   key: unknown
-): ZcodePlanCredentialsStatus {
+): Promise<ZcodePlanCredentialsStatus> {
   // Why: the value arrives as unknown over IPC/RPC; the declared type is compile-time only.
   if (typeof key !== 'string') {
     throw new Error('GLM Coding Plan API key must be a string')
   }
-  saveZcodePlanApiKey(key)
+  await saveZcodePlanApiKey(key)
   refreshAfterChange(rateLimits, 'save')
   return getZcodePlanCredentialsStatus()
 }

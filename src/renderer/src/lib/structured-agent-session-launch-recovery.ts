@@ -58,7 +58,8 @@ async function verifyPublishedSession(state: StructuredLaunchRecoveryState): Pro
 }
 
 export async function recoverPublishedSessionReceipt(
-  state: StructuredLaunchRecoveryState
+  state: StructuredLaunchRecoveryState,
+  options: { replayMissingMessage?: boolean } = {}
 ): Promise<StructuredAgentLaunchReceipt> {
   await verifyPublishedSession(state)
   const history = await callStructuredAgentSession<AgentSessionHistoryResult>(
@@ -78,6 +79,9 @@ export async function recoverPublishedSessionReceipt(
       )
     : undefined
   if (state.intent.params.firstMessage && !firstMessage) {
+    if (options.replayMissingMessage === false) {
+      throw new Error('Opening message receipt is not yet available; retry confirmation')
+    }
     return launchStructuredAgentSession(state.intent, state.onHostSeed, true)
   }
   if (state.intent.createMessageSupport === true) {

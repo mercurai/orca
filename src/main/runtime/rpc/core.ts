@@ -30,7 +30,9 @@ import type {
 
 // Why: bound to the authenticated socket by the transport, so a caller can only re-key itself.
 export type DeviceSelfRpcContext = {
-  registerDeviceKey(params: RegisterDeviceKeyParams): RegisterDeviceKeyResult
+  registerDeviceKey(
+    params: RegisterDeviceKeyParams
+  ): RegisterDeviceKeyResult | Promise<RegisterDeviceKeyResult>
 }
 
 export type PairingRpcContext = {
@@ -146,7 +148,9 @@ export type RpcContext = {
   }
   // Why: set only for an authenticated runtime-scope device and bound to it, so it manages only its own phones.
   delegatedMobileDevices?: {
-    sync(phones: readonly DelegatedPhone[]): DelegatedMobileDeviceSyncResult
+    sync(
+      phones: readonly DelegatedPhone[]
+    ): DelegatedMobileDeviceSyncResult | Promise<DelegatedMobileDeviceSyncResult>
   }
   // Why: mobile terminal traffic bypasses JSON streaming; undefined on Unix/socket and non-E2EE WebSocket paths.
   sendBinary?: RpcBinarySender

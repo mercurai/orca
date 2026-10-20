@@ -3,7 +3,7 @@ import type { AgentJournalSubmission } from '../../../shared/agent-session-journ
 import type { AgentSessionExecutionOptions } from '../../../shared/agent-session-execution-options'
 import type { AgentSessionJournal } from '../agent-session-journal/journal-store'
 
-const OPTION_ORDER = ['model', 'effort'] as const
+const OPTION_ORDER = ['model', 'effort', 'personality', 'fastMode', 'serviceTier'] as const
 
 function sameOptions(
   a: AgentSessionExecutionOptions | undefined,
@@ -15,7 +15,7 @@ function sameOptions(
   return OPTION_ORDER.every((key) => a?.[key] === b?.[key])
 }
 
-/** A different Codex model or effort needs a new turn: steer has no choice parameters. */
+/** Different Codex model, effort, personality or speed needs a new turn: steer has no choice parameters. */
 export function waitsForCodexTurnOptions(
   journal: Pick<AgentSessionJournal, 'newestTurn' | 'submissions' | 'itemBody'>,
   next: AgentJournalSubmission

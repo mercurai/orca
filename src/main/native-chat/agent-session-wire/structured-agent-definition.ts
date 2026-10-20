@@ -6,7 +6,8 @@
 
 import type { AgentSessionCapabilities } from '../../../shared/agent-session-capabilities'
 import type { AgentSessionStoredAgent } from '../../../shared/agent-session-stored-agent'
-import type { AgentSessionModelOption } from '../../../shared/agent-session-wire'
+import type { AgentSessionSpeed } from '../../../shared/agent-session-speed'
+import type { AgentSessionModelCatalogResult, AgentSessionModelOption } from '../../../shared/agent-session-wire'
 
 /** `agent` names the Orca agent whose sessions this describes; the storage fields bound its records. */
 export type StructuredAgentDefinition = AgentSessionStoredAgent & {
@@ -17,6 +18,17 @@ export type StructuredAgentDefinition = AgentSessionStoredAgent & {
   restingOptions: {
     /** Whether the agent takes a pick of this option key. */
     acceptsKey: (key: string) => boolean
+    /** A new explicit pick may replace older intent; null refuses it without persistence. */
+    normalizePick?: (
+      saved: Readonly<Record<string, string>>,
+      pick: { key: string; value: string }
+    ) => Readonly<Record<string, string>> | null
+    /** Catalog-backed next-turn facts; no child is acquired to produce them. */
+    readSpeed?: (input: {
+      saved: Readonly<Record<string, string>>
+      currentModel?: string
+      catalog: AgentSessionModelCatalogResult
+    }) => AgentSessionSpeed
     /** The models a running child falls back to with no catalog; null when it has none. */
     fallbackModels: () => AgentSessionModelOption[] | null
     /** An unpicked effort reads as the model's default effort, as a running child reports it. */

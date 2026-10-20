@@ -79,7 +79,7 @@ describe('runtimeEnvironments:repairFromPairingCode', () => {
     return environmentStore.resolveEnvironment(userDataPath, 'desk').endpoints[0]?.deviceToken
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-repair-'))
     getPathMock.mockReturnValue(userDataPath)
     handleMock.mockReset()
@@ -92,7 +92,7 @@ describe('runtimeEnvironments:repairFromPairingCode', () => {
     }
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The registrar only reads the fixture's settings and workspace-session methods.
     registerRuntimeEnvironmentHandlers(store as never)
-    environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'desk',
       pairingCode: pairingCode(ENDPOINT, { deviceToken: 'revoked-token' })
     })
@@ -177,7 +177,7 @@ describe('runtimeEnvironments:repairFromPairingCode', () => {
   })
 
   it('declines a server another Orca service pairs', async () => {
-    environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'vm',
       pairingCode: pairingCode(ENDPOINT, { deviceToken: 'vm-token', keyByte: 2 }),
       source: 'ephemeral-vm'

@@ -9,6 +9,7 @@ import {
   isUnreadableError,
   writeSecureFile
 } from './secure-file'
+import { writeSecureFileAsync } from './secure-file-async-write'
 import {
   setWindowsSecurityForTests,
   resetWindowsSecurityLoadForTests
@@ -56,12 +57,35 @@ describe('POSIX secure files', () => {
     expect(fake.calls).toEqual([])
   })
 
+  it('never touches the Windows ACL addon off win32 on the async lane', async () => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
+    const fake = createFakeWindowsSecurity()
+    setWindowsSecurityForTests(fake)
+    const targetPath = join(tempDir(), 'secret.json')
+
+    await writeSecureFileAsync(targetPath, 'contents')
+    hardenExistingSecureFile(targetPath)
+
+    expect(fake.calls).toEqual([])
+  })
+
   posixModeIt('restricts the published file and its directory by mode', () => {
     Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
     const userDataPath = tempDir()
     const targetPath = join(userDataPath, 'secret.json')
 
     expect(writeSecureFile(targetPath, 'contents')).toBe(true)
+
+    expect(statMode(targetPath)).toBe(0o600)
+    expect(statMode(userDataPath)).toBe(0o700)
+  })
+
+  posixModeIt('restricts the file and directory the async lane publishes by mode', async () => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
+    const userDataPath = tempDir()
+    const targetPath = join(userDataPath, 'secret.json')
+
+    expect(await writeSecureFileAsync(targetPath, 'contents')).toBe(true)
 
     expect(statMode(targetPath)).toBe(0o600)
     expect(statMode(userDataPath)).toBe(0o700)

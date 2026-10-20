@@ -177,7 +177,8 @@ function expectSentTo(sessionId: string, text: string): void {
     expect.objectContaining({
       envelope: expect.objectContaining({ sessionId }),
       body: expect.objectContaining({ blocks: [{ type: 'text', text }] })
-    })
+    }),
+    {}
   )
 }
 
@@ -266,8 +267,19 @@ describe('a new start beside an unconfirmed or retried chat', () => {
     await flushLaunchSettlement()
     // Reload: the registry is memory; the failed record is what survives.
     resetStructuredAgentLaunchRegistryForTests()
-    mocks.launch.mockImplementationOnce(() => new Promise(() => undefined))
+    const retryEntered = Promise.withResolvers<void>()
+    mocks.launch.mockImplementation((intent: StructuredAgentSessionLaunchIntent) => {
+      if (intent.sessionId === failed.sessionId) {
+        retryEntered.resolve()
+        return new Promise(() => undefined)
+      }
+      if (intent.sessionId === fresh.sessionId) {
+        return Promise.resolve({ sessionId: fresh.sessionId, fence: 1 })
+      }
+      throw new Error(`Unexpected launch during retry: ${intent.sessionId}`)
+    })
     expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, failed.sessionId)).toBe(true)
+    await retryEntered.promise
     mocks.seedDraft.mockClear()
 
     const next = startStructuredAgentLaunch(WORKTREE_ID, 'codex', {

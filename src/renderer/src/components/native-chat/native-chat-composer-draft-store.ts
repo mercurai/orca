@@ -3,6 +3,11 @@
 // storage is written from that record, so a reload or quit gives the draft back and a failed or
 // skipped write is repaired by the next one.
 
+import {
+  cancelNativeChatDraftRecoveries,
+  recoverNativeChatDraftMessages,
+  type DraftRecoveryMessage
+} from './native-chat-composer-draft-recovery'
 import type { JSONContent } from '@tiptap/react'
 import {
   sameNativeChatComposerDraftDocument,
@@ -17,6 +22,7 @@ import { journalNativeChatComposerDraftAddition } from './native-chat-composer-d
 import {
   clearDraftMemoryForTests,
   dirtyScopes,
+  disposedDraftScopes,
   hasLocalChange,
   load,
   nextSavedAt,
@@ -113,7 +119,7 @@ export function isNativeChatComposerDraftUnsaved(scopeKey: string): boolean {
 }
 
 function isEmptyDraft(draft: NativeChatComposerDraft): boolean {
-  return draft.text === '' && draft.images.length === 0
+  return draft.text === '' && draft.images.length === 0 && !draft.recoveredMessageIds?.length
 }
 
 export function readNativeChatComposerDraft(
@@ -133,7 +139,9 @@ export function updateNativeChatComposerDraft(
   persist: 'immediate' | 'deferred',
   append?: DraftAppend
 ): void {
+  disposedDraftScopes.delete(scopeKey)
   const current = records.get(scopeKey) ?? EMPTY_DRAFT
+  const recoveredMessageIds = current.recoveredMessageIds
   const text = change.text ?? current.text
   const document = 'document' in change ? change.document : current.document
   const images = change.images ?? current.images
@@ -149,7 +157,7 @@ export function updateNativeChatComposerDraft(
     }
     return
   }
-  if (isEmptyDraft({ text, images })) {
+  if (isEmptyDraft({ text, images, recoveredMessageIds })) {
     records.delete(scopeKey)
     reconcileRestoredImageChecks(scopeKey, [])
     notifyScope(scopeKey)
@@ -160,6 +168,7 @@ export function updateNativeChatComposerDraft(
   const owner = current.owner ?? change.owner ?? resolveOwner?.(scopeKey)
   const record: DraftRecord = {
     text,
+    ...(recoveredMessageIds?.length ? { recoveredMessageIds } : {}),
     ...(document ? { document } : {}),
     images: [...images],
     savedAt: nextSavedAt(),
@@ -221,6 +230,14 @@ export function appendToNativeChatComposerDraft(
   return journalNativeChatComposerDraftAddition(scopeKey, placed, after.savedAt)
 }
 
+/** Recovery retires its source only after the backend confirms text and receipts together. */
+export function recoverNativeChatComposerDraftMessages(
+  scopeKey: string,
+  messages: readonly DraftRecoveryMessage[]
+): Promise<boolean> {
+  return recoverNativeChatDraftMessages(scopeKey, messages, resolveOwner?.(scopeKey))
+}
+
 /**
  * Clears a sent draft only while it is still what was sent, so a send settling late never wipes
  * what was typed or attached since, even from a composer that was replaced meanwhile.
@@ -251,13 +268,15 @@ function deleteDraftsWhere(
   matches: (scopeKey: string, draft: StoredNativeChatComposerDraft | undefined) => boolean
 ): void {
   deleteLoadingNativeChatComposerDraftsWhere(matches)
-  for (const scopeKey of new Set([...records.keys(), ...scopeListeners.keys()])) {
+  const recovering = cancelNativeChatDraftRecoveries(matches)
+  for (const scopeKey of new Set([...records.keys(), ...scopeListeners.keys(), ...recovering])) {
     const draft = records.get(scopeKey)
-    if (matches(scopeKey, draft)) {
+    if (recovering.includes(scopeKey) || matches(scopeKey, draft)) {
+      disposedDraftScopes.add(scopeKey)
       records.delete(scopeKey)
       reconcileRestoredImageChecks(scopeKey, [])
       notifyScope(scopeKey)
-      if (draft) {
+      if (draft || recovering.includes(scopeKey)) {
         persistNativeChatComposerDraft(scopeKey, 'immediate')
       }
     }
@@ -301,6 +320,7 @@ export function deleteNativeChatComposerDraftsOwnedBy(owner: NativeChatComposerD
 }
 
 export function clearNativeChatComposerDraftsForTests(): void {
+  cancelNativeChatDraftRecoveries(() => true)
   clearDraftMemoryForTests()
   resetNativeChatComposerDraftPersistenceForTests()
   resetNativeChatComposerDraftLoadForTests()

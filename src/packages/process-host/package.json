@@ -20,6 +20,11 @@
       "types": "./dist/process-spec.d.ts",
       "default": "./dist/process-spec.js"
     },
+    "./capture-process": {
+      "orca-source": "./src/capture-process.ts",
+      "types": "./dist/capture-process.d.ts",
+      "default": "./dist/capture-process.js"
+    },
     "./fork-process": {
       "orca-source": "./src/fork-process.ts",
       "types": "./dist/fork-process.d.ts",

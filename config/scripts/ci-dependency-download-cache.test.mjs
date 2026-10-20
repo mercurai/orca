@@ -381,9 +381,19 @@ describe('CI dependency download caches', () => {
     const warmInstall = warm.steps.find((step) => step.uses === installer)
     const unitInstall = units.steps.find((step) => step.uses === installer)
     expect(warm['runs-on']).toBe('${{ matrix.runner }}')
-    expect(warm.strategy.matrix.runner).toEqual(['ubuntu-24.04-arm', pr.jobs.test.with.runner])
-    expect(pr.jobs.preflight['runs-on']).toBe('blacksmith-8vcpu-ubuntu-2404')
-    expect(pr.jobs.test.with.runner).toBe('blacksmith-4vcpu-ubuntu-2404')
+    const runnerFor = (expression, repository) =>
+      runInNewContext(expression.slice(3, -2), { github: { repository } })
+    expect(warm.strategy.matrix.runner).toEqual([
+      'ubuntu-24.04-arm',
+      runnerFor(pr.jobs.test.with.runner, 'stablyai/orca')
+    ])
+    for (const [repository, preflightRunner, unitRunner] of [
+      ['mercurai/orca', 'ubuntu-latest', 'ubuntu-latest'],
+      ['stablyai/orca', 'blacksmith-8vcpu-ubuntu-2404', 'blacksmith-4vcpu-ubuntu-2404']
+    ]) {
+      expect(runnerFor(pr.jobs.preflight['runs-on'], repository)).toBe(preflightRunner)
+      expect(runnerFor(pr.jobs.test.with.runner, repository)).toBe(unitRunner)
+    }
     expect(units['runs-on']).toBe('${{ inputs.runner }}')
     expect(JSON.parse(pr.jobs.test.with.node_versions)).toEqual(['24'])
     expect(warmInstall.if).toBeUndefined()

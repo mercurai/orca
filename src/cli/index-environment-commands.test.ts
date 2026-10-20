@@ -55,7 +55,7 @@ describe('orca cli worktree awareness', () => {
 
   it('lists saved environments even when ORCA_ENVIRONMENT is set', async () => {
     process.env.ORCA_ENVIRONMENT = 'stale-env'
-    listEnvironmentsMock.mockReturnValue([addEnvironmentFromPairingCodeMock()])
+    listEnvironmentsMock.mockReturnValue([await addEnvironmentFromPairingCodeMock()])
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     await main(['environment', 'list', '--json'], '/tmp/repo')
