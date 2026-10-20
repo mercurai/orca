@@ -171,6 +171,8 @@ current CLI compilation requires that local binary. The workflow refuses refs th
 `config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
 Use an existing published installer for an older release rather than rebuilding a relay-era ref
 through this workflow. Installed-profile downgrade compatibility still requires separate verification.
+The packaged-template checker uses the release's own shared-ripgrep resolver for compacted layouts;
+canonical hash/inventory checks and the required remote worker remain mandatory.
 
 - `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer
   and keeps it as a run artifact; the run has no publish job. The artifact holds the installer

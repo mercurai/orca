@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-1bfb4565
     status: ours-only
     base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
-    commit: 8652932927b8c7c91722a9354b164a6bcd6a9a1d
+    commit: d4ec89e2359eba361d2c6b4f773246980556e700
     owner: harness
     added: 2026-10-20
     tests:
@@ -215,9 +215,9 @@ patches:
       - config/scripts/compact-packaged-orcad-ripgrep.test.mjs
       - src/shared/runtime-environment-store-same-server.test.ts
     notes: >-
-      Provisional exact candidate 8652932927b8c7c91722a9354b164a6bcd6a9a1d,
-      source 73e3a7be20437b6a393121d86025ba50ba562ca6,
-      tree c0d5cde6f2e6ae59832aba79fc814b7dc45ed775.
+      Provisional exact candidate d4ec89e2359eba361d2c6b4f773246980556e700,
+      source b632bdbaaf30428b8f8c5f50046fb7409672a4f7,
+      tree 82599afc0867dca636c3d70c54a2ea396d2fac3b.
       Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
       v1.4.232 is the release-version floor. This combines all released code and
       54 subsequent main commits while preserving the shipped Mercurai enhancements.
