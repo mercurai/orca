@@ -49,6 +49,11 @@ vi.mock('../../../shared/git-fetch-head-lock', async (importOriginal) => {
 import { gitExecFileAsync, gitExecFileAsyncBuffer } from './git-exec-file'
 import { execFileCapture } from './exec-file-capture'
 import {
+  GIT_SPAWN_MODES,
+  restoreGitSpawnMode,
+  useGitSpawnMode
+} from './git-spawn-worker-test-fixture'
+import {
   acquireGitAdmission,
   GitAdmissionScheduler,
   _gitAdmissionSnapshotForTests,
@@ -80,8 +85,10 @@ async function settleAdmissionGrant(): Promise<void> {
   await vi.advanceTimersByTimeAsync(0)
 }
 
-describe('git exec admission lifetime', () => {
+// Why (#1085): the same lifetime rules must hold when the spawn runs on the worker thread.
+describe.each(GIT_SPAWN_MODES)('git exec admission lifetime (%s spawn)', (mode) => {
   beforeEach(() => {
+    useGitSpawnMode(mode)
     vi.useFakeTimers()
     execFileMock.mockReset()
     spawnMock.mockReset()
@@ -91,6 +98,7 @@ describe('git exec admission lifetime', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    restoreGitSpawnMode()
     _resetGitAdmissionForTests()
   })
 

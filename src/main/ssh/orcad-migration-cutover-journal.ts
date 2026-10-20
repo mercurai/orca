@@ -78,39 +78,79 @@ export function listOrcadMigrationCutoverChainForTarget(
   )
 }
 
-/** Durable before it returns: a fence written after this always has its journal on disk. */
-export function writeOrcadMigrationSourceCutover(
+/** Durable before resolving: a fence published afterwards has its journal on disk. */
+export async function writeOrcadMigrationSourceCutover(
   userDataPath: string,
   cutover: OrcadMigrationSourceCutover
-): void {
-  const parsed = parseOrcadMigrationSourceCutover(cutover)
-  const existing = listOrcadMigrationSourceCutovers(userDataPath)
-  // Why in flight only: a retained cutover is finished and may wait two releases for retirement.
-  const inFlight = existing.filter(
-    (entry) => entry.phase !== 'source-retired' && !isRetainedOrcadMigrationSourceCutover(entry)
-  )
-  if (
-    !existing.some((entry) => entry.migrationId === parsed.migrationId) &&
-    inFlight.length >= MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS
-  ) {
-    throw new Error('orcad_migration_cutover_capacity_exceeded')
-  }
-  journals.write(userDataPath, parsed)
+): Promise<void> {
+  const parsed = parseOrcadMigrationSourceCutover(structuredClone(cutover))
+  return journals.transact(userDataPath, async ({ write }) => {
+    const existing = listOrcadMigrationSourceCutovers(userDataPath)
+    // Retained cutovers are finished and may wait two releases for retirement.
+    const inFlight = existing.filter(
+      (entry) => entry.phase !== 'source-retired' && !isRetainedOrcadMigrationSourceCutover(entry)
+    )
+    if (
+      !existing.some((entry) => entry.migrationId === parsed.migrationId) &&
+      inFlight.length >= MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS
+    ) {
+      throw new Error('orcad_migration_cutover_capacity_exceeded')
+    }
+    await write(parsed)
+  })
 }
 
-export function removeOrcadMigrationSourceCutover(userDataPath: string, migrationId: string): void {
-  journals.remove(userDataPath, migrationId)
+/** Existing-record updates read and validate under the same lane as destination cleanup. */
+export function updateOrcadMigrationSourceCutover(
+  userDataPath: string,
+  migrationId: string,
+  update: (current: OrcadMigrationSourceCutover) => OrcadMigrationSourceCutover
+): Promise<OrcadMigrationSourceCutover> {
+  return journals.transact(userDataPath, async ({ write }) => {
+    const current = listOrcadMigrationSourceCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
+    if (!current) {
+      throw new Error('orcad_migration_cutover_missing')
+    }
+    const draft = structuredClone(current)
+    const updated = update(draft)
+    if (updated === draft) {
+      return current
+    }
+    const next = parseOrcadMigrationSourceCutover(updated)
+    if (
+      next.migrationId !== current.migrationId ||
+      next.manifestSha256 !== current.manifestSha256
+    ) {
+      throw new Error('orcad_migration_destination_state_mismatch')
+    }
+    await write(next)
+    return next
+  })
 }
 
-/** Every journal a host's stopped or never-registered server leaves behind; they grant nothing. */
+export function removeOrcadMigrationSourceCutover(
+  userDataPath: string,
+  migrationId: string
+): Promise<void> {
+  return journals.remove(userDataPath, migrationId)
+}
+
+/** Journals left by a stopped or never-registered server grant nothing. */
 export function removeOrcadMigrationJournalsForDestination(
   userDataPath: string,
   sshTargetId: string,
   environmentId: string
-): void {
-  for (const cutover of listOrcadMigrationSourceCutovers(userDataPath)) {
-    if (cutover.sshTargetId === sshTargetId && cutover.destinationEnvironmentId === environmentId) {
-      removeOrcadMigrationSourceCutover(userDataPath, cutover.migrationId)
+): Promise<void> {
+  return journals.transact(userDataPath, async ({ remove }) => {
+    for (const cutover of listOrcadMigrationSourceCutovers(userDataPath)) {
+      if (
+        cutover.sshTargetId === sshTargetId &&
+        cutover.destinationEnvironmentId === environmentId
+      ) {
+        await remove(cutover.migrationId)
+      }
     }
-  }
+  })
 }

@@ -1,3 +1,4 @@
+import { requireStructuredLaunchDraftRecovery } from './structured-agent-session-launch-draft-recovery'
 import { useAppStore } from '@/store'
 import { reserveStructuredLaunchSlot } from './structured-agent-session-launch-surface'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -105,7 +106,7 @@ function publishWithHeldOptions(
   state: StructuredLaunchState,
   created: Promise<StructuredAgentLaunchReceipt>
 ): Promise<StructuredAgentLaunchReceipt> {
-  state.intent.prepareCreate = () => prepareStructuredLaunchCreateMessage(state)
+  state.intent.prepareCreate = (supported) => prepareStructuredLaunchCreateMessage(state, supported)
   return created.then((receipt) => publishStructuredLaunchCreateOptions(state, receipt))
 }
 
@@ -132,23 +133,25 @@ function resetStructuredLaunchCallers(state: StructuredLaunchState): void {
 }
 
 function restartStructuredLaunchState(state: StructuredLaunchState): void {
-  const wasVisibilityUnknown = state.visibilityUnknown
-  if (!wasVisibilityUnknown) {
-    const surfaceAddress = state.intent.surfaceAddress
-    state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
-    state.intent.surfaceAddress = surfaceAddress
-  }
+  const wasVisibilityUnknown = state.visibilityUnknown || Boolean(state.heldPromptDrafts?.length)
+  const recovery = requireStructuredLaunchDraftRecovery(state)
   resetStructuredLaunchCallers(state)
   delete state.failure
   state.callers.outcome = 'pending'
-  // A new create seeds from the settings of now (a paired server's arrive with its probe); picks
-  // held through the failure still apply.
   state.selection = { ...state.selection, seed: state.intent.seedOptions }
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
-  state.promise = publishWithHeldOptions(
-    state,
-    wasVisibilityUnknown ? reconcileUnknownLaunch(state) : launchAndReconcile(state)
-  )
+  state.promise = recovery.then(() => {
+    if (!wasVisibilityUnknown) {
+      const surfaceAddress = state.intent.surfaceAddress
+      state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
+      state.intent.surfaceAddress = surfaceAddress
+      state.selection = { ...state.selection, seed: state.intent.seedOptions }
+    }
+    return publishWithHeldOptions(
+      state,
+      wasVisibilityUnknown ? reconcileUnknownLaunch(state) : launchAndReconcile(state)
+    )
+  })
   trackLaunchSettlement(state, state.promise)
   trackStructuredLaunchConfirmationDeadline(state, state.promise)
   notifyStructuredLaunchListeners()

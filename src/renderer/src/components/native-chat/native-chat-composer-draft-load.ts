@@ -4,12 +4,14 @@
 
 import {
   dirtyScopes,
+  disposedDraftScopes,
   load,
   nextSavedAt,
   notifyScope,
   records,
   reconcileRestoredImageChecks
 } from './native-chat-composer-draft-memory'
+import { preserveDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
 import {
   flushNativeChatComposerDrafts,
   installNativeChatComposerDraftBroadcast
@@ -71,12 +73,24 @@ function applyLoaded(
     }
   }
   for (const [scopeKey, stored] of drafts) {
-    if (load.editedBeforeLoad.has(scopeKey)) {
+    const deletedWhileLoading =
+      stored && load.deletionsBeforeLoad.some((matches) => matches(scopeKey, stored))
+    if (deletedWhileLoading) {
+      disposedDraftScopes.add(scopeKey)
+    }
+    if (!stored || disposedDraftScopes.has(scopeKey)) {
+      // Disposal removes receipt-only records too, rather than merging them into an empty draft.
+      dirtyScopes.add(scopeKey)
       continue
     }
-    if (!stored || load.deletionsBeforeLoad.some((matches) => matches(scopeKey, stored))) {
-      // An unreadable record, a journaled removal, or one deleted here while loading.
-      dirtyScopes.add(scopeKey)
+    if (load.editedBeforeLoad.has(scopeKey)) {
+      const current = records.get(scopeKey)
+      const merged = preserveDraftRecoveryReceipts(current ?? null, stored)
+      if (merged) {
+        records.set(scopeKey, { ...merged, savedAt: nextSavedAt() })
+        dirtyScopes.add(scopeKey)
+        notifyScope(scopeKey)
+      }
       continue
     }
     const { draft, changed } = withAppends(scopeKey, stored, readAtSequence)

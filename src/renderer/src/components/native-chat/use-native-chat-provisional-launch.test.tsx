@@ -223,7 +223,8 @@ describe('a chat pane over its own launch', () => {
         expect(mocks.call).toHaveBeenCalledWith(
           LOCAL_TARGET,
           'agentSession.send',
-          expect.objectContaining({ options: expected })
+          expect.objectContaining({ options: expected }),
+          {}
         )
       )
       await act(async () => {

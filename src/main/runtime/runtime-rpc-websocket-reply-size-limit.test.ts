@@ -23,7 +23,7 @@ function hugeListing(): DirEntry[] {
   }))
 }
 
-function createServer() {
+async function createServer() {
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-reply-size-'))
   const runtime = new OrcaRuntimeService()
   const server = new OrcaRuntimeRpcServer({
@@ -33,7 +33,7 @@ function createServer() {
     enableWebSocket: false
   })
   server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-  const device = server['deviceRegistry'].addDevice('paired-desktop', 'runtime')
+  const device = await server['deviceRegistry'].addDevice('paired-desktop', 'runtime')
   return { runtime, server, device }
 }
 
@@ -93,7 +93,7 @@ describe('remote RPC replies over the encrypted channel', () => {
   })
 
   it('answers an oversized folder listing with an error instead of closing the connection', async () => {
-    const { runtime, server, device } = createServer()
+    const { runtime, server, device } = await createServer()
     servers.push(server)
     vi.spyOn(runtime, 'readFileExplorerDir').mockResolvedValue(hugeListing())
     const encrypted = connectEncryptedChannel()
@@ -131,7 +131,7 @@ describe('remote RPC replies over the encrypted channel', () => {
   })
 
   it('answers any other oversized reply with a per-request error', async () => {
-    const { server, device } = createServer()
+    const { server, device } = await createServer()
     servers.push(server)
     vi.spyOn(server['dispatcher'], 'dispatchStreaming').mockImplementation(
       async (request, reply) => {

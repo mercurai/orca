@@ -43,7 +43,11 @@ export type ManagedOrcadPairingRepairDeps = {
     target: SshTarget
     connection: OrcadHostTransport
   }) => Promise<ServeReadiness | null>
-  refresh: (environmentId: string, pairingCode: string) => KnownRuntimeEnvironment
+  refresh: (
+    environmentId: string,
+    pairingCode: string,
+    expectedPairingRevision: number
+  ) => KnownRuntimeEnvironment | Promise<KnownRuntimeEnvironment>
   /** Retires every transport still authenticating with the refused token, once per repair. */
   repaired: (environmentId: string) => void | Promise<void>
   now: () => number
@@ -56,8 +60,10 @@ export function liveManagedOrcadPairingRepairDeps(
     resolve: (environmentId) => resolveEnvironment(userDataPath, environmentId),
     connect: connectManagedOrcadHost,
     readReadiness: readActiveManagedOrcadReadiness,
-    refresh: (environmentId, pairingCode) =>
-      refreshManagedOrcadPairing(userDataPath, environmentId, pairingCode),
+    refresh: (environmentId, pairingCode, expectedPairingRevision) =>
+      refreshManagedOrcadPairing(userDataPath, environmentId, pairingCode, Date.now(), {
+        expectedPairingRevision
+      }),
     repaired: notifyManagedOrcadPairingRepaired,
     now: Date.now
   }
@@ -173,7 +179,7 @@ export class ManagedOrcadPairingRepairs {
     // Why counted only once read: losing SSH proves nothing about the pairing.
     const readiness = await this.deps.readReadiness(await this.deps.connect(environment))
     // Why re-read before judging the answer: an update or recovery may have stored a newer pairing
-    // while SSH answered; everything after this is synchronous, so the check holds through the write.
+    // while SSH answered. The refresh also checks this revision after entering the profile write lane.
     const current = this.deps.resolve(environmentId)
     if (pairingRevisionOf(current) !== refusedRevision) {
       return current
@@ -202,7 +208,7 @@ export class ManagedOrcadPairingRepairs {
     }
     let repaired: KnownRuntimeEnvironment
     try {
-      repaired = this.deps.refresh(environmentId, pairingCode)
+      repaired = await this.deps.refresh(environmentId, pairingCode, refusedRevision)
     } catch (error) {
       throw fail(new OrcadManagedPairingRepairFailedError(errorMessage(error)))
     }

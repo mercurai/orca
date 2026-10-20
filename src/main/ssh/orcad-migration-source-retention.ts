@@ -10,7 +10,7 @@ import type { Store } from '../persistence'
 import { withRenamedOrcadMigrationDrafts } from '../persistence/migrating-orcad-catalog/orcad-source-draft-rename'
 import {
   listOrcadMigrationSourceCutovers,
-  writeOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 
 export type OrcadMigrationDraftRenameStore = Pick<
@@ -67,12 +67,19 @@ async function retainOnce(
   })
   // Why no baseline here: the source may have changed since the commit (a crash, then an older
   // build); only the fence's pre-commit baseline proves what the server holds.
-  const retained = {
-    ...readCommittedCutover(userDataPath, migrationId),
-    sourceRetainedAt: now().toISOString()
-  }
-  writeOrcadMigrationSourceCutover(userDataPath, retained)
-  return retained
+  return updateOrcadMigrationSourceCutover(userDataPath, migrationId, (current) => {
+    if (current.phase !== 'destination-committed') {
+      throw new Error('orcad_migration_retain_before_commit')
+    }
+    return current.sourceRetainedAt
+      ? current
+      : { ...current, sourceRetainedAt: now().toISOString() }
+  }).catch((error: unknown) => {
+    if (error instanceof Error && error.message === 'orcad_migration_cutover_missing') {
+      throw new Error('orcad_migration_retain_before_commit')
+    }
+    throw error
+  })
 }
 
 /**

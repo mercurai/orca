@@ -270,7 +270,8 @@ export function requiresEnvOptIn(source) {
  * Not an equality test against `windows-2022`: `windows-latest` resolves to the
  * same image today, a label array or `{ group, labels }` object is valid YAML
  * here, and a `${{ matrix.os }}` expression cannot be resolved from the file at
- * all. An unresolvable expression counts as "could be Windows" so it fails
+ * all. Literal repository routing checks both result labels. An unresolvable
+ * expression counts as "could be Windows" so it fails
  * closed -- someone has to look rather than have a second lane appear silently.
  */
 export function couldRunOnWindows(runsOn) {
@@ -280,7 +281,17 @@ export function couldRunOnWindows(runsOn) {
       : Array.isArray(runsOn)
         ? runsOn
         : [...(runsOn?.labels ?? []), runsOn?.group ?? ''].flat()
-  return labels.some((label) => /windows/i.test(String(label)) || String(label).includes('${{'))
+  return labels.some((label) => {
+    // Both branches are statically known only for this literal repository routing shape.
+    const routing =
+      /^\$\{\{\s*github\.repository\s*==\s*'[^'\r\n]+'\s*&&\s*'([^'\r\n]+)'\s*\|\|\s*'([^'\r\n]+)'\s*\}\}$/.exec(
+        String(label)
+      )
+    if (routing) {
+      return couldRunOnWindows(routing.slice(1))
+    }
+    return /windows/i.test(String(label)) || String(label).includes('${{')
+  })
 }
 
 /** The vitest argv of the one Windows job's one curated-file step. */
@@ -533,6 +544,22 @@ describe('Windows runner detection', () => {
     expect(couldRunOnWindows(['self-hosted', 'linux'])).toBe(false)
     expect(couldRunOnWindows(undefined)).toBe(false)
   })
+
+  it.each([
+    [
+      "${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-8vcpu-ubuntu-2404' }}",
+      false
+    ],
+    ["${{ github.repository == 'mercurai/orca' && 'windows-2022' || 'ubuntu-latest' }}", true],
+    ["${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'windows-2022' }}", true],
+    ["${{ github.repository == 'mercurai/orca' && inputs.runner || 'ubuntu-latest' }}", true],
+    ['${{ matrix.os }}', true]
+  ])(
+    'checks both literal repository runner results, failing closed for unknowns: %s',
+    (runsOn, expected) => {
+      expect(couldRunOnWindows(runsOn)).toBe(expected)
+    }
+  )
 })
 
 describe('Windows-gate detection', () => {

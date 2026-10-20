@@ -2,6 +2,7 @@
 // queued, and interrupts a handed-over message even before the provider has opened its turn —
 // the gap no client can name a turn for. Against the real host, store and journal.
 
+import { agentModelCatalogFingerprint } from '../agent-model-catalog/agent-model-catalog-fingerprint'
 import { AGENT_JOURNAL_THREAD_SCOPE } from '../../../shared/agent-session-journal-types'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -27,11 +28,15 @@ import {
   hostTestOperationId,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
-import { openTestJournalHostDatabase } from '../agent-session-journal/journal-host-database-test-support'
+import {
+  closeTestJournalHostDatabase,
+  openTestJournalHostDatabase
+} from '../agent-session-journal/journal-host-database-test-support'
 import { recordingStructuredAgentSessionLogger } from './structured-agent-session-logger-test-support'
 import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
 import { claudeAndCodexDeclared } from './structured-agent-session-adapter-router-test-support'
 import {
+  codexCalls,
   THREAD_ID,
   acquireReadyCodexForTest,
   adapterFor,
@@ -120,6 +125,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await host.flushAllStreamedEvents()
+  closeTestJournalHostDatabase(root)
   await rm(root, { recursive: true, force: true })
 })
 
@@ -131,7 +137,7 @@ function hostEvents(): StructuredAgentSessionEventSink {
   return events
 }
 
-function send(text: string) {
+function send(text: string, options?: Readonly<Record<string, string>>) {
   const body = hostTestMessage(text)
   const clientOperationId = hostTestOperationId()
   const result = host.send(CALLER, {
@@ -142,10 +148,11 @@ function send(text: string) {
       payloadFingerprint: computeAgentSessionPayloadFingerprint({
         method: 'agentSession.send',
         sessionId: SESSION,
-        fields: { body }
+        fields: { body, ...(options ? { options } : {}) }
       })
     },
-    body
+    body,
+    ...(options ? { options } : {})
   })
   return { id: clientOperationId, result }
 }
@@ -202,14 +209,20 @@ describe('a Stop that names no turn', () => {
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-1')
     codex.routes['turn/steer'] = () => ({ turn: { id: 'turn-1' } })
-    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
-      modelCatalog: new AgentModelCatalogStore()
+    const modelCatalog = new AgentModelCatalogStore()
+    const fingerprint = agentModelCatalogFingerprint({
+      agent: 'codex',
+      accountHomeVariable: 'CODEX_HOME',
+      accountHomePath: '/codex/home',
+      wslDistro: null
     })
+    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
     await acquireReadyCodexForTest(adapter, {
       identity: identityFor(SESSION),
       fence: 1,
       spawnToken: 'spawn-catalog',
-      options: { serviceTier: 'priority' },
+      // Standard needs no paid-tier catalog proof while the background listing is stalled.
+      options: { serviceTier: 'default' },
       // Codex's turn events reach the host's journal, as the runtime wires them.
       events: hostEvents()
     })
@@ -217,12 +230,13 @@ describe('a Stop that names no turn', () => {
     cancelTurn.mockImplementation((input) => adapter.cancelTurn(input))
     setOption.mockImplementation((input) => adapter.setOption(input))
 
-    const listing = adapter.readOptions({ sessionId: SESSION, fence: 1 })
+    const listing = await adapter.readOptions({ sessionId: SESSION, fence: 1 })
+    expect(listing.speed).toMatchObject({ support: 'loading' })
     const catalogReads = codex.connections[0].calls.filter(
       (call) => call.method === 'model/list'
     ).length
     await pickOption('serviceTier', 'priority')
-    const first = send('first send')
+    const first = send('first send', { serviceTier: 'default' })
     await first.result
     await eventually(() =>
       expect(codex.connections[0].calls.some((call) => call.method === 'turn/start')).toBe(true)
@@ -244,18 +258,13 @@ describe('a Stop that names no turn', () => {
       turn: { id: 'turn-1', status: 'interrupted' }
     })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-2')
-    const replacement = send('replacement')
+    const replacement = send('replacement', { model: 'gpt-next', serviceTier: 'default' })
     await replacement.result
-    await eventually(() =>
-      expect(
-        codex.connections[0].calls.filter((call) => call.method === 'turn/start')
-      ).toHaveLength(2)
-    )
-    expect(
-      codex.connections[0].calls.filter((call) => call.method === 'turn/start')[1]?.params
-    ).toMatchObject({ serviceTier: 'priority' })
+    await eventually(() => expect(codexCalls(codex, 'turn/start')).toHaveLength(2))
+    expect(codexCalls(codex, 'turn/start')[1]?.params).toMatchObject({ serviceTier: 'default' })
     pending.resolve({ data: [], nextCursor: null })
-    await expect(listing).rejects.toThrow('no available models')
+    await eventually(() => expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(true))
+    expect(modelCatalog.failureDetail(fingerprint)).toContain('no available models')
   })
 
   // Codex can abort a turn before it starts: it answers the interrupt, then ends the turn it never
@@ -379,7 +388,7 @@ describe('a Stop that names no turn', () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = (params) => {
-      if (codex.connections[0].calls.filter((call) => call.method === 'turn/start').length === 1) {
+      if (codexCalls(codex, 'turn/start').length === 1) {
         throw new CodexAppServerRequestError(
           'turn/start',
           -32602,
@@ -414,11 +423,7 @@ describe('a Stop that names no turn', () => {
     expect(await pickOption('model', 'gpt-live')).toMatchObject({ ok: true })
     const retried = send('second send')
     await retried.result
-    await eventually(() =>
-      expect(
-        codex.connections[0].calls.filter((call) => call.method === 'turn/start')
-      ).toHaveLength(2)
-    )
+    await eventually(() => expect(codexCalls(codex, 'turn/start')).toHaveLength(2))
     expect(store.getRecord(SESSION)?.options?.model).toBe('gpt-live')
     await eventually(async () =>
       expect((await submission(retried.id))?.dispatchState).not.toBe('rejected')

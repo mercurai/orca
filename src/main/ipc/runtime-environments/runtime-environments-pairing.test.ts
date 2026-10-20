@@ -1,3 +1,5 @@
+import type * as BrowserClientHostRuntime from '../../browser/paired-runtime-browser-client-host-runtime'
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import type { RuntimeHostStatusSnapshot } from '../../../shared/runtime-host-status'
 import {
   getRuntimeEnvironmentStatusSnapshots,
@@ -45,6 +47,12 @@ const {
   retryRemoteRuntimeSharedControlConnectionsNowMock: vi.fn(),
   retryRemoteRuntimeSharedControlConnectionNowMock: vi.fn(),
   closeRemoteRuntimeRequestConnectionMock: vi.fn()
+}))
+
+const retireBrowserClientHostMock = vi.hoisted(() => vi.fn(async () => {}))
+vi.mock('../../browser/paired-runtime-browser-client-host-runtime', async (importOriginal) => ({
+  ...(await importOriginal<typeof BrowserClientHostRuntime>()),
+  retirePairedRuntimeBrowserClientHostEnvironment: retireBrowserClientHostMock
 }))
 
 vi.mock('electron', () => ({
@@ -136,9 +144,12 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     retryRemoteRuntimeSharedControlConnectionsNowMock.mockReset()
     retryRemoteRuntimeSharedControlConnectionNowMock.mockReset()
     closeRemoteRuntimeRequestConnectionMock.mockReset()
+    retireBrowserClientHostMock.mockReset()
+    retireBrowserClientHostMock.mockResolvedValue(undefined)
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await drainPendingPathWrites()
     resetRuntimeEnvironmentStatusOwners()
     rmSync(userDataPath, { recursive: true, force: true })
   })
@@ -171,7 +182,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       expect(listeners.listenerCount('runtimeEnvironments:subscriptionBinary')).toBe(1)
       expect(channels.has('runtimeEnvironments:restartOrcad')).toBe(true)
       const list = handler<undefined, unknown[]>('runtimeEnvironments:list')
-      expect(await list(null, undefined)).toEqual([])
+      expect(list(null, undefined)).toEqual([])
     } finally {
       handleMock.mockReset()
       removeHandlerMock.mockReset()
@@ -223,13 +234,13 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(JSON.stringify(added)).not.toContain('device-token')
     expect(JSON.stringify(added)).not.toContain('publicKeyB64')
     const list = handler<undefined, { id: string; name: string }[]>('runtimeEnvironments:list')
-    expect(await list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
+    expect(list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
     expect(JSON.stringify(await list(null, undefined))).not.toContain('device-token')
 
     const resolve = handler<{ selector: string }, { id: string; name: string }>(
       'runtimeEnvironments:resolve'
     )
-    expect(await resolve(null, { selector: 'desk' })).toMatchObject({
+    expect(resolve(null, { selector: 'desk' })).toMatchObject({
       id: added.environment.id,
       name: 'desk'
     })
@@ -250,7 +261,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     )
     expect(store.setRemoteLayoutSnapshot).toHaveBeenCalledWith(added.environment.id, null, 'now')
     expect(JSON.stringify(removed)).not.toContain('device-token')
-    expect(await list(null, undefined)).toEqual([])
+    expect(list(null, undefined)).toEqual([])
   })
 
   it('blocks loopback before verification unless an SSH tunnel is declared', async () => {
@@ -395,7 +406,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
 
   it('returns a structured failure when a verified host cannot be persisted', async () => {
     registerRuntimeEnvironmentHandlers(store as never)
-    environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'desk',
       pairingCode: pairingCode('ws://100.76.32.125:6768')
     })
@@ -425,7 +436,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
 
   it('refreshes the saved server when a verified link is for it, and retires its old connection', async () => {
     registerRuntimeEnvironmentHandlers(store as never)
-    const saved = environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    const saved = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'desk',
       pairingCode: pairingCode('ws://100.76.32.125:6768')
     })
@@ -460,7 +471,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
 
   it('does not stamp a refresh that a newer one overtook with its stale verification', async () => {
     registerRuntimeEnvironmentHandlers(store as never)
-    const saved = environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    const saved = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'desk',
       pairingCode: pairingCode('ws://100.76.32.125:6768')
     })
@@ -472,6 +483,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     })
     // An overlapping re-add lands while this one retires the old connection.
     let overtaken = false
+    let newerWrite: Promise<unknown> | undefined
     closeRemoteRuntimeRequestConnectionMock.mockImplementation(() => {
       const current = environmentStore.resolveEnvironmentPairingOffer(userDataPath, saved.id)
       if (overtaken || current.deviceToken !== 'second-token') {
@@ -484,18 +496,25 @@ describe('registerRuntimeEnvironmentHandlers', () => {
         sendRemoteRuntimeRequestMock,
         sendRemoteRuntimeSharedControlRequestMock
       ]) {
-        mock.mockResolvedValue({
-          id: 'status',
-          ok: true,
-          result: newer,
-          _meta: { runtimeId: 'runtime-b' }
+        mock.mockImplementation(async () => {
+          await newerWrite
+          return {
+            id: 'status',
+            ok: true,
+            result: newer,
+            _meta: { runtimeId: 'runtime-b' }
+          }
         })
       }
-      environmentStore.addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+      newerWrite = environmentStore.addOrUpdateEnvironmentFromPairingCode(userDataPath, {
         name: 'desk',
         pairingCode: pairingCode('ws://192.0.2.11:6768', { deviceToken: 'third-token' }),
         now: Date.now() + 60_000
       })
+    })
+    // Invalidation actually awaits browser-host retirement; request close is synchronous.
+    retireBrowserClientHostMock.mockImplementation(async () => {
+      await newerWrite
     })
     const verifyAndAdd = handler<{ name: string; pairingCode: string }, { ok: boolean }>(
       'runtimeEnvironments:verifyAndAddFromPairingCode'
@@ -506,6 +525,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       pairingCode: pairingCode('ws://192.0.2.10:6768', { deviceToken: 'second-token' })
     })
 
+    await newerWrite
     expect(overtaken).toBe(true)
     const snapshot = getRuntimeEnvironmentStatusSnapshots().find(
       (entry) => entry.environmentId === saved.id
@@ -526,7 +546,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:remove'
     )
 
-    expect(() => remove(null, { selector: added.environment.id })).toThrow(
+    await expect(remove(null, { selector: added.environment.id })).rejects.toThrow(
       'Choose another one under New projects open on before removing it.'
     )
     expect(activeRuntimeEnvironmentId).toBe(added.environment.id)
@@ -552,7 +572,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { selector: string },
       { disconnected: { id: string; name: string } }
     >('runtimeEnvironments:disconnect')
-    expect(await disconnect(null, { selector: 'desk' })).toMatchObject({
+    await expect(disconnect(null, { selector: 'desk' })).resolves.toMatchObject({
       disconnected: { id: added.environment.id, name: 'desk' }
     })
 
@@ -560,7 +580,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     expect(closeRemoteRuntimeRequestConnectionMock).toHaveBeenCalledWith('desk')
 
     const list = handler<undefined, { id: string; name: string }[]>('runtimeEnvironments:list')
-    expect(await list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
+    expect(list(null, undefined)).toMatchObject([{ id: added.environment.id, name: 'desk' }])
 
     const getStatus = handler<{ selector: string }, { ok: boolean; error?: { code: string } }>(
       'runtimeEnvironments:getStatus'
@@ -573,7 +593,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:getStatusSnapshots'
     )
     // A new renderer only has the snapshot read, not the earlier disconnect event.
-    expect(await getSnapshots(null, undefined)).toMatchObject([
+    expect(getSnapshots(null, undefined)).toMatchObject([
       { environmentId: added.environment.id, retired: true, transport: 'disconnected' }
     ])
     const call = handler<
@@ -601,7 +621,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       result: { runtimeId: 'runtime-remote' }
     })
     expect(sendRemoteRuntimeRequestMock).toHaveBeenCalledOnce()
-    expect(await getSnapshots(null, undefined)).toMatchObject([
+    expect(getSnapshots(null, undefined)).toMatchObject([
       { environmentId: added.environment.id, verification: 'verified' }
     ])
     expect((await getSnapshots(null, undefined))[0].retired).not.toBe(true)
@@ -613,7 +633,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     // The ephemeral-VM provision flow persists `source: 'ephemeral-vm'` directly
     // on the environment record (ephemeral-vm.ts), so the public list reads it
     // straight from the record rather than cross-referencing the VM runtime store.
-    const added = environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+    const added = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
       name: 'orca VM abc12345',
       pairingCode: pairingCode(),
       source: 'ephemeral-vm'
@@ -623,7 +643,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       'runtimeEnvironments:list'
     )
 
-    expect(await list(null, undefined)).toMatchObject([
+    expect(list(null, undefined)).toMatchObject([
       { id: added.id, name: 'orca VM abc12345', source: 'ephemeral-vm' }
     ])
   })

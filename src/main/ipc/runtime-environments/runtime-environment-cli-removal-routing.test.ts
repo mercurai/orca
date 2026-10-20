@@ -59,8 +59,8 @@ afterEach(() => {
 })
 
 describe('runtime responses the app can no longer attribute to a saved server', () => {
-  it('keeps verifying status after the store stops resolving the environment', () => {
-    const environment = seedEnvironment()
+  it('keeps verifying status after the store stops resolving the environment', async () => {
+    const environment = await seedEnvironment()
     const transport = {
       isReady: () => false,
       request: vi.fn(),
@@ -68,7 +68,7 @@ describe('runtime responses the app can no longer attribute to a saved server', 
       pause: vi.fn()
     }
     const owner = createRuntimeEnvironmentStatusOwner(userDataPath, environment, transport)
-    removeEnvironment(userDataPath, environment.id)
+    await removeEnvironment(userDataPath, environment.id)
 
     // A throw here escapes `void verify()` as an unhandled rejection and skips settleWaiters(),
     // hanging every refresh() caller until its own 15s timeout.
@@ -84,7 +84,7 @@ describe('runtime responses the app can no longer attribute to a saved server', 
   ])('forwards a %s response after `orca environment rm`', async (_label, method) => {
     const { deliver, onEvent, environment } = await subscribed(method)
     // Mirrors the CLI: it edits the store without telling the running app.
-    removeEnvironment(userDataPath, environment.id)
+    await removeEnvironment(userDataPath, environment.id)
     const response = {
       id: method,
       ok: true as const,
@@ -134,7 +134,7 @@ function statusResponse() {
 }
 
 async function subscribed(method: string) {
-  const environment = seedEnvironment()
+  const environment = await seedEnvironment()
   supportsMock.mockResolvedValue(absentOutcome(environment))
   let callbacks: ResponseCallbacks | null = null
   subscribeMock.mockImplementation(
@@ -155,7 +155,7 @@ async function subscribed(method: string) {
   }
 }
 
-function seedEnvironment(): KnownRuntimeEnvironment {
+function seedEnvironment(): Promise<KnownRuntimeEnvironment> {
   return addEnvironmentFromPairingCode(userDataPath, {
     name: 'dev box',
     pairingCode: encodePairingOffer({

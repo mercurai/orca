@@ -130,11 +130,26 @@ describe('Codex session options through the host catalog store', () => {
 
   it('lists once at the first read and serves every later read from the store', async () => {
     const store = new AgentModelCatalogStore()
-    const request = vi.fn(async () => listAnswer('gpt-live', 'gpt-next'))
+    let release!: () => void
+    const listing = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const request = vi.fn(async () => {
+      await listing
+      return listAnswer('gpt-live', 'gpt-next')
+    })
     const session = storeSession(request, store)
     // The acquire-time restore read.
     const first = await readLiveCodexSessionOptions(session, undefined)
-    expect(first.models.map((model) => model.id)).toEqual(['gpt-live', 'gpt-next'])
+    expect(first.models.map((model) => model.id)).toEqual(['gpt-live'])
+    expect(first.speed).toMatchObject({ support: 'loading' })
+    release()
+    await vi.waitFor(() =>
+      expect(store.get(FINGERPRINT)?.models.map((model) => model.id)).toEqual([
+        'gpt-live',
+        'gpt-next'
+      ])
+    )
     expect(modelListCalls(request)).toBe(1)
     // The picker's first read after attach must not pay a second listing.
     const second = await readLiveCodexSessionOptions(session, undefined)
@@ -160,6 +175,7 @@ describe('Codex session options through the host catalog store', () => {
     // The acquire-time restore read: joining the probe would fail the chat at the probe's deadline.
     const result = await readLiveCodexSessionOptions(session, undefined)
     expect(result.models.map((model) => model.id)).toEqual(['gpt-live'])
+    await vi.waitFor(() => expect(store.get(FINGERPRINT)?.models[0]?.id).toBe('gpt-live'))
     expect(modelListCalls(request)).toBe(1)
   })
 
@@ -181,7 +197,8 @@ describe('Codex session options through the host catalog store', () => {
     })
     expect(await service.read({ agent: 'codex' })).toEqual({
       origin: 'unknown',
-      listingInProgress: true
+      listingInProgress: true,
+      catalogState: 'loading'
     })
     expect(hungProbe).toHaveBeenCalledTimes(1)
     const request = vi.fn(async () => listAnswer('gpt-live'))
@@ -189,6 +206,8 @@ describe('Codex session options through the host catalog store', () => {
     session.catalogAccess = { store, fingerprint, accountHomePath: '/homes/a' }
     const result = await readLiveCodexSessionOptions(session, undefined)
     expect(result.models.map((model) => model.id)).toEqual(['gpt-live'])
+    await vi.waitFor(() => expect(store.get(fingerprint)?.models[0]?.id).toBe('gpt-live'))
+    expect(modelListCalls(request)).toBe(1)
     // The picker's waiting read now answers from the chat's listing.
     const picker = await service.read({ agent: 'codex', waitForListing: true })
     expect(picker.origin === 'unknown' ? null : picker.models[0]!.id).toBe('gpt-live')
@@ -206,6 +225,7 @@ describe('Codex session options through the host catalog store', () => {
     const session = storeSession(request, store)
     const result = await readLiveCodexSessionOptions(session, undefined)
     expect(result.models.map((model) => model.id)).toEqual(['gpt-live'])
+    await vi.waitFor(() => expect(store.get(FINGERPRINT)?.models[0]?.id).toBe('gpt-live'))
     expect(modelListCalls(request)).toBe(1)
   })
 

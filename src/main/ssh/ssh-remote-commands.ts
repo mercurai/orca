@@ -87,8 +87,20 @@ export function probeRemoteInstallCompleteCommand(
     joinRemotePath(host, remoteInstallDir, filename)
   )
   if (!isWindowsRemoteHost(host)) {
-    const fileTests = required.map((path) => `&& test -f ${quotePosixShell(path)} `).join('')
-    return `test -d ${quotePosixShell(remoteInstallDir)} ${fileTests}&& echo OK || echo MISSING`
+    const directory = remoteInstallDir.replace(/\/+$/, '')
+    const prefix = `${directory}/`
+    const fileTests = required
+      .map((path) => {
+        const file = path.startsWith(prefix)
+          ? `"$orca_dir"/${quotePosixShell(path.slice(prefix.length))}`
+          : quotePosixShell(path)
+        return `&& test -f ${file} `
+      })
+      .join('')
+    const compact = `orca_dir=${quotePosixShell(directory)}; test -d ${quotePosixShell(remoteInstallDir)} ${fileTests}&& echo OK || echo MISSING`
+    const directTests = required.map((path) => `&& test -f ${quotePosixShell(path)} `).join('')
+    const direct = `test -d ${quotePosixShell(remoteInstallDir)} ${directTests}&& echo OK || echo MISSING`
+    return Buffer.byteLength(compact) < Buffer.byteLength(direct) ? compact : direct
   }
   return powerShellCommand(
     [

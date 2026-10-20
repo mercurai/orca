@@ -41,7 +41,8 @@ describe('a launch of a host-registered agent', () => {
       expect(mocks.call).toHaveBeenCalledWith(
         expect.anything(),
         'agentSession.create',
-        expect.objectContaining({ agent: 'grok', worktree: `id:${worktreeId}` })
+        expect.objectContaining({ agent: 'grok', worktree: `id:${worktreeId}` }),
+        undefined
       )
     )
 

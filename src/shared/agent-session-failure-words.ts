@@ -12,8 +12,7 @@ import {
   type AgentSessionFailureFact,
   type AgentSessionFailureKind,
   type ProviderDiagnostic,
-  type SubmissionRejectionFact,
-  type SubmissionRejectionKind
+  type SubmissionRejectionFact
 } from './agent-session-failure'
 import type { AgentSessionConversationCommand } from './agent-session-conversation-command'
 import { cliMissingSentence, notSignedInSentence } from './agent-session-availability-sentences'
@@ -33,13 +32,8 @@ import {
 import { commandRefusedByReason } from './agent-session-command-refusal-words'
 import { attachmentProblemSentence } from './agent-session-attachment-failure-words'
 import { joinSentences } from './sentence-joining'
+import { legacyDispatchRejectionMarker } from './structured-agent-session-dispatch-rejection'
 import { requestTimeoutSeconds } from './agent-session-request-timeout'
-import {
-  DISPATCH_REJECTED_CANCELLED,
-  DISPATCH_REJECTED_CODEX_QUEUE_FULL,
-  DISPATCH_REJECTED_QUEUE_FULL,
-  DISPATCH_REJECTED_WRITE_FAILED
-} from './structured-agent-session-dispatch-rejection'
 
 declare const failureSentence: unique symbol
 
@@ -237,6 +231,8 @@ const FAILURE_SENTENCES = {
   commandUnavailable: namingAgent('commandUnavailable'),
   queueFull: (_context, _fact, _surface, say) => say('queueFull'),
   writeFailed: (_context, _fact, _surface, say) => say('writeFailed'),
+  speedSupportUnknown: (_context, _fact, _surface, say) => say('speedSupportUnknown'),
+  speedUnavailable: (_context, _fact, _surface, say) => say('speedUnavailable'),
   cancelled: (_context, _fact, _surface, say) => say('cancelled'),
   chatClosed: (_context, _fact, _surface, say) => say('chatClosed'),
   hostRestarted: (_context, _fact, _surface, say) => say('hostRestarted'),
@@ -304,21 +300,6 @@ export function agentSessionFailureSentence(
   return sentence(context, fact, surface, say)
 }
 
-/** The markers released clients hide, for the rejections that had one before rows carried a fact.
- *  A write failure is the bare marker: its error belongs in the log. */
-const LEGACY_REJECTION_MARKERS: Partial<
-  Record<SubmissionRejectionKind, (context: AgentSessionFailureWordsContext) => string | undefined>
-> = {
-  cancelled: () => DISPATCH_REJECTED_CANCELLED,
-  writeFailed: () => DISPATCH_REJECTED_WRITE_FAILED,
-  queueFull: ({ provider }) =>
-    provider === 'codex'
-      ? DISPATCH_REJECTED_CODEX_QUEUE_FULL
-      : provider === 'claude'
-        ? DISPATCH_REJECTED_QUEUE_FULL
-        : undefined
-}
-
 /** The words a status row reporting this fact records. */
 export function agentSessionFailureWords(
   fact: AgentSessionFailureFact,
@@ -341,7 +322,7 @@ export function agentSessionFailureWords(
     throw new Error(`agent session failure kind ${fact.kind} cannot reject a message`)
   }
   const words =
-    LEGACY_REJECTION_MARKERS[fact.kind]?.(context) ??
+    legacyDispatchRejectionMarker(fact.kind, context.provider) ??
     agentSessionFailureSentence(fact, 'rejection', context)
   return { reason: branded(words), rejection: fact }
 }

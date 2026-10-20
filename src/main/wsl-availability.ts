@@ -7,7 +7,12 @@ type WslAvailabilityCache =
   | { available: true }
   /** Not Windows — never re-probed. */
   | { available: false; unsupported: true }
-  | { available: false; cachedAt: number; retryable: boolean; failures: number }
+  | {
+      available: false
+      cachedAt: number
+      retryable: boolean
+      failures: number
+    }
 
 let wslAvailableCache: WslAvailabilityCache | null = null
 let wslAvailabilityProbeInFlight: Promise<boolean> | null = null

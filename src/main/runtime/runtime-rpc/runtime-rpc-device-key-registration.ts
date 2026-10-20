@@ -10,11 +10,11 @@ import type { AuthenticatedMobileSocket } from '../rpc/mobile-socket-wiring'
  * Registers the calling installation's key by forking its token row (device-key-fork.ts). Proof of
  * possession is bound to this socket's v2 transcript, so a captured proof is useless elsewhere.
  */
-export function registerSocketDeviceKey(
+export async function registerSocketDeviceKey(
   registry: DeviceRegistry,
   socket: AuthenticatedMobileSocket,
   params: RegisterDeviceKeyParams
-): RegisterDeviceKeyResult {
+): Promise<RegisterDeviceKeyResult> {
   if (!socket.transcriptHashB64) {
     throw new Error('device_key_requires_e2ee_v2')
   }
@@ -32,7 +32,7 @@ export function registerSocketDeviceKey(
   if (!legacy) {
     throw new Error('unauthorized')
   }
-  const entry = registry.forkDeviceKey(
+  const entry = await registry.forkDeviceKey(
     legacy.deviceId,
     params.devicePublicKeyB64,
     sanitizeDeviceLabel(params.deviceLabel, legacy.name),

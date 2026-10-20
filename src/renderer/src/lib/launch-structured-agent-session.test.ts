@@ -14,7 +14,8 @@ import {
 import { admitStructuredLaunchOnHost } from './structured-agent-session-host-admission'
 
 vi.mock('@/runtime/structured-agent-session-client', () => ({
-  callStructuredAgentSession: vi.fn()
+  callStructuredAgentSession: vi.fn(),
+  supportsStructuredAgentSessionCreateMessage: async () => false
 }))
 
 describe('structured agent session launch', () => {
@@ -56,6 +57,8 @@ describe('structured agent session launch', () => {
     )
 
     const intent = createStructuredAgentSessionLaunchIntent('workspace-1', 'codex')
+    const expectedOptions = { permissionMode: 'ask' }
+    expect(intent.seedOptions).toEqual(expectedOptions)
     const receipt = await launchStructuredAgentSession(intent)
     const params = vi
       .mocked(callStructuredAgentSession)
@@ -72,13 +75,18 @@ describe('structured agent session launch', () => {
     expect(callStructuredAgentSession).toHaveBeenCalledWith(
       { kind: 'local' },
       'agentSession.create',
-      expect.objectContaining({ worktree: 'id:workspace-1', agent: 'codex' })
+      expect.objectContaining({
+        worktree: 'id:workspace-1',
+        agent: 'codex',
+        options: expectedOptions
+      }),
+      undefined
     )
     expect(params.envelope.payloadFingerprint).toBe(
       structuredAgentSessionPayloadFingerprint({
         method: 'agentSession.create',
         sessionId: params.envelope.sessionId,
-        fields: { worktree: 'id:workspace-1', agent: 'codex' }
+        fields: { worktree: 'id:workspace-1', agent: 'codex', options: expectedOptions }
       })
     )
     expect(params).toBe(intent.params)

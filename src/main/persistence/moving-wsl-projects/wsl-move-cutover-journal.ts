@@ -89,8 +89,41 @@ export function listWslMoveCutoverChain(
  * from the one on disk. A new move into a distro must extend the head of its chain, and only
  * once that head finished: one in-flight move per distro (design, section 4.3).
  */
-export function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutover): void {
-  const parsed = parseVerifiedWslMoveCutover(cutover)
+export async function writeWslMoveCutover(
+  userDataPath: string,
+  cutover: WslMoveCutover
+): Promise<void> {
+  const parsed = parseVerifiedWslMoveCutover(structuredClone(cutover))
+  return journals.transact(userDataPath, async ({ write }) => {
+    assertWslMoveWrite(userDataPath, parsed)
+    await write(parsed)
+  })
+}
+
+/** Derive a ledger/phase update from the authoritative record while holding its directory lane. */
+export function updateWslMoveCutover<R>(
+  userDataPath: string,
+  migrationId: string,
+  update: (current: WslMoveCutover | undefined) => { cutover?: WslMoveCutover; result: R }
+): Promise<R> {
+  return journals.transact(userDataPath, async ({ write }) => {
+    const current = listWslMoveCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
+    const next = update(current)
+    if (next.cutover) {
+      const parsed = parseVerifiedWslMoveCutover(structuredClone(next.cutover))
+      if (parsed.migrationId !== migrationId) {
+        throw new Error('wsl_move_binding_changed')
+      }
+      assertWslMoveWrite(userDataPath, parsed)
+      await write(parsed)
+    }
+    return next.result
+  })
+}
+
+function assertWslMoveWrite(userDataPath: string, parsed: WslMoveCutover): void {
   // Files are named by migration id alone: one id must never name moves of two distros.
   if (
     listWslMoveCutovers(userDataPath).some(
@@ -123,7 +156,6 @@ export function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutove
       throw new Error('wsl_move_must_extend_its_chain')
     }
   }
-  journals.write(userDataPath, parsed)
 }
 
 /** A record only moves forward, keeps its binding, and only the head of its chain still moves. */
@@ -190,16 +222,18 @@ const REMOVABLE_IN_FLIGHT_PHASES: ReadonlySet<WslMoveCutover['phase']> = new Set
  * further along keeps its fence until it resumes, or until a cancel proves the destination holds
  * nothing.
  */
-export function removeWslMoveCutover(userDataPath: string, migrationId: string): void {
-  const record = listWslMoveCutovers(userDataPath).find(
-    (entry) => entry.migrationId === migrationId
-  )
-  if (
-    record &&
-    !REMOVABLE_IN_FLIGHT_PHASES.has(record.phase) &&
-    !isWslMoveCutoverFinished(record)
-  ) {
-    throw new Error('wsl_move_in_flight')
-  }
-  journals.remove(userDataPath, migrationId)
+export function removeWslMoveCutover(userDataPath: string, migrationId: string): Promise<void> {
+  return journals.transact(userDataPath, async ({ remove }) => {
+    const record = listWslMoveCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
+    if (
+      record &&
+      !REMOVABLE_IN_FLIGHT_PHASES.has(record.phase) &&
+      !isWslMoveCutoverFinished(record)
+    ) {
+      throw new Error('wsl_move_in_flight')
+    }
+    await remove(migrationId)
+  })
 }

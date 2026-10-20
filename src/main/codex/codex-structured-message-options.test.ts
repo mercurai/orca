@@ -27,7 +27,10 @@ function seedMessageDefaults(session: CodexSession): void {
           label: 'Model A',
           isDefault: false,
           defaultEffort: 'low',
-          serviceTiers: [{ value: 'priority', label: 'Priority' }],
+          serviceTiers: [
+            { value: 'priority', label: 'Priority' },
+            { value: 'flex', label: 'Flex' }
+          ],
           efforts: [
             { value: 'low', label: 'Low' },
             { value: 'high', label: 'High' }
@@ -36,6 +39,7 @@ function seedMessageDefaults(session: CodexSession): void {
         {
           id: 'model-b',
           label: 'Model B',
+          serviceTiers: [{ value: 'flex', label: 'Flex' }],
           isDefault: true,
           defaultEffort: 'medium',
           efforts: [
@@ -51,11 +55,78 @@ function seedMessageDefaults(session: CodexSession): void {
 }
 
 describe('Codex captured message choices', () => {
+  it('admits and acknowledges the captured tier rather than the newer session pick', async () => {
+    const request = vi.fn(async () => ({ turn: { id: 'captured-turn' } }))
+    const session = optionSession(request)
+    seedMessageDefaults(session)
+    session.options.set('model', 'model-b')
+    session.options.set('serviceTier', 'unavailable-newer-pick')
+    await startCodexTurn(session, {
+      clientMessageId: 'captured-speed',
+      body: USER_MESSAGE,
+      turnOptions: { model: 'model-a', serviceTier: 'priority' }
+    })
+    expect(request).toHaveBeenCalledWith(
+      'turn/start',
+      expect.objectContaining({
+        model: 'model-a',
+        serviceTier: 'priority'
+      }),
+      expect.anything()
+    )
+    expect(session.speedApplied).toMatchObject({ tierId: 'priority', turnId: 'captured-turn' })
+  })
+
+  it('refuses an unavailable captured tier without changing applied or saved options', async () => {
+    const request = vi.fn(async () => ({ turn: { id: 'must-not-open' } }))
+    const session = optionSession(request)
+    seedMessageDefaults(session)
+    session.options.set('model', 'model-a')
+    session.options.set('serviceTier', 'default')
+    session.appliedTurnOptions = { model: 'model-a', serviceTier: 'default' }
+    await expect(
+      startCodexTurn(session, {
+        clientMessageId: 'unavailable-speed',
+        body: USER_MESSAGE,
+        turnOptions: { model: 'model-a', serviceTier: 'synthetic-ultra-not-advertised' }
+      })
+    ).rejects.toMatchObject({ kind: 'speedUnavailable' })
+    expect(request).not.toHaveBeenCalled()
+    expect(session.speedApplied).toBeUndefined()
+    expect(session.appliedTurnOptions).toEqual({ model: 'model-a', serviceTier: 'default' })
+    expect(Object.fromEntries(session.options)).toEqual({
+      model: 'model-a',
+      serviceTier: 'default'
+    })
+  })
+
+  it('does not acknowledge a provider-rejected captured speed and restores the prior options', async () => {
+    const request = vi.fn(async () => {
+      throw new CodexAppServerRequestError('turn/start', -32602, 'tier rejected')
+    })
+    const session = optionSession(request)
+    seedMessageDefaults(session)
+    session.options.set('serviceTier', 'default')
+    session.appliedTurnOptions = { serviceTier: 'default' }
+    await expect(
+      startCodexTurn(session, {
+        clientMessageId: 'server-rejected-speed',
+        body: USER_MESSAGE,
+        turnOptions: { model: 'model-a', serviceTier: 'priority' }
+      })
+    ).rejects.toThrow('tier rejected')
+    expect(session.speedApplied).toBeUndefined()
+    expect(session.appliedTurnOptions).toEqual({ serviceTier: 'default' })
+    expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'default' })
+  })
+
   it('uses each message’s choices on turn/start and tracks the native attempted choice', async () => {
     const request = vi.fn(async (_method: string, _params?: Record<string, unknown>) => ({
       turn: { id: 'turn-1' }
     }))
     const session = optionSession(request)
+    seedMessageDefaults(session)
+    session.reportedOptions.model = 'model-a'
     session.options.set('model', 'saved-next')
     session.options.set('effort', 'medium')
     const body = {
@@ -65,7 +136,7 @@ describe('Codex captured message choices', () => {
     }
     for (const [id, model, effort] of [
       ['first', 'model-a', 'high'],
-      ['second', 'model-b', 'low']
+      ['second', 'model-b', 'medium']
     ]) {
       const turnOptions = await resolvedCodexMessageOptions(session, { model, effort })
       await startCodexTurn(session, { clientMessageId: id, body, turnOptions })
@@ -79,7 +150,7 @@ describe('Codex captured message choices', () => {
     expect(request.mock.calls.at(-1)?.[0]).toBe('turn/steer')
     expect(request.mock.calls.at(-1)?.[1]).not.toHaveProperty('personality')
     expect(request.mock.calls.at(-1)?.[1]).not.toHaveProperty('serviceTier')
-    expect(session.appliedTurnOptions).toEqual({ model: 'model-b', effort: 'low' })
+    expect(session.appliedTurnOptions).toEqual({ model: 'model-b', effort: 'medium' })
     session.activeTurnIds = new Set()
     await startCodexTurn(session, {
       clientMessageId: 'next',
@@ -96,7 +167,7 @@ describe('Codex captured message choices', () => {
         .map(([, params]) => [params?.model, params?.effort])
     ).toEqual([
       ['model-a', 'high'],
-      ['model-b', 'low'],
+      ['model-b', 'medium'],
       [undefined, undefined]
     ])
     expect(Object.fromEntries(session.options)).toEqual({
@@ -197,6 +268,8 @@ describe('Codex captured message choices', () => {
       turn: { id: 'legacy' }
     }))
     const session = optionSession(request)
+    seedMessageDefaults(session)
+    session.reportedOptions.model = 'model-a'
     session.options.set('model', 'saved-next')
     session.options.set('effort', 'high')
     const turnOptions = await resolvedCodexMessageOptions(session, undefined)

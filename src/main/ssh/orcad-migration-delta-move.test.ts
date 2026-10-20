@@ -97,7 +97,7 @@ beforeEach(() => {
   mocks.deploy.mockImplementation(async (path: string, args: { name: string }) => {
     const id = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))!
     if (!listEnvironments(path).some((entry) => entry.id === id)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -496,7 +496,7 @@ describe('moving what an older build added to a converted host', () => {
       now: () => new Date(delta!.manifest.createdAt)
     })
     expect(manifest.payload.projectGroups.map((entry) => entry.id)).toEqual([group.id])
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...delta!,
       manifest,
       manifestSha256: manifest.manifestSha256

@@ -1,6 +1,5 @@
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
+import type { StructuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 import type { StructuredLaunchState } from './structured-agent-session-launch-registry'
-import { notifyStructuredLaunchListeners } from './structured-agent-session-launch-registry'
 import {
   prepareStructuredLaunchPromptForCreate,
   prepareLegacyStructuredLaunchPrompts
@@ -17,43 +16,44 @@ import {
   settleStructuredLaunchCreateOptions
 } from './structured-agent-session-launch-options'
 
-/** Freeze what create carries once; an ambiguous reply always replays the same payload. */
-export function prepareStructuredLaunchCreateMessage(state: StructuredLaunchState): void {
+/** Preview options without taking ownership of the first message before authorization. */
+export function prepareStructuredLaunchCreateMessage(
+  state: StructuredLaunchState,
+  createMessageSupport: boolean
+): {
+  params: StructuredAgentSessionCreateParams
+  commit?: () => StructuredAgentSessionCreateParams
+} {
   const { intent } = state
   if (intent.createPrepared) {
-    return
+    return { params: intent.params }
   }
-  if (intent.createMessageSupport !== true) {
-    prepareLegacyStructuredLaunchPrompts(intent.sessionId)
-    intent.createPrepared = true
-    notifyStructuredLaunchListeners()
-    return
-  }
-  const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
-  const options = structuredLaunchCreateOptions(state)
-  const params = {
-    ...intent.params,
-    ...(firstMessage ? { firstMessage } : {}),
-    ...(options ? { options } : {})
-  }
-  intent.params = {
-    ...params,
-    envelope: {
-      ...params.envelope,
-      payloadFingerprint: structuredAgentSessionCreateFingerprint({
-        sessionId: intent.sessionId,
-        ...params
-      })
+  const options = structuredLaunchCreateOptions(state, createMessageSupport)
+  const params = { ...intent.params, ...(options ? { options } : {}) }
+  return {
+    params,
+    commit: () => {
+      // A joiner may hand off the CLI source while speed authorization awaits.
+      const { options: _currentOptions, ...currentFields } = intent.params
+      const currentParams = {
+        ...currentFields,
+        ...(params.options ? { options: params.options } : {})
+      }
+      if (!createMessageSupport) {
+        prepareLegacyStructuredLaunchPrompts(intent.sessionId)
+        return currentParams
+      }
+      const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
+      return { ...currentParams, ...(firstMessage ? { firstMessage } : {}) }
     }
   }
-  intent.createPrepared = true
-  notifyStructuredLaunchListeners()
 }
 
 /** Picks held so far, and the model and effort the chat shows: a first message starts its turn
  *  on them, as a later send does. */
 function structuredLaunchCreateOptions(
-  state: StructuredLaunchState
+  state: StructuredLaunchState,
+  createMessageSupport: boolean
 ): Readonly<Record<string, string>> | undefined {
   const { intent, selection } = state
   const firstFrame = firstFrameOptionState(intent.agent, intent.target, {
@@ -61,9 +61,28 @@ function structuredLaunchCreateOptions(
     worktree: intent.params.worktree,
     seedsModel: intent.seedOptions?.model !== undefined
   })
-  // Create has always carried options, so any host takes what the chat shows.
   const view = structuredAgentSessionOptionView(firstFrame, intent.seedOptions, selection.held)
+  const {
+    model: seededModel,
+    effort: seededEffort,
+    permissionMode: seededPermission,
+    ...independentSeed
+  } = intent.seedOptions ?? {}
+  // Legacy create needs the seeded permission; modern create carries an explicit held
+  // permission only. Speed/personality intent survives an unlisted remembered model.
+  // A paired host supplied its own seed during admission. Explicit Codex speed keeps
+  // its model too, so an unknown tier is refused under that model, never paid elsewhere.
+  const keepsSeedModel =
+    intent.target.kind !== 'local' ||
+    (intent.agent === 'codex' &&
+      (independentSeed.serviceTier !== undefined || independentSeed.fastMode !== undefined))
   const options = {
+    ...independentSeed,
+    ...(keepsSeedModel && seededModel !== undefined ? { model: seededModel } : {}),
+    ...(keepsSeedModel && seededEffort !== undefined ? { effort: seededEffort } : {}),
+    ...(!createMessageSupport && seededPermission !== undefined
+      ? { permissionMode: seededPermission }
+      : {}),
     ...selection.held,
     ...structuredAgentSessionSendSelection(intent.agent, structuredAgentSessionOptionSnapshot(view))
   }
@@ -78,7 +97,7 @@ export function publishStructuredLaunchCreateOptions(
   if (state.intent.createMessageSupport !== true) {
     return applyStructuredLaunchHeldOptions(state, receipt)
   }
-  settleStructuredLaunchCreateOptions(state, state.intent.params.options ?? {})
+  settleStructuredLaunchCreateOptions(state, state.intent.createCanonicalOptions ?? {})
   void applyStructuredLaunchHeldOptions(state, receipt).catch((error: unknown) => {
     console.warn('[native-chat] applying a launch option failed', error)
   })
