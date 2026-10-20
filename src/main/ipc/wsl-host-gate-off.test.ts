@@ -89,8 +89,8 @@ const handler = channelHandlerLookup(mocks.handle)
 const WSL_ID = 'wsl:ubuntu'
 const GATED = 'WSL hosts are not available in this build.'
 
-function persistWslHost(userDataPath: string): void {
-  addWslHostEnvironment(userDataPath, {
+async function persistWslHost(userDataPath: string): Promise<void> {
+  await addWslHostEnvironment(userDataPath, {
     id: WSL_ID,
     name: 'Ubuntu (WSL)',
     pairingCode: encodePairingOffer({
@@ -130,15 +130,15 @@ describe('WSL hosts with the internal gate closed', () => {
     setRemoteLayoutSnapshot: vi.fn()
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     vi.stubEnv('ORCA_E2E_FAKE_WSL_HOSTS', '')
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-wsl-gate-'))
     mocks.getPath.mockReturnValue(userDataPath)
     mocks.handle.mockReset()
     setWslHostService(null)
-    persistWslHost(userDataPath)
-    addEnvironmentFromPairingCode(userDataPath, { name: 'desk', pairingCode: pairingCode() })
+    await persistWslHost(userDataPath)
+    await addEnvironmentFromPairingCode(userDataPath, { name: 'desk', pairingCode: pairingCode() })
   })
 
   afterEach(() => {

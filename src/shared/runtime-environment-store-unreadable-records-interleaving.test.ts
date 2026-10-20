@@ -16,7 +16,7 @@ import {
 } from './runtime-environment-store'
 import {
   readPersistedEnvironmentStore,
-  writeEnvironmentStore
+  writeEnvironmentStoreSnapshotAsync
 } from './runtime-environment-store-file'
 import { readEnvironmentStoreRecords } from './runtime-environment-store-records'
 import {
@@ -81,11 +81,11 @@ function unreadableRecord(rand: () => number, id: string): unknown {
 
 describe('runtime environment store under interleaved writers and unreadable records', () => {
   let userDataPath: string
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-environment-interleaving-'))
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
   })
@@ -101,7 +101,7 @@ describe('runtime environment store under interleaved writers and unreadable rec
     }
   }
 
-  function runSeed(seed: number): void {
+  async function runSeed(seed: number): Promise<void> {
     const rand = prng(seed)
     const pick = <T>(items: readonly T[]): T | undefined =>
       items.length === 0 ? undefined : items[Math.floor(rand() * items.length)]
@@ -154,13 +154,13 @@ describe('runtime environment store under interleaved writers and unreadable rec
           unreadable.some((record) => recordId(record) === id && !readable.has(id))
         )
         if (ownedElsewhere) {
-          expect(
-            () => writeEnvironmentStore(userDataPath, { version: 1, environments: next }),
+          await expect(
+            async () => (await writeEnvironmentStoreSnapshotAsync(userDataPath, { version: 1, environments: next })),
             label
-          ).toThrow('newer version of Orca')
+          ).rejects.toThrow('newer version of Orca')
           expect(readFileSync(storePath(), 'utf8'), label).toBe(before)
         } else {
-          writeEnvironmentStore(userDataPath, { version: 1, environments: next })
+          await writeEnvironmentStoreSnapshotAsync(userDataPath, { version: 1, environments: next })
           readable = new Map(next.map((entry) => [entry.id, entry]))
         }
         writers[writer] = undefined
@@ -207,14 +207,14 @@ describe('runtime environment store under interleaved writers and unreadable rec
         const target = pick(environments)
         if (target && target.id in unreadableEntries) {
           const before = readFileSync(storePath(), 'utf8')
-          expect(() => removeEnvironment(userDataPath, target.id), label).toThrow()
-          expect(
-            () => writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, target, null),
+          await expect(async () => (await removeEnvironment(userDataPath, target.id)), label).rejects.toThrow()
+          await expect(
+            async () => (await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, target, null)),
             label
-          ).toThrow('newer version of Orca')
+          ).rejects.toThrow('newer version of Orca')
           expect(readFileSync(storePath(), 'utf8'), label).toBe(before)
         } else if (target) {
-          writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, target, {
+          await writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, target, {
             orcadMigratedAt: new Date(clock).toISOString()
           })
         }
@@ -254,10 +254,10 @@ describe('runtime environment store under interleaved writers and unreadable rec
     }
   }
 
-  it('never loses, duplicates, or exposes records across random interleavings', () => {
+  it('never loses, duplicates, or exposes records across random interleavings', async () => {
     for (let seed = 1; seed <= 40; seed++) {
       rmSync(sidecarPath(), { force: true })
-      runSeed(seed)
+      await runSeed(seed)
     }
   })
 })

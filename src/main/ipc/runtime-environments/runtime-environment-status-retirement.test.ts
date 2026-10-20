@@ -1,3 +1,4 @@
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,11 +46,11 @@ import { setRefusedPairingHandlers } from './runtime-environment-pairing-refusal
 
 let directory: string
 let envId: string
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   resetRuntimeEnvironmentCapabilityEvidence()
   directory = mkdtempSync(join(tmpdir(), 'orca-status-retirement-'))
-  envId = addManagedOrcadEnvironment(directory, {
+  envId = (await addManagedOrcadEnvironment(directory, {
     id: 'env-managed',
     name: 'Host',
     now: 1,
@@ -60,11 +61,12 @@ beforeEach(() => {
       localPort: 6768,
       remotePort: 6768
     }
-  }).id
+  })).id
   mocks.diagnostics.mockReturnValue(null)
 })
-afterEach(() => {
+afterEach(async () => {
   resetRuntimeEnvironmentStatusOwners()
+  await drainPendingPathWrites()
   rmSync(directory, { recursive: true, force: true })
 })
 
@@ -104,6 +106,7 @@ it.each(['success', 'failure', 'throw'] as const)(
       ok: false,
       error: { code: 'runtime_environment_changed' }
     })
+    await drainPendingPathWrites()
     expect(resolveEnvironment(directory, envId).runtimeId).toBeNull()
     expect(mocks.ensure).not.toHaveBeenCalled()
     expect(mocks.reconnect).not.toHaveBeenCalled()
@@ -119,13 +122,14 @@ it('does not fence another environment or a fresh probe after retirement', async
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
   advanceRuntimeEnvironmentCapabilityIncarnation(envId)
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({ ok: true })
+  await drainPendingPathWrites()
   expect(resolveEnvironment(directory, envId).runtimeId).toBe('old-host')
   expect(mocks.ensure).toHaveBeenCalledTimes(2)
 })
 
 /** What a re-pair over SSH does mid-probe: store a new pairing and retire the old transports. */
-function repairMidProbe(now: number, keyByte = 1): void {
-  refreshManagedOrcadPairing(
+async function repairMidProbe(now: number, keyByte = 1): Promise<void> {
+  await refreshManagedOrcadPairing(
     directory,
     envId,
     pairingCode(undefined, { deviceToken: `token-${now}`, keyByte }),
@@ -136,7 +140,7 @@ function repairMidProbe(now: number, keyByte = 1): void {
 
 it('answers from the successor owner when the probe itself re-paired the server', async () => {
   mocks.request.mockImplementationOnce(async () => {
-    repairMidProbe(2)
+    await repairMidProbe(2)
     return {
       id: 'status',
       ok: false,
@@ -156,7 +160,7 @@ it.each([
   ['a caller pinned to the old pairing', () => repairMidProbe(2), false]
 ] as const)('never answers %s from the replacement', async (_name, replace, follow) => {
   mocks.request.mockImplementationOnce(async () => {
-    replace()
+    await replace()
     return response()
   })
   mocks.request.mockResolvedValue(response())
@@ -169,7 +173,7 @@ it.each([
 it('follows a re-pair only once', async () => {
   let now = 2
   mocks.request.mockImplementation(async () => {
-    repairMidProbe(now++)
+    await repairMidProbe(now++)
     return response()
   })
   await expect(getRuntimeEnvironmentStatus(directory, envId)).resolves.toMatchObject({

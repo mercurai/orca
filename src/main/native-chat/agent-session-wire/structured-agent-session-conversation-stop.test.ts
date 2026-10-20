@@ -209,7 +209,8 @@ describe('a Stop that names no turn', () => {
       identity: identityFor(SESSION),
       fence: 1,
       spawnToken: 'spawn-catalog',
-      options: { serviceTier: 'priority' },
+      // Standard needs no paid-tier catalog proof while the background listing is stalled.
+      options: { serviceTier: 'default' },
       // Codex's turn events reach the host's journal, as the runtime wires them.
       events: hostEvents()
     })
@@ -253,7 +254,7 @@ describe('a Stop that names no turn', () => {
     )
     expect(
       codex.connections[0].calls.filter((call) => call.method === 'turn/start')[1]?.params
-    ).toMatchObject({ serviceTier: 'priority' })
+    ).toMatchObject({ serviceTier: 'default' })
     pending.resolve({ data: [], nextCursor: null })
     await expect(listing).rejects.toThrow('no available models')
   })

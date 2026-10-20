@@ -6,6 +6,7 @@
 // addition (text or images given back) journaled the moment it is made, because the copy it came
 // from is deleted right after and a crash fires no unload event.
 
+import { preserveDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
 import type { UnconfirmedDraftChange } from './native-chat-composer-draft-memory'
 import {
   withNativeChatComposerDraftAddition,
@@ -131,7 +132,9 @@ export function replayNativeChatComposerDraftJournal(
       pruneNativeChatComposerDraftJournal(entry.scopeKey, entry.at)
       continue
     }
-    drafts.set(entry.scopeKey, entry.draft)
+    // Explicit removal stays destructive; a newer whole-draft edit retains committed receipts.
+    drafts.set(entry.scopeKey, entry.draft
+      ? preserveDraftRecoveryReceipts(entry.draft, stored ?? null) : null)
     if (!entry.draft) {
       removedAt.set(entry.scopeKey, entry.at)
     }

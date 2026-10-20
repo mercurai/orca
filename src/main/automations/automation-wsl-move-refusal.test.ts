@@ -110,7 +110,7 @@ describe('scheduled automations under a WSL move', () => {
     vi.setSystemTime(new Date('2026-05-13T08:00:00'))
     const store = await createStore()
     const automation = seedAutomation(store)
-    seedWslMoveCutover(fenceDir, cutover('move-1', 'source-fenced', {}, { repoIds: ['r1'] }))
+    await seedWslMoveCutover(fenceDir, cutover('move-1', 'source-fenced', {}, { repoIds: ['r1'] }))
     const service = attachedService(store)
 
     await evaluateAt(store, service, automation.id, '2026-05-13T09:01:00')
@@ -130,7 +130,7 @@ describe('scheduled automations under a WSL move', () => {
     vi.setSystemTime(new Date('2026-05-13T08:00:00'))
     const store = await createStore()
     const automation = seedAutomation(store)
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       fenceDir,
       cutover('move-1', 'destination-committed', {}, { repoIds: ['r1'] })
     )
@@ -156,7 +156,7 @@ describe('scheduled automations under a WSL move', () => {
     const store = await createStore()
     const automation = seedAutomation(store, true)
     runAutomationPrecheckMock.mockImplementation(async () => {
-      seedWslMoveCutover(fenceDir, cutover('move-1', 'source-fenced', {}, { repoIds: ['r1'] }))
+      await seedWslMoveCutover(fenceDir, cutover('move-1', 'source-fenced', {}, { repoIds: ['r1'] }))
       return {
         command: 'true',
         exitCode: 0,

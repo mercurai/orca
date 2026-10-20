@@ -28,7 +28,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
     name: detect changes and check repository guards
     # Start routing without waiting behind the GitHub-hosted test queue.
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -181,7 +181,7 @@ jobs:
     needs: [code_paths]
     if: needs.code_paths.outputs.static_analysis == 'true' || needs.code_paths.outputs.typecheck == 'true'
     # Leave headroom for typechecking and overlapping checks.
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-8vcpu-ubuntu-2404' }}
     outputs:
       shards: ${{ steps.unit-plan.outputs.shards }}
       managed_hook_node18: ${{ steps.managed_hook_node18.outcome }}
@@ -377,6 +377,16 @@ jobs:
             echo "VM runtime persistence is unchanged."
             exit 0
           fi
+          # The rollback oracle needs historical trees outside the shallow checkout.
+          ROLLBACK_ORACLE_COMMITS=(
+            bf0c77d5bc800e19117084c27fd1441eda9134ad
+            25abb9368d98ad84a174f530e02f4228d2269062
+          )
+          git -c credential.helper= fetch --no-tags --depth=1 \
+            https://github.com/stablyai/orca.git "${ROLLBACK_ORACLE_COMMITS[@]}"
+          for oracle_sha in "${ROLLBACK_ORACLE_COMMITS[@]}"; do
+            git cat-file -e "${oracle_sha}^{commit}"
+          done
           node config/scripts/run-ephemeral-vm-runtime-store-rollback-repro.mjs \
             config/scripts/ephemeral-vm-runtime-store-cross-version.test.ts
 
@@ -576,7 +586,7 @@ jobs:
           ORCA_BALANCE_UNIT_SHARDS: '1'
         run: >-
           node config/scripts/run-vitest.mjs run --config config/vitest.config.ts
-          --maxWorkers=4 --isolate --retry=0 --bail=0
+          --maxWorkers=${{ github.repository == 'mercurai/orca' && 2 || 4 }} --isolate --retry=0 --bail=0
           config/scripts/mobile-release-check-scope.test.mjs
           config/scripts/mobile-test-change-scope.test.mjs
           config/scripts/pr-ready-check-reuse.test.mjs
@@ -945,7 +955,8 @@ jobs:
     uses: ./.github/workflows/unit-tests.yml
     with:
       node_versions: '["24"]'
-      runner: blacksmith-4vcpu-ubuntu-2404
+      runner: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
+      max_workers: ${{ github.repository == 'mercurai/orca' && 2 || 0 }}
       phase_diagnostics: true
       shards: ${{ needs.preflight.outputs.shards }}
       run_shards: ${{ needs.code_paths.outputs.mobile_ci_tools != 'true' }}
@@ -1619,7 +1630,7 @@ jobs:
       !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.dependency_isolation == 'true'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
       ORCA_PNPM_FORCE_GLOBAL_VIRTUAL_STORE_IN_CI: '1'
@@ -1662,7 +1673,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm tc
-          pnpm exec vitest run --config config/vitest.config.ts config/scripts/undeclared-dependency-resolution.test.ts
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=${{ github.repository == 'mercurai/orca' && 2 || 4 }} config/scripts/undeclared-dependency-resolution.test.ts
           # Pointless if any pnpm command above fell back to the hoisted layout or another store.
           case "$(realpath node_modules/zod)" in
             "$(realpath "$pnpm_config_store_dir")"/*) ;;
@@ -1689,7 +1700,7 @@ jobs:
       - layout_oracle
       - dependency_isolation
     # Report settled results without competing with the GitHub-hosted test queue.
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2204' }}
     timeout-minutes: 5
 
     steps:

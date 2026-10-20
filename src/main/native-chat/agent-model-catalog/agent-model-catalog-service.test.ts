@@ -61,6 +61,7 @@ describe('agent model catalog service', () => {
     })
     expect(await service.read({ agent: 'codex', sessionId: 'session-1' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     // A second read while the probe is in flight must not start another, and a
@@ -112,6 +113,7 @@ describe('agent model catalog service', () => {
     // The record-less read follows the CURRENT selection: unknown, never gpt-old.
     expect(await service.read({ agent: 'codex' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     expect(probe).toHaveBeenCalledWith(CODEX_HOME('/homes/new'), {
@@ -189,12 +191,14 @@ describe('agent model catalog service', () => {
     })
     expect(await service.read({ agent: 'codex', sessionId: 'session-1' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1))
     // Still a clean unknown — and the failure TTL suppresses a probe storm.
     expect(await service.read({ agent: 'codex', sessionId: 'session-1' })).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     expect(probe).toHaveBeenCalledTimes(1)
   })
@@ -211,7 +215,7 @@ describe('agent model catalog service', () => {
       },
       probes: { codex: probe }
     })
-    expect(await service.read({ agent: 'codex' })).toEqual({ origin: 'unknown' })
+    expect(await service.read({ agent: 'codex' })).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     expect(probe).not.toHaveBeenCalled()
   })
 
@@ -246,6 +250,7 @@ describe('agent model catalog service', () => {
       const { service } = coldService(probe)
       expect(await service.read({ agent: 'codex' })).toEqual({
         origin: 'unknown',
+        catalogState: 'loading',
         listingInProgress: true
       })
       const waited = service.read({ agent: 'codex', waitForListing: true })
@@ -278,6 +283,7 @@ describe('agent model catalog service', () => {
       const { store, service } = coldService(() => pendingProbe.promise)
       expect(await service.read({ agent: 'codex' })).toEqual({
         origin: 'unknown',
+        catalogState: 'loading',
         listingInProgress: true
       })
       const waited = service.read({ agent: 'codex', waitForListing: true })
@@ -409,7 +415,7 @@ describe('agent model catalog service', () => {
       const { service } = coldService(() => pending.promise)
       const waited = service.read({ agent: 'codex', waitForListing: true })
       pending.reject(new Error('spawn failed'))
-      expect(await waited).toEqual({ origin: 'unknown' })
+      expect(await waited).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     })
 
     it('does not wait or report a listing while a failure is inside its TTL', async () => {
@@ -419,9 +425,10 @@ describe('agent model catalog service', () => {
       const { store, service } = coldService(probe)
       store.recordFailure(selectedHomeFingerprint('/homes/selected'), 'spawn failed')
       expect(await service.read({ agent: 'codex', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
-      expect(await service.read({ agent: 'codex' })).toEqual({ origin: 'unknown' })
+      expect(await service.read({ agent: 'codex' })).toEqual({ origin: 'unknown', catalogState: 'unknown' })
       expect(probe).not.toHaveBeenCalled()
     })
 
@@ -434,7 +441,8 @@ describe('agent model catalog service', () => {
         resolveAccountHome: async () => CODEX_HOME('/homes/selected')
       })
       expect(await service.read({ agent: 'codex', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
     })
 
@@ -568,7 +576,8 @@ describe('agent model catalog service', () => {
         probes: { opencode: probe }
       })
       expect(await service.read({ agent: 'opencode', sessionId: 'session-1' })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
       expect(probe).not.toHaveBeenCalled()
     })

@@ -1,13 +1,14 @@
 import { compareAppVersions, isValidAppVersion } from './app-version'
 
-export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc'
+export type ReleaseChannel = 'stable' | 'rc' | 'hourly' | 'daily' | 'adhoc' | 'mercurai'
 
 export const RELEASE_CHANNELS: readonly ReleaseChannel[] = [
   'stable',
   'rc',
   'hourly',
   'daily',
-  'adhoc'
+  'adhoc',
+  'mercurai'
 ]
 
 export const RELEASE_CHANNEL_LABELS: Readonly<Record<ReleaseChannel, string>> = {
@@ -15,7 +16,8 @@ export const RELEASE_CHANNEL_LABELS: Readonly<Record<ReleaseChannel, string>> = 
   rc: 'RC',
   hourly: 'Hourly',
   daily: 'Daily',
-  adhoc: 'Adhoc'
+  adhoc: 'Adhoc',
+  mercurai: 'Mercurai'
 }
 
 /** Dev builds live in their own repos so their tags never enter the main
@@ -24,10 +26,12 @@ export const RELEASE_CHANNEL_LABELS: Readonly<Record<ReleaseChannel, string>> = 
 export const HOURLY_RELEASE_REPO = 'stablyai/orca-hourly'
 export const DAILY_RELEASE_REPO = 'stablyai/orca-daily'
 export const ADHOC_RELEASE_REPO = 'stablyai/orca-adhoc'
+/** The mercurai fork's own channel: a Windows-only CI build of the fork's patch series. */
+export const MERCURAI_RELEASE_REPO = 'mercurai/orca-mercurai'
 export const MAIN_RELEASE_REPO = 'stablyai/orca'
 
 /** The dev channels, each published to its own repo rather than the main one. */
-const DEDICATED_REPO_CHANNELS = ['hourly', 'daily', 'adhoc'] as const
+const DEDICATED_REPO_CHANNELS = ['hourly', 'daily', 'adhoc', 'mercurai'] as const
 
 export type DedicatedRepoChannel = (typeof DEDICATED_REPO_CHANNELS)[number]
 
@@ -36,7 +40,8 @@ const CHANNEL_RELEASE_REPOS: Record<ReleaseChannel, string> = {
   rc: MAIN_RELEASE_REPO,
   hourly: HOURLY_RELEASE_REPO,
   daily: DAILY_RELEASE_REPO,
-  adhoc: ADHOC_RELEASE_REPO
+  adhoc: ADHOC_RELEASE_REPO,
+  mercurai: MERCURAI_RELEASE_REPO
 }
 
 export function isReleaseChannel(value: unknown): value is ReleaseChannel {
@@ -58,7 +63,8 @@ export function hasDedicatedReleaseRepo(channel: ReleaseChannel): channel is Ded
 const DEV_CHANNEL_PLATFORMS: Readonly<Record<DedicatedRepoChannel, readonly NodeJS.Platform[]>> = {
   hourly: ['darwin', 'win32'],
   daily: ['darwin', 'win32'],
-  adhoc: ['darwin', 'win32']
+  adhoc: ['darwin', 'win32'],
+  mercurai: ['win32']
 }
 
 /** Human-readable list of where dev builds exist, for picker copy that would
@@ -164,6 +170,13 @@ function parseStampedVersion(version: string, pattern: RegExp): Date | null {
   return parsed
 }
 
+/**
+ * `1.4.222-mercurai.1` - a plain counter, no timestamp. Mercurai builds are cut
+ * by a CI workflow dispatched with an explicit tag, so the counter is unique by
+ * construction and semver ordering of `mercurai.N` is already the right order.
+ */
+const MERCURAI_VERSION = /^\d+\.\d+\.\d+-mercurai\.\d+$/
+
 export function isHourlyVersion(version: string): boolean {
   return HOURLY_VERSION.test(normalizeTagToVersion(version))
 }
@@ -174,6 +187,10 @@ export function isDailyVersion(version: string): boolean {
 
 export function isAdhocVersion(version: string): boolean {
   return ADHOC_VERSION.test(normalizeTagToVersion(version))
+}
+
+export function isMercuraiVersion(version: string): boolean {
+  return MERCURAI_VERSION.test(normalizeTagToVersion(version))
 }
 
 /** Returns the build's UTC timestamp, or null when the version isn't hourly. */
@@ -214,6 +231,9 @@ export function getVersionChannel(version: string): ReleaseChannel | null {
   }
   if (isAdhocVersion(normalized)) {
     return 'adhoc'
+  }
+  if (isMercuraiVersion(normalized)) {
+    return 'mercurai'
   }
   // Why the dev channels are tested first: they are prereleases too, so this
   // catch-all would otherwise file every one of them under rc.

@@ -1,3 +1,4 @@
+import type { RateLimitService } from '../rate-limits/service'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerZcodePlanCredentialsHandlers } from './zcode-plan-credentials'
 
@@ -44,6 +45,53 @@ describe('GLM credential IPC', () => {
     registerZcodePlanCredentialsHandlers(null)
   })
 
+  it('waits for durable save before returning status', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const invalidateZcodeCredentialState = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: credential commands use only these refresh and invalidation methods.
+    registerZcodePlanCredentialsHandlers({ refresh, invalidateZcodeCredentialState } as RateLimitService)
+    let release!: () => void
+    mocks.save.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve
+        })
+    )
+    let acknowledged = false
+    const pending = Promise.resolve(
+      handler('zcodePlanCredentials:saveApiKey')(null, 'synthetic-key')
+    ).then((value) => {
+      acknowledged = true
+      return value
+    })
+    await Promise.resolve()
+    expect(mocks.save).toHaveBeenCalledWith('synthetic-key')
+    expect(mocks.hasKey).not.toHaveBeenCalled()
+    expect(acknowledged).toBe(false)
+    expect(refresh).not.toHaveBeenCalled()
+    expect(invalidateZcodeCredentialState).not.toHaveBeenCalled()
+    release()
+    await pending
+    expect(mocks.hasKey).toHaveBeenCalledTimes(1)
+    expect(acknowledged).toBe(true)
+    expect(refresh).toHaveBeenCalledTimes(1)
+    expect(invalidateZcodeCredentialState).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates durable save failure without reading status or refreshing', async () => {
+    const refresh = vi.fn(() => Promise.resolve())
+    const invalidateZcodeCredentialState = vi.fn()
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: credential commands use only these refresh and invalidation methods.
+    registerZcodePlanCredentialsHandlers({ refresh, invalidateZcodeCredentialState } as RateLimitService)
+    mocks.save.mockRejectedValueOnce(new Error('synthetic persistence failure'))
+    await expect(handler('zcodePlanCredentials:saveApiKey')(null, 'synthetic-key')).rejects.toThrow(
+      'synthetic persistence failure'
+    )
+    expect(refresh).not.toHaveBeenCalled()
+    expect(invalidateZcodeCredentialState).not.toHaveBeenCalled()
+    expect(mocks.hasKey).not.toHaveBeenCalled()
+  })
+
   it('returns only presence and protection without exposing the key', () => {
     mocks.hasKey.mockReturnValue(true)
     mocks.hasCli.mockReturnValue(true)
@@ -56,15 +104,19 @@ describe('GLM credential IPC', () => {
     })
   })
 
-  it('validates an untyped IPC key before persistence', () => {
-    expect(() => handler('zcodePlanCredentials:saveApiKey')(null, 42)).toThrow('must be a string')
+  it('validates an untyped IPC key before persistence', async () => {
+    await expect(handler('zcodePlanCredentials:saveApiKey')(null, 42)).rejects.toThrow(
+      'must be a string'
+    )
     expect(mocks.save).not.toHaveBeenCalled()
   })
 
-  it('saves and removes keys while returning status only', () => {
-    mocks.save.mockImplementationOnce(() => mocks.hasKey.mockReturnValue(true))
+  it('saves and removes keys while returning status only', async () => {
+    mocks.save.mockImplementationOnce(async () => {
+      mocks.hasKey.mockReturnValue(true)
+    })
     mocks.clear.mockImplementationOnce(() => mocks.hasKey.mockReturnValue(false))
-    expect(handler('zcodePlanCredentials:saveApiKey')(null, 'synthetic-key')).toEqual({
+    expect(await handler('zcodePlanCredentials:saveApiKey')(null, 'synthetic-key')).toEqual({
       apiKeyConfigured: true,
       zcodeCliConfigured: false,
       apiKeyProtection: null,
