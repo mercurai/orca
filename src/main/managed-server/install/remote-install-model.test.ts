@@ -57,36 +57,37 @@ describe('remote install namespace', () => {
     }
   })
 
-  it.skipIf(process.platform === 'win32').each([
-    orcadRipgrepArtifact('linux-x64'),
-    'git-spawn-worker-entry.js',
-    '.install-complete'
-  ])('rejects an install missing %s with quoted and normalized paths', (missing) => {
-    const dir = mkdtempSync(join(tmpdir(), "orcad ' $probe;-"))
-    try {
-      const host = getRemoteHostPlatform('linux-x64')
-      const required = [
-        ...ORCAD_INSTALL_MODEL.requiredArtifacts(host),
-        '.install-complete',
-        "nested/a ' $probe; [x].txt"
-      ]
-      for (const filename of required) {
-        const path = join(dir, filename)
-        mkdirSync(dirname(path), { recursive: true })
-        writeFileSync(path, '')
+  it
+    .skipIf(process.platform === 'win32')
+    .each([orcadRipgrepArtifact('linux-x64'), 'git-spawn-worker-entry.js', '.install-complete'])(
+    'rejects an install missing %s with quoted and normalized paths',
+    (missing) => {
+      const dir = mkdtempSync(join(tmpdir(), "orcad ' $probe;-"))
+      try {
+        const host = getRemoteHostPlatform('linux-x64')
+        const required = [
+          ...ORCAD_INSTALL_MODEL.requiredArtifacts(host),
+          '.install-complete',
+          "nested/a ' $probe; [x].txt"
+        ]
+        for (const filename of required) {
+          const path = join(dir, filename)
+          mkdirSync(dirname(path), { recursive: true })
+          writeFileSync(path, '')
+        }
+        const command = probeRemoteInstallCompleteCommand(
+          host,
+          `${dir}///`,
+          required.map((file) => `/${file}`)
+        )
+        expect(execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()).toBe('OK')
+        rmSync(join(dir, missing))
+        expect(execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()).toBe('MISSING')
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
       }
-      const command = probeRemoteInstallCompleteCommand(
-        host,
-        `${dir}///`,
-        required.map((file) => `/${file}`)
-      )
-      expect(execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()).toBe('OK')
-      rmSync(join(dir, missing))
-      expect(execFileSync('sh', ['-c', command], { encoding: 'utf8' }).trim()).toBe('MISSING')
-    } finally {
-      rmSync(dir, { recursive: true, force: true })
     }
-  })
+  )
 
   it('keeps the relay listing pattern byte-identical to the one it shipped with', () => {
     // The literal that was hardcoded in `listRelayBaseDirsCommand` before it was
