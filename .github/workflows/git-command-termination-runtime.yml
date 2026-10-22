@@ -140,6 +140,7 @@ jobs:
           src/main/wsl/wsl-orcad-incumbent.test.ts
           src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
           src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
+          src/main/startup/main-process-quit-update-veto.test.ts
       # Diagnostic only: formatting runs after tests and never changes the tested source revision.
       - name: Capture formatting corrections for source review
         if: always()
