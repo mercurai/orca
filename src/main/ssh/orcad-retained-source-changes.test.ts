@@ -157,10 +157,13 @@ describe('what makes a moved host changed', () => {
     store.updateSshTarget(TARGET.id, { orcadFence: { ...FENCE, sourceChangedAt: 'earlier' } })
     const entered = Promise.withResolvers<void>()
     const release = Promise.withResolvers<void>()
-    const held = serializePathWrite(orcadMigrationCutoverJournalDirectory(userDataPath), async () => {
-      entered.resolve()
-      await release.promise
-    })
+    const held = serializePathWrite(
+      orcadMigrationCutoverJournalDirectory(userDataPath),
+      async () => {
+        entered.resolve()
+        await release.promise
+      }
+    )
     await entered.promise
     const reconciling = reconcileManagedOrcadSshTargets(userDataPath, store, now)
     try {
@@ -173,7 +176,9 @@ describe('what makes a moved host changed', () => {
     }
     expect(changedAt()).toBe('earlier')
     expect(visibleIds()).toContain('repo-3')
-    expect(findOrcadMigrationSourceCutoverForTarget(userDataPath, TARGET.id)?.keptRepositoryIds).toContain('repo-2')
+    expect(
+      findOrcadMigrationSourceCutoverForTarget(userDataPath, TARGET.id)?.keptRepositoryIds
+    ).toContain('repo-2')
   })
 
   it('keeps the server version so a later group edit is no change, and a new project is', async () => {

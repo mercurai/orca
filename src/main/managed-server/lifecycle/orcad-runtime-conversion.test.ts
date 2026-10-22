@@ -390,7 +390,11 @@ describe('a converted host across a downgrade and back', () => {
       kind: 'git',
       connectionId: TARGET.id
     })
-    await reconcileManagedOrcadSshTargets(userDataPath, store, () => new Date('2026-10-05T00:00:00Z'))
+    await reconcileManagedOrcadSshTargets(
+      userDataPath,
+      store,
+      () => new Date('2026-10-05T00:00:00Z')
+    )
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toMatchObject({
       sourceChangedAt: '2026-10-05T00:00:00.000Z'
     })

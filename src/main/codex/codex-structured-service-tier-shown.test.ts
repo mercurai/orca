@@ -135,7 +135,9 @@ describe("a Codex chat's speed, shown and sent", () => {
       [{ tiers: [], reported: 'opaque' }, 'opaque'],
       [{ tiers: [], reported: 'ultrafast' }, 'ultrafast']
     ] as const) {
-      await expect(hostRuns({ model: 'm2', serviceTier: tier }, 120_000, child)).rejects.toMatchObject({
+      await expect(
+        hostRuns({ model: 'm2', serviceTier: tier }, 120_000, child)
+      ).rejects.toMatchObject({
         kind: 'speedSupportUnknown'
       })
     }
