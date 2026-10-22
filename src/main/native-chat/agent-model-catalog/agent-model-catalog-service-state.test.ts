@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { agentModelCatalogFingerprint } from './agent-model-catalog-fingerprint'
+import { agentModelCatalogFingerprint, agentModelCatalogScopeFingerprint } from './agent-model-catalog-fingerprint'
 import { createAgentModelCatalogService } from './agent-model-catalog-service'
 import {
   AGENT_MODEL_CATALOG_FRESH_MS,
@@ -90,11 +90,14 @@ describe('account-scoped catalog confidence', () => {
     const reading = service.read({
       agent: 'codex',
       savedOnly: true,
-      workspacePath: null,
+      workspacePath: '/synthetic/project',
       legacyOptionsDisplay: true
     })
     await entered.promise
-    r.store.recordSuccess(r.selectedKey(), 'codex', advertised('current-fast-id'), 'discovery')
+    r.store.recordSuccess(
+      agentModelCatalogScopeFingerprint(r.selectedKey(), '/synthetic/project'),
+      'codex', advertised('current-fast-id'), 'discovery'
+    )
     workspace.resolve(false)
 
     expect(await reading).toMatchObject({
@@ -186,7 +189,7 @@ describe('account-scoped catalog confidence', () => {
   it('reports a pending first listing as loading and resolves to available', async () => {
     const r = rig()
     try {
-      expect(await r.service.read({ agent: 'codex' })).toMatchObject({
+      expect(await r.service.read({ agent: 'codex', workspacePath: null })).toMatchObject({
         origin: 'unknown',
         catalogState: 'loading',
         listingInProgress: true

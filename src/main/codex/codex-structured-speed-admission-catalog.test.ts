@@ -42,9 +42,10 @@ function recordListing(store: AgentModelCatalogStore, accountHomePath = ACCOUNT)
           serviceTiers: [{ value: TIER, label: 'Synthetic speed' }]
         }
       ],
-      origin: 'live-session'
+      origin: 'probe',
+      complete: true
     },
-    'live'
+    'discovery'
   )
 }
 
@@ -73,12 +74,12 @@ async function setup(store: AgentModelCatalogStore, serviceTier = TIER, account 
 }
 
 describe('Codex speed admission uses the execution account catalog', () => {
-  it('accepts an exact advertised request ID from a fresh session-only listing', async () => {
+  it('accepts an exact advertised request ID from a fresh independent listing', async () => {
     const store = new AgentModelCatalogStore({ now: () => 1_000 })
     const fixture = await setup(store)
     try {
       recordListing(store)
-      expect(store.get(fingerprint(ACCOUNT))?.discovered).toBeNull()
+      expect(store.get(fingerprint(ACCOUNT))?.discovered?.complete).toBe(true)
       expect(await fixture.send('fresh-session-tier')).toMatchObject({ state: 'admitted' })
       expect(fixture.starts()).toHaveLength(1)
       expect(fixture.starts()[0]?.params).toMatchObject({ model: MODEL, serviceTier: TIER })
