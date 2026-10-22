@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import { adapterFor as baseAdapterFor, fakeCodex, type Route } from './codex-structured-session-adapter-fixture'
+import { adapterFor as baseAdapterFor, type fakeCodex, type Route } from './codex-structured-session-adapter-fixture'
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'

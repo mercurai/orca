@@ -27,7 +27,13 @@ vi.mock('../../../shared/layout-owner-switch', () => ({
   }
 }))
 // This machine's host closes the chat's tab when asked.
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn(async () => ({})), runtimeEnvironmentSupportsCapability: async () => true }))
+vi.mock('@/runtime/runtime-rpc-client', async () => {
+  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } = await import('../../../shared/agent-session-create-capabilities')
+  return {
+    callRuntimeRpc: vi.fn(async () => ({ capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY] })),
+    runtimeEnvironmentSupportsCapability: async () => true
+  }
+})
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call,
   supportsStructuredAgentSessionCreateMessage: mocks.supports

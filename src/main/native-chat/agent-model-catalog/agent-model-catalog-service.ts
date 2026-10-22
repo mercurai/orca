@@ -4,7 +4,6 @@ import {
   scopedAgentModelCatalogLister
 } from './agent-model-catalog-lister'
 import { prewarmAgentModelCatalog, newChatCatalogKey } from './agent-model-catalog-prewarm'
-import type { AgentSessionModelCatalogResult } from '../../../shared/agent-session-wire'
 import type {
   AgentSessionAccountHome,
   AgentSessionRecord

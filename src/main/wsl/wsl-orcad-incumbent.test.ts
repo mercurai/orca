@@ -210,7 +210,7 @@ describe('the incumbent terminal count across restarts', () => {
       )
       for (let start = 0; start < 3; start += 1) {
         // Each orcad start publishes whatever pending device its registry holds.
-        const pending = registry.getOrCreatePendingDevice('CLI', 'runtime')
+        const pending = await registry.getOrCreatePendingDevice('CLI', 'runtime')
         const readiness: ServeReadiness = {
           ...READINESS,
           pairing: {
