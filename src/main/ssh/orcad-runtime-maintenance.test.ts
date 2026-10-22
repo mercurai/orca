@@ -1,3 +1,5 @@
+import * as managedPairingStore from '../../shared/runtime-environment-managed-orcad-store'
+import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
 import { rmSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listEnvironments } from '../../shared/runtime-environment-store'
@@ -246,7 +248,7 @@ describe('updateManagedOrcadEnvironment', () => {
 
   it('keeps a pairing the terminal count repaired, not the one read before it', async () => {
     mocks.census.mockImplementationOnce(async () => {
-      refreshManagedOrcadPairing(
+      await refreshManagedOrcadPairing(
         harness.userDataPath,
         'environment-1',
         encodePairingOffer({
@@ -263,6 +265,52 @@ describe('updateManagedOrcadEnvironment', () => {
     await updateManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     const [environment] = listEnvironments(harness.userDataPath)
     expect(environment?.endpoints[0]?.deviceToken).toBe('repaired-token')
+  })
+
+  it('does not restore an old grant over a newer repair queued before maintenance', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const queued = Promise.withResolvers<void>()
+    const held = withRuntimeEnvironmentMutation(harness.userDataPath, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const newer = refreshManagedOrcadPairing(
+      harness.userDataPath,
+      'environment-1',
+      encodePairingOffer({
+        v: PAIRING_OFFER_VERSION,
+        endpoint: `ws://127.0.0.1:${MANAGED_LOCAL_PORT}/`,
+        deviceToken: 'queued-repaired-token',
+        publicKeyB64: 'public-key'
+      }),
+      (harness.environment.pairingRevision ?? harness.environment.createdAt) + 1
+    )
+    const refresh = managedPairingStore.refreshManagedOrcadPairing
+    const spy = vi.spyOn(managedPairingStore, 'refreshManagedOrcadPairing')
+      .mockImplementation((...args) => {
+        const result = refresh(...args)
+        queued.resolve()
+        return result
+      })
+    mocks.deploy.mockResolvedValueOnce({ outcome: 'already-active', fullVersion: MANAGED_VERSION })
+    mocks.probe.mockResolvedValueOnce(managedReadiness('startup-offer-token'))
+    const updated = updateManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
+    try {
+      await queued.promise
+      release.resolve()
+      await held
+      const repaired = await newer
+      await updated
+      const [saved] = listEnvironments(harness.userDataPath)
+      expect(saved?.endpoints[0]?.deviceToken).toBe('queued-repaired-token')
+      expect(saved?.pairingRevision).toBe(repaired.pairingRevision)
+    } finally {
+      release.resolve()
+      await Promise.allSettled([held, newer, updated])
+      spy.mockRestore()
+    }
   })
 
   it('keeps the enrolled grant when the updated server offers a new device', async () => {

@@ -11,7 +11,10 @@ vi.mock('@/runtime/codex-speed-selection', () => ({
   prepareCodexSpeedWireOptions: authorizeSpeed,
   CodexSpeedSelectionError: class extends Error {}
 }))
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: rpc, runtimeEnvironmentSupportsCapability: async () => true }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({
+  callRuntimeRpc: rpc,
+  runtimeEnvironmentSupportsCapability: async () => true
+}))
 vi.mock('@/store', () => ({
   useAppStore: {
     getState: () => ({ settings: {}, unifiedTabsByWorktree: {} }),

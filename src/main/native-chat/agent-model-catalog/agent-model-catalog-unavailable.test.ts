@@ -401,7 +401,7 @@ describe('a managed account reauthenticated in the same home', () => {
     })
     const fresh = deferred<AgentModelCatalogSuccess>()
     answerWith(() => fresh.promise)
-    const warming = service.prewarm()
+    const warming = service.read({ agent: 'codex', workspacePath: null, waitForListing: true })
     await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce())
     expect(await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
       catalogState: 'loading'

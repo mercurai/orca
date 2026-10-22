@@ -23,7 +23,9 @@ export function codexAcquireCatalogAccess(
   return access && sessionId
     ? {
         ...access,
-        ...(deps.isModelCatalogListing ? { isListing: () => deps.isModelCatalogListing?.(sessionId) ?? false } : {}),
+        ...(deps.isModelCatalogListing
+          ? { isListing: () => deps.isModelCatalogListing?.(sessionId) ?? false }
+          : {}),
         ...(deps.readModelCatalog
           ? {
               read: (verifiedOnly?: boolean) =>

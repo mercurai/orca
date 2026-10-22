@@ -336,10 +336,7 @@ export class AgentModelCatalogStore {
   /** A probe's reason past its TTL. Only a probe re-derives it, however fresh the catalog beside
    *  it, so only probe paths ask; a chat's own listing would never clear it. */
   heldReasonDue(fingerprint: string): boolean {
-    return (
-      this.failures.get(fingerprint)?.unavailable !== undefined &&
-      !this.hasActiveFailure(fingerprint)
-    )
+    return this.failures.heldReasonDue(fingerprint)
   }
 
   /** Whether a session-less probe should list now: the refresh rule, or a held reason due. */

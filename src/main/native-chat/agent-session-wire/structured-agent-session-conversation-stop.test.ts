@@ -143,7 +143,9 @@ function send(...args: Parameters<ReturnType<typeof conversationStopTestRequests
 function stop(...args: Parameters<ReturnType<typeof conversationStopTestRequests>['stop']>) {
   return conversationStopTestRequests(host, SESSION, CALLER).stop(...args)
 }
-function pickOption(...args: Parameters<ReturnType<typeof conversationStopTestRequests>['pickOption']>) {
+function pickOption(
+  ...args: Parameters<ReturnType<typeof conversationStopTestRequests>['pickOption']>
+) {
   return conversationStopTestRequests(host, SESSION, CALLER).pickOption(...args)
 }
 
@@ -173,9 +175,11 @@ describe('a Stop that names no turn', () => {
       wslDistro: null
     })
     const probe = async () => {
-      const result = await fetchCodexModelCatalogListing({ connection: {
-        request: async (method, params) => codex.routes[method]?.(params) ?? {}
-      } })
+      const result = await fetchCodexModelCatalogListing({
+        connection: {
+          request: async (method, params) => codex.routes[method]?.(params) ?? {}
+        }
+      })
       return { models: result.models, origin: 'probe' as const, complete: true }
     }
     const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
