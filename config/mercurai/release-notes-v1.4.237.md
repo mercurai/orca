@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`c45e9fd68c0ab7f6d9ad70ba5ac7b2f86c32d682`. Do not merge the comparison PR into its CI base.
-Local linear patch `3d498177e233e91f51aad0cd37704c0452b0c9fe` has the identical tree
-`d15e02d7dcca736df6884b9a7d7112f517d76b98`; the patch branch is pushed, while candidate verification remains pending.
+`762af1b09d9f61cee8d39e1ccaac1d25a339cb48`. Do not merge the comparison PR into its CI base.
+Local linear patch `d010f7f476d4466ca8ea95a583eb8c643c6c5548` has the identical tree
+`698a3a64e64ef16fac57e8e76f4638ca7624fb60`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -35,6 +35,9 @@ Retain the Mercurai updater channel, scan and username/signature reuse, diagnost
 spawn worker routing, asynchronous secure writes and native plugin bridge. Plugin workflows stay inactive.
 SSH maintenance and WSL ready persistence use pairing revision guards against queued stale writes.
 WSL Add checks connection identity and preserves a replacement connection and its holder during cleanup.
+Retained SSH-source reconciliation awaits journal durability and rechecks current catalog rows,
+target generation/fence and journal head before changing visibility. Remote SSH watcher events
+refresh the host renderer without publishing a host-blind local catalog event.
 Launch creation retains permission admission, cancellation and the captured per-message selection.
 A selection made while launch is pending remains available for the next turn.
 These are source integration claims; full behavioral and cost verification remains required.
@@ -45,11 +48,15 @@ No universal home synchronization fix is claimed in this release.
 ## Verification and rollout
 
 Previous candidates failed CI. Reviewed discovery, launch, lifecycle and queued-owner corrections
-are included; current-head CI remains queued. Earlier passing checks do not approve this revision.
+are included; current-head CI is newly submitted. The previous full product suite failed;
+reviewed async/fixture corrections and strict speed-refusal assertions address those failures.
+Ubuntu WSL setup timed out twice before Orca acceptance; phase diagnostics are included,
+and no successful Ubuntu acceptance is claimed. Earlier passing checks do not approve this revision.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
 and Windows package checks must pass at the frozen candidate before publication.
-All 207 predecessor test paths exist; the draft manifest adds scoped discovery and queued WSL ownership regressions (209 paths).
+All 207 predecessor test paths remain; scoped discovery, queued ownership and release regression
+coverage bring the manifest to 217 unique test paths.
 Path existence is not a test result.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
