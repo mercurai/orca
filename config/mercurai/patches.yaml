@@ -225,10 +225,18 @@ patches:
       - src/main/managed-server/install/remote-versioned-install.test.ts
       - src/main/managed-server/posix-host-op-byte-budget.test.ts
       - src/main/ssh/ssh-remote-commands.test.ts
+      - config/scripts/dependency-security-release.test.mjs
+      - src/main/codex/codex-structured-service-tier-shown.test.ts
+      - src/main/codex/codex-structured-session-adapter.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-options-read.test.ts
+      - src/main/ssh/orcad-retained-source-changes.test.ts
+      - src/main/wsl/wsl-orcad-incumbent.test.ts
+      - src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
+      - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
     notes: >-
       Provisional exact candidate d010f7f476d4466ca8ea95a583eb8c643c6c5548,
-      source c45e9fd68c0ab7f6d9ad70ba5ac7b2f86c32d682,
-      tree d15e02d7dcca736df6884b9a7d7112f517d76b98.
+      source 762af1b09d9f61cee8d39e1ccaac1d25a339cb48,
+      tree 698a3a64e64ef16fac57e8e76f4638ca7624fb60.
       Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.
@@ -286,11 +294,3 @@ patches:
     added: 2026-10-08
     tests: []
     notes: raw git remote callers use listCachedRemoteNames
-      - config/scripts/dependency-security-release.test.mjs
-      - src/main/codex/codex-structured-service-tier-shown.test.ts
-      - src/main/codex/codex-structured-session-adapter.test.ts
-      - src/main/native-chat/agent-session-wire/structured-agent-session-options-read.test.ts
-      - src/main/ssh/orcad-retained-source-changes.test.ts
-      - src/main/wsl/wsl-orcad-incumbent.test.ts
-      - src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
-      - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
