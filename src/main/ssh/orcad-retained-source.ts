@@ -38,7 +38,7 @@ import {
 import {
   findOrcadMigrationSourceCutoverForTarget,
   listOrcadMigrationCutoverChainForTarget,
-  writeOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 import { orcadMigrationCatalogIds } from './orcad-migration-manifest-export'
 import {
@@ -300,16 +300,16 @@ function reviewRetainedOrcadSource(
 
 /**
  * Startup pass: restore a fence the profile lost from the registered managed server, and mark a
- * retained host whose rows an older build changed. Never throws; a failed pass changes nothing.
+ * retained host whose rows an older build changed. Failures are logged; unprocessed hosts retain their fences.
  */
-export function reconcileManagedOrcadSshTargets(
+export async function reconcileManagedOrcadSshTargets(
   userDataPath: string,
   store: CatalogStore & TargetStore,
   now: () => Date = () => new Date()
-): void {
+): Promise<void> {
   try {
     restoreFencesFromManagedServers(userDataPath, store)
-    markChangedRetainedSources(userDataPath, store, now)
+    await markChangedRetainedSources(userDataPath, store, now)
   } catch (error) {
     console.warn('[ssh] Could not reconcile managed Orca server hosts:', error)
   }
@@ -327,11 +327,11 @@ function restoreFencesFromManagedServers(userDataPath: string, store: TargetStor
   }
 }
 
-function markChangedRetainedSources(
+async function markChangedRetainedSources(
   userDataPath: string,
   store: CatalogStore & TargetStore,
   now: () => Date
-): void {
+): Promise<void> {
   for (const target of store.getSshTargets()) {
     const fence = target.orcadFence
     const chain = fence ? listOrcadMigrationCutoverChainForTarget(userDataPath, target.id) : []
@@ -343,7 +343,7 @@ function markChangedRetainedSources(
     const interruptedDelta =
       head.supersedesMigrationId !== undefined &&
       (head.phase === 'source-fenced' || head.phase === 'destination-staged')
-    const review =
+    let review =
       !interruptedDelta && isRetainedOrcadMigrationSourceCutover(head)
         ? reviewRetainedOrcadSource(store, target, chain, head)
         : null
@@ -352,7 +352,29 @@ function markChangedRetainedSources(
       : head
     if (kept !== head) {
       // Listed once, so a later group edit, which moves the fingerprint, can't turn them into changes.
-      writeOrcadMigrationSourceCutover(userDataPath, kept)
+      await updateOrcadMigrationSourceCutover(userDataPath, head.migrationId, (current) => {
+        if (JSON.stringify(current) !== JSON.stringify(head)) {
+          throw new Error('orcad_retained_source_changed_during_reconcile')
+        }
+        return kept
+      })
+      const currentTarget = store.getSshTargets().find((entry) => entry.id === target.id)
+      const currentHead = findOrcadMigrationSourceCutoverForTarget(userDataPath, target.id)
+      if (
+        !currentTarget ||
+        !currentHead ||
+        currentTarget.generation !== target.generation ||
+        JSON.stringify(currentTarget?.orcadFence) !== JSON.stringify(fence) ||
+        JSON.stringify(currentHead) !== JSON.stringify(kept)
+      ) {
+        continue
+      }
+      review = reviewRetainedOrcadSource(
+        store,
+        currentTarget,
+        listOrcadMigrationCutoverChainForTarget(userDataPath, target.id),
+        currentHead
+      )
     }
     if (fence.sourceChangedAt) {
       // Earlier builds also marked removed rows and group edits, which no move can carry (#31523).
