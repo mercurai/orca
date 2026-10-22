@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`dbd181c59968172d75b4b74a795d47f54c4b8093`. Do not merge the comparison PR into its CI base.
-Local linear patch `a23934759e24a39f83ef19a1bb43672c910ac7d7` has the identical tree
-`22e50faa44b5483f237b31a10321335916c82b05`; the patch branch is pushed, while candidate verification remains pending.
+`b4aa84224eb40087d14d365b662dd75a0603658e`. Do not merge the comparison PR into its CI base.
+Local linear patch `43622871b1b817ed48f61ae382e3e7a1a7222e21` has the identical tree
+`8ebaedab3b7c2a9dc65425940b59e3518f4492b7`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -52,8 +52,10 @@ are included; current-head CI is newly submitted. The previous full product suit
 reviewed async/fixture corrections and strict speed-refusal assertions address those failures.
 Ubuntu WSL setup timed out twice before Orca acceptance; phase diagnostics are included,
 and no successful Ubuntu acceptance is claimed. Diagnostics located the stall in rootfs
-download, before import; bounded native curl replaces the stalled client while preserving
-the pinned checksum and setup deadline. Windows launcher fixtures handle the platform suffix.
+download, before import. Windows attempts timed out after180seconds at about164MB
+of392MB. The pinned Ubuntu image now downloads on Linux, verifies SHA256, transfers
+through a same-run artifact and verifies SHA256 again on Windows before unchanged
+plain/systemd imports. Fresh distro acceptance remains required. Windows launcher fixtures handle the platform suffix.
 Retained-row calculations moved unchanged to a focused module to preserve the file-size gate.
 The docs site pins Next.js16.4.1 to address blocking GHSA-2464-fhr4-w9xw and
 GHSA-p3m5-59mp-jv5r findings. Updater-veto tests mock the current direct module boundaries

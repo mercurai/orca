@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-ec5eaf96
     status: ours-only
     base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
-    commit: a23934759e24a39f83ef19a1bb43672c910ac7d7
+    commit: 43622871b1b817ed48f61ae382e3e7a1a7222e21
     owner: harness
     added: 2026-10-22
     tests:
@@ -235,9 +235,9 @@ patches:
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Provisional exact candidate a23934759e24a39f83ef19a1bb43672c910ac7d7,
-      source dbd181c59968172d75b4b74a795d47f54c4b8093,
-      tree 22e50faa44b5483f237b31a10321335916c82b05.
+      Provisional exact candidate 43622871b1b817ed48f61ae382e3e7a1a7222e21,
+      source b4aa84224eb40087d14d365b662dd75a0603658e,
+      tree 8ebaedab3b7c2a9dc65425940b59e3518f4492b7.
       Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.
