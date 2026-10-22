@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-ec5eaf96
     status: ours-only
     base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
-    commit: f04c812e03768e764fee33cf952ea7dbd5a51de6
+    commit: 30ff2f4b36261597ff9784f69f5cc4aaa9f230b9
     owner: harness
     added: 2026-10-22
     tests:
@@ -233,10 +233,11 @@ patches:
       - src/main/wsl/wsl-orcad-incumbent.test.ts
       - src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
+      - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Provisional exact candidate f04c812e03768e764fee33cf952ea7dbd5a51de6,
-      source a53250ad62ce2ec1735ed36d35aa79c385d36a56,
-      tree 975618366a1d9d29b6ffb0fef3ff1bcac3932f88.
+      Provisional exact candidate 30ff2f4b36261597ff9784f69f5cc4aaa9f230b9,
+      source 40b71a0c5f5e0350e83b1adfa2f1f0fddac80a5c,
+      tree ae004eecc0237a61c546a965663fdc2c48a19f6c.
       Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.

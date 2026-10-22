@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`a53250ad62ce2ec1735ed36d35aa79c385d36a56`. Do not merge the comparison PR into its CI base.
-Local linear patch `f04c812e03768e764fee33cf952ea7dbd5a51de6` has the identical tree
-`975618366a1d9d29b6ffb0fef3ff1bcac3932f88`; the patch branch is pushed, while candidate verification remains pending.
+`40b71a0c5f5e0350e83b1adfa2f1f0fddac80a5c`. Do not merge the comparison PR into its CI base.
+Local linear patch `30ff2f4b36261597ff9784f69f5cc4aaa9f230b9` has the identical tree
+`ae004eecc0237a61c546a965663fdc2c48a19f6c`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -54,12 +54,15 @@ Ubuntu WSL setup timed out twice before Orca acceptance; phase diagnostics are i
 and no successful Ubuntu acceptance is claimed. Diagnostics located the stall in rootfs
 download, before import; bounded native curl replaces the stalled client while preserving
 the pinned checksum and setup deadline. Windows launcher fixtures handle the platform suffix.
-Retained-row calculations moved unchanged to a focused module to preserve the file-size gate. Earlier passing checks do not approve this revision.
+Retained-row calculations moved unchanged to a focused module to preserve the file-size gate.
+The docs site pins Next.js16.4.1 to address blocking GHSA-2464-fhr4-w9xw and
+GHSA-p3m5-59mp-jv5r findings. Updater-veto tests mock the current direct module boundaries
+without changing their assertions or timeout. Fresh docs/security/updater checks remain required. Earlier passing checks do not approve this revision.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
 and Windows package checks must pass at the frozen candidate before publication.
 All 207 predecessor test paths remain; scoped discovery, queued ownership and release regression
-coverage bring the manifest to 217 unique test paths.
+coverage bring the manifest to 218 unique test paths.
 Path existence is not a test result.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
