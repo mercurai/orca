@@ -250,7 +250,10 @@ jobs:
           } else {
             $rootfs = Join-Path $cache 'ubuntu.wsl'
             Write-Output 'WSL setup phase: Ubuntu rootfs download'
-            if (-not (Test-Path $rootfs)) { Invoke-WebRequest $env:ROOTFS_URL -OutFile $rootfs }
+            if (-not (Test-Path $rootfs)) {
+              & "$env:WINDIR\System32\curl.exe" --fail --location --silent --show-error --connect-timeout 30 --max-time 180 --retry 2 --retry-max-time 360 --output $rootfs $env:ROOTFS_URL
+              if ($LASTEXITCODE -ne 0) { throw "Ubuntu rootfs download failed: $LASTEXITCODE" }
+            }
             Write-Output 'WSL setup phase: Ubuntu rootfs checksum'
             if ((Get-FileHash $rootfs -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:ROOTFS_SHA256) {
               Remove-Item $rootfs; throw 'rootfs checksum mismatch'
