@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-ec5eaf96
     status: ours-only
     base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
-    commit: 5b8f7e05813d8bd99e52e63172baa10bed1ff735
+    commit: d41be6dd3a64bf95a50a8267f46f41e7503e29a7
     owner: harness
     added: 2026-10-22
     tests:
@@ -185,6 +185,7 @@ patches:
       - src/main/wsl-move-incidental-writes.test.ts
       - src/main/wsl-move-scan-pruning.test.ts
       - src/main/wsl/wsl-host-service.test.ts
+      - src/main/wsl/wsl-host-queued-pairing.test.ts
       - src/renderer/src/components/native-chat/NativeChatRewindAction.target.test.tsx
       - src/renderer/src/components/native-chat/native-chat-composer-draft-capacity.test.ts
       - src/renderer/src/components/native-chat/native-chat-composer-draft-lifecycle.test.tsx
@@ -225,9 +226,9 @@ patches:
       - src/main/managed-server/posix-host-op-byte-budget.test.ts
       - src/main/ssh/ssh-remote-commands.test.ts
     notes: >-
-      Provisional exact candidate 5b8f7e05813d8bd99e52e63172baa10bed1ff735,
-      source b89ed42cea7daae0b1d68abc8ce2ee1a8c37ca8e,
-      tree 2997710e53e15d38d790119bcd6258864b06f4fb.
+      Provisional exact candidate d41be6dd3a64bf95a50a8267f46f41e7503e29a7,
+      source 0e3986fb6c3ecfcd6041bfc5273068ca4f174b5d,
+      tree b0145c7d3702c4d0ed444fe10ad758e248c9760e.
       Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.

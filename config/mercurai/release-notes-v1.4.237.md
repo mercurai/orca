@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`b89ed42cea7daae0b1d68abc8ce2ee1a8c37ca8e`. Do not merge the comparison PR into its CI base.
-Local linear patch `5b8f7e05813d8bd99e52e63172baa10bed1ff735` has the identical tree
-`2997710e53e15d38d790119bcd6258864b06f4fb`; it remains unpublished and unverified by CI.
+`0e3986fb6c3ecfcd6041bfc5273068ca4f174b5d`. Do not merge the comparison PR into its CI base.
+Local linear patch `d41be6dd3a64bf95a50a8267f46f41e7503e29a7` has the identical tree
+`b0145c7d3702c4d0ed444fe10ad758e248c9760e`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -33,7 +33,8 @@ The final upstream commit relocates provider retry transcript rules and their re
 
 Retain the Mercurai updater channel, scan and username/signature reuse, diagnostic probes,
 spawn worker routing, asynchronous secure writes and native plugin bridge. Plugin workflows stay inactive.
-WSL registration and pairing repair retain serialized writes, stale-revision checks and rollback fences.
+SSH maintenance and WSL ready persistence use pairing revision guards against queued stale writes.
+WSL Add checks connection identity and preserves a replacement connection and its holder during cleanup.
 Launch creation retains permission admission, cancellation and the captured per-message selection.
 A selection made while launch is pending remains available for the next turn.
 These are source integration claims; full behavioral and cost verification remains required.
@@ -43,11 +44,12 @@ No universal home synchronization fix is claimed in this release.
 
 ## Verification and rollout
 
-The first candidate failed CI. Corrections are included, but current-head CI remains queued.
+Previous candidates failed CI. Reviewed discovery, launch, lifecycle and queued-owner corrections
+are included; current-head CI remains queued. Earlier passing checks do not approve this revision.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
 and Windows package checks must pass at the frozen candidate before publication.
-All 207 predecessor test paths exist; the draft manifest adds the scoped discovery regression.
+All 207 predecessor test paths exist; the draft manifest adds scoped discovery and queued WSL ownership regressions (209 paths).
 Path existence is not a test result.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
