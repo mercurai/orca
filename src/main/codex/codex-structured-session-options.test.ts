@@ -400,26 +400,43 @@ describe('structured Codex session options', () => {
     )
   })
 
-  it.each([null, 'default'] as const)('keeps pending legacy Fast over reported %s', async (reportedTier) => {
-    const requests: { method: string; params?: Record<string, unknown> }[] = []
-    const session = optionSession(vi.fn(async (method, params) => {
-      requests.push({ method, params })
-      return method === 'model/list' ? {
-        data: [{ model: 'gpt-live', supportedReasoningEfforts: [],
-          serviceTiers: [{ id: 'synthetic-exact-fast-id', name: 'Fast' }] }], nextCursor: null
-      } : { turn: { id: 'legacy-fast-turn' } }
-    }))
-    session.options = restoredCodexSessionOptions({ fastMode: 'true' })
-    session.reportedOptions = { model: 'gpt-live', serviceTier: reportedTier, serviceTierKnown: true }
-    await primePicker(session)
-    const result = await readLiveCodexSessionOptions(session, undefined)
-    expect(result.current).toMatchObject({ fastMode: true })
-    expect(result.current).not.toHaveProperty('serviceTier')
-    await startCodexTurn(session, { clientMessageId: 'legacy-fast-message', body: USER_MESSAGE })
-    expect(requests.find((request) => request.method === 'turn/start')?.params).toMatchObject({
-      serviceTier: 'synthetic-exact-fast-id'
-    })
-  })
+  it.each([null, 'default'] as const)(
+    'keeps pending legacy Fast over reported %s',
+    async (reportedTier) => {
+      const requests: { method: string; params?: Record<string, unknown> }[] = []
+      const session = optionSession(
+        vi.fn(async (method, params) => {
+          requests.push({ method, params })
+          return method === 'model/list'
+            ? {
+                data: [
+                  {
+                    model: 'gpt-live',
+                    supportedReasoningEfforts: [],
+                    serviceTiers: [{ id: 'synthetic-exact-fast-id', name: 'Fast' }]
+                  }
+                ],
+                nextCursor: null
+              }
+            : { turn: { id: 'legacy-fast-turn' } }
+        })
+      )
+      session.options = restoredCodexSessionOptions({ fastMode: 'true' })
+      session.reportedOptions = {
+        model: 'gpt-live',
+        serviceTier: reportedTier,
+        serviceTierKnown: true
+      }
+      await primePicker(session)
+      const result = await readLiveCodexSessionOptions(session, undefined)
+      expect(result.current).toMatchObject({ fastMode: true })
+      expect(result.current).not.toHaveProperty('serviceTier')
+      await startCodexTurn(session, { clientMessageId: 'legacy-fast-message', body: USER_MESSAGE })
+      expect(requests.find((request) => request.method === 'turn/start')?.params).toMatchObject({
+        serviceTier: 'synthetic-exact-fast-id'
+      })
+    }
+  )
 
   it('retains a restored tier when the selected model no longer lists it', async () => {
     const session = optionSession(
@@ -434,7 +451,9 @@ describe('structured Codex session options', () => {
     await expect(readLiveCodexSessionOptions(session, undefined)).resolves.toMatchObject({
       current: { serviceTier: 'priority' }
     })
-    expect((await readLiveCodexSessionOptions(session, undefined)).current).not.toHaveProperty('fastMode')
+    expect((await readLiveCodexSessionOptions(session, undefined)).current).not.toHaveProperty(
+      'fastMode'
+    )
     expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'priority' })
   })
 

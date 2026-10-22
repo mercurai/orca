@@ -137,4 +137,3 @@ export function joinLaunchDelivery(
   const { promptDelivery: _joinerMode, ...rest } = options
   return mode ? { ...rest, promptDelivery: mode } : rest
 }
-

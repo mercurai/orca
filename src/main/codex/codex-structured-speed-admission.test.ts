@@ -1,4 +1,7 @@
-import { adapterWithIndependentCatalog as adapterFor, discoveryRequests } from './codex-structured-independent-catalog.test-fixture'
+import {
+  adapterWithIndependentCatalog as adapterFor,
+  discoveryRequests
+} from './codex-structured-independent-catalog.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import {
@@ -34,9 +37,7 @@ describe('Codex next-turn speed admission', () => {
           spawnToken: 'speed-admission-spawn',
           options: { model: 'synthetic-model', serviceTier: 'priority-exact-id' }
         })
-        await vi.waitFor(() =>
-          expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce()
-        )
+        await vi.waitFor(() => expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce())
         const outcome = await adapter.dispatch({
           ...identity,
           clientMessageId: 'unverified-speed',
