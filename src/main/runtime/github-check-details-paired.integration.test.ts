@@ -44,7 +44,8 @@ vi.mock('../github/client', async () => {
   }
 })
 vi.mock('../github/work-item-details', () => ({ getPRFileContents: vi.fn() }))
-vi.mock('@orca/process-host/process-tree-termination', () => ({
+vi.mock('@orca/process-host/process-tree-termination', async (original) => ({
+  ...(await original()),
   signalProcessTree: terminationMock,
   forceTerminateProcessTree: terminationMock
 }))

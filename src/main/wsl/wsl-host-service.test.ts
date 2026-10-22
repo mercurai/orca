@@ -1,5 +1,12 @@
 import { encodePairingOffer } from '../../shared/pairing'
-import { KEY, UBUNTU_ID, UBUNTU, pairing, connection, makeConnector } from './wsl-host-service.test-fixture'
+import {
+  KEY,
+  UBUNTU_ID,
+  UBUNTU,
+  pairing,
+  connection,
+  makeConnector
+} from './wsl-host-service.test-fixture'
 import * as secureWrites from '../../shared/secure-file-async-write'
 import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
 import { mkdtempSync, rmSync } from 'node:fs'

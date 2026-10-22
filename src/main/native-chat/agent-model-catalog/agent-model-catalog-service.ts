@@ -10,9 +10,7 @@ import type {
 } from '../../../shared/agent-session-record'
 import { isLegacyAgentSessionAccountHome } from '../../../shared/agent-session-account-home'
 import { agentModelCatalogFingerprintForRecord } from './agent-model-catalog-fingerprint'
-import {
-  retainedAgentModelCatalogModels
-} from './agent-model-catalog-entry'
+import { retainedAgentModelCatalogModels } from './agent-model-catalog-entry'
 import type {
   AgentModelCatalogEntry,
   AgentModelCatalogLiveListing
@@ -177,8 +175,25 @@ export function createAgentModelCatalogService(
         workspacePath: cwd ?? folder
       })
       // Every answer carries the reason the probe last found, read when the answer is made.
-      const answer = (listed: AgentModelCatalogEntry | null, extra: { listingInProgress?: true } = {}) =>
-        answerAgentModelCatalog({ deps, params, scoped, workspacePath, accountHomePath, fingerprint, base, exact, folder }, listed, extra)
+      const answer = (
+        listed: AgentModelCatalogEntry | null,
+        extra: { listingInProgress?: true } = {}
+      ) =>
+        answerAgentModelCatalog(
+          {
+            deps,
+            params,
+            scoped,
+            workspacePath,
+            accountHomePath,
+            fingerprint,
+            base,
+            exact,
+            folder
+          },
+          listed,
+          extra
+        )
       // An observed exit prevents background relaunch; a new chat can still discover.
       if (
         params.savedOnly ||

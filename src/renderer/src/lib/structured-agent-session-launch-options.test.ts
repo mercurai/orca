@@ -20,10 +20,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
 vi.mock('@/runtime/runtime-rpc-client', async () => {
-  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } = await import('../../../shared/agent-session-create-capabilities')
-  return { callRuntimeRpc: vi.fn(async () => ({ capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY] })) }
+  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } =
+    await import('../../../shared/agent-session-create-capabilities')
+  return {
+    callRuntimeRpc: vi.fn(async () => ({
+      capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY]
+    }))
+  }
 })
-
 
 vi.mock('@/lib/launch-structured-agent-session', () => {
   class StructuredAgentSessionCreateRefusalError extends Error {}
@@ -278,17 +282,21 @@ describe('picks made while a chat launches', () => {
     const tierPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'priority')
     holdStructuredAgentSessionLaunchOption(SESSION_ID, 'model', 'gpt-nofast', picker)
     expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toMatchObject({
-      model: 'gpt-nofast', serviceTier: 'priority'
+      model: 'gpt-nofast',
+      serviceTier: 'priority'
     })
     created.resolve({ sessionId: SESSION_ID, fence: 3 })
     await settle()
     setOptionReplies[0]!.resolve(ACCEPTED)
     await settle()
     setOptionReplies[1]!.resolve({
-      ok: false, refusal: { code: 'invalid_argument', message: 'Selected speed is unavailable' }
+      ok: false,
+      refusal: { code: 'invalid_argument', message: 'Selected speed is unavailable' }
     })
     await expect(tierPick).resolves.toMatchObject({ kind: 'refused' })
-    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toMatchObject({ serviceTier: 'priority' })
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toMatchObject({
+      serviceTier: 'priority'
+    })
     expect(lifecycle()).toBe('pending')
     const standard = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'default')
     await settle()
@@ -296,7 +304,9 @@ describe('picks made while a chat launches', () => {
     await expect(standard).resolves.toMatchObject({ kind: 'accepted' })
     await launch.launchResult
     expect(mutations().map(({ key, value }) => [key, value])).toEqual([
-      ['model', 'gpt-nofast'], ['serviceTier', 'priority'], ['serviceTier', 'default']
+      ['model', 'gpt-nofast'],
+      ['serviceTier', 'priority'],
+      ['serviceTier', 'default']
     ])
   })
 

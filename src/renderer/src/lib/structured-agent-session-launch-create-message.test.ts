@@ -28,9 +28,12 @@ vi.mock('../../../shared/layout-owner-switch', () => ({
 }))
 // This machine's host closes the chat's tab when asked.
 vi.mock('@/runtime/runtime-rpc-client', async () => {
-  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } = await import('../../../shared/agent-session-create-capabilities')
+  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } =
+    await import('../../../shared/agent-session-create-capabilities')
   return {
-    callRuntimeRpc: vi.fn(async () => ({ capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY] })),
+    callRuntimeRpc: vi.fn(async () => ({
+      capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY]
+    })),
     runtimeEnvironmentSupportsCapability: async () => true
   }
 })
@@ -302,13 +305,13 @@ describe('the first message owned by create', () => {
     expect(retryStructuredAgentSessionLaunch('workspace-1', launch.sessionId)).toBe(true)
     await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledTimes(2))
     const retried = CreateIntentParams.parse(mocks.call.mock.calls[1]?.[2])
-    expect(retried.options).toEqual({ effort: 'high', serviceTier: 'priority' })
+    expect(retried.options).toEqual({ model: 'm1', effort: 'high', serviceTier: 'priority' })
     // A pick made while create is out is newer than what it carries, so it applies after.
     holdStructuredAgentSessionLaunchOption(launch.sessionId, 'effort', 'medium')
     create.resolve(created())
     await expect(tierPick).resolves.toEqual({
       kind: 'accepted',
-      options: { effort: 'high', serviceTier: 'priority' }
+      options: { model: 'm1', effort: 'high', serviceTier: 'priority' }
     })
     await vi.waitFor(() =>
       expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual([

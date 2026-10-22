@@ -91,7 +91,8 @@ function storeSession(
 
 function discoveredListing(...ids: string[]): AgentModelCatalogSuccess {
   return {
-    origin: 'probe', complete: true,
+    origin: 'probe',
+    complete: true,
     models: ids.map((id, index) => ({ id, label: id, isDefault: index === 0, efforts: [] }))
   }
 }
@@ -210,17 +211,24 @@ describe('Codex session options through the host catalog store', () => {
   it('restores while its account picker discovery is pending, then shares its result', async () => {
     const store = new AgentModelCatalogStore()
     const fingerprint = agentModelCatalogFingerprint({
-      agent: 'codex', accountHomeVariable: 'CODEX_HOME', accountHomePath: '/homes/a', wslDistro: null
+      agent: 'codex',
+      accountHomeVariable: 'CODEX_HOME',
+      accountHomePath: '/homes/a',
+      wslDistro: null
     })
     const pending = Promise.withResolvers<AgentModelCatalogSuccess>()
     const probe = vi.fn<AgentModelCatalogProbe>(() => pending.promise)
     const service = createAgentModelCatalogService({
-      store, getRecord: () => undefined, drivesRecord: () => true,
+      store,
+      getRecord: () => undefined,
+      drivesRecord: () => true,
       resolveAccountHome: async () => ({ variable: 'CODEX_HOME', path: '/homes/a' }),
       probes: { codex: probe }
     })
     expect(await service.read({ agent: 'codex', workspacePath: null })).toMatchObject({
-      origin: 'unknown', listingInProgress: true, catalogState: 'loading'
+      origin: 'unknown',
+      listingInProgress: true,
+      catalogState: 'loading'
     })
     const request = vi.fn(async () => listAnswer('unused-child-model'))
     const session = storeSession(request, store)
@@ -365,7 +373,9 @@ describe('Codex session options through the host catalog store', () => {
     })
     const session = storeSession(request, store)
     await readLiveCodexSessionOptions(session, undefined)
-    await expect(applyCodexStructuredSessionOption(session, 'model', 'gpt-next')).resolves.toMatchObject({
+    await expect(
+      applyCodexStructuredSessionOption(session, 'model', 'gpt-next')
+    ).resolves.toMatchObject({
       model: 'gpt-next'
     })
     expect((await readLiveCodexSessionOptions(session, undefined)).speed?.support).toBe('unknown')
