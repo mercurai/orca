@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`b4aa84224eb40087d14d365b662dd75a0603658e`. Do not merge the comparison PR into its CI base.
-Local linear patch `43622871b1b817ed48f61ae382e3e7a1a7222e21` has the identical tree
-`8ebaedab3b7c2a9dc65425940b59e3518f4492b7`; the patch branch is pushed, while candidate verification remains pending.
+`25f51b09759724ee956057339334ab75aa487760`. Do not merge the comparison PR into its CI base.
+Local linear patch `b318454346ebbcef414ac433a6f67bcc56cc786e` has the identical tree
+`2585b3bd44b6d9db9376e5eb91ef4e6f279a0e67`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -51,11 +51,14 @@ Previous candidates failed CI. Reviewed discovery, launch, lifecycle and queued-
 are included; current-head CI is newly submitted. The previous full product suite failed;
 reviewed async/fixture corrections and strict speed-refusal assertions address those failures.
 Ubuntu WSL setup timed out twice before Orca acceptance; phase diagnostics are included,
-and no successful Ubuntu acceptance is claimed. Diagnostics located the stall in rootfs
+on preceding candidates. Diagnostics located the stall in rootfs
 download, before import. Windows attempts timed out after180seconds at about164MB
 of392MB. The pinned Ubuntu image now downloads on Linux, verifies SHA256, transfers
 through a same-run artifact and verifies SHA256 again on Windows before unchanged
-plain/systemd imports. Fresh distro acceptance remains required. Windows launcher fixtures handle the platform suffix.
+plain/systemd imports. This transport passed both Ubuntu modes on the preceding candidate.
+Its qualification test now requires the Ubuntu rootfs producer alongside the existing prerequisites;
+the preceding full suite found exactly this stale expectation. Fresh exact-candidate checks remain required.
+Windows launcher fixtures handle the platform suffix.
 Retained-row calculations moved unchanged to a focused module to preserve the file-size gate.
 The docs site pins Next.js16.4.1 to address blocking GHSA-2464-fhr4-w9xw and
 GHSA-p3m5-59mp-jv5r findings. Updater-veto tests mock the current direct module boundaries
