@@ -235,7 +235,7 @@ describe('the incumbent terminal count across restarts', () => {
             const token = pairedRuntimeConnectionToken(connection)
             const device = registry.listDevices().find((entry) => entry.token === token)
             if (device) {
-              registry.updateLastSeen(device.deviceId)
+              await registry.updateLastSeen(device.deviceId)
             }
             return LIVE
           })

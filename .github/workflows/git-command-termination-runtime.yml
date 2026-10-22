@@ -129,6 +129,17 @@ jobs:
           src/main/git/command-runner/git-spawn-worker-client-runprocess.test.ts
           config/scripts/packaged-orcad-template-targets.test.mjs
           config/scripts/compact-packaged-orcad-ripgrep.test.mjs
+          config/scripts/dependency-security-release.test.mjs
+          src/main/codex/codex-structured-service-tier-shown.test.ts
+          src/main/codex/codex-structured-session-adapter.test.ts
+          src/main/managed-server/lifecycle/orcad-runtime-conversion.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-options-read.test.ts
+          src/main/ssh/orcad-migration-delta-move.test.ts
+          src/main/ssh/orcad-migration-delta-snapshot.test.ts
+          src/main/ssh/orcad-retained-source-changes.test.ts
+          src/main/wsl/wsl-orcad-incumbent.test.ts
+          src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
+          src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       # Diagnostic only: formatting runs after tests and never changes the tested source revision.
       - name: Capture formatting corrections for source review
         if: always()

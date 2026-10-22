@@ -12,11 +12,12 @@ import {
   type WorktreeHeadIdentityScope
 } from './worktree-head-identity-scope'
 import { cachedWorktreePathsForScope } from './worktree-head-identity-cached-paths'
-import { notifyWorktreeGitStatusMetadataChanged } from './worktree-remote'
+import { notifyWorktreeGitStatusMetadataChanged, notifyWorktreesChanged } from './worktree-remote'
 import { notifyWatchedWorktreeCatalogChanged } from './watched-worktree-catalog-notification'
 
 export type WorktreeBaseNotificationWatch = WorktreeBaseWatchTarget & {
   mainWindow: BrowserWindow
+  connectionId?: string
   notifyTimer: ReturnType<typeof setTimeout> | null
   pendingStructureRepoIds: Set<string>
   pendingGitStatusRepoIds: Set<string>
@@ -96,7 +97,11 @@ export function scheduleWorktreeBaseNotification(
       : null
     clearPendingWorktreeBaseNotifications(watch)
     for (const repoId of pendingStructure) {
-      notifyWatchedWorktreeCatalogChanged(watch.mainWindow, repoId)
+      if (watch.connectionId) {
+        notifyWorktreesChanged(watch.mainWindow, repoId)
+      } else {
+        notifyWatchedWorktreeCatalogChanged(watch.mainWindow, repoId)
+      }
     }
     for (const repoId of sourceControlRepoIds) {
       notifyWorktreeGitStatusMetadataChanged(watch.mainWindow, repoId, gitStatusWorktreePaths)

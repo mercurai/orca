@@ -100,8 +100,10 @@ export function registerSshHandlers(
   setCurrentRuntime(runtime)
   setSshTargetRegistryStore(new SshConnectionStore(store))
   setPersistedStore(store)
-  reconcileManagedOrcadSshTargets(getAppEnvironment().getPath('userData'), store)
-  void retainUnretainedOrcadMigrationSources(getAppEnvironment().getPath('userData'), store)
+  const userDataPath = getAppEnvironment().getPath('userData')
+  void reconcileManagedOrcadSshTargets(userDataPath, store)
+    .then(() => retainUnretainedOrcadMigrationSources(userDataPath, store))
+    .catch((error: unknown) => console.warn('[ssh] Could not retain managed Orca sources:', error))
   installOrcadMigrationScrollbackRetention(getAppEnvironment().getPath('userData'), store)
   installManagedOrcadStartStatus()
 

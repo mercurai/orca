@@ -145,7 +145,7 @@ async function convertedThenAdded(addOnOlderBuild: () => string): Promise<string
   ).resolves.toMatchObject({ outcome: 'converted' })
   const worktreeId = addOnOlderBuild()
   saveDraft(worktreeId, 'draft before the move')
-  reconcileManagedOrcadSshTargets(userDataPath, store, now)
+  await reconcileManagedOrcadSshTargets(userDataPath, store, now)
   expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeDefined()
   return worktreeId
 }
@@ -222,7 +222,7 @@ describe('a draft typed while a delta move checks terminals', () => {
     })
     expect(savedDraft(worktreeId)).toBe('draft before the move')
     // Back to managed, and the next start finds the source as the delta baseline recorded it.
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
   })
 })
