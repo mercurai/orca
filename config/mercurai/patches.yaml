@@ -5,16 +5,16 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
+base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-20261020
-    branch: patch/current-main-release-1bfb4565
+  - slug: current-main-release-20261022
+    branch: patch/current-main-release-ec5eaf96
     status: ours-only
-    base: 1bfb45654f7d7e847c157ff70f1c7e018b038511
-    commit: fef054f34069a0506e2ff27e92191c59155503cf
+    base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
+    commit: 5b8f7e05813d8bd99e52e63172baa10bed1ff735
     owner: harness
-    added: 2026-10-20
+    added: 2026-10-22
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
@@ -113,6 +113,7 @@ patches:
       - src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
       - src/shared/agent-session-failure-words.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
+      - src/main/native-chat/agent-model-catalog/agent-model-catalog-independent-discovery.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
       - src/main/runtime/worktree-scan-admin-fingerprint-gate.test.ts
       - src/main/git/worktree-scan-cache-sharing.test.ts
@@ -224,18 +225,18 @@ patches:
       - src/main/managed-server/posix-host-op-byte-budget.test.ts
       - src/main/ssh/ssh-remote-commands.test.ts
     notes: >-
-      Provisional exact candidate fef054f34069a0506e2ff27e92191c59155503cf,
-      source d13c1f651ae673adaf2c337fff2b67e71e6aabef,
-      tree f949142d05e222bfa63ac7b0c53be8237f723181.
-      Frozen official base is 1bfb45654f7d7e847c157ff70f1c7e018b038511;
-      v1.4.232 is the release-version floor. This combines all released code and
-      54 subsequent main commits while preserving the shipped Mercurai enhancements.
+      Provisional exact candidate 5b8f7e05813d8bd99e52e63172baa10bed1ff735,
+      source b89ed42cea7daae0b1d68abc8ce2ee1a8c37ca8e,
+      tree 2997710e53e15d38d790119bcd6258864b06f4fb.
+      Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
+      v1.4.237 is the release-version floor. This combines all released code and
+      subsequent main changes while preserving the shipped Mercurai enhancements.
       Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,
-      packaging and final review remain required. No prior 229 receipt approves this pin.
+      packaging and final review remain required. No prior release receipt approves this pin.
       Registered tests retain the predecessor union and new per-message speed,
       async credential, pairing serialization and partial-template compaction regressions.
       CI-only dry-run assembly may use this pin. Default registration/publication remain
-      blocked until exact-candidate gates pass. See release-notes-v1.4.232.md.
+      blocked until exact-candidate gates pass. See release-notes-v1.4.237.md.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.

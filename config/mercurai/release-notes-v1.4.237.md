@@ -18,9 +18,10 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`28bc8ff4e18a4fb9c559e0a8c7db21cff590b741`. Do not merge the comparison PR into its CI base.
-Protected assembly still requires a reviewed linear patch with an identical source tree.
-Production manifest pins remain on the previous released candidate until verification passes.
+`b89ed42cea7daae0b1d68abc8ce2ee1a8c37ca8e`. Do not merge the comparison PR into its CI base.
+Local linear patch `5b8f7e05813d8bd99e52e63172baa10bed1ff735` has the identical tree
+`2997710e53e15d38d790119bcd6258864b06f4fb`; it remains unpublished and unverified by CI.
+The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
 
@@ -46,7 +47,8 @@ The first candidate failed CI. Corrections are included, but current-head CI rem
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
 and Windows package checks must pass at the frozen candidate before publication.
-All 207 predecessor manifest test paths exist in this source; path existence is not a test result.
+All 207 predecessor test paths exist; the draft manifest adds the scoped discovery regression.
+Path existence is not a test result.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
 Keep source landed, package published, package installed, runtime loaded and remote hosts distinct.
