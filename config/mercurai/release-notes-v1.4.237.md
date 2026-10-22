@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`40b71a0c5f5e0350e83b1adfa2f1f0fddac80a5c`. Do not merge the comparison PR into its CI base.
-Local linear patch `30ff2f4b36261597ff9784f69f5cc4aaa9f230b9` has the identical tree
-`ae004eecc0237a61c546a965663fdc2c48a19f6c`; the patch branch is pushed, while candidate verification remains pending.
+`dbd181c59968172d75b4b74a795d47f54c4b8093`. Do not merge the comparison PR into its CI base.
+Local linear patch `a23934759e24a39f83ef19a1bb43672c910ac7d7` has the identical tree
+`22e50faa44b5483f237b31a10321335916c82b05`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -58,6 +58,10 @@ Retained-row calculations moved unchanged to a focused module to preserve the fi
 The docs site pins Next.js16.4.1 to address blocking GHSA-2464-fhr4-w9xw and
 GHSA-p3m5-59mp-jv5r findings. Updater-veto tests mock the current direct module boundaries
 without changing their assertions or timeout. Fresh docs/security/updater checks remain required. Earlier passing checks do not approve this revision.
+Desktop and mobile resolve DOMPurify3.4.17 to address critical GHSA-cg2g-xh64-v4q7
+and high GHSA-mrv2-3pqr-j5jr findings. Exact release-age exceptions preserve the global
+three-day dependency delay. Independent dependency review accepted the bounded lockfile changes;
+fresh security and behavioral CI remain required.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
 and Windows package checks must pass at the frozen candidate before publication.
