@@ -99,6 +99,7 @@ jobs:
           src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
           src/shared/agent-session-failure-words.test.ts
           src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-independent-discovery.test.ts
           src/main/native-chat/agent-model-catalog/agent-model-catalog-unavailable.test.ts
           src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
           src/main/codex/codex-structured-message-options.test.ts

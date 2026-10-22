@@ -1,3 +1,4 @@
+import { readCodexRestingSpeed } from '../../codex/codex-structured-resting-speed'
 import { codexAcquireCatalogAccess } from '../../codex/codex-structured-acquire-catalog'
 import { readCodexSessionSpeed } from '../../codex/codex-structured-speed-state'
 import { optionSession } from '../../codex/codex-structured-option-session.test-fixture'
@@ -176,6 +177,7 @@ describe('independent installed CLI discovery', () => {
     h.update({ ...listing('partial', 'partial'), complete: false })
     expect(await h.read('a', { waitForListing: true })).toMatchObject({
       models: [{ id: 'partial', isDefault: false }],
+      catalogState: 'unknown',
       listingNamesConfiguredModel: false
     })
     expect(h.service.peek('a', true)).toBeNull()
@@ -188,7 +190,7 @@ describe('independent installed CLI discovery', () => {
   })
 })
 
-it.each(['resolve', 'reject'] as const)('reports scoped Codex discovery loading then %s', async (outcome) => {
+it.each(['resolve', 'partial', 'reject'] as const)('reports scoped Codex discovery loading then %s', async (outcome) => {
   const home = { variable: 'CODEX_HOME', path: '/synthetic-account' }
   const pending = Promise.withResolvers<AgentModelCatalogSuccess>()
   const store = new AgentModelCatalogStore()
@@ -214,12 +216,16 @@ it.each(['resolve', 'reject'] as const)('reports scoped Codex discovery loading 
   expect(store.isListing(session.catalogAccess!.fingerprint)).toBe(false)
   expect(readCodexSessionSpeed(session, { models: [] }).support).toBe('loading')
   const settled = service.read({ agent: 'codex', sessionId: row.sessionId, waitForListing: true })
-  if (outcome === 'resolve') {
-    pending.resolve({ origin: 'probe', complete: true, models: [{ id: 'synthetic-model', label: 'Synthetic', isDefault: true, efforts: [], serviceTiers: [{ value: 'exact-fast-id', label: 'Fast' }] }] })
+  if (outcome !== 'reject') {
+    pending.resolve({ origin: 'probe', complete: outcome === 'resolve', models: [{ id: 'synthetic-model', label: 'Synthetic', isDefault: true, efforts: [], serviceTiers: [{ value: 'exact-fast-id', label: 'Fast' }] }] })
   } else {
     pending.reject(new Error('synthetic listing unavailable'))
   }
-  await settled
+  const catalog = await settled
+  expect(catalog.catalogState).toBe(outcome === 'resolve' ? 'available' : 'unknown')
+  expect(readCodexRestingSpeed({ saved: row.options ?? {}, catalog }).support).toBe(
+    outcome === 'resolve' ? 'available' : 'unknown'
+  )
   expect(readCodexSessionSpeed(session, { models: [] }).support).toBe(outcome === 'resolve' ? 'available' : 'unknown')
   service.stop()
 })

@@ -61,6 +61,7 @@ export async function answerAgentModelCatalog(
         const unavailable = deps.store.failure(fingerprint)?.unavailable
         const available =
           listed !== null &&
+          (!independent || deps.store.verified(listed)) &&
           !deps.store.isStale(listed, 'latest') &&
           !deps.store.hasActiveFailure(fingerprint) &&
           unavailable === undefined
