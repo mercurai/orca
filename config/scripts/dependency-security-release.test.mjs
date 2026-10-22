@@ -128,7 +128,10 @@ it('extracts release data while excluding executable package and Cargo configura
     const auditEnv = {
       ...process.env,
       PATH: [
-        resolve('node_modules/@vscode/ripgrep-universal/bin', `${process.platform}-${process.arch}`),
+        resolve(
+          'node_modules/@vscode/ripgrep-universal/bin',
+          `${process.platform}-${process.arch}`
+        ),
         process.env.PATH
       ].join(delimiter),
       RELEASE_REF: 'HEAD'
