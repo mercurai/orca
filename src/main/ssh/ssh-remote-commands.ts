@@ -88,9 +88,12 @@ export function probeRemoteInstallCompleteCommand(
   )
   if (!isWindowsRemoteHost(host)) {
     const prefix = `${remoteInstallDir.replace(/\/+$/, '')}/`
-    const fileTests = required.map((path) =>
-      `&& test -f ${quotePosixShell(path.startsWith(prefix) ? path.slice(prefix.length) : path)} `
-    ).join('')
+    const fileTests = required
+      .map(
+        (path) =>
+          `&& test -f ${quotePosixShell(path.startsWith(prefix) ? path.slice(prefix.length) : path)} `
+      )
+      .join('')
     return `(cd ${quotePosixShell(remoteInstallDir)} 2>/dev/null ${fileTests}) && echo OK || echo MISSING`
   }
   return powerShellCommand(

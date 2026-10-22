@@ -1,4 +1,8 @@
-import { adapterWithIndependentCatalog as adapterFor, discoveryRequests, discoveryWork } from './codex-structured-independent-catalog.test-fixture'
+import {
+  adapterWithIndependentCatalog as adapterFor,
+  discoveryRequests,
+  discoveryWork
+} from './codex-structured-independent-catalog.test-fixture'
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import {
   acquireReadyCodexForTest,
@@ -10,7 +14,10 @@ import {
   identityFor,
   type Route
 } from './codex-structured-session-adapter-fixture'
-import { AgentModelCatalogStore, AGENT_MODEL_CATALOG_FAILURE_TTL_MS } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
+import {
+  AgentModelCatalogStore,
+  AGENT_MODEL_CATALOG_FAILURE_TTL_MS
+} from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
 import { createAgentModelCatalogSettingsExpiry } from '../native-chat/agent-model-catalog/agent-model-catalog-account-expiry'
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
@@ -92,9 +99,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       modelCatalog: new AgentModelCatalogStore()
     })
     await acquire(adapter)
-    await vi.waitFor(() =>
-      expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce()
-    )
+    await vi.waitFor(() => expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce())
     expect(await send(adapter, 'first')).toMatchObject({
       state: 'rejected',
       rejection: { neverReachedAgent: true }
@@ -255,9 +260,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
         throw new Error('Expected the acquired session and pinned catalog access')
       }
       const { fingerprint } = session.catalogAccess
-      await vi.waitFor(() =>
-        expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce()
-      )
+      await vi.waitFor(() => expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce())
       expect(modelCatalog.isListing(fingerprint)).toBe(true)
       expect(modelCatalog.get(fingerprint)).toBeNull()
       const expire = createAgentModelCatalogSettingsExpiry(modelCatalog, {})

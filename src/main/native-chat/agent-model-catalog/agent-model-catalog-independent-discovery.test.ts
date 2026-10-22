@@ -95,7 +95,8 @@ describe('independent installed CLI discovery', () => {
     await h.read('a', { waitForListing: true })
     expect(await h.read()).toMatchObject({ models: [{ id: 'new' }] })
     expect(await h.read('a', { savedOnly: true, verifiedOnly: true })).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     h.service.stop()
   })

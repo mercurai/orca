@@ -1,78 +1,21 @@
+import { encodePairingOffer } from '../../shared/pairing'
+import { KEY, UBUNTU_ID, UBUNTU, pairing, connection, makeConnector } from './wsl-host-service.test-fixture'
 import * as secureWrites from '../../shared/secure-file-async-write'
 import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { encodePairingOffer } from '../../shared/pairing'
 import {
   addEnvironmentFromPairingCode,
   listEnvironments
 } from '../../shared/runtime-environment-store'
 import { findWslHostDeployment } from '../../shared/runtime-environment-wsl-host-store'
 import { getPreferredPairingOffer } from '../../shared/runtime-environments'
-import type { WslHostServerStop, WslHostStatus } from '../../shared/wsl-host-types'
+import type { WslHostStatus } from '../../shared/wsl-host-types'
 import { OrcadHostUnsupportedError } from '../orcad/orcad-host-unavailable'
-import type { WslHostDistroCandidate } from './wsl-host-distro-list'
 import { WslHostService, type WslHostConnector } from './wsl-host-service'
 import { WslOrcadLaunchDeferredError } from './wsl-orcad-connection-errors'
-import type { WslOrcadConnection } from './wsl-orcad-connection'
-
-const KEY = Buffer.alloc(32, 3).toString('base64')
-const UBUNTU_ID = '0e3a7f2c-1b4d-4c5e-9f60-7a8b9c0d1e2f'
-
-function pairing(port: number, deviceToken = 'token-1', publicKeyB64 = KEY): string {
-  return encodePairingOffer({ v: 2, endpoint: `ws://127.0.0.1:${port}`, deviceToken, publicKeyB64 })
-}
-
-function connection(distro: string, port = 42000, token = 'token-1'): WslOrcadConnection {
-  return {
-    distro,
-    environmentId: `wsl:${distro.toLowerCase()}`,
-    localPort: port,
-    remotePort: 6768,
-    fullVersion: '1.0.0+abc',
-    pid: 10,
-    pairingOffer: pairing(port, token),
-    deferredUpdate: null,
-    close: async () => {}
-  }
-}
-
-function makeConnector(distros: WslHostDistroCandidate[]) {
-  const active = new Map<string, WslOrcadConnection>()
-  const connector = {
-    listDistros: vi.fn(async () => distros),
-    readOrcadPublicKey: vi.fn(async (_distro: string): Promise<string | null> => null),
-    connect: vi.fn(async (distro: string) => {
-      const opened = connection(distro)
-      active.set(distro.toLowerCase(), opened)
-      return opened
-    }),
-    get: vi.fn((distro: string) => active.get(distro.toLowerCase()) ?? null),
-    forgetPairingFailures: vi.fn((_environmentId: string) => {}),
-    isReachable: vi.fn(async (distro: string) => active.has(distro.toLowerCase())),
-    disconnect: vi.fn(async (distro: string) => {
-      active.delete(distro.toLowerCase())
-    }),
-    stopServer: vi.fn(
-      async (_distro: string, _environmentId: string): Promise<WslHostServerStop> => ({
-        stopped: true
-      })
-    ),
-    releaseHolder: vi.fn(async (_distro: string) => {}),
-    adoptHolders: vi.fn(async () => {}),
-    dispose: vi.fn(async () => {})
-  } satisfies WslHostConnector
-  return connector
-}
-
-const UBUNTU: WslHostDistroCandidate = {
-  id: UBUNTU_ID,
-  name: 'Ubuntu',
-  state: 'running',
-  version: 2
-}
 
 describe('WslHostService', () => {
   let userDataPath: string
@@ -673,7 +616,9 @@ describe('WslHostService', () => {
     let knownWhileAdding = false
     connector.connect.mockImplementationOnce(async (distro: string) => {
       knownWhileAdding = service.isKnownDistro(distro)
-      return connection(distro)
+      const opened = connection(distro)
+      connector.get.mockReturnValue(opened)
+      return opened
     })
     await service.add({ distro: 'Ubuntu' })
     expect(knownWhileAdding).toBe(true)
@@ -779,7 +724,9 @@ describe('WslHostService', () => {
     }
     connector.connect.mockImplementation(async (distro: string) => {
       order.push(`connect:${distro}`)
-      return { ...connection(distro), deferredUpdate }
+      const opened = { ...connection(distro), deferredUpdate }
+      connector.get.mockReturnValue(opened)
+      return opened
     })
     ready.mockImplementation((id: string) => order.push(`ready:${id}:${published.length}`))
     const service = makeService(connector)

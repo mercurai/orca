@@ -107,6 +107,10 @@ jobs:
           src/renderer/src/components/native-chat/native-chat-composer-draft-store.test.ts
           src/renderer/src/components/native-chat/native-chat-composer-draft-image-replacement.test.ts
           src/shared/runtime-environment-store-pairing-serialization.test.ts
+          src/main/ssh/orcad-runtime-maintenance.test.ts
+          src/main/wsl/wsl-host-service.test.ts
+          src/main/wsl/wsl-host-queued-pairing.test.ts
+          src/shared/runtime-environment-wsl-host-store.test.ts
           src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
           src/shared/runtime-environment-store.test.ts
           src/shared/runtime-environment-store-same-server.test.ts

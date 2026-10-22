@@ -147,6 +147,7 @@ describe('WSL host environment store', () => {
     await blocker
     await newer
     const result = await stale
+    expect(result.superseded).toBe(true)
     expect(result.pairingChanged).toBe(false)
     expect(getPreferredPairingOffer(result.environment).deviceToken).toBe('newer-fixture-token')
     expect(result.environment.pairingRevision).toBe(500)

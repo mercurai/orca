@@ -74,6 +74,7 @@ it('awaits the mobile dismissal flush inside the will-quit teardown barrier', as
       getAgentBrowserBridge: () => null,
       getEmulatorBridge: () => null,
       disposeSkillUploadSessions: () => Promise.resolve(),
+      flushPaneGrids: () => Promise.resolve(),
       flushNotificationDismissals,
       closeNotificationDismissals
     }

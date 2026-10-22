@@ -75,9 +75,12 @@ function refreshPairing(
   // Why the enrolled grant: a restarted orcad offers a new device once this one has paired, and
   // taking it would change who this desktop is to the host (as WSL's #29042 found). Re-read: the
   // census may have repaired a refused pairing since `environment` was read.
-  const enrolled = getPreferredPairingOffer(resolveEnvironment(userDataPath, environment.id))
+  const current = resolveEnvironment(userDataPath, environment.id)
+  const enrolled = getPreferredPairingOffer(current)
   const pairingCode = tunneledOrcadPairingCode(readiness, localPort, enrolled)
-  return refreshManagedOrcadPairing(userDataPath, environment.id, pairingCode)
+  return refreshManagedOrcadPairing(userDataPath, environment.id, pairingCode, undefined, {
+    expectedPairingRevision: current.pairingRevision ?? current.createdAt
+  })
 }
 
 /** A launched slot may bind another port than the forward in use, so forward anew. */

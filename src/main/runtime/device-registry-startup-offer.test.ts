@@ -18,9 +18,9 @@ describe("orcad's startup pairing offer", () => {
     dir = mkdtempSync(join(tmpdir(), 'orca-startup-offer-'))
     const registry = new DeviceRegistry(dir)
     const first = await registry.getOrCreatePendingDevice('CLI', 'runtime')
-    expect((await new DeviceRegistry(dir).getOrCreatePendingDevice('CLI', 'runtime')).deviceId).toBe(
-      first.deviceId
-    )
+    expect(
+      (await new DeviceRegistry(dir).getOrCreatePendingDevice('CLI', 'runtime')).deviceId
+    ).toBe(first.deviceId)
     await registry.updateLastSeen(first.deviceId)
     // A restarted orcad loads the same registry from disk.
     const next = await new DeviceRegistry(dir).getOrCreatePendingDevice('CLI', 'runtime')

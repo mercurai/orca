@@ -55,7 +55,9 @@ export function initialStructuredLaunchSelection(
   return {
     seed: intent.seedOptions,
     held: {},
-    ...(intent.target.kind !== 'local' && !intent.seedOptions && !intent.createPrepared ? { seedPending: true } : {})
+    ...(intent.target.kind !== 'local' && !intent.seedOptions && !intent.createPrepared
+      ? { seedPending: true }
+      : {})
   }
 }
 
@@ -104,10 +106,15 @@ export function holdStructuredAgentSessionLaunchOption(
   // Each held value is the chat's own: a pick supersedes an earlier pick of the same option.
   for (const [key, value] of Object.entries(state.selection.held)) {
     const offered =
-      id !== 'model' || !picker ||
-       (state.intent.agent === 'codex' && (key === 'serviceTier' || key === 'fastMode')) ||
-       structuredAgentSessionModelOffers(picker, encoded, key, value)
-    if (key !== id && !(isCodexLaunchSpeedKey(state, id) && (key === 'serviceTier' || key === 'fastMode')) && offered) {
+      id !== 'model' ||
+      !picker ||
+      (state.intent.agent === 'codex' && (key === 'serviceTier' || key === 'fastMode')) ||
+      structuredAgentSessionModelOffers(picker, encoded, key, value)
+    if (
+      key !== id &&
+      !(isCodexLaunchSpeedKey(state, id) && (key === 'serviceTier' || key === 'fastMode')) &&
+      offered
+    ) {
       held[key] = value
     } else {
       replies.get(key)?.({ kind: 'superseded' })

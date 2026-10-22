@@ -6,7 +6,7 @@ import {
   type ChildProcess
 } from 'node:child_process'
 import { resolveSpawn, type ResolvedSpawn } from './spawn-resolution'
-import { forceTerminateProcessTree, signalProcessTree } from './process-tree-termination'
+import { forceTerminateProcessTree, signalProcessTree, killRoot as terminate } from './process-tree-termination'
 import { inFlightWindowsTreeKill } from './windows-tree-kill'
 
 import { hasSpawnObserver, notifySpawnObserver } from './spawn-observer'
@@ -342,15 +342,6 @@ export function runProcessInProcess(
     // timeout instead of seeing EOF immediately.
     child.stdin?.end(spec.input)
   })
-}
-
-/** Best-effort root termination, or whole-tree termination for barrier callers. */
-function terminate(child: ChildProcess, signal?: NodeJS.Signals): void {
-  try {
-    child.kill(signal)
-  } catch {
-    /* already gone */
-  }
 }
 
 /**

@@ -128,9 +128,20 @@ describe('what a send carries', () => {
 function legacySelection(snapshot: SessionOptionDescriptor[]) {
   const state = createStructuredAgentSessionOptionState('codex', {
     ...CLAUDE_SESSION_OPTION_CATALOG,
-    models: [{ id: 'synthetic-model', label: 'Synthetic', options: [
-      { id: 'fastMode', label: 'Fast', kind: { type: 'boolean', defaultValue: false }, apply: {} }
-    ] }]
+    models: [
+      {
+        id: 'synthetic-model',
+        label: 'Synthetic',
+        options: [
+          {
+            id: 'fastMode',
+            label: 'Fast',
+            kind: { type: 'boolean', defaultValue: false },
+            apply: {}
+          }
+        ]
+      }
+    ]
   })
   state.catalogSource = 'live'
   state.record.values.model = { value: 'synthetic-model', source: 'default' }
@@ -161,17 +172,17 @@ describe('Codex legacy Fast provenance on sends', () => {
   it.each(['unknown', 'default'] as const)(
     'does not turn an %s false display into an explicit Standard request',
     (source) => {
-      expect(legacySelection( [legacy(source, false)])).toBeUndefined()
+      expect(legacySelection([legacy(source, false)])).toBeUndefined()
     }
   )
 
   it.each(['applied', 'dispatched', 'reported'] as const)(
     'preserves explicit false and true from %s',
     (source) => {
-      expect(legacySelection( [legacy(source, false)])).toEqual({
+      expect(legacySelection([legacy(source, false)])).toEqual({
         fastMode: 'false'
       })
-      expect(legacySelection( [legacy(source, true)])).toEqual({
+      expect(legacySelection([legacy(source, true)])).toEqual({
         fastMode: 'true'
       })
     }
@@ -186,9 +197,7 @@ describe('Codex legacy Fast provenance on sends', () => {
       transport: 'agent-session',
       settable: true
     }
-    expect(
-      legacySelection( [model, legacy('dispatched', false)])
-    ).toEqual({
+    expect(legacySelection([model, legacy('dispatched', false)])).toEqual({
       model: 'synthetic-model',
       fastMode: 'false'
     })

@@ -111,7 +111,8 @@ async function resting(options: Record<string, string>, provider: 'codex' | 'cla
             serviceTiers: tiers.map((value) => ({ value, label: value === TIER ? 'Fast' : value }))
           }
         ],
-        origin: 'live-session'
+        origin: 'probe',
+        complete: true
       },
       'discovery'
     )
