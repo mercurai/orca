@@ -94,7 +94,9 @@ it.each(['closed', 'replaced'] as const)(
     try {
       await queued.promise
       const captured = h.connector.get('Ubuntu')
-      if (!captured) throw new Error('fixture Add did not connect')
+      if (!captured) {
+        throw new Error('fixture Add did not connect')
+      }
       const close = vi.spyOn(captured, 'close')
       const replacement = mode === 'replaced' ? await h.connector.connect('Ubuntu') : null
       if (mode === 'closed') {

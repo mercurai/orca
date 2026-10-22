@@ -22,7 +22,6 @@ import type { AgentSessionAccountHome } from '../../../shared/agent-session-acco
 // later probe answers again, and a chat's own listing never replaces it.
 
 const HOME = '/homes/selected'
-const ACCOUNT_HOME = { variable: 'GROK_HOME', path: HOME } as const
 const FINGERPRINT = agentModelCatalogFingerprint({
   agent: 'grok',
   accountHomeVariable: 'GROK_HOME',
