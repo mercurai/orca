@@ -36,6 +36,7 @@ import type { NativeChatVisualsLaunch } from '../native-chat/native-chat-visuals
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 
 export type CodexSessionCatalogAccess = AgentModelCatalogSessionAccess & {
+  isListing?: () => boolean
   read?: (verifiedOnly?: boolean) => ReturnType<AgentModelCatalogStore['get']>
   demand?: (legacy?: boolean) => Promise<unknown>
 }
@@ -138,6 +139,7 @@ export type CodexStructuredSessionAdapterDeps = {
     sessionId: string,
     verifiedOnly?: boolean
   ) => ReturnType<AgentModelCatalogStore['get']>
+  isModelCatalogListing?: (sessionId: string) => boolean
   demandModelCatalog?: (sessionId: string, legacy?: boolean) => Promise<unknown>
 }
 

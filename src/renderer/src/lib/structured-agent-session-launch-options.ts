@@ -33,7 +33,6 @@ import {
   agentSessionThrownFailure,
   type AgentSessionWriteFailure
 } from '../../../shared/agent-session-write-failure'
-import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { StructuredAgentSessionLaunchIntent } from './launch-structured-agent-session'
 import {
   structuredAgentSessionModelOffers,
@@ -56,7 +55,7 @@ export function initialStructuredLaunchSelection(
   return {
     seed: intent.seedOptions,
     held: {},
-    ...(intent.target.kind !== 'local' && !intent.seedOptions ? { seedPending: true } : {})
+    ...(intent.target.kind !== 'local' && !intent.seedOptions && !intent.createPrepared ? { seedPending: true } : {})
   }
 }
 

@@ -79,24 +79,24 @@ function composeLiveCodexCatalog(
   const model = session.options.get('model') ?? session.reportedOptions.model
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const serviceTier = session.options.get('serviceTier')
+  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
   const catalog = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(serviceTier ? { serviceTier } : {})
     },
-    ...(session.reportedOptions.serviceTierKnown
+    ...(!pendingFast && session.reportedOptions.serviceTierKnown
       ? {
           reportedServiceTier: session.reportedOptions.serviceTier ?? null,
           reportedServiceTierKnown: true
         }
       : {})
   })
-  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
   return {
     ...catalog,
     fastModeSupport: listing.fastModeSupport,
-    ...(pendingFast ? { current: { ...catalog.current, fastMode: true } } : {}),
+    current: { ...catalog.current, ...(serviceTier !== undefined ? { serviceTier } : {}), ...(pendingFast ? { fastMode: true } : {}) },
     speed: readCodexSessionSpeed(session, listing)
   }
 }

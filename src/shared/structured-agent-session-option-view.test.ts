@@ -128,8 +128,6 @@ describe('what a send carries', () => {
 function legacySelection(snapshot: SessionOptionDescriptor[]) {
   const state = createStructuredAgentSessionOptionState('codex', {
     ...CLAUDE_SESSION_OPTION_CATALOG,
-    agent: 'codex',
-    defaultModelIsCliDefault: false,
     models: [{ id: 'synthetic-model', label: 'Synthetic', options: [
       { id: 'fastMode', label: 'Fast', kind: { type: 'boolean', defaultValue: false }, apply: {} }
     ] }]
@@ -138,7 +136,7 @@ function legacySelection(snapshot: SessionOptionDescriptor[]) {
   state.record.values.model = { value: 'synthetic-model', source: 'default' }
   for (const option of snapshot) {
     const value = option.kind.currentValue
-    if (value !== undefined) {
+    if (value !== undefined && option.valueSource !== 'unknown') {
       state.record.values[option.id] = { value, source: option.valueSource }
     }
   }

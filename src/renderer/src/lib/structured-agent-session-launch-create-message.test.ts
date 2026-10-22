@@ -27,7 +27,7 @@ vi.mock('../../../shared/layout-owner-switch', () => ({
   }
 }))
 // This machine's host closes the chat's tab when asked.
-vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn(async () => ({})) }))
+vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn(async () => ({})), runtimeEnvironmentSupportsCapability: async () => true }))
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call,
   supportsStructuredAgentSessionCreateMessage: mocks.supports
@@ -247,11 +247,12 @@ describe('the first message owned by create', () => {
     }
   )
 
-  it('carries a held tier as the picker draws it, keeps the pick through a refusal, and settles it once', async () => {
+  it('keeps a held model and tier through a default change, refusal and retry', async () => {
     const tiers = (...values: string[]) => values.map((value) => ({ value, label: value }))
     const efforts = tiers('medium', 'high')
     const list = (defaultId: string) => ({
       origin: 'probe' as const,
+      catalogState: 'available' as const,
       fetchedAt: 1,
       listingNamesConfiguredModel: true,
       defaultHoldsInEveryWorkspace: true as const,
@@ -272,16 +273,17 @@ describe('the first message owned by create', () => {
     mocks.call.mockReturnValueOnce(refused.promise).mockReturnValueOnce(create.promise)
     mocks.call.mockResolvedValue({ ok: true, value: { key: 'effort', value: 'medium' } })
     const launch = start()
+    holdStructuredAgentSessionLaunchOption(launch.sessionId, 'model', 'm1')
     const tierPick = holdStructuredAgentSessionLaunchOption(
       launch.sessionId,
       'serviceTier',
       'priority'
     )
     holdStructuredAgentSessionLaunchOption(launch.sessionId, 'effort', 'high')
-    // The account's default moves before create goes out: Fast runs as Standard under it.
+    // A new account default cannot move an explicit model/tier pair onto another model.
     recordHostModelCatalogSnapshot(target, 'codex', null, list('m2'))
     await vi.waitFor(() => expect(mocks.call).toHaveBeenCalledOnce())
-    expect(createParams().options).toEqual({ effort: 'high', serviceTier: 'default' })
+    expect(createParams().options).toEqual({ model: 'm1', effort: 'high', serviceTier: 'priority' })
     refused.resolve({
       ok: false,
       refusal: { code: 'structured_agent_session_unsupported', message: 'no' }

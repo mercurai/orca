@@ -1,3 +1,4 @@
+import { conversationStopTestRequests } from './structured-agent-session-conversation-stop.test-fixture'
 import { fetchCodexModelCatalogListing } from '../../codex/codex-structured-model-catalog'
 // A Stop that names no turn stops what the conversation has in flight: it withdraws what is
 // queued, and interrupts a handed-over message even before the provider has opened its turn —
@@ -9,7 +10,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
 import type { AgentJournalSubmission } from '../../../shared/agent-session-journal-types'
 import { DISPATCH_REJECTED_CANCELLED } from '../../../shared/structured-agent-session-dispatch-rejection'
 import { CancelParams } from '../../../shared/rpc-contract/structured-agent-session-params'
@@ -25,7 +25,6 @@ import {
   HOST_TEST_SESSION as SESSION,
   HOST_TEST_THREAD as THREAD,
   hostTestAttachParams,
-  hostTestMessage,
   hostTestOperationId,
   resetHostTestOperationIds
 } from './structured-agent-session-host-test-data'
@@ -138,58 +137,14 @@ function hostEvents(): StructuredAgentSessionEventSink {
   return events
 }
 
-function send(text: string, options?: Readonly<Record<string, string>>) {
-  const body = hostTestMessage(text)
-  const clientOperationId = hostTestOperationId()
-  const result = host.send(CALLER, {
-    envelope: {
-      sessionId: SESSION,
-      clientOperationId,
-      expectedRuntimeFence: 1,
-      payloadFingerprint: computeAgentSessionPayloadFingerprint({
-        method: 'agentSession.send',
-        sessionId: SESSION,
-        fields: { body, ...(options ? { options } : {}) }
-      })
-    },
-    body,
-    ...(options ? { options } : {})
-  })
-  return { id: clientOperationId, result }
+function send(...args: Parameters<ReturnType<typeof conversationStopTestRequests>['send']>) {
+  return conversationStopTestRequests(host, SESSION, CALLER).send(...args)
 }
-
-function stop(turnId?: string, clientOperationId = hostTestOperationId()) {
-  const fields = turnId === undefined ? {} : { turnId }
-  return host.cancel(CALLER, {
-    envelope: {
-      sessionId: SESSION,
-      clientOperationId,
-      expectedRuntimeFence: null,
-      payloadFingerprint: computeAgentSessionPayloadFingerprint({
-        method: 'agentSession.cancel',
-        sessionId: SESSION,
-        fields
-      })
-    },
-    ...fields
-  })
+function stop(...args: Parameters<ReturnType<typeof conversationStopTestRequests>['stop']>) {
+  return conversationStopTestRequests(host, SESSION, CALLER).stop(...args)
 }
-
-function pickOption(key: string, value: string) {
-  const fields = { key, value }
-  return host.setOption(CALLER, {
-    envelope: {
-      sessionId: SESSION,
-      clientOperationId: hostTestOperationId(),
-      expectedRuntimeFence: 1,
-      payloadFingerprint: computeAgentSessionPayloadFingerprint({
-        method: 'agentSession.setOption',
-        sessionId: SESSION,
-        fields
-      })
-    },
-    ...fields
-  })
+function pickOption(...args: Parameters<ReturnType<typeof conversationStopTestRequests>['pickOption']>) {
+  return conversationStopTestRequests(host, SESSION, CALLER).pickOption(...args)
 }
 
 async function submission(id: string): Promise<AgentJournalSubmission | undefined> {

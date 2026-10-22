@@ -53,7 +53,7 @@ export function readCodexSessionSpeed(
     support = available ? 'available' : 'unavailable'
   } else if (
     session.catalogListingInProgress ||
-    (access && access.store.isListing(access.fingerprint))
+    (access && (access.isListing?.() ?? access.store.isListing(access.fingerprint)))
   ) {
     support = 'loading'
   }

@@ -1,3 +1,4 @@
+import { answerAgentModelCatalog } from './agent-model-catalog-service-answer'
 import {
   agentModelCatalogProbeLister,
   scopedAgentModelCatalogLister
@@ -11,7 +12,6 @@ import type {
 import { isLegacyAgentSessionAccountHome } from '../../../shared/agent-session-account-home'
 import { agentModelCatalogFingerprintForRecord } from './agent-model-catalog-fingerprint'
 import {
-  agentModelCatalogResultFromEntry,
   retainedAgentModelCatalogModels
 } from './agent-model-catalog-entry'
 import type {
@@ -21,8 +21,7 @@ import type {
 import {
   catalogFolder,
   recordConfiguredDefault,
-  sessionWorkspacePath,
-  workspaceKeepsListedDefault
+  sessionWorkspacePath
 } from './agent-model-catalog-workspace'
 
 import type {
@@ -92,6 +91,10 @@ export function createAgentModelCatalogService(
     }
   }
   return {
+    isListing(sessionId) {
+      const key = sessionKeys.get(sessionId)
+      return key !== undefined && deps.store.isListing(key)
+    },
     peek(sessionId, verifiedOnly) {
       const key = sessionKeys.get(sessionId)
       const entry = key ? deps.store.get(key) : null
@@ -175,76 +178,8 @@ export function createAgentModelCatalogService(
         workspacePath: cwd ?? folder
       })
       // Every answer carries the reason the probe last found, read when the answer is made.
-      const answer = async (
-        listed: AgentModelCatalogEntry | null,
-        extra: { listingInProgress?: true } = {}
-      ): Promise<AgentSessionModelCatalogResult> => {
-        const independent = independentAgentModelCatalog(params.agent)
-        const accountFallback =
-          independent && scoped && params.savedOnly &&
-          params.workspacePath === null && !params.inSessionWorkspace
-        const initialDisplay = listed ?? (exact && !params.verifiedOnly ? deps.store.get(base) : null)
-        const resolveDefault = initialDisplay !== null &&
-          !(independent && !params.legacyOptionsDisplay &&
-            (!deps.store.verified(initialDisplay) || (!exact && !params.legacy))) &&
-          !(exact && listed !== null && deps.store.verified(listed))
-        const keepsListedDefault = resolveDefault
-          ? await workspaceKeepsListedDefault(
-              deps, params.agent, accountFallback ? undefined : workspacePath, accountHomePath
-            )
-          : false
-        // Resolve rows and proof from the same snapshot after workspace resolution yields.
-        listed = deps.store.get(fingerprint)
-        if (params.verifiedOnly && (!listed ||
-          (independent && (!exact || !deps.store.verified(listed))))) {
-          return { origin: 'unknown', catalogState: 'unknown' }
-        }
-        const display = listed ?? (exact && !params.verifiedOnly ? deps.store.get(base) : null)
-        const verified = exact && listed !== null && deps.store.verified(listed)
-        const result = display
-          ? agentModelCatalogResultFromEntry(
-              display,
-              independent && !params.legacyOptionsDisplay &&
-                (!deps.store.verified(display) || (!exact && !params.legacy))
-                ? false : verified ? true : keepsListedDefault,
-              deps.listingNamesConfiguredModel?.has(params.agent) === true,
-              !independent || verified
-            )
-          : null
-        const holdsEverywhere =
-          result?.listingNamesConfiguredModel === true &&
-          deps.agentReadsProjectModelConfig?.(params.agent) === false
-        // Read after workspace resolution: a failure or refresh may have landed during its await.
-        const unavailable = deps.store.failure(fingerprint)?.unavailable
-        const available =
-          listed !== null &&
-          !deps.store.isStale(listed, 'latest') &&
-          !deps.store.hasActiveFailure(fingerprint) &&
-          unavailable === undefined
-        const catalogState = available
-          ? 'available'
-          : deps.store.isListing(fingerprint)
-            ? 'loading'
-            : 'unknown'
-        return {
-          ...(result ?? { origin: 'unknown' }),
-          catalogState,
-          ...extra,
-          ...(holdsEverywhere ? { defaultHoldsInEveryWorkspace: true as const } : {}),
-          ...(result && (folder !== undefined || exact)
-            ? { modelsDifferByWorkspace: true as const }
-            : {}),
-          ...(!params.savedOnly &&
-          !params.verifiedOnly &&
-          deps.store.isListing(fingerprint) &&
-          (independent || !listed)
-            ? { listingInProgress: true as const }
-            : {}),
-          ...(deps.store.failure(fingerprint)?.unavailable
-            ? { unavailable: deps.store.failure(fingerprint)?.unavailable }
-            : {})
-        }
-      }
+      const answer = (listed: AgentModelCatalogEntry | null, extra: { listingInProgress?: true } = {}) =>
+        answerAgentModelCatalog({ deps, params, scoped, workspacePath, accountHomePath, fingerprint, base, exact, folder }, listed, extra)
       // An observed exit prevents background relaunch; a new chat can still discover.
       if (
         params.savedOnly ||

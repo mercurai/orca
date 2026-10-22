@@ -1,9 +1,9 @@
+import { adapterWithIndependentCatalog as adapterFor, discoveryRequests } from './codex-structured-independent-catalog.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import {
   acquireReadyCodexForTest,
   USER_MESSAGE,
-  adapterFor,
   answerWithOpenedTurn,
   fakeCodex,
   identityFor
@@ -35,7 +35,7 @@ describe('Codex next-turn speed admission', () => {
           options: { model: 'synthetic-model', serviceTier: 'priority-exact-id' }
         })
         await vi.waitFor(() =>
-          expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(true)
+          expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce()
         )
         const outcome = await adapter.dispatch({
           ...identity,

@@ -1,3 +1,5 @@
+import { routeRunProcess } from './run-process-route'
+export { setRunProcessRoute, type RunProcessRoute } from './run-process-route'
 import {
   spawn as nodeSpawn,
   spawnSync as nodeSpawnSync,
@@ -78,28 +80,7 @@ export function runProcess(
   }
   // Why: libuv runs CreateProcess on the calling thread, so main hands the spawn to the worker.
   const inProcess = (): Promise<ProcessResult> => runProcessInProcess(spec, outputCapture)
-  return runProcessRoute?.(spec, outputCapture, inProcess) ?? inProcess()
-}
-
-/**
- * Runs a capture on the spawn worker thread. Null means the spec cannot cross the thread or no
- * worker is usable, so the caller spawns here. `inProcess` re-runs the same capture locally for a
- * request the worker never started.
- *
- * Why a seam: runProcess also runs in the terminal daemon, the relay and the CLI, none of which
- * have the spawn worker. Electron main registers the route once at startup; everywhere else
- * nothing is registered and every capture spawns in-process.
- */
-export type RunProcessRoute = (
-  spec: ProcessSpec,
-  outputCapture: 'head' | 'tail',
-  inProcess: () => Promise<ProcessResult>
-) => Promise<ProcessResult> | null
-
-let runProcessRoute: RunProcessRoute | null = null
-
-export function setRunProcessRoute(next: RunProcessRoute | null): void {
-  runProcessRoute = next
+  return routeRunProcess(spec, outputCapture, inProcess)
 }
 
 /** runProcess without the worker route: what the spawn worker itself runs, and main's fallback. */

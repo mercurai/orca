@@ -1,10 +1,10 @@
+import { adapterWithIndependentCatalog as adapterFor } from './codex-structured-independent-catalog.test-fixture'
 import { describe, expect, it } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { restoredCodexSessionOptions } from './codex-structured-session-options'
 import {
   acquireReadyCodexForTest,
   USER_MESSAGE,
-  adapterFor,
   answerWithOpenedTurn,
   fakeCodex,
   identityFor

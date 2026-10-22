@@ -16,6 +16,7 @@ const key = (path: string) =>
   })
 const listing = (id = 'synthetic-model'): AgentModelCatalogSuccess => ({
   origin: 'probe',
+  complete: true,
   models: [{ id, label: id, efforts: [], isDefault: true }]
 })
 
@@ -52,7 +53,7 @@ describe('account-scoped catalog confidence', () => {
     const r = rig()
     r.store.recordSuccess(r.selectedKey(), 'codex', listing(), 'discovery')
 
-    expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+    expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
       origin: 'probe',
       catalogState: 'available'
     })
@@ -89,7 +90,8 @@ describe('account-scoped catalog confidence', () => {
     const reading = service.read({
       agent: 'codex',
       savedOnly: true,
-      workspacePath: '/synthetic/workspace'
+      workspacePath: null,
+      legacyOptionsDisplay: true
     })
     await entered.promise
     r.store.recordSuccess(r.selectedKey(), 'codex', advertised('current-fast-id'), 'discovery')
@@ -109,7 +111,7 @@ describe('account-scoped catalog confidence', () => {
     const refreshing = r.store.refresh(r.selectedKey(), 'codex', r.probe, () => r.pending.promise)
     try {
       expect(r.store.isListing(r.selectedKey())).toBe(true)
-      expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+      expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
         origin: 'probe',
         catalogState: 'available'
       })
@@ -131,7 +133,7 @@ describe('account-scoped catalog confidence', () => {
         r.store.expireAgent('codex')
       }
 
-      expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+      expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
         origin: 'probe',
         catalogState: 'unknown'
       })
@@ -144,7 +146,7 @@ describe('account-scoped catalog confidence', () => {
     r.store.recordSuccess(r.selectedKey(), 'codex', listing(), 'discovery')
     r.store.recordFailure(r.selectedKey(), 'Synthetic account discovery failure', 'codex')
 
-    expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+    expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
       origin: 'probe',
       catalogState: 'unknown'
     })
@@ -174,7 +176,7 @@ describe('account-scoped catalog confidence', () => {
     )
     r.store.expireFailure(r.selectedKey())
 
-    expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+    expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
       catalogState: 'unknown',
       unavailable: { reason: 'notSignedIn' }
     })
@@ -189,7 +191,7 @@ describe('account-scoped catalog confidence', () => {
         catalogState: 'loading',
         listingInProgress: true
       })
-      expect(await r.service.read({ agent: 'codex', savedOnly: true })).toMatchObject({
+      expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
         origin: 'unknown',
         catalogState: 'loading'
       })
@@ -197,7 +199,7 @@ describe('account-scoped catalog confidence', () => {
     } finally {
       r.pending.resolve(listing())
     }
-    expect(await r.service.read({ agent: 'codex', waitForListing: true })).toMatchObject({
+    expect(await r.service.read({ agent: 'codex', workspacePath: null, waitForListing: true })).toMatchObject({
       origin: 'probe',
       catalogState: 'available'
     })
@@ -205,7 +207,7 @@ describe('account-scoped catalog confidence', () => {
 
   it('does not list a missing saved-only catalog', async () => {
     const r = rig()
-    expect(await r.service.read({ agent: 'codex', savedOnly: true })).toEqual({
+    expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toEqual({
       origin: 'unknown',
       catalogState: 'unknown'
     })
@@ -235,7 +237,7 @@ describe('account-scoped catalog confidence', () => {
     try {
       await r.service.read({ agent: 'codex' })
       r.select('/synthetic/account-b')
-      expect(await r.service.read({ agent: 'codex', savedOnly: true })).toEqual({
+      expect(await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toEqual({
         origin: 'unknown',
         catalogState: 'unknown'
       })

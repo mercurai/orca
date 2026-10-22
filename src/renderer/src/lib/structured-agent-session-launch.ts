@@ -20,6 +20,7 @@ import {
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
 import {
   addStructuredLaunchCaller,
+  joinLaunchDelivery,
   createStructuredLaunchCallerGroup,
   releaseStructuredLaunchCallerAfterUnknownOutcome,
   type StructuredAgentLaunchOptions,
@@ -89,17 +90,6 @@ export type StructuredAgentLaunchResult = {
 /** What the launch sends: a draft goes to the composer seed instead. */
 function launchPromptText(options: StructuredAgentLaunchOptions): string {
   return options.promptDelivery === 'draft' ? '' : (options.prompt?.trim() ?? '')
-}
-
-function joinLaunchDelivery(
-  options: StructuredAgentLaunchOptions,
-  established: StructuredAgentLaunchOptions['promptDelivery']
-): StructuredAgentLaunchOptions {
-  // Why: the first caller's mode wins, but with none established an absent mode reads as submit —
-  // that would send a joiner's draft it never consented to send.
-  const mode = established ?? options.promptDelivery
-  const { promptDelivery: _joinerMode, ...rest } = options
-  return mode ? { ...rest, promptDelivery: mode } : rest
 }
 
 /** Every sender waits on the launch promise, so picks held during launch reach the host first. */
