@@ -288,7 +288,8 @@ describe('updateManagedOrcadEnvironment', () => {
       (harness.environment.pairingRevision ?? harness.environment.createdAt) + 1
     )
     const refresh = managedPairingStore.refreshManagedOrcadPairing
-    const spy = vi.spyOn(managedPairingStore, 'refreshManagedOrcadPairing')
+    const spy = vi
+      .spyOn(managedPairingStore, 'refreshManagedOrcadPairing')
       .mockImplementation((...args) => {
         const result = refresh(...args)
         queued.resolve()

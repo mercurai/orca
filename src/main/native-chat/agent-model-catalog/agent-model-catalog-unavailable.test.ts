@@ -345,7 +345,12 @@ describe("an agent's command or environment change", () => {
 describe('a managed account reauthenticated in the same home', () => {
   it('does not let a pre-change pending probe certify the reauthenticated account', async () => {
     const oldProbe = deferred<AgentModelCatalogSuccess>()
-    const { store, service, probed, fingerprint: FINGERPRINT } = rig(() => oldProbe.promise, 'codex')
+    const {
+      store,
+      service,
+      probed,
+      fingerprint: FINGERPRINT
+    } = rig(() => oldProbe.promise, 'codex')
     store.recordSuccess(FINGERPRINT, 'codex', listing('synthetic-old-model', 'probe'), 'discovery')
     const pending = probed()
     const expire = createAgentModelCatalogSettingsExpiry(store, {})
@@ -357,7 +362,9 @@ describe('a managed account reauthenticated in the same home', () => {
       throw new Error('Expected the retained account catalog')
     }
     expect(store.isStale(entry, 'latest')).toBe(true)
-    expect(await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
       catalogState: 'unknown'
     })
   })
@@ -367,7 +374,9 @@ describe('a managed account reauthenticated in the same home', () => {
     const saved = listing('synthetic-model', 'probe')
     saved.models[0].serviceTiers = [{ value: 'synthetic-paid-id', label: 'Fast' }]
     store.recordSuccess(FINGERPRINT, 'codex', saved, 'discovery')
-    expect(await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
       catalogState: 'available'
     })
     const expire = createAgentModelCatalogSettingsExpiry(store, {})
@@ -395,7 +404,9 @@ describe('a managed account reauthenticated in the same home', () => {
       throw new Error('Expected the retained same-home catalog')
     }
     expect(store.isStale(entry, 'latest')).toBe(true)
-    expect(await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
       catalogState: 'unknown',
       models: [{ id: 'synthetic-model' }]
     })
@@ -403,15 +414,19 @@ describe('a managed account reauthenticated in the same home', () => {
     answerWith(() => fresh.promise)
     const warming = service.read({ agent: 'codex', workspacePath: null, waitForListing: true })
     await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce())
-    expect(await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
       catalogState: 'loading'
     })
     fresh.resolve(listing('synthetic-new-principal-model', 'probe'))
     await warming
-    expect(await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })).toMatchObject({
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
       catalogState: 'available',
       models: [{ id: 'synthetic-new-principal-model' }]
     })
-    expect(probe.mock.calls[0]?.[0]).toEqual(ACCOUNT_HOME)
+    expect(probe.mock.calls[0]?.[0]).toEqual({ variable: 'CODEX_HOME', path: HOME })
   })
 })
