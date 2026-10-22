@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`0e3986fb6c3ecfcd6041bfc5273068ca4f174b5d`. Do not merge the comparison PR into its CI base.
-Local linear patch `d41be6dd3a64bf95a50a8267f46f41e7503e29a7` has the identical tree
-`b0145c7d3702c4d0ed444fe10ad758e248c9760e`; the patch branch is pushed, while candidate verification remains pending.
+`e68fc11d02cc460ed53089163fab3666e7d9c2f2`. Do not merge the comparison PR into its CI base.
+Local linear patch `8e6cb61484be4266c13f76845900ea6b2ecd7ed3` has the identical tree
+`f9a79ef1f9d00f7a3e4043dc51e6fa33723da4c1`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
