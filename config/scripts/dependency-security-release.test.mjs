@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { runProcess } from '@orca/process-host'
 import { runInNewContext } from 'node:vm'
 import { expect, it } from 'vitest'
@@ -125,10 +125,15 @@ it('extracts release data while excluding executable package and Cargo configura
     const action = parse(
       readFileSync('.github/actions/prepare-dependency-audit/action.yml', 'utf8')
     )
-    await run('bash', ['-c', action.runs.steps[0].run], tooling, {
+    const auditEnv = {
       ...process.env,
+      PATH: [
+        resolve('node_modules/@vscode/ripgrep-universal/bin', `${process.platform}-${process.arch}`),
+        process.env.PATH
+      ].join(delimiter),
       RELEASE_REF: 'HEAD'
-    })
+    }
+    await run('bash', ['-c', action.runs.steps[0].run], tooling, auditEnv)
     for (const file of data) {
       expect(readFileSync(join(tooling, 'candidate', file), 'utf8')).toBe(`${file} contents`)
     }
@@ -155,7 +160,7 @@ it('extracts release data while excluding executable package and Cargo configura
       program: 'bash',
       args: ['-c', action.runs.steps[0].run],
       cwd: tooling,
-      env: { ...process.env, RELEASE_REF: 'HEAD' }
+      env: auditEnv
     })
     expect(missing.code).not.toBe(0)
   } finally {

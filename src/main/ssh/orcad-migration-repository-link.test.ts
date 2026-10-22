@@ -311,7 +311,7 @@ describe('moving onto a server another desktop already added the same project to
   it('stays managed across a restart: the linked rows are not an older build’s change', async () => {
     otherDesktopAddsSameCheckout()
     await convert()
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
   })
 
@@ -319,7 +319,7 @@ describe('moving onto a server another desktop already added the same project to
     otherDesktopAddsSameCheckout()
     await convert()
     store.addRepo(repo('added-later', '/root/later'))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const target = store.getSshTarget(TARGET.id)!
     expect(target.orcadFence?.sourceChangedAt).toBeDefined()
     const plan = planOrcadDeltaMove(userDataPath, store, target)
@@ -418,8 +418,8 @@ describe('moving the host again after its server was stopped', () => {
   const groupName = (owner: Store, id: string) =>
     owner.getProjectGroups().find((entry) => entry.id === id)?.name
   // The delta move an older build's later edit asks for, against the real server store.
-  const runDelta = () => {
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+  const runDelta = async () => {
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     return runOrcadDeltaMove({
       userDataPath,
       store,
@@ -466,7 +466,7 @@ describe('moving the host again after its server was stopped', () => {
     await stopServer()
     await convert()
     store.addRepo(repo('added-later', '/root/later'))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const target = store.getSshTarget(TARGET.id)!
     const plan = planOrcadDeltaMove(userDataPath, store, target)
     expect(plan.added.map((row) => row.id)).toEqual(['added-later'])
@@ -552,7 +552,7 @@ describe('moving the host again after its server was stopped', () => {
     expect(groupName(server, group.id)).toBe('Renamed on the server')
     expect(groupName(store, group.id)).toBe('Empty')
     store.addRepo(repo('added-later', '/root/later'))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const plan = planOrcadDeltaMove(userDataPath, store, store.getSshTarget(TARGET.id)!)
     expect(plan.added.map((row) => row.id)).toEqual(['added-later'])
   })
@@ -784,7 +784,7 @@ describe('moving the host again after its SSH target was deleted and re-created'
     store.updateFolderWorkspace(folderId, { comment: 'edited after re-creating' })
     await convert(true, 'exited', recreated)
     store.addRepo(repo('added-later', '/root/later', recreated))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const target = store.getSshTarget(recreated)!
     expect(target.orcadFence?.sourceChangedAt).toBeDefined()
     const plan = planOrcadDeltaMove(userDataPath, store, target)

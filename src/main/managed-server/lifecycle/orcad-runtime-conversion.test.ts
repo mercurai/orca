@@ -311,7 +311,7 @@ describe('backing out a conversion whose server is registered but never committe
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([])
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toBeUndefined()
     // The next start finds no server to re-fence the host to.
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toBeUndefined()
   })
 
@@ -374,7 +374,7 @@ describe('a converted host across a downgrade and back', () => {
 
   it('goes back to managed after a downgrade that changed nothing', async () => {
     await convertRetained()
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
     expect(visibleRepos(store, () => userDataPath)).toEqual([])
   })
@@ -390,7 +390,7 @@ describe('a converted host across a downgrade and back', () => {
       kind: 'git',
       connectionId: TARGET.id
     })
-    reconcileManagedOrcadSshTargets(userDataPath, store, () => new Date('2026-10-05T00:00:00Z'))
+    await reconcileManagedOrcadSshTargets(userDataPath, store, () => new Date('2026-10-05T00:00:00Z'))
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toMatchObject({
       sourceChangedAt: '2026-10-05T00:00:00.000Z'
     })
@@ -405,7 +405,7 @@ describe('a converted host across a downgrade and back', () => {
   it('restores a fence the profile lost from the registered managed server', async () => {
     await convertRetained()
     store.updateSshTarget(TARGET.id, { orcadFence: undefined })
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))).toBe(
       listEnvironments(userDataPath)[0]?.id
     )

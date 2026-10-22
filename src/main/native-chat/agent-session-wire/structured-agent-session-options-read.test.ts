@@ -445,11 +445,11 @@ describe('a chat at rest, read by the host', () => {
   })
 
   it.each([
-    ['another model offers', listed, 'default'],
-    // Codex lists no Flex; a Flex from the user's config runs as configured.
+    ['another model offers', listed, 'flex'],
+    // Unknown availability preserves intent; turn admission decides whether it can run.
     ['no model lists', listed.slice(0, 1), 'flex']
   ])(
-    'names the tier the model runs where %s it, and keeps the saved one',
+    'preserves explicit tier intent where %s it without projecting a downgrade',
     async (_n, models, runs) => {
       const options = { model: 'gpt-account', serviceTier: 'flex' }
       const answer = await readAtRest({ options }, [], false, models)

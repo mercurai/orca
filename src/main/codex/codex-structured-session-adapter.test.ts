@@ -112,6 +112,8 @@ describe('CodexStructuredSessionAdapter.acquire', () => {
     })
     await expect(adapter.readOptions({ sessionId: 'session-1', fence: 7 })).resolves.toEqual({
       current: { model: 'gpt-live', effort: 'medium' },
+      fastModeSupport: undefined,
+      speed: { support: 'unknown', processing: { status: 'unknown' } },
       models: [
         {
           id: 'gpt-live',

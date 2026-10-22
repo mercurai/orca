@@ -249,11 +249,14 @@ jobs:
             $rootfs = Join-Path $cache 'rootfs.tar'
           } else {
             $rootfs = Join-Path $cache 'ubuntu.wsl'
+            Write-Output 'WSL setup phase: Ubuntu rootfs download'
             if (-not (Test-Path $rootfs)) { Invoke-WebRequest $env:ROOTFS_URL -OutFile $rootfs }
+            Write-Output 'WSL setup phase: Ubuntu rootfs checksum'
             if ((Get-FileHash $rootfs -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:ROOTFS_SHA256) {
               Remove-Item $rootfs; throw 'rootfs checksum mismatch'
             }
           }
+          Write-Output 'WSL setup phase: rootfs ready'
           $install = switch ('${{ matrix.family }}') {
             'ubuntu-24.04' { 'command -v git >/dev/null || (apt-get update -qq && apt-get install -y -qq git)' }
             'debian-12' { 'apt-get update -qq && apt-get install -y -qq git procps' }
@@ -265,9 +268,11 @@ jobs:
           foreach ($d in $distros) {
             $sw = [Diagnostics.Stopwatch]::StartNew()
             # No WSL1 fallback: the lane exists to prove WSL2.
+            Write-Output "WSL setup phase: importing $($d.Name)"
             wsl.exe --import $d.Name (Join-Path $env:RUNNER_TEMP $d.Name) $rootfs --version 2
             if ($LASTEXITCODE -ne 0) { throw "WSL2 import of $($d.Name) failed: $LASTEXITCODE" }
             "$($d.Name) import_ms=$($sw.ElapsedMilliseconds)"
+            Write-Output "WSL setup phase: provisioning $($d.Name)"
             if (-not ((wsl.exe --list --verbose) -match "$($d.Name)\s+\S+\s+2\s*$")) { throw "$($d.Name) is not a WSL2 distro" }
             # A non-root default user, as on a real install; git for the lane's repo.
             # The env exports go to the file a login bash reads first; Fedora's skel ships .bash_profile.
