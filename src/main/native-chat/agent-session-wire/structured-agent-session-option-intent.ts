@@ -14,10 +14,13 @@ import {
 } from './structured-agent-session-pick-reply'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { pickAgentSessionOption } from '../../runtime/agent-session-record-options'
-import { isAgentSessionRefusalError } from '../../../shared/agent-session-wire-refusals'
+import {
+  agentSessionRefusalError,
+  isAgentSessionRefusalError
+} from '../../../shared/agent-session-wire-refusals'
 
 /** Whether the agent takes this pick: a permission mode it offers, or an option key it names. */
-function acceptsOptionPick(
+export function acceptsOptionPick(
   agents: Pick<StructuredAgentRegistry, 'definition'>,
   provider: string,
   key: string,
@@ -36,9 +39,15 @@ export function structuredAgentSessionOptionOverridesRefusal(
   provider: string,
   options: Readonly<Record<string, string>>
 ) {
-  const key = Object.keys(options).find(
-    (key) => !acceptsOptionPick(agents, provider, key, options[key] ?? '')
-  )
+  const key = Object.keys(options).find((key) => {
+    const value = options[key] ?? ''
+    return (
+      !acceptsOptionPick(agents, provider, key, value) ||
+      (key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID &&
+        agents.definition(provider)?.restingOptions.normalizePick?.(options, { key, value }) ===
+          null)
+    )
+  })
   return key === undefined
     ? null
     : refuse(
@@ -85,7 +94,32 @@ export async function recordStructuredAgentSessionOptionIntent(
     const picked = { sessionId, fence, ...input, models, now: ctx.now() }
     try {
       options =
-        (await deps.store.reviseSessionOptions(pickAgentSessionOption, picked)).options ?? {}
+        (
+          await deps.store.reviseSessionOptions((current, pick) => {
+            const next = pickAgentSessionOption(current, pick)
+            const normalize = deps.agents.definition(current.provider)?.restingOptions.normalizePick
+            const normalized = normalize?.(current.options ?? {}, input)
+            if (normalized === null) {
+              throw agentSessionRefusalError('agent_session_operation_invalid', {
+                reason: 'optionRejected'
+              })
+            }
+            if (current.provider !== 'codex' || !normalized) {
+              return next
+            }
+            const { serviceTier: _tier, fastMode: _fast, ...other } = next.options ?? {}
+            return {
+              ...next,
+              options: {
+                ...other,
+                ...(normalized.serviceTier !== undefined
+                  ? { serviceTier: normalized.serviceTier }
+                  : {}),
+                ...(normalized.fastMode !== undefined ? { fastMode: normalized.fastMode } : {})
+              }
+            }
+          }, picked)
+        ).options ?? {}
     } catch (error) {
       // The ordered write refused a value the chat's model doesn't offer.
       if (isAgentSessionRefusalError(error)) {
@@ -104,7 +138,9 @@ export async function recordStructuredAgentSessionOptionIntent(
       ...input,
       options:
         deps.adapter?.projectOptions?.(sessionId, options)?.options ??
-        structuredAgentSessionPickReply(options, displayModels)
+        (record.provider === 'codex'
+          ? options
+          : structuredAgentSessionPickReply(options, displayModels))
     }
   }
 }

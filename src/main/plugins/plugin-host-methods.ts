@@ -124,6 +124,8 @@ function summarizeParams(method: string, params: unknown): string {
     unknown
   >
   switch (method) {
+    case 'commands.invoke':
+      return `command=${String(record.commandId)}`
     case 'terminal.sendText': {
       const text = typeof record.text === 'string' ? record.text : ''
       return `terminal=${String(record.terminalId)} bytes=${Buffer.byteLength(text, 'utf8')} enter=${record.enter === true}`

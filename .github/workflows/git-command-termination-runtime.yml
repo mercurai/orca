@@ -3,7 +3,33 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     paths:
-      - 'src/main/git/command-runner/spawned-command-tree-kill*'
+      - 'src/main/git/command-runner/**'
+      - 'src/cli/runtime/environments.test.ts'
+      - 'src/main/ipc/repos-execution-host-catalog.test.ts'
+      - 'src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts'
+      - 'src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts'
+      - 'src/main/managed-server/install/remote-install-model.test.ts'
+      - 'src/main/managed-server/install/remote-versioned-install.test.ts'
+      - 'src/main/managed-server/posix-host-op-byte-budget.test.ts'
+      - 'src/main/ssh/ssh-remote-commands.ts'
+      - 'src/main/ssh/ssh-remote-commands.test.ts'
+      - 'src/main/native-chat/agent-model-catalog/**'
+      - 'src/packages/process-host/**'
+      - 'src/main/codex/codex-structured-session-options.test.ts'
+      - 'src/main/codex/codex-structured-speed-*.test.ts'
+      - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
+      - 'src/main/orcad/orcad-host-cleanup.test.ts'
+      - 'src/shared/structured-agent-session-speed*.test.ts'
+      - 'src/renderer/src/components/native-chat/NativeChatSessionOption*.tsx'
+      - 'src/renderer/src/components/native-chat/NativeChatSessionSpeedStatus.tsx'
+      - 'src/renderer/src/components/native-chat/native-chat-session-speed-labels.ts'
+      - 'src/renderer/src/runtime/codex-speed*.ts'
+      - 'src/renderer/src/lib/structured-agent-session-launch*.ts'
+      - 'src/renderer/src/components/native-chat/native-chat-composer-draft*.ts'
+      - 'src/renderer/src/components/native-chat/structured-agent-session-send-attempt.ts'
+      - 'src/renderer/src/components/native-chat/use-structured-agent-session-mutate.ts'
+      - 'src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts'
+      - 'src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts'
       - '.github/workflows/git-command-termination-runtime.yml'
   workflow_dispatch:
 permissions:
@@ -23,5 +49,145 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/install-node-dependencies
-      - name: Verify exited native child does not trigger taskkill
-        run: node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts src/main/git/command-runner/spawned-command-tree-kill.test.ts
+        with:
+          native-runtime: node
+      - name: Verify process termination and worker stderr progress
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/git/command-runner/spawned-command-tree-kill.test.ts
+          src/cli/runtime/environments.test.ts
+          src/main/ipc/repos-execution-host-catalog.test.ts
+          src/main/managed-server/lifecycle/orcad-managed-pairing-repair-restart.test.ts
+          src/main/managed-server/lifecycle/orcad-managed-tunnel-identity-restart.test.ts
+          src/main/managed-server/install/remote-install-model.test.ts
+          src/main/managed-server/install/remote-versioned-install.test.ts
+          src/main/managed-server/posix-host-op-byte-budget.test.ts
+          src/main/ssh/ssh-remote-commands.test.ts
+          src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
+          src/main/git/command-runner/git-spawn-worker-client.test.ts
+          src/main/git/command-runner/git-spawn-worker-handler.test.ts
+          src/main/git/command-runner/exec-file-capture.test.ts
+          src/main/codex/codex-structured-session-options.test.ts
+          src/main/codex/codex-structured-service-tier.test.ts
+          src/main/codex/codex-structured-speed-admission.test.ts
+          src/main/codex/codex-structured-speed-admission-catalog.test.ts
+          src/main/codex/codex-structured-speed-legacy-migration.test.ts
+          src/main/codex/codex-structured-speed-state.test.ts
+          src/main/orca-profiles/profile-cloud-session-store.test.ts
+          src/main/orca-profiles/profile-cloud-sign-in-progress.test.ts
+          src/main/orca-profiles/profile-cloud-service-connect-overlap.test.ts
+          src/main/orcad/orcad-host-cleanup.test.ts
+          src/shared/structured-agent-session-speed.test.ts
+          src/shared/structured-agent-session-speed-state.test.ts
+          src/renderer/src/runtime/codex-speed-compatibility-mutations.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts
+          src/renderer/src/runtime/codex-speed-selection.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-persistence.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-record.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-reload.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-prompt.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-publication.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-recovery.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-indexeddb.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-speed-retry.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-held-speed-refusal.test.ts
+          src/renderer/src/components/native-chat/use-structured-agent-session-send-options.speed.test.tsx
+          src/renderer/src/components/native-chat/use-structured-agent-session-sends.test.tsx
+          src/shared/structured-agent-session-option-view.test.ts
+          src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
+          src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
+          src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
+          src/shared/agent-session-failure-words.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-independent-discovery.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-unavailable.test.ts
+          src/main/native-chat/agent-model-catalog/agent-model-catalog-service.test.ts
+          src/main/codex/codex-structured-message-options.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-message-choices.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-store.test.ts
+          src/renderer/src/components/native-chat/native-chat-composer-draft-image-replacement.test.ts
+          src/shared/runtime-environment-store-pairing-serialization.test.ts
+          src/main/ssh/orcad-runtime-maintenance.test.ts
+          src/main/wsl/wsl-host-service.test.ts
+          src/main/wsl/wsl-host-queued-pairing.test.ts
+          src/shared/runtime-environment-wsl-host-store.test.ts
+          src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
+          src/shared/runtime-environment-store.test.ts
+          src/shared/runtime-environment-store-same-server.test.ts
+          src/shared/runtime-environment-ssh-access-store.test.ts
+          src/shared/runtime-environment-usage-detached.test.ts
+          src/main/ssh/orcad-migration-repository-link.test.ts
+          src/main/ssh/orcad-retained-source-lists.test.ts
+          src/main/ipc/runtime-environments/runtime-environment-host-dispatch.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-conversation-stop.test.ts
+          src/renderer/src/lib/structured-agent-session-launch-create-message.test.ts
+          src/shared/runtime-environment-managed-orcad-store.test.ts
+          src/main/ipc/runtime-environments/runtime-environments-pairing.test.ts
+          src/main/ipc/minimax-credentials.test.ts
+          src/main/ipc/zcode-plan-credentials.test.ts
+          src/main/runtime/rpc/methods/usage-credentials.test.ts
+          src/main/git/command-runner/git-spawn-worker-client-runprocess.test.ts
+          config/scripts/packaged-orcad-template-targets.test.mjs
+          config/scripts/compact-packaged-orcad-ripgrep.test.mjs
+          config/scripts/dependency-security-release.test.mjs
+          src/main/codex/codex-structured-service-tier-shown.test.ts
+          src/main/codex/codex-structured-session-adapter.test.ts
+          src/main/managed-server/lifecycle/orcad-runtime-conversion.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-options-read.test.ts
+          src/main/ssh/orcad-migration-delta-move.test.ts
+          src/main/ssh/orcad-migration-delta-snapshot.test.ts
+          src/main/ssh/orcad-retained-source-changes.test.ts
+          src/main/wsl/wsl-orcad-incumbent.test.ts
+          src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
+          src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
+          src/main/startup/main-process-quit-update-veto.test.ts
+      # Diagnostic only: formatting runs after tests and never changes the tested source revision.
+      - name: Capture formatting corrections for source review
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node node_modules/oxfmt/bin/oxfmt --write .
+          git diff --binary --output="$RUNNER_TEMP/format-corrections.patch"
+      - name: Upload formatting corrections
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: format-corrections-${{ github.sha }}
+          path: ${{ runner.temp }}/format-corrections.patch
+          if-no-files-found: warn
+          retention-days: 7
+  fork-costs:
+    name: Deterministic fork costs (${{ matrix.os }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-22.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      ORCA_BACKGROUND_LAUNCH: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install-node-dependencies
+      - name: Verify scan, probe, write and packaged worker costs
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/runtime/worktree-scan-admin-fingerprint-gate.test.ts
+          src/main/runtime/repo-worktree-admin-fingerprint-shared.test.ts
+          src/main/git/worktree-scan-cache-sharing.test.ts
+          src/main/git/worktree-scan-cache-annotation-reuse.test.ts
+          src/main/git/repo-username.test.ts
+          src/main/repo-git-username-enrichment.test.ts
+          src/main/git/git-username-signature.test.ts
+          src/shared/secure-file-async-spawn-count.test.ts
+          src/main/credentials/credential-writers-win32-spawn.test.ts
+          src/shared/secure-file-async-write-serialization.test.ts
+          src/main/git/command-runner/git-spawn-admission-lifetime.test.ts
+          src/main/diagnostics/event-loop-delay-probe.test.ts
+          src/main/orcad/orcad-runtime-entry-artifacts.test.ts
+          src/shared/orcad-artifacts.test.ts

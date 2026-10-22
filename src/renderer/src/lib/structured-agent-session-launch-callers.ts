@@ -126,3 +126,14 @@ export function structuredLaunchCallersHavePendingWork(
     group.promptDeliveryResults.size > 0
   )
 }
+
+export function joinLaunchDelivery(
+  options: StructuredAgentLaunchOptions,
+  established: StructuredAgentLaunchOptions['promptDelivery']
+): StructuredAgentLaunchOptions {
+  // Why: the first caller's mode wins, but with none established an absent mode reads as submit —
+  // that would send a joiner's draft it never consented to send.
+  const mode = established ?? options.promptDelivery
+  const { promptDelivery: _joinerMode, ...rest } = options
+  return mode ? { ...rest, promptDelivery: mode } : rest
+}

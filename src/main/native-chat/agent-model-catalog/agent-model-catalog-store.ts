@@ -1,3 +1,4 @@
+import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 import { independentAgentModelCatalog } from './agent-model-catalog-discovery'
 export type { AgentModelCatalogProbe } from './agent-model-catalog-discovery'
 import type { AgentModelCatalogPersistence } from './agent-model-catalog-persistence'
@@ -18,6 +19,7 @@ export type {
   AgentModelCatalogSource,
   AgentModelCatalogSuccess
 } from './agent-model-catalog-entry'
+export type { AgentModelCatalogLister } from './agent-model-catalog-lister'
 export { withLiveCatalogListing } from './agent-model-catalog-entry'
 import {
   AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
@@ -40,7 +42,7 @@ export type { AgentModelCatalogFailure }
 // picker opens does not hammer a dead binary, then dies on its own (see
 // `AgentModelCatalogFailures`, which also holds why no chat can start under the account).
 
-export const AGENT_MODEL_CATALOG_FRESH_MS = 10 * 60_000
+export { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 export const AGENT_MODEL_CATALOG_MAX_ENTRIES = 256
 
 import {
@@ -102,21 +104,19 @@ export class AgentModelCatalogStore {
 
   /** Whether any account's catalog of `agent` is saved here. */
   hasEntryForAgent(agent: string): boolean {
-    for (const entry of this.entries.values()) {
-      if (entry.agent === agent) {
-        return true
-      }
-    }
-    return false
+    return Array.from(this.entries.values()).some((entry) => entry.agent === agent)
   }
 
-  /** Only a discovery ages: live saves never postpone the next account-level listing. */
-  isStale(entry: AgentModelCatalogEntry): boolean {
+  /** Refresh ages discovery; turn admission can check the latest live or discovered capabilities. */
+  isStale(entry: AgentModelCatalogEntry, source: 'discovery' | 'latest' = 'discovery'): boolean {
+    const at = source === 'latest' ? entry.fetchedAt : entry.discovered?.at
     return (
       this.dueEntries.has(entry.fingerprint) ||
-      !entry.discovered ||
-      (independentAgentModelCatalog(entry.agent) && entry.discovered.complete !== true) ||
-      this.now() - entry.discovered.at >=
+      at === undefined ||
+      (source === 'discovery' &&
+        independentAgentModelCatalog(entry.agent) &&
+        entry.discovered?.complete !== true) ||
+      this.now() - at >=
         (independentAgentModelCatalog(entry.agent) ? 2 * 60_000 : AGENT_MODEL_CATALOG_FRESH_MS)
     )
   }
@@ -143,11 +143,20 @@ export class AgentModelCatalogStore {
     this.failures.expire(fingerprint)
   }
 
-  /** The agent's command or launch env changed: each of its catalogs and held reasons is due. */
+  /** Account identity, command or environment changed; old work cannot certify the new account. */
   expireAgent(agent: string): void {
     for (const entry of this.entries.values()) {
       if (entry.agent === agent) {
         this.dueEntries.add(entry.fingerprint)
+        // A pre-change background listing holds the previous entry identity.
+        this.entries.set(entry.fingerprint, { ...entry })
+      }
+    }
+    for (const [fingerprint, refresh] of this.refreshes) {
+      if (refresh.agent === agent) {
+        this.refreshes.delete(fingerprint)
+        this.latestWrittenOrder.delete(fingerprint)
+        this.listingWaiters.notify(fingerprint)
       }
     }
     this.failures.expireAgent(agent)
@@ -327,10 +336,7 @@ export class AgentModelCatalogStore {
   /** A probe's reason past its TTL. Only a probe re-derives it, however fresh the catalog beside
    *  it, so only probe paths ask; a chat's own listing would never clear it. */
   heldReasonDue(fingerprint: string): boolean {
-    return (
-      this.failures.get(fingerprint)?.unavailable !== undefined &&
-      !this.hasActiveFailure(fingerprint)
-    )
+    return this.failures.heldReasonDue(fingerprint)
   }
 
   /** Whether a session-less probe should list now: the refresh rule, or a held reason due. */

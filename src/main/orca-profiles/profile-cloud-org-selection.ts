@@ -47,7 +47,7 @@ export async function selectCloudOrg(input: {
   ) {
     throw new Error('orca_cloud_org_selection_identity_mismatch')
   }
-  const list = commitCloudSessionRelink(profileId, input.userDataPath, ticket, selected)
+  const list = await commitCloudSessionRelink(profileId, input.userDataPath, ticket, selected)
   if (!list) {
     throw new Error('stale_cloud_session_mutation')
   }

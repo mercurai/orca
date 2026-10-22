@@ -8,6 +8,10 @@
 // may move the fence itself. A write that did not happen is reported once, in the person's words, by
 // the caller that knows where to say it; nothing latches.
 
+import {
+  CodexSpeedSelectionError,
+  prepareCodexSpeedWireOptions
+} from '@/runtime/codex-speed-selection'
 import { useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 import type { AgentSessionMutationResult } from '../../../../shared/agent-session-wire'
@@ -71,6 +75,8 @@ function notDone(
   }
 }
 
+type SessionMutationActionContext = { sessionId: string; target: RuntimeClientTarget }
+
 export function useStructuredAgentSessionMutate(args: {
   sessionId: string
   target: RuntimeClientTarget
@@ -89,6 +95,22 @@ export function useStructuredAgentSessionMutate(args: {
     new Map<string, Promise<StructuredAgentSessionWriteOutcome<unknown>>>()
   )
   const enabledRef = useRef(enabled)
+  const actionContext = useRef<SessionMutationActionContext | null>(null)
+  const targetKey = target.kind === 'local' ? null : target.environmentId
+  useEffect(() => {
+    const context: SessionMutationActionContext = {
+      sessionId,
+      target:
+        targetKey === null ? { kind: 'local' } : { kind: 'environment', environmentId: targetKey }
+    }
+    actionContext.current = context
+    inFlightStops.current.clear()
+    return () => {
+      if (actionContext.current === context) {
+        actionContext.current = null
+      }
+    }
+  }, [sessionId, targetKey])
   // The conversation command or rewind this pane still waits on; only its reply may outlive a fence
   // move. A newer one replaces it, and disabling the pane forgets it.
   const commandInFlight = useRef<object | null>(null)
@@ -104,9 +126,16 @@ export function useStructuredAgentSessionMutate(args: {
       fingerprintMethod: string,
       fields: Record<string, unknown>,
       /** The fence when the press happened, read before any await, so a write never retargets. */
-      pressedFence: number | null = stateRef.current.fence
+      pressedFence: number | null = stateRef.current.fence,
+      pressedContext: SessionMutationActionContext | null = actionContext.current
     ): Promise<StructuredAgentSessionWriteOutcome<T>> => {
-      if (!enabled || !enabledRef.current || pressedFence === null) {
+      if (
+        !enabled ||
+        !enabledRef.current ||
+        pressedFence === null ||
+        pressedContext === null ||
+        actionContext.current !== pressedContext
+      ) {
         return { kind: 'dropped' }
       }
       const targetFence = pressedFence
@@ -126,24 +155,66 @@ export function useStructuredAgentSessionMutate(args: {
         if (waitedOn) {
           commandInFlight.current = null
         }
-        return enabledRef.current && (stateRef.current.fence === targetFence || waitedOn)
+        return (
+          enabledRef.current &&
+          actionContext.current === pressedContext &&
+          (stateRef.current.fence === targetFence || waitedOn)
+        )
       }
       let result: AgentSessionMutationResult<T>
+      const selectedTier =
+        fingerprintMethod === 'agentSession.setOption' &&
+        fields.key === 'serviceTier' &&
+        typeof fields.value === 'string'
+          ? fields.value
+          : undefined
+      let wireFields = fields
       try {
-        result = await callStructuredAgentSession<AgentSessionMutationResult<T>>(target, method, {
-          envelope: {
-            sessionId,
-            clientOperationId: structuredSessionOperationId(),
-            expectedRuntimeFence: targetFence,
-            payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-              method: fingerprintMethod,
+        const prepared =
+          selectedTier === undefined
+            ? undefined
+            : await prepareCodexSpeedWireOptions({
+                target,
+                sessionId,
+                options: { serviceTier: selectedTier }
+              })
+        if (
+          !enabledRef.current ||
+          actionContext.current !== pressedContext ||
+          stateRef.current.fence !== targetFence
+        ) {
+          return { kind: 'dropped' }
+        }
+        if (prepared?.options) {
+          wireFields =
+            prepared.options.serviceTier !== undefined
+              ? { ...fields, key: 'serviceTier', value: prepared.options.serviceTier }
+              : { ...fields, key: 'fastMode', value: prepared.options.fastMode }
+        }
+        result = await callStructuredAgentSession<AgentSessionMutationResult<T>>(
+          target,
+          method,
+          {
+            envelope: {
               sessionId,
-              fields
-            })
+              clientOperationId: structuredSessionOperationId(),
+              expectedRuntimeFence: targetFence,
+              payloadFingerprint: structuredAgentSessionPayloadFingerprint({
+                method: fingerprintMethod,
+                sessionId,
+                fields: wireFields
+              })
+            },
+            ...wireFields
           },
-          ...fields
-        })
+          prepared?.authority
+        )
       } catch (error) {
+        if (error instanceof CodexSpeedSelectionError) {
+          return settlesHere()
+            ? { kind: 'not-done', notice: error.message, failure: { kind: 'failed' } }
+            : { kind: 'dropped' }
+        }
         return settlesHere()
           ? notDone(
               agentSessionThrownFailure(
@@ -169,6 +240,27 @@ export function useStructuredAgentSessionMutate(args: {
       if (!settlesHere()) {
         return { kind: 'dropped' }
       }
+      // The execution host may only understand Fast; saved preferences retain the canonical pick.
+      if (
+        selectedTier !== undefined &&
+        wireFields.key === 'fastMode' &&
+        result.value &&
+        typeof result.value === 'object'
+      ) {
+        const returned =
+          'options' in result.value &&
+          result.value.options &&
+          typeof result.value.options === 'object'
+            ? result.value.options
+            : {}
+        const { fastMode: _legacy, ...options } = Object.assign({ fastMode: undefined }, returned)
+        return {
+          kind: 'done',
+          value: Object.assign({}, result.value, {
+            options: { ...options, serviceTier: selectedTier }
+          })
+        }
+      }
       return { kind: 'done', value: result.value }
     },
     [agentName, enabled, sessionId, stateRef, target]
@@ -181,11 +273,12 @@ export function useStructuredAgentSessionMutate(args: {
       fields: Record<string, unknown>
     ): Promise<StructuredAgentSessionWriteOutcome<T>> => {
       const pressedFence = stateRef.current.fence
+      const pressedContext = actionContext.current
       if (
         !namesWhatItStops(fingerprintMethod, fields) ||
         (await supportsStructuredAgentSessionQuietRepeatedStop(target))
       ) {
-        return send<T>(method, fingerprintMethod, fields, pressedFence)
+        return send<T>(method, fingerprintMethod, fields, pressedFence, pressedContext)
       }
       // Temporary, for a host that predates the quiet repeated Stop: remove once none is supported.
       const key = `${sessionId}:${method}:${JSON.stringify(fields)}`
@@ -199,7 +292,7 @@ export function useStructuredAgentSessionMutate(args: {
               (outcome as StructuredAgentSessionWriteOutcome<T>)
         )
       }
-      const stopping = send<T>(method, fingerprintMethod, fields, pressedFence)
+      const stopping = send<T>(method, fingerprintMethod, fields, pressedFence, pressedContext)
       inFlightStops.current.set(key, stopping)
       // Gone once it settles, so the next press is a new Stop.
       void stopping.finally(() => {

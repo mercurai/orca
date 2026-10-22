@@ -28,10 +28,12 @@ afterEach(() => {
 })
 
 /** This server's profile, with another server paired in it; the CLI starts with `env`. */
-function serverProfileWith(env: Partial<Record<(typeof SELECTORS)[number], string>>): string {
+async function serverProfileWith(
+  env: Partial<Record<(typeof SELECTORS)[number], string>>
+): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), 'cli-owner-'))
   roots.push(root)
-  addEnvironmentFromPairingCode(root, { name: 'other-server', pairingCode })
+  await addEnvironmentFromPairingCode(root, { name: 'other-server', pairingCode })
   vi.stubEnv('ORCA_USER_DATA_PATH', root)
   for (const key of SELECTORS) {
     vi.stubEnv(key, env[key])
@@ -39,9 +41,9 @@ function serverProfileWith(env: Partial<Record<(typeof SELECTORS)[number], strin
   return root
 }
 
-it("stays on its own server with an agent's empty selectors, and explicit flags still route", () => {
+it("stays on its own server with an agent's empty selectors, and explicit flags still route", async () => {
   // The agent environment sets all three empty so a profile's export cannot win.
-  const root = serverProfileWith({
+  const root = await serverProfileWith({
     ORCA_ENVIRONMENT: '',
     ORCA_PAIRING_CODE: '',
     ORCA_REMOTE_PAIRING: ''
@@ -51,7 +53,7 @@ it("stays on its own server with an agent's empty selectors, and explicit flags 
   expect(new RuntimeClient(root, undefined, pairingCode, null).isRemote).toBe(true)
 })
 
-it.each(SELECTORS)("follows a person's own %s, as on main", (key) => {
-  serverProfileWith({ [key]: selection[key] })
+it.each(SELECTORS)("follows a person's own %s, as on main", async (key) => {
+  await serverProfileWith({ [key]: selection[key] })
   expect(new RuntimeClient().isRemote).toBe(true)
 })

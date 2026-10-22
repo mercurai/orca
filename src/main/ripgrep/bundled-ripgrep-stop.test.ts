@@ -3,7 +3,8 @@ import { spawnProcess } from '@orca/process-host'
 import { stopBundledRipgrep } from './bundled-ripgrep-stop'
 
 const { signalTree, killChild } = vi.hoisted(() => ({ signalTree: vi.fn(), killChild: vi.fn() }))
-vi.mock('@orca/process-host/process-tree-termination', () => ({
+vi.mock('@orca/process-host/process-tree-termination', async (original) => ({
+  ...(await original()),
   signalProcessTree: signalTree
 }))
 vi.mock('../../shared/ripgrep-process-availability', () => ({

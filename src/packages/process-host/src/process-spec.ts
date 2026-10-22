@@ -44,6 +44,8 @@ export type ProcessSpec = {
   terminationBarrier?: boolean | ProcessTerminationBarrier
   /** Called once when the child exits or tree termination is verified. */
   onChildTerminated?: () => void
+  /** Called with the child right after it was started, before any output is read. */
+  onSpawn?: (child: ChildProcess) => void
   /** Every raw stderr chunk as it arrives, including any past the capture cap. */
   onStderr?: (chunk: Buffer | string) => void
 }
@@ -56,7 +58,12 @@ export type PipedProcessSpec = Omit<ProcessSpec, 'stdio'> & {
 
 export type PipedProcessSpawner = (spec: PipedProcessSpec) => PipedChildProcess
 
+/** Data a worker thread needs to rebuild a termination barrier whose functions cannot cross. */
+export type WorkerBarrierDescriptor = { kind: 'wsl-process-group'; distro: string; marker: string }
+
 export type ProcessTerminationBarrier = {
+  /** Present when the barrier can be rebuilt on the spawn worker from this data alone. */
+  worker?: WorkerBarrierDescriptor
   observeStderr?: (chunk: Buffer | string) => void
   signal: (child: ChildProcess, signal?: NodeJS.Signals) => Promise<boolean>
   force: (child: ChildProcess) => Promise<boolean>

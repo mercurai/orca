@@ -47,8 +47,7 @@ import { admitOrcadRecordForIntent } from '../managed-server/lifecycle/orcad-man
 import { rollbackOrcad } from '../managed-server/install/orcad-remote-rollback'
 import { collectManagedTerminalCensus } from './orcad-terminal-census-client'
 import { updateTerminalCounts } from './orcad-fenced-stop'
-import { findIncompleteManagedOrcadMigration } from '../managed-server/lifecycle/orcad-managed-migration-status'
-import { latestOrcadMigrationInto } from './orcad-migration-rollback-mark'
+import { migrationRollbackRefusal } from './orcad-migration-rollback-mark'
 import { tunneledOrcadPairingCode } from './orcad-tunneled-pairing'
 
 type LifecycleArgs = { selector: string; signal?: AbortSignal }
@@ -72,13 +71,16 @@ function refreshPairing(
   environment: KnownRuntimeEnvironment,
   readiness: ServeReadiness,
   localPort: number
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   // Why the enrolled grant: a restarted orcad offers a new device once this one has paired, and
   // taking it would change who this desktop is to the host (as WSL's #29042 found). Re-read: the
   // census may have repaired a refused pairing since `environment` was read.
-  const enrolled = getPreferredPairingOffer(resolveEnvironment(userDataPath, environment.id))
+  const current = resolveEnvironment(userDataPath, environment.id)
+  const enrolled = getPreferredPairingOffer(current)
   const pairingCode = tunneledOrcadPairingCode(readiness, localPort, enrolled)
-  return refreshManagedOrcadPairing(userDataPath, environment.id, pairingCode)
+  return refreshManagedOrcadPairing(userDataPath, environment.id, pairingCode, undefined, {
+    expectedPairingRevision: current.pairingRevision ?? current.createdAt
+  })
 }
 
 /** A launched slot may bind another port than the forward in use, so forward anew. */
@@ -184,7 +186,7 @@ export async function runManagedOrcadUpdate(
     activeVersion: result.fullVersion,
     readiness
   })
-  const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+  const updated = await refreshPairing(userDataPath, environment, readiness, deployment.localPort)
   if (started || result.outcome !== 'already-active') {
     await followLaunchedServerPort(userDataPath, environment.id)
   }
@@ -255,7 +257,12 @@ export function rollbackManagedOrcadEnvironment(
         { ...slot, remoteInstallDir: targetDir },
         { buildHash: targetBuildHash, fullVersion: result.target }
       )
-      const updated = refreshPairing(userDataPath, environment, readiness, deployment.localPort)
+      const updated = await refreshPairing(
+        userDataPath,
+        environment,
+        readiness,
+        deployment.localPort
+      )
       await followLaunchedServerPort(userDataPath, environment.id)
       return {
         outcome: 'rolled-back',
@@ -285,7 +292,7 @@ export function recoverManagedOrcadEnvironment(
         return result
       }
       const updated = result.readiness
-        ? refreshPairing(userDataPath, environment, result.readiness, deployment.localPort)
+        ? await refreshPairing(userDataPath, environment, result.readiness, deployment.localPort)
         : environment
       if (result.activeVersion) {
         await followLaunchedServerPort(userDataPath, environment.id)
@@ -304,27 +311,3 @@ export function recoverManagedOrcadEnvironment(
  * A rollback restores the snapshot taken when the current version activated. If a migration
  * began after that, the snapshot predates the imported catalog and restoring it would drop it.
  */
-function migrationRollbackRefusal(
-  userDataPath: string,
-  environment: KnownRuntimeEnvironment,
-  activatedAt: string | null
-): OrcadManagedRollbackResult | null {
-  if (findIncompleteManagedOrcadMigration(userDataPath, environment.id)) {
-    return {
-      outcome: 'refused',
-      code: 'orcad_rollback_migration_in_progress',
-      reason: 'A migration into this server is still running. Finish it before rolling back.'
-    }
-  }
-  const migratedAt = latestOrcadMigrationInto(userDataPath, environment)
-  if (migratedAt && (activatedAt === null || Date.parse(activatedAt) < Date.parse(migratedAt))) {
-    return {
-      outcome: 'refused',
-      code: 'orcad_rollback_crosses_migration',
-      reason:
-        "The previous version's state predates the projects migrated onto this server; " +
-        'rolling back would lose them. Deploy forward instead.'
-    }
-  }
-  return null
-}

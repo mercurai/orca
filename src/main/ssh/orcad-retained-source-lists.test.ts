@@ -75,9 +75,9 @@ function catalog(targets: SshTarget[]): Store {
 }
 
 describe('lists while a converted host keeps its source rows', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     userData.dir = mkdtempSync(join(tmpdir(), 'orcad-retained-lists-'))
-    writeOrcadMigrationSourceCutover(userData.dir, {
+    await writeOrcadMigrationSourceCutover(userData.dir, {
       ...orcadMigrationCutoverFixture('m-0', FENCED.id),
       phase: 'destination-committed'
     })
@@ -108,16 +108,19 @@ describe('lists while a converted host keeps its source rows', () => {
     ])
   })
 
-  it('shows them until the migration commits, while freezing the session from the fence on', () => {
+  it('shows them until the migration commits, while freezing the session from the fence on', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orcad-retained-lists-'))
     try {
       const cutover = orcadMigrationCutoverFixture('m-1', FENCED.id)
-      writeOrcadMigrationSourceCutover(userDataPath, cutover)
+      await writeOrcadMigrationSourceCutover(userDataPath, cutover)
       const store = catalog([FENCED])
       const lookup = { getSshTarget: () => FENCED }
       expect(visibleProjectGroups(store, () => userDataPath)).toHaveLength(2)
       expect(isFrozenOrcadSourceSessionPartition(lookup, 'ssh:ssh-box')).toBe(true)
-      writeOrcadMigrationSourceCutover(userDataPath, { ...cutover, phase: 'destination-committed' })
+      await writeOrcadMigrationSourceCutover(userDataPath, {
+        ...cutover,
+        phase: 'destination-committed'
+      })
       expect(visibleProjectGroups(store, () => userDataPath)).toHaveLength(1)
       expect(isFrozenOrcadSourceSessionPartition(lookup, 'local')).toBe(false)
       const changed = { ...FENCED, orcadFence: { environmentId: 'env-1', sourceChangedAt: 'x' } }
@@ -163,10 +166,10 @@ describe('project host setups of a converted host', () => {
   })
   const store = (targets: SshTarget[]): SetupCatalog => catalogOf(targets, [sourceRepo, localRepo])
   let dir = ''
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'orcad-retained-setups-'))
     userData.dir = dir
-    writeOrcadMigrationSourceCutover(dir, {
+    await writeOrcadMigrationSourceCutover(dir, {
       ...orcadMigrationCutoverFixture('m-0', FENCED.id),
       phase: 'destination-committed'
     })
@@ -185,10 +188,10 @@ describe('project host setups of a converted host', () => {
     expect(visibleProjectHostSetups(folderOnly).map((entry) => entry.id)).toEqual(['repo-local'])
   })
 
-  it('hides the local setup of a project a WSL move took, by its repo row alone', () => {
+  it('hides the local setup of a project a WSL move took, by its repo row alone', async () => {
     loadWslMoveFence(dir)
     try {
-      seedWslMoveCutover(
+      await seedWslMoveCutover(
         dir,
         wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: ['repo-local'] })
       )

@@ -29,6 +29,7 @@ export type AgentModelCatalogServiceDeps = AgentModelCatalogWorkspaceDeps & {
 }
 
 export type AgentModelCatalogService = {
+  isListing?: (sessionId: string) => boolean
   peek: (sessionId: string, verifiedOnly?: boolean) => AgentModelCatalogEntry | null
   read: (params: {
     agent: string
