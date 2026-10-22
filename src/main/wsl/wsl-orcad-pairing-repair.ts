@@ -56,13 +56,16 @@ export function liveWslOrcadPairingRepairDeps(
       const found = findWslHostDeployment(userDataPath, environment.id)
       return found ? { localPort: found.localPort, remotePort: found.remotePort } : null
     },
-    refresh: (environmentId, pairingCode) => {
+    refresh: async (environmentId, pairingCode, expectedPairingRevision) => {
       const { localPort, remotePort } = record(environmentId)
-      return refreshWslHostPairing(userDataPath, environmentId, {
-        pairingCode,
-        localPort,
-        remotePort
-      }).environment
+      return (
+        await refreshWslHostPairing(userDataPath, environmentId, {
+          pairingCode,
+          localPort,
+          remotePort,
+          expectedPairingRevision
+        })
+      ).environment
     },
     repaired: notifyManagedOrcadPairingRepaired,
     now: Date.now

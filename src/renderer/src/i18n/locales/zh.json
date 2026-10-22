@@ -18511,6 +18511,20 @@
         "compactAfterSending": "您之前的消息仍在发送中。发送完成后再运行 /compact。"
       },
       "composer": {
+        "speedStatus": {
+          "recoveryStorage": "无法恢复未发送的消息。请释放存储空间后重试；已保存的恢复副本仍会保留。",
+          "waitForChange": "请等待速度更改完成后再发送，或更新执行主机上的 Orca。",
+          "nextTurn": "下一轮：{{speed}}",
+          "loading": "正在检查速度支持情况…",
+          "unknown": "速度支持情况未知。请刷新模型目录或选择标准速度。",
+          "unavailable": "所选速度不可用。请刷新模型目录或选择标准速度。",
+          "available": "下一轮可使用此速度。",
+          "applied": "主机上次应用的速度：{{speed}}",
+          "processingUnknown": "实际处理速度：未知",
+          "processingReported": "实际处理速度：{{speed}}",
+          "pendingFast": "快速（等待模型目录）",
+          "providerDefault": "提供方默认值"
+        },
         "imageUnsupported": "此智能体不支持粘贴图片。",
         "send": "发送",
         "noPty": "没有实时终端，请切回终端以重新连接。",

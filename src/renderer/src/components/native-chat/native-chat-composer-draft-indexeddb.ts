@@ -99,16 +99,26 @@ export function createIndexedDbNativeChatComposerDraftStorage(
       const drafts = transaction.objectStore(DRAFTS)
       const read = drafts.get(scopeKey)
       // Why inside the read's callback: the write must land in the same transaction as the read.
+      let applicationError: unknown
       read.onsuccess = () => {
-        const next = apply(read.result)
-        if (next) {
-          drafts.put(next, scopeKey)
-        } else {
-          drafts.delete(scopeKey)
+        try {
+          const next = apply(read.result)
+          if (next) {
+            drafts.put(next, scopeKey)
+          } else {
+            drafts.delete(scopeKey)
+          }
+          transaction.commit?.()
+        } catch (error) {
+          applicationError = error
+          transaction.abort()
         }
-        transaction.commit?.()
       }
-      await done
+      try {
+        await done
+      } catch (error) {
+        throw applicationError ?? error
+      }
     }
   }
 }

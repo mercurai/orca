@@ -71,7 +71,11 @@ function extractSource(commit, name) {
 function restoreAffectedStoreFiles(destination) {
   for (const relativePath of [
     'src/shared/ephemeral-vm-runtime-store.ts',
-    'src/shared/ephemeral-vm-runtimes.ts'
+    'src/shared/ephemeral-vm-runtimes.ts',
+    // Why: the reverted store imports the synchronous secure writers the candidate deleted.
+    // POSIX only: their win32 ACL import (restrictWindowsPathSync) no longer exists at HEAD.
+    'src/shared/bounded-secure-json-file.ts',
+    'src/shared/secure-file.ts'
   ]) {
     const result = run('git', ['show', `${AFFECTED_MAIN_COMMIT}:${relativePath}`], {
       encoding: 'utf8'
@@ -88,16 +92,20 @@ function makeDataDir(name) {
 
 function runOracle(label, targetRoot, operation, userDataPath, options = {}) {
   const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
-  const result = spawnSync(pnpm, ['exec', 'vitest', 'run', driver, '--config', config], {
-    cwd: root,
-    encoding: 'utf8',
-    env: {
-      ...process.env,
-      STA_4274_TARGET_ROOT: resolve(targetRoot),
-      STA_4274_OPERATION: operation,
-      STA_4274_USER_DATA_PATH: userDataPath
+  const result = spawnSync(
+    pnpm,
+    ['exec', 'vitest', 'run', driver, '--config', config, '--maxWorkers=2'],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        STA_4274_TARGET_ROOT: resolve(targetRoot),
+        STA_4274_OPERATION: operation,
+        STA_4274_USER_DATA_PATH: userDataPath
+      }
     }
-  })
+  )
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   if (options.expectFailure) {
     if (result.status === 0 || !output.includes(options.expectFailure)) {

@@ -85,11 +85,11 @@ const {
 } = await import('./orcad-runtime-maintenance')
 
 const idle = { liveSessions: 0, startedSinceActivation: 0, daemonProtocolVersion: 7 }
-let harness: ReturnType<typeof createManagedLifecycleHarness>
+let harness: Awaited<ReturnType<typeof createManagedLifecycleHarness>>
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
-  harness = createManagedLifecycleHarness()
+  harness = await createManagedLifecycleHarness()
   mocks.state.store = harness.targetStore
   mocks.resolveContext.mockImplementation(async () => harness.context())
   mocks.census.mockResolvedValue(idle)
@@ -333,7 +333,11 @@ describe('rollbackManagedOrcadEnvironment', () => {
 
   it('refuses a rollback to a snapshot older than the migrated catalog, not a newer one', async () => {
     // The harness's active version activated 2026-01-01.
-    recordManagedOrcadMigration(harness.userDataPath, 'environment-1', '2026-02-01T00:00:00.000Z')
+    await recordManagedOrcadMigration(
+      harness.userDataPath,
+      'environment-1',
+      '2026-02-01T00:00:00.000Z'
+    )
     await expect(
       rollbackManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     ).resolves.toMatchObject({ outcome: 'refused', code: 'orcad_rollback_crosses_migration' })
@@ -348,7 +352,7 @@ describe('rollbackManagedOrcadEnvironment', () => {
 
   it('refuses a rollback across a retained delta move that predates the mark', async () => {
     // A delta finished by an earlier build left no mark; its retained journal still counts.
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('delta-1', 'ssh-1', { environmentId: 'environment-1' }),
       startedAt: '2026-02-01T00:00:00.000Z',
       phase: 'destination-committed',

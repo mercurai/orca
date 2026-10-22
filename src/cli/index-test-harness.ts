@@ -134,7 +134,7 @@ export function useWorktreeAwarenessEnvironment(mocks: WorktreeAwarenessMocks): 
     mocks.addEnvironmentFromPairingCodeMock.mockReset()
     mocks.listEnvironmentsMock.mockReset()
     mocks.spawnMock.mockClear()
-    mocks.addEnvironmentFromPairingCodeMock.mockReturnValue({
+    mocks.addEnvironmentFromPairingCodeMock.mockResolvedValue({
       id: 'env-1',
       name: 'desk',
       createdAt: 100,

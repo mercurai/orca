@@ -23,7 +23,7 @@ export async function buildServePairingReadiness(
         reason: 'disabled_by_operator',
         guidance: 'Restart without --no-pairing to create a client pairing offer.'
       } as const)
-    : rpc.createPairingOffer({
+    : await rpc.createPairingOffer({
         address: options.pairingAddress,
         name: `${options.mobilePairing ? 'Mobile' : 'CLI'} ${new Date().toLocaleDateString()}`,
         scope: options.mobilePairing ? 'mobile' : 'runtime',

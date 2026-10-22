@@ -112,12 +112,15 @@ async function readStructuredAgentSessionOptionsAtRest(
     (rules?.effortDefaultsToModel || (saved.model === undefined && folderDefault)
       ? defaultModels.find((entry) => entry.id === model)?.defaultEffort
       : undefined)
+  const speed = rules?.readSpeed?.({ saved, currentModel: model, catalog })
   const defaulted = (['model', 'effort'] as const).filter(
     (key) => saved[key] === undefined && Boolean(key === 'model' ? model : effort)
   )
   // The tier the chat's own model runs; the record keeps the saved one for a model that offers it.
-  const serviceTier = savedEffectiveServiceTier(saved, models)
+  const serviceTier =
+    record.provider === 'codex' ? saved.serviceTier : savedEffectiveServiceTier(saved, models)
   return {
+    ...(speed ? { speed } : {}),
     inventory: catalog,
     fallback: catalog.origin === 'unknown' ? (listed ?? []) : [],
     models: listed ? structuredAgentSessionOptionModels(listed, model, (row) => row) : [],

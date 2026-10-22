@@ -70,7 +70,7 @@ describe('WSL move desktop rewrite', () => {
       }
     })
     mainStore('second', trace)
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -95,7 +95,7 @@ describe('WSL move desktop rewrite', () => {
       for (const id of ['a', 'b', 'c']) {
         mainStore(id, trace)
       }
-      seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+      await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
       const warn = vi.fn()
 
       await runWslMoveDesktopRewritePass({ userDataPath, warn })
@@ -118,9 +118,9 @@ describe('WSL move desktop rewrite', () => {
     const trace: Trace = { events: [], failAt: new Set() }
     mainStore('a', trace)
     registerWslMoveDesktopRewriteStore({ id: 'r', side: 'renderer' })
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     await runWslMoveDesktopRewritePass({ userDataPath })
-    recordWslMoveRendererStoreRewritten(userDataPath, { migrationId: 'move-1', storeId: 'r' })
+    await recordWslMoveRendererStoreRewritten(userDataPath, { migrationId: 'move-1', storeId: 'r' })
     expect(record()?.rewrittenStores).toEqual(['a', 'r'])
     expect(record()?.phase).toBe('destination-committed')
 
@@ -137,7 +137,7 @@ describe('WSL move desktop rewrite', () => {
       run: () => (hang ? new Promise<void>(() => {}) : undefined),
       flush: () => {}
     })
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     const warn = vi.fn()
     await runWslMoveDesktopRewritePass({ userDataPath, warn, storeTimeoutMs: 10 })
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('slow run timed out'))
@@ -152,7 +152,7 @@ describe('WSL move desktop rewrite', () => {
   it('is idempotent: a finished move is not rewritten again', async () => {
     const trace: Trace = { events: [], failAt: new Set() }
     mainStore('a', trace)
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     await runWslMoveDesktopRewritePass({ userDataPath })
     trace.events.length = 0
     await runWslMoveDesktopRewritePass({ userDataPath })
@@ -165,18 +165,65 @@ describe('WSL move desktop rewrite', () => {
     const trace: Trace = { events: [], failAt: new Set() }
     mainStore('a', trace)
     registerWslMoveDesktopRewriteStore({ id: 'r', side: 'renderer' })
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'blobs-transferred'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'blobs-transferred'))
     await runWslMoveDesktopRewritePass({ userDataPath })
     expect(trace.events).toEqual([])
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     await runWslMoveDesktopRewritePass({ userDataPath })
     expect(record()?.rewrittenStores).toEqual(['a'])
     expect(record()?.phase).toBe('destination-committed')
   })
 
+  it('preserves competing renderer acknowledgements while a main store finishes', async () => {
+    let entered!: () => void
+    let release!: () => void
+    const running = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const finish = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    registerWslMoveDesktopRewriteStore({
+      id: 'main-held',
+      side: 'main',
+      run: () => {
+        entered()
+        return finish
+      },
+      flush: () => {}
+    })
+    registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
+    registerWslMoveDesktopRewriteStore({ id: 'renderer-b', side: 'renderer' })
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    const rewriting = runWslMoveDesktopRewritePass({ userDataPath })
+    await running
+    try {
+      expect(
+        await Promise.all([
+          recordWslMoveRendererStoreRewritten(userDataPath, {
+            migrationId: 'move-1',
+            storeId: 'renderer-a'
+          }),
+          recordWslMoveRendererStoreRewritten(userDataPath, {
+            migrationId: 'move-1',
+            storeId: 'renderer-b'
+          })
+        ])
+      ).toEqual([{ recorded: true }, { recorded: true }])
+      expect(record()?.rewrittenStores).toEqual(['renderer-a', 'renderer-b'])
+      expect(record()?.phase).toBe('destination-committed')
+    } finally {
+      release()
+      await rewriting
+    }
+    expect(record()?.rewrittenStores).toEqual(['renderer-a', 'renderer-b', 'main-held'])
+    expect(record()?.phase).toBe('client-rewritten')
+    expect(listPendingWslMoveRendererRewrites(userDataPath)).toEqual([])
+  })
+
   it('never throws when the journal cannot be read', async () => {
     const warn = vi.fn()
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     writeFileSync(join(wslMoveJournalDirectory(userDataPath), 'move-2.json'), '{not json')
     await expect(runWslMoveDesktopRewritePass({ userDataPath, warn })).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalledTimes(1)
@@ -186,7 +233,7 @@ describe('WSL move desktop rewrite', () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     const trace: Trace = { events: [], failAt: new Set() }
     mainStore('a', trace)
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     await runGatedWslMoveDesktopRewritePass({ userDataPath })
     expect(trace.events).toEqual([])
     expect(record()?.phase).toBe('destination-committed')
@@ -197,7 +244,7 @@ describe('WSL move desktop rewrite', () => {
 })
 
 describe('WSL move renderer rewrites', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     registerWslMoveDesktopRewriteStore({
       id: 'main-a',
       side: 'main',
@@ -206,7 +253,7 @@ describe('WSL move renderer rewrites', () => {
     })
     registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
     registerWslMoveDesktopRewriteStore({ id: 'renderer-b', side: 'renderer' })
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
   })
 
   it('lists the pending renderer stores of a committed move', () => {
@@ -226,13 +273,13 @@ describe('WSL move renderer rewrites', () => {
   it('records a pending renderer store, and finishes the move with the last one', async () => {
     await runWslMoveDesktopRewritePass({ userDataPath })
     expect(
-      recordWslMoveRendererStoreRewritten(userDataPath, {
+      await recordWslMoveRendererStoreRewritten(userDataPath, {
         migrationId: 'move-1',
         storeId: 'renderer-a'
       })
     ).toEqual({ recorded: true })
     expect(record()?.phase).toBe('destination-committed')
-    recordWslMoveRendererStoreRewritten(userDataPath, {
+    await recordWslMoveRendererStoreRewritten(userDataPath, {
       migrationId: 'move-1',
       storeId: 'renderer-b'
     })
@@ -245,29 +292,29 @@ describe('WSL move renderer rewrites', () => {
     ['an unknown store', { migrationId: 'move-1', storeId: 'nope' }, 'unknown-store'],
     ['a main-side store', { migrationId: 'move-1', storeId: 'main-a' }, 'not-renderer-store'],
     ['an unknown move', { migrationId: 'move-9', storeId: 'renderer-a' }, 'not-pending']
-  ])('refuses %s', (_label, request, reason) => {
-    expect(recordWslMoveRendererStoreRewritten(userDataPath, request)).toEqual({
+  ])('refuses %s', async (_label, request, reason) => {
+    expect(await recordWslMoveRendererStoreRewritten(userDataPath, request)).toEqual({
       recorded: false,
       reason
     })
     expect(record()?.rewrittenStores).toEqual([])
   })
 
-  it('refuses a store already recorded', () => {
+  it('refuses a store already recorded', async () => {
     const request = { migrationId: 'move-1', storeId: 'renderer-a' }
-    recordWslMoveRendererStoreRewritten(userDataPath, request)
-    expect(recordWslMoveRendererStoreRewritten(userDataPath, request)).toEqual({
+    await recordWslMoveRendererStoreRewritten(userDataPath, request)
+    expect(await recordWslMoveRendererStoreRewritten(userDataPath, request)).toEqual({
       recorded: false,
       reason: 'not-pending'
     })
     expect(record()?.rewrittenStores).toEqual(['renderer-a'])
   })
 
-  it('lists nothing and records nothing with the gate closed', () => {
+  it('lists nothing and records nothing with the gate closed', async () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     expect(listPendingWslMoveRendererRewrites(userDataPath)).toEqual([])
     expect(
-      recordWslMoveRendererStoreRewritten(userDataPath, {
+      await recordWslMoveRendererStoreRewritten(userDataPath, {
         migrationId: 'move-1',
         storeId: 'renderer-a'
       })

@@ -42,10 +42,10 @@ function getCurrentRuntime(
   return listEphemeralVmRuntimes(userDataPath).find((entry) => entry.id === fallback.id) ?? fallback
 }
 
-function finishCompletedCleanup(
+async function finishCompletedCleanup(
   userDataPath: string,
   runtime: EphemeralVmRuntimeRecord
-): EphemeralVmRuntimeRecord {
+): Promise<EphemeralVmRuntimeRecord> {
   if (runtime.cleanupStatus !== 'succeeded' || runtime.status === 'cleaned') {
     return runtime
   }

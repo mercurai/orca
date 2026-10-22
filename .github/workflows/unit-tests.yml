@@ -14,6 +14,12 @@ on:
         default: ubuntu-latest
         type: string
 
+      max_workers:
+        description: Explicit Vitest worker limit; zero preserves the existing runner policy.
+        required: false
+        default: 0
+        type: number
+
       browser_contract:
         description: Include the PR external Chromium browser contract in relay integration.
         required: false
@@ -175,7 +181,7 @@ jobs:
           export ORCA_SHARD_SOURCE_SHA
           node config/scripts/run-vitest.mjs run --config config/vitest.config.ts \
             --shard=${{ matrix.shard.index }}/${{ matrix.shard.count }} \
-            ${{ (runner.arch == 'ARM64' || inputs.runner == 'blacksmith-4vcpu-ubuntu-2404') && '--maxWorkers=4' || '' }}
+            ${{ inputs.max_workers > 0 && format('--maxWorkers={0}', inputs.max_workers) || (runner.arch == 'ARM64' || inputs.runner == 'blacksmith-4vcpu-ubuntu-2404') && '--maxWorkers=4' || '' }}
 
       - name: Seal unit module cache
         id: module-cache-seal

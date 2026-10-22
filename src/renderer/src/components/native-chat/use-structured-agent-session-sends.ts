@@ -2,6 +2,7 @@ import { useStructuredAgentSessionHostCapabilityState } from '@/runtime/structur
 import { AGENT_SESSION_SEND_SKILLS_RUNTIME_CAPABILITY } from '../../../../shared/agent-session-create-capabilities'
 import type { StructuredAgentSessionSendRequest } from './structured-agent-session-send-slot'
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
+import { CodexSpeedSelectionError } from '@/runtime/codex-speed-selection'
 import type {
   AgentJournalCursor,
   AgentJournalSubmission
@@ -20,6 +21,7 @@ import {
 import {
   getStructuredAgentSessionPendingSends,
   getStructuredAgentSessionSendNotice,
+  setStructuredAgentSessionSendNotice,
   structuredAgentSessionSendsHeld,
   subscribeToStructuredAgentSessionPendingSends
 } from './structured-agent-session-pending-sends'
@@ -109,7 +111,16 @@ export function useStructuredAgentSessionSends(args: {
         return false
       }
       const delivery = structuredAgentSessionQueueRequest(queue)
-      const options = sendOptions?.()
+      let options: Readonly<Record<string, string>> | undefined
+      try {
+        options = sendOptions?.()
+      } catch (error) {
+        if (!(error instanceof CodexSpeedSelectionError)) {
+          throw error
+        }
+        setStructuredAgentSessionSendNotice(sessionId, error.message)
+        return false
+      }
       const sent = sendStructuredAgentSessionMessage({
         sessionId,
         target,

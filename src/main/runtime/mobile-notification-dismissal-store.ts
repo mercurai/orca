@@ -42,9 +42,14 @@ export class MobileNotificationDismissalStore {
     }
   }
 
-  record(
-    event: MobileNotificationEvent & { notificationEpoch: string; notificationSeq: number }
-  ): void {
+  /**
+   * Updates the in-memory history at once and resolves when a snapshot that includes this event is
+   * on disk. `persist: false` keeps the event in memory only (nothing paired could have received it).
+   */
+  async record(
+    event: MobileNotificationEvent & { notificationEpoch: string; notificationSeq: number },
+    options: { persist?: boolean } = {}
+  ): Promise<void> {
     if (!event.notificationId) {
       return
     }
@@ -95,8 +100,10 @@ export class MobileNotificationDismissalStore {
       })
     }
     next = next.slice(-LIMIT)
+    // Commit in memory before awaiting: two records that interleave across the persist would
+    // otherwise both derive `next` from the same stale entries and lose one of them.
     this.entries = next
-    if (this.unreadable) {
+    if (this.unreadable || options.persist === false) {
       return
     }
     const serialize = () => JSON.stringify(this.entries, null, 2)
