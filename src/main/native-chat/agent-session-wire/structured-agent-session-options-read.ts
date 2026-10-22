@@ -117,7 +117,8 @@ async function readStructuredAgentSessionOptionsAtRest(
     (key) => saved[key] === undefined && Boolean(key === 'model' ? model : effort)
   )
   // The tier the chat's own model runs; the record keeps the saved one for a model that offers it.
-  const serviceTier = record.provider === 'codex' ? saved.serviceTier : savedEffectiveServiceTier(saved, models)
+  const serviceTier =
+    record.provider === 'codex' ? saved.serviceTier : savedEffectiveServiceTier(saved, models)
   return {
     ...(speed ? { speed } : {}),
     inventory: catalog,

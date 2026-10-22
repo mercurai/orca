@@ -12,7 +12,13 @@ import {
   type AgentModelCatalogSuccess
 } from './agent-model-catalog-entry'
 
-export type { AgentModelCatalogEntry, AgentModelCatalogListing, AgentModelCatalogLiveListing, AgentModelCatalogSource, AgentModelCatalogSuccess } from './agent-model-catalog-entry'
+export type {
+  AgentModelCatalogEntry,
+  AgentModelCatalogListing,
+  AgentModelCatalogLiveListing,
+  AgentModelCatalogSource,
+  AgentModelCatalogSuccess
+} from './agent-model-catalog-entry'
 export type { AgentModelCatalogLister } from './agent-model-catalog-lister'
 export { withLiveCatalogListing } from './agent-model-catalog-entry'
 import {
@@ -107,7 +113,9 @@ export class AgentModelCatalogStore {
     return (
       this.dueEntries.has(entry.fingerprint) ||
       at === undefined ||
-      (source === 'discovery' && independentAgentModelCatalog(entry.agent) && entry.discovered?.complete !== true) ||
+      (source === 'discovery' &&
+        independentAgentModelCatalog(entry.agent) &&
+        entry.discovered?.complete !== true) ||
       this.now() - at >=
         (independentAgentModelCatalog(entry.agent) ? 2 * 60_000 : AGENT_MODEL_CATALOG_FRESH_MS)
     )

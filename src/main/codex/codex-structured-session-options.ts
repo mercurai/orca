@@ -10,6 +10,7 @@ import { decodeStructuredAgentSessionOptionValue } from '../../shared/structured
 import {
   CODEX_DEFAULT_SERVICE_TIER,
   codexFastServiceTier,
+  codexFastModeOfServiceTier,
   codexOffersServiceTier,
   setCodexServiceTier
 } from './codex-structured-service-tier'
@@ -93,10 +94,14 @@ function composeLiveCodexCatalog(
         }
       : {})
   })
+  const { fastMode: catalogFastMode, ...current } = catalog.current
+  const fastMode = serviceTier !== undefined
+    ? codexFastModeOfServiceTier(serviceTier, listing.models.find((entry) => entry.id === model))
+    : catalogFastMode
   return {
     ...catalog,
     fastModeSupport: listing.fastModeSupport,
-    current: { ...catalog.current, ...(serviceTier !== undefined ? { serviceTier } : {}), ...(pendingFast ? { fastMode: true } : {}) },
+    current: { ...current, ...(serviceTier !== undefined ? { serviceTier } : {}), ...(typeof fastMode === 'boolean' ? { fastMode } : {}), ...(pendingFast ? { fastMode: true } : {}) },
     speed: readCodexSessionSpeed(session, listing)
   }
 }

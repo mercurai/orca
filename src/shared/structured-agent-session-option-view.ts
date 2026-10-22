@@ -94,7 +94,8 @@ export function structuredAgentSessionSendSelection(
     return undefined
   }
   const snapshot =
-    view.record.agent === 'codex' || (view.catalog?.defaultModelIsCliDefault === true && !view.defaultsUnsent)
+    view.record.agent === 'codex' ||
+    (view.catalog?.defaultModelIsCliDefault === true && !view.defaultsUnsent)
       ? structuredAgentSessionOptionSnapshot(view)
       : []
   const shown = (id: string): string | undefined => {
@@ -120,5 +121,7 @@ export function structuredAgentSessionSendSelection(
       ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed }
       : undefined
   }
-  return model || effort ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}) } : undefined
+  return model || effort
+    ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
+    : undefined
 }

@@ -131,9 +131,10 @@ function drawnModelControls(state: StructuredAgentSessionOptionState) {
   const normalises =
     shown.shown.currentId !== null &&
     structuredAgentSessionDescribedModel(state, shown.shown.currentId) !== undefined
-  const values = normalises && record.agent !== 'codex'
-    ? valuesUnderControls(catalog, controls, record.values, state.olderHost === true)
-    : record.values
+  const values =
+    normalises && record.agent !== 'codex'
+      ? valuesUnderControls(catalog, controls, record.values, state.olderHost === true)
+      : record.values
   return { catalog, models, ...shown, controls, values }
 }
 
@@ -195,7 +196,11 @@ export function structuredAgentSessionOptionSnapshot(
   state: StructuredAgentSessionOptionState
 ): SessionOptionDescriptor[] {
   const permission = structuredAgentSessionPermissionDescriptor(state)
-  const options = withStructuredSpeedSnapshot(modelOptionSnapshot(state), state.speed, state.speedModelId).map((option) =>
+  const options = withStructuredSpeedSnapshot(
+    modelOptionSnapshot(state),
+    state.speed,
+    state.speedModelId
+  ).map((option) =>
     (state.listingInProgress && ['effort', 'serviceTier', 'fastMode'].includes(option.id)) ||
     (state.fastModeRestricted && option.id === 'fastMode')
       ? { ...option, settable: false }

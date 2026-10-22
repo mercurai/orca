@@ -62,7 +62,10 @@ import {
 import { resetStructuredAgentLaunchPersistenceForTests } from './structured-agent-session-launch-persistence'
 import { getStructuredAgentSessionPendingSends } from '../components/native-chat/structured-agent-session-pending-sends'
 import { resetStructuredAgentSessionSendsForTests } from '../components/native-chat/structured-agent-session-message-sender'
-import { holdStructuredAgentSessionLaunchOption, settleStructuredLaunchCreateOptions } from './structured-agent-session-launch-options'
+import {
+  holdStructuredAgentSessionLaunchOption,
+  settleStructuredLaunchCreateOptions
+} from './structured-agent-session-launch-options'
 
 const SESSION = 'codex_synthetic_authorization_retry'
 
@@ -85,18 +88,27 @@ afterEach(() => {
 describe('create prompt ownership waits for speed authorization', () => {
   it('keeps a newer held pick after committing an earlier authorized create', () => {
     const intent: StructuredAgentSessionLaunchIntent = {
-      sessionId: SESSION, worktreeId: 'synthetic-worktree', executionHostId: 'local',
-      target: { kind: 'local' }, agent: 'codex',
+      sessionId: SESSION,
+      worktreeId: 'synthetic-worktree',
+      executionHostId: 'local',
+      target: { kind: 'local' },
+      agent: 'codex',
       params: structuredAgentSessionCreateParams({
-        sessionId: SESSION, worktree: 'id:synthetic-worktree', agent: 'codex',
-        randomUuid: () => '00000000-0000-4000-8000-000000000001', now: 1_760_000_000_000
+        sessionId: SESSION,
+        worktree: 'id:synthetic-worktree',
+        agent: 'codex',
+        randomUuid: () => '00000000-0000-4000-8000-000000000001',
+        now: 1_760_000_000_000
       })
     }
     const state: StructuredLaunchState = {
-      identity: 'synthetic-launch', intent, promptDelivery: 'auto-submit',
+      identity: 'synthetic-launch',
+      intent,
+      promptDelivery: 'auto-submit',
       callers: createStructuredLaunchCallerGroup({ kind: 'retry' }),
       promise: Promise.resolve({ sessionId: SESSION, fence: 7 }),
-      visibilityUnknown: false, cancelled: false,
+      visibilityUnknown: false,
+      cancelled: false,
       selection: { held: { serviceTier: 'first-advertised-id' } }
     }
     const prepared = prepareStructuredLaunchCreateMessage(state, true)

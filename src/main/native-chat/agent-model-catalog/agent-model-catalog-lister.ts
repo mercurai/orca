@@ -64,7 +64,10 @@ export function refreshAgentModelCatalogListing(input: {
   recordFailure: (fingerprint: string, detail: string, agent?: string) => void
 }): Promise<AgentModelCatalogEntry | null> {
   const { fingerprint, agent, lister, listModels } = input
-  const refresh: InFlightListings = input.refreshes.get(fingerprint) ?? { agent, listings: new Map() }
+  const refresh: InFlightListings = input.refreshes.get(fingerprint) ?? {
+    agent,
+    listings: new Map()
+  }
   const listers = refresh.listings
   const inFlight = independentAgentModelCatalog(agent)
     ? listers.values().next().value

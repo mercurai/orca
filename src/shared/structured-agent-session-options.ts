@@ -1,7 +1,5 @@
 import type { AgentSessionSpeed } from './agent-session-speed'
-import {
-  structuredAgentSessionOptionCatalog
-} from './structured-agent-session-speed'
+import { structuredAgentSessionOptionCatalog } from './structured-agent-session-speed'
 import type { AgentSessionOptionCatalog } from './agent-session-option-catalog'
 import { discoveredModel } from './structured-agent-session-discovered-model'
 import {
@@ -30,7 +28,11 @@ import {
 } from './structured-agent-session-option-codec'
 
 export { structuredAgentSessionOptionCatalog } from './structured-agent-session-speed'
-export { canSetStructuredAgentSessionOption, lockedStructuredAgentSessionOptionSnapshot, structuredAgentSessionOptionSnapshot } from './structured-agent-session-option-snapshot'
+export {
+  canSetStructuredAgentSessionOption,
+  lockedStructuredAgentSessionOptionSnapshot,
+  structuredAgentSessionOptionSnapshot
+} from './structured-agent-session-option-snapshot'
 
 export type StructuredAgentSessionOptionState = {
   speed?: AgentSessionSpeed

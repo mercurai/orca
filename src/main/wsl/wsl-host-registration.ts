@@ -70,7 +70,8 @@ export async function registerWslHost(
     distro,
     environmentId,
     connection,
-    isCurrent: () => generation === context.disableGeneration() && context.canRegister(environmentId),
+    isCurrent: () =>
+      generation === context.disableGeneration() && context.canRegister(environmentId),
     abandon: () => abandonWslHostAdd(context.wsl(), distro.name),
     publish: () => {
       const record = context.recordForEnvironment(environmentId)

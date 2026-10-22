@@ -58,12 +58,14 @@ export function liveWslOrcadPairingRepairDeps(
     },
     refresh: async (environmentId, pairingCode, expectedPairingRevision) => {
       const { localPort, remotePort } = record(environmentId)
-      return (await refreshWslHostPairing(userDataPath, environmentId, {
-        pairingCode,
-        localPort,
-        remotePort,
-        expectedPairingRevision
-      })).environment
+      return (
+        await refreshWslHostPairing(userDataPath, environmentId, {
+          pairingCode,
+          localPort,
+          remotePort,
+          expectedPairingRevision
+        })
+      ).environment
     },
     repaired: notifyManagedOrcadPairingRepaired,
     now: Date.now

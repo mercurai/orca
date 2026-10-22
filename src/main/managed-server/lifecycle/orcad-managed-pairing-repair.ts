@@ -43,7 +43,11 @@ export type ManagedOrcadPairingRepairDeps<
   readReadiness: (input: Access) => Promise<ServeReadiness | null>
   /** The bridge or tunnel ports the pairing names; defaults to the SSH deployment's. */
   ports?: (environment: KnownRuntimeEnvironment) => { localPort: number; remotePort: number } | null
-  refresh: (environmentId: string, pairingCode: string, expectedPairingRevision: number) => KnownRuntimeEnvironment | Promise<KnownRuntimeEnvironment>
+  refresh: (
+    environmentId: string,
+    pairingCode: string,
+    expectedPairingRevision: number
+  ) => KnownRuntimeEnvironment | Promise<KnownRuntimeEnvironment>
   /** Retires every transport still authenticating with the refused token, once per repair. */
   repaired: (environmentId: string) => void | Promise<void>
   now: () => number

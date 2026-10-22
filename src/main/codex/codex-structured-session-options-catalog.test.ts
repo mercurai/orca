@@ -74,7 +74,9 @@ function storeSession(
     turnOpenWaits: createCodexTurnOpenWaits(),
     translator: null,
     catalogAccess: {
-      store, fingerprint: FINGERPRINT, accountHomePath: '/homes/a',
+      store,
+      fingerprint: FINGERPRINT,
+      accountHomePath: '/homes/a',
       demand: async () => {
         if (store.shouldRefresh(FINGERPRINT)) {
           void store.refresh(FINGERPRINT, 'codex', probe, () =>

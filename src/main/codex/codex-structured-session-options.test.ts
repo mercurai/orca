@@ -434,6 +434,7 @@ describe('structured Codex session options', () => {
     await expect(readLiveCodexSessionOptions(session, undefined)).resolves.toMatchObject({
       current: { serviceTier: 'priority' }
     })
+    expect((await readLiveCodexSessionOptions(session, undefined)).current).not.toHaveProperty('fastMode')
     expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'priority' })
   })
 
