@@ -1,3 +1,8 @@
+import { SecureWriteSupersededError } from './secure-file-async-write'
+import {
+  captureEnvironmentStoreVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
 /**
  * The runtime environment behind a WSL host (C7): a plain paired environment whose pairing points
  * at the desktop end of the `wsl.exe` stdio bridge, plus its record in the WSL deployment store.
@@ -14,13 +19,15 @@ import {
   readEnvironmentStore,
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
-  writeEnvironmentStore
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store-file'
 import { resolveEnvironmentFromStore } from './runtime-environment-store'
 import { findCollidingEnvironmentName } from './runtime-environment-name-collision'
 import {
   readWslHostDeployments,
-  writeWslHostDeployment,
+  getWslHostDeploymentStorePath,
+  WslHostDeploymentStoreInvalidError,
+  writeWslHostDeploymentWithinMutation,
   type WslHostDeploymentRecord
 } from './wsl-host-deployment-store'
 
@@ -56,6 +63,12 @@ export function findWslHostDeployment(
 
 /** Registers a WSL host. Record first: a crash between the writes leaves an ownerless record. */
 export function addWslHostEnvironment(
+  ...args: Parameters<typeof addWslHostEnvironmentWithinMutation>
+): ReturnType<typeof addWslHostEnvironmentWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () => addWslHostEnvironmentWithinMutation(...args))
+}
+
+async function addWslHostEnvironmentWithinMutation(
   userDataPath: string,
   args: {
     id: string
@@ -63,8 +76,14 @@ export function addWslHostEnvironment(
     pairingCode: string
     record: Omit<WslHostDeploymentRecord, 'environmentId' | 'createdAt'>
     now?: number
+    shouldPublish?: () => boolean
   }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
+  const snapshotIsCurrent = captureEnvironmentStoreVersion(userDataPath)
+  const canPublish = (): boolean => snapshotIsCurrent() && args.shouldPublish?.() !== false
+  if (!canPublish()) {
+    throw new SecureWriteSupersededError('WSL environment mutation')
+  }
   const offer = parseBridgedPairing(args.pairingCode)
   const known = readEnvironmentStore(userDataPath).environments
   if (known.some((entry) => entry.id === args.id)) {
@@ -90,18 +109,27 @@ export function addWslHostEnvironment(
     runtimeId: null
   })
   assertPairingUsesBridge(environment, args.record.localPort)
-  writeWslHostDeployment(userDataPath, args.id, {
-    ...args.record,
-    environmentId: args.id,
-    createdAt: now
-  })
+  await writeWslHostDeploymentWithinMutation(
+    userDataPath,
+    args.id,
+    {
+      ...args.record,
+      environmentId: args.id,
+      createdAt: now
+    },
+    canPublish
+  )
   const persisted = PersistedRuntimeEnvironmentSchema.parse(environment)
-  writeEnvironmentStore(userDataPath, {
-    version: 1,
-    environments: [...readPersistedEnvironmentStore(userDataPath).environments, persisted].sort(
-      (a, b) => a.name.localeCompare(b.name)
-    )
-  })
+  await writeEnvironmentStoreAsync(
+    userDataPath,
+    {
+      version: 1,
+      environments: [...readPersistedEnvironmentStore(userDataPath).environments, persisted].sort(
+        (a, b) => a.name.localeCompare(b.name)
+      )
+    },
+    { shouldPublish: canPublish }
+  )
   return resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), args.id)
 }
 
@@ -110,29 +138,47 @@ export function addWslHostEnvironment(
  * Returns whether the pairing changed, so callers retire stale transports.
  */
 export function refreshWslHostPairing(
+  ...args: Parameters<typeof refreshWslHostPairingWithinMutation>
+): ReturnType<typeof refreshWslHostPairingWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () => refreshWslHostPairingWithinMutation(...args))
+}
+
+async function refreshWslHostPairingWithinMutation(
   userDataPath: string,
   environmentId: string,
-  args: { pairingCode: string } & WslHostPorts,
+  args: {
+    pairingCode: string
+    shouldPublish?: () => boolean
+    expectedPairingRevision?: number
+  } & WslHostPorts,
   now = Date.now()
-): { environment: KnownRuntimeEnvironment; pairingChanged: boolean } {
+): Promise<{ environment: KnownRuntimeEnvironment; pairingChanged: boolean }> {
+  const snapshotIsCurrent = captureEnvironmentStoreVersion(userDataPath)
+  const canPublish = (): boolean => snapshotIsCurrent() && args.shouldPublish?.() !== false
+  if (!canPublish()) {
+    throw new SecureWriteSupersededError('WSL environment mutation')
+  }
   const offer = parseBridgedPairing(args.pairingCode)
   const record = findWslHostDeployment(userDataPath, environmentId)
   if (!record) {
     throw new RuntimeEnvironmentStoreError('invalid_argument', 'This server is not a WSL host.')
   }
-  if (record.localPort !== args.localPort || record.remotePort !== args.remotePort) {
-    writeWslHostDeployment(userDataPath, environmentId, {
-      ...record,
-      localPort: args.localPort,
-      remotePort: args.remotePort
-    })
-  }
-  const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
-  if (samePairing(getPreferredPairingOffer(current), offer)) {
-    return { environment: current, pairingChanged: false }
-  }
   const store = readPersistedEnvironmentStore(userDataPath)
   const existing = resolveEnvironmentFromStore(store, environmentId)
+  if (
+    args.expectedPairingRevision !== undefined &&
+    (existing.pairingRevision ?? existing.createdAt) !== args.expectedPairingRevision
+  ) {
+    return {
+      environment: resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId),
+      pairingChanged: false
+    }
+  }
+
+  const changedPorts = record.localPort !== args.localPort || record.remotePort !== args.remotePort
+  const nextRecord = { ...record, localPort: args.localPort, remotePort: args.remotePort }
+  const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  const pairingChanged = !samePairing(getPreferredPairingOffer(current), offer)
   const next = PersistedRuntimeEnvironmentSchema.parse({
     ...createEnvironmentFromPairingOffer({
       id: existing.id,
@@ -146,12 +192,53 @@ export function refreshWslHostPairing(
     lastUsedAt: existing.lastUsedAt
   })
   assertPairingUsesBridge(next, args.localPort)
-  writeEnvironmentStore(userDataPath, {
-    version: 1,
-    environments: store.environments.map((candidate) =>
-      candidate.id === existing.id ? next : candidate
+  try {
+    if (changedPorts) {
+      await writeWslHostDeploymentWithinMutation(
+        userDataPath,
+        environmentId,
+        nextRecord,
+        canPublish
+      )
+    }
+    if (!pairingChanged) {
+      return {
+        environment: resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId),
+        pairingChanged: false
+      }
+    }
+    await writeEnvironmentStoreAsync(
+      userDataPath,
+      {
+        version: 1,
+        environments: store.environments.map((candidate) =>
+          candidate.id === existing.id ? next : candidate
+        )
+      },
+      { shouldPublish: canPublish }
     )
-  })
+  } catch (error) {
+    const currentRecord = findWslHostDeployment(userDataPath, environmentId)
+    const currentEnvironment = readPersistedEnvironmentStore(userDataPath).environments.find(
+      (candidate) => candidate.id === environmentId
+    )
+    // Restore only this transaction's first publication; a newer owner always wins.
+    if (
+      changedPorts &&
+      JSON.stringify(currentRecord) === JSON.stringify(nextRecord) &&
+      JSON.stringify(currentEnvironment) === JSON.stringify(existing)
+    ) {
+      try {
+        await writeWslHostDeploymentWithinMutation(userDataPath, environmentId, record)
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          'WSL pairing refresh and deployment rollback failed'
+        )
+      }
+    }
+    throw error
+  }
   return {
     environment: resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId),
     pairingChanged: true
@@ -159,15 +246,39 @@ export function refreshWslHostPairing(
 }
 
 /** Environment first: a crash between the writes leaves an ownerless record, never a bare server. */
-export function removeWslHostEnvironment(userDataPath: string, environmentId: string): void {
+export function removeWslHostEnvironment(
+  ...args: Parameters<typeof removeWslHostEnvironmentWithinMutation>
+): ReturnType<typeof removeWslHostEnvironmentWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    removeWslHostEnvironmentWithinMutation(...args)
+  )
+}
+
+async function removeWslHostEnvironmentWithinMutation(
+  userDataPath: string,
+  environmentId: string,
+  expectedCreatedAt?: number
+): Promise<void> {
+  if (
+    expectedCreatedAt !== undefined &&
+    findWslHostDeployment(userDataPath, environmentId)?.createdAt !== expectedCreatedAt
+  ) {
+    return
+  }
+  if (readWslHostDeployments(userDataPath).unreadableEnvironmentIds.has(environmentId)) {
+    throw new WslHostDeploymentStoreInvalidError(
+      getWslHostDeploymentStorePath(userDataPath),
+      environmentId
+    )
+  }
   const store = readPersistedEnvironmentStore(userDataPath)
   if (store.environments.some((entry) => entry.id === environmentId)) {
-    writeEnvironmentStore(userDataPath, {
+    await writeEnvironmentStoreAsync(userDataPath, {
       version: 1,
       environments: store.environments.filter((entry) => entry.id !== environmentId)
     })
   }
-  writeWslHostDeployment(userDataPath, environmentId, null)
+  await writeWslHostDeploymentWithinMutation(userDataPath, environmentId, null)
 }
 
 function samePairing(left: PairingOffer, right: PairingOffer): boolean {

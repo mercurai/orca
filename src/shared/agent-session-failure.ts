@@ -56,6 +56,8 @@ export const AGENT_SESSION_FAILURE_KINDS = [
   'commandUnavailable',
   'queueFull',
   'writeFailed',
+  'speedSupportUnknown',
+  'speedUnavailable',
   'cancelled',
   'chatClosed',
   'hostRestarted',

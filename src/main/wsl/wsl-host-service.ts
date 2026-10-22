@@ -1,3 +1,4 @@
+import { WslHostConnectionChanges } from './wsl-host-connection-change'
 /**
  * WSL distros as hosts (WSL-via-orcad C7): add and remove them, persist what each connection
  * reports, and connect only for the user. A stopped distro boots on an explicit add or connect,
@@ -16,7 +17,6 @@ import type {
   WslHostServerStop,
   WslHostStatus
 } from '../../shared/wsl-host-types'
-import type { WslHostDistroCandidate } from './wsl-host-distro-list'
 import { wslDistroHolderKey } from './wsl-distro-holder-record'
 import { persistWslHostConnection, toWslHostStatus } from './wsl-host-connection-record'
 import {
@@ -29,25 +29,8 @@ import type { WslOrcadConnection } from './wsl-orcad-connection'
 import { registerWslHost } from './wsl-host-registration'
 import type { WslOrcadConnectionStatus } from './wsl-orcad-connection-status'
 
-/** The WSL side the service drives: C3 holder, C5 connections, C6 liveness (or an e2e fake). */
-export type WslHostConnector = {
-  listDistros(): Promise<WslHostDistroCandidate[]>
-  /** Runs in the distro, so it boots a stopped one: only after the user chose to. */
-  readOrcadPublicKey(distro: string): Promise<string | null>
-  /** User-initiated; may boot the distro. An intent retries or forces a skipped update. */
-  connect(distro: string, options?: { intent?: WslHostConnectIntent }): Promise<WslOrcadConnection>
-  /** The user asked again: a standing pairing-repair failure or spent cap must not answer it. */
-  forgetPairingFailures?(environmentId: string): void
-  get(distro: string): WslOrcadConnection | null
-  /** Checks the paired server without starting a stopped or unconfirmed distro. */
-  isReachable(distro: string, environmentId: string): Promise<boolean>
-  disconnect(distro: string): Promise<void>
-  /** Ends the host's terminals, orcad and its terminal daemon; never boots a stopped distro. */
-  stopServer(distro: string, environmentId: string): Promise<WslHostServerStop>
-  releaseHolder(distro: string): Promise<void>
-  adoptHolders(): Promise<void>
-  dispose(): Promise<void>
-}
+import type { WslHostConnector } from './wsl-host-connector'
+export type { WslHostConnector } from './wsl-host-connector'
 
 export type WslHostServiceDependencies = {
   userDataPath: () => string
@@ -70,9 +53,25 @@ export class WslHostService {
   private readonly removing = new Set<string>()
   // Bumped on disable so an Add that started before it cannot finish as a ready host.
   private disableGeneration = 0
+  private readonly connectionChanges: WslHostConnectionChanges
   private readonly statusListeners = new Set<() => void>()
 
-  constructor(private readonly deps: WslHostServiceDependencies) {}
+  constructor(private readonly deps: WslHostServiceDependencies) {
+    this.connectionChanges = new WslHostConnectionChanges({
+      record: (distro) => this.recordForDistro(distro),
+      generation: () => this.disableGeneration,
+      current: (record, generation) => this.connectionIsCurrent(record, generation),
+      persist: (record, connection, current) =>
+        persistWslHostConnection(deps.userDataPath(), record, connection, current),
+      pairingChanged: deps.pairingChanged,
+      publish: (record, status, connection) => {
+        this.setStatus(record, status, connection)
+        if (status.state === 'ready' && connection) {
+          deps.ready(record.environmentId)
+        }
+      }
+    })
+  }
 
   /** Two-phase so the connector's `onChange` can call back into this service. */
   attach(connector: WslHostConnector): void {
@@ -91,18 +90,19 @@ export class WslHostService {
     distro: string,
     connection: WslOrcadConnection | null,
     status: WslOrcadConnectionStatus
-  ): void {
-    const record = this.recordForDistro(distro)
-    if (!record) {
-      return
-    }
-    if (connection && persistWslHostConnection(this.deps.userDataPath(), record, connection)) {
-      this.deps.pairingChanged(record.environmentId)
-    }
-    this.setStatus(record, status, connection)
-    if (status.state === 'ready' && connection) {
-      this.deps.ready(record.environmentId)
-    }
+  ): Promise<void> {
+    return this.connectionChanges.handle(distro, connection, status)
+  }
+
+  private connectionIsCurrent(record: WslHostDeploymentRecord, generation: number): boolean {
+    const owner = this.recordForEnvironment(record.environmentId)
+    return (
+      this.disableGeneration === generation &&
+      !this.removing.has(record.environmentId) &&
+      owner?.createdAt === record.createdAt &&
+      owner.distroId === record.distroId &&
+      this.canRun()
+    )
   }
 
   getStatuses(): WslHostStatus[] {
@@ -144,6 +144,7 @@ export class WslHostService {
         deps: this.deps,
         wsl: () => this.wsl,
         disableGeneration: () => this.disableGeneration,
+        canRegister: (environmentId) => this.canRun() && !this.removing.has(environmentId),
         recordForDistro: (distro) => this.recordForDistro(distro),
         recordForEnvironment: (environmentId) => this.recordForEnvironment(environmentId),
         setReady: (record, connection) =>
@@ -173,7 +174,7 @@ export class WslHostService {
         // Without its holder the distro idles out.
         await connector.releaseHolder(record.distro)
       }
-      removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
+      await removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
       this.visible.delete(environmentId)
     } finally {
       // Why: a failed removal (e.g. EBUSY on Windows) must leave the host usable and removable.

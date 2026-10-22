@@ -28,8 +28,8 @@ afterEach(() => {
 })
 
 describe('WSL move background backoff', () => {
-  beforeEach(() => {
-    seedWslMoveCutover(
+  beforeEach(async () => {
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-1', 'source-fenced', {}, { repoIds: ['repo-1'], folderWorkspaceIds: ['notes'] })
     )
@@ -81,11 +81,11 @@ it('backs off a folder workspace at a WSL path when the journal is unreadable', 
   expect(isWslMoveWorktreeBlocked('folder:notes', 'ssh:target-1', WSL_PATH)).toBe(false)
 })
 
-it('tells a move in flight from a project the WSL host owns', () => {
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+it('tells a move in flight from a project the WSL host owns', async () => {
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
   expect(wslMoveRepoBackoff({ id: 'repo-1', path: '/a' })).toBe('moving')
   expect(wslMoveRepoBackoff({ id: 'repo-2', path: '/a' })).toBeNull()
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
   expect(wslMoveRepoBackoff({ id: 'repo-1', path: '/a' })).toBe('owned')
   expect(wslMoveRepoBackoff({ id: 'repo-1', path: '/a', ...onSsh })).toBeNull()
 })

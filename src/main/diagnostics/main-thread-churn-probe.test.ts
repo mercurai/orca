@@ -77,11 +77,13 @@ describe('classifySubprocessCommand', () => {
 })
 
 describe('recordSubprocessSpawn', () => {
-  it('is a no-op when the diagnostics env var is unset', () => {
+  it('records even when the diagnostics env var is unset', () => {
     vi.stubEnv(MAIN_THREAD_DIAGNOSTICS_ENV, '')
     expect(isMainThreadDiagnosticsEnabled()).toBe(false)
     recordSubprocessSpawn('git', ['status'], 1)
-    expect(drainSubprocessSpawnStats()).toEqual({})
+    expect(drainSubprocessSpawnStats()).toEqual({
+      'git status': { count: 1, blockMsTotal: 1, blockMsMax: 1 }
+    })
   })
 
   it('aggregates count and block time per command, and drain resets', () => {

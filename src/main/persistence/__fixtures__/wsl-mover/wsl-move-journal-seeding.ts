@@ -12,7 +12,10 @@ import {
 } from '../../moving-wsl-projects/wsl-move-cutover-journal'
 import { setWslMoveDesktopRewriteRegistryCompleteForTests } from '../../moving-wsl-projects/wsl-move-desktop-rewrite-stores'
 
-export function seedWslMoveCutover(userDataPath: string, cutover: WslMoveCutover): void {
+export async function seedWslMoveCutover(
+  userDataPath: string,
+  cutover: WslMoveCutover
+): Promise<void> {
   const existing = listWslMoveCutovers(userDataPath).find(
     (entry) => entry.migrationId === cutover.migrationId
   )
@@ -28,13 +31,13 @@ export function seedWslMoveCutover(userDataPath: string, cutover: WslMoveCutover
     for (const phase of WSL_MOVE_CUTOVER_PHASES.slice(from, to + 1)) {
       const index = WSL_MOVE_CUTOVER_PHASES.indexOf(phase)
       // The ledger only grows inside the rewrite phase, so earlier phases carry none of it.
-      writeWslMoveCutover(userDataPath, {
+      await writeWslMoveCutover(userDataPath, {
         ...cutover,
         phase,
         rewrittenStores: index <= rewriteFrom ? [] : ledger
       })
       if (index === rewriteFrom) {
-        writeWslMoveCutover(userDataPath, { ...cutover, phase, rewrittenStores: ledger })
+        await writeWslMoveCutover(userDataPath, { ...cutover, phase, rewrittenStores: ledger })
       }
     }
   } finally {

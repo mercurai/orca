@@ -197,8 +197,8 @@ describe('the incumbent terminal count across restarts', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-incumbent-registry-'))
     try {
       const registry = new DeviceRegistry(dir)
-      const enrolled = registry.getOrCreatePendingDevice('CLI', 'runtime')
-      registry.updateLastSeen(enrolled.deviceId)
+      const enrolled = await registry.getOrCreatePendingDevice('CLI', 'runtime')
+      await registry.updateLastSeen(enrolled.deviceId)
       const paired = parsePairingCode(
         encodePairingOffer({
           v: 2,

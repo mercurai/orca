@@ -20,14 +20,14 @@ const SEALED = Buffer.from('enc:fake-legacy-key').toString('base64')
 function memoryStore(initial: string | null = null): {
   has: () => boolean
   read: () => string | null
-  save: Mock<(key: string) => void>
+  save: Mock<(key: string) => Promise<void>>
   value: () => string | null
 } {
   let saved = initial
   return {
     has: () => saved !== null,
     read: () => saved,
-    save: vi.fn((key: string) => {
+    save: vi.fn(async (key: string) => {
       saved = key
     }),
     value: () => saved
@@ -63,13 +63,13 @@ describe('retainLegacyOpenCodeGoApiKey', () => {
     expect(secretStore.decryptString).not.toHaveBeenCalled()
   })
 
-  it('seals a #22551 plaintext key before parking it, and migration still recovers it', () => {
+  it('seals a #22551 plaintext key before parking it, and migration still recovers it', async () => {
     const secrets = parked('sk-fake-plaintext-key')
 
     const blob = secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)
     expect(blob).toBe(Buffer.from('enc:sk-fake-plaintext-key').toString('base64'))
     const store = memoryStore()
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
     expect(store.value()).toBe('sk-fake-plaintext-key')
   })
 
@@ -94,29 +94,29 @@ describe('retainLegacyOpenCodeGoApiKey', () => {
 })
 
 describe('migrateLegacyOpenCodeGoApiKey', () => {
-  it('saves the key into an empty store, then releases the legacy value', () => {
+  it('saves the key into an empty store, then releases the legacy value', async () => {
     const secrets = parked()
     const store = memoryStore()
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
     expect(store.value()).toBe('fake-legacy-key')
     expect(secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)).toBeNull()
   })
 
-  it('is idempotent: a second run has nothing left to move', () => {
+  it('is idempotent: a second run has nothing left to move', async () => {
     const secrets = parked()
     const store = memoryStore()
 
-    migrateLegacyOpenCodeGoApiKey(secrets, store)
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
+    await migrateLegacyOpenCodeGoApiKey(secrets, store)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
     expect(store.save).toHaveBeenCalledOnce()
   })
 
-  it('never overwrites a readable key already saved in the store, and releases the legacy value', () => {
+  it('never overwrites a readable key already saved in the store, and releases the legacy value', async () => {
     const secrets = parked()
     const store = memoryStore('fake-current-key')
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
     expect(store.save).not.toHaveBeenCalled()
     expect(store.value()).toBe('fake-current-key')
     expect(secretStore.decryptString).not.toHaveBeenCalled()
@@ -125,7 +125,7 @@ describe('migrateLegacyOpenCodeGoApiKey', () => {
     )
   })
 
-  it('keeps the legacy value when the existing store file cannot be read by this build', () => {
+  it('keeps the legacy value when the existing store file cannot be read by this build', async () => {
     const secrets = parked()
     const store = {
       ...memoryStore('fake-other-build-key'),
@@ -134,37 +134,37 @@ describe('migrateLegacyOpenCodeGoApiKey', () => {
       }
     }
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
     expect(store.save).not.toHaveBeenCalled()
     expect(secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)).toBe(SEALED)
   })
 
-  it('keeps the ciphertext while safeStorage is unavailable so a later startup retries', () => {
+  it('keeps the ciphertext while safeStorage is unavailable so a later startup retries', async () => {
     const secrets = parked()
     const store = memoryStore()
     secretStore.isEncryptionAvailable.mockReturnValue(false)
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
     expect(secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)).toBe(SEALED)
 
     secretStore.isEncryptionAvailable.mockReturnValue(true)
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
     expect(store.value()).toBe('fake-legacy-key')
   })
 
-  it('keeps the ciphertext after a definitive decrypt failure', () => {
+  it('keeps the ciphertext after a definitive decrypt failure', async () => {
     const secrets = parked()
     const store = memoryStore()
     secretStore.decryptString.mockImplementation(() => {
       throw new Error('bad key')
     })
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
     expect(store.save).not.toHaveBeenCalled()
     expect(secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)).toBe(SEALED)
   })
 
-  it('moves a plaintext key #22551 accepted when it failed to decrypt', () => {
+  it('moves a plaintext key #22551 accepted when it failed to decrypt', async () => {
     secretStore.isEncryptionAvailable.mockReturnValue(false)
     const secrets = parked('sk-fake-plaintext-key')
     secretStore.isEncryptionAvailable.mockReturnValue(true)
@@ -173,27 +173,27 @@ describe('migrateLegacyOpenCodeGoApiKey', () => {
       throw new Error('not ciphertext')
     })
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(true)
     expect(store.value()).toBe('sk-fake-plaintext-key')
   })
 
-  it('keeps the ciphertext when the store cannot save, without logging the key', () => {
+  it('keeps the ciphertext when the store cannot save, without logging the key', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const secrets = parked()
     const store = {
       has: () => false,
       read: () => null,
-      save: () => {
+      save: async () => {
         throw new Error('disk full')
       }
     }
 
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, store)).toBe(false)
     expect(secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)).toBe(SEALED)
     expect(JSON.stringify(warn.mock.calls)).not.toContain('fake-legacy-key')
 
     const working = memoryStore()
-    expect(migrateLegacyOpenCodeGoApiKey(secrets, working)).toBe(true)
+    expect(await migrateLegacyOpenCodeGoApiKey(secrets, working)).toBe(true)
     expect(working.value()).toBe('fake-legacy-key')
     expect(secrets.sealedBlob(LEGACY_OPENCODE_GO_API_KEY_SLOT)).toBeNull()
   })

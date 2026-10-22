@@ -12529,6 +12529,7 @@
           "hourlyWarning": "Hourly builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.",
           "dailyWarning": "Daily builds ship straight from main with no test gate, and the Windows ones are unsigned. Keep a stable build handy.",
           "adhocWarning": "Adhoc builds come from a branch that has not landed, and the Windows ones are unsigned. Whoever cut one may abandon it — keep a stable build handy.",
+          "mercuraiWarning": "Mercurai builds are the fork's own Windows builds, published by CI and unsigned. Keep a stable build handy.",
           "loadingBuilds": "Loading builds…",
           "noBuilds": "No builds found",
           "refresh": "Refresh build list",
@@ -18807,6 +18808,8 @@
         "couldNotStopTheAgent": "Couldn't stop the agent.",
         "noTurnToStop": "{{agent}} had no turn running to stop.",
         "answerUnconfirmed": "Your answer was recorded but the agent did not confirm it.",
+        "speedSupportUnknown": "Orca has not verified the selected speed for this model and account. Refresh the model catalog or choose Standard, then send again.",
+        "speedUnavailable": "The selected speed is unavailable for this model and account. Refresh the model catalog or choose Standard, then send again.",
         "hostFault": "Orca ran into a problem, so this didn't go through.",
         "hostFaultTryAgain": "Orca ran into a problem, so this didn't go through. Try again.",
         "hostStopped": "{{agent}} never finished starting, so Orca stopped it.",
@@ -19070,6 +19073,20 @@
           "minimal": "Min",
           "medium": "Med",
           "xhigh": "XHigh"
+        },
+        "speedStatus": {
+          "nextTurn": "Next turn: {{speed}}",
+          "loading": "Checking speed support…",
+          "unknown": "Speed support unknown. Refresh the catalog or choose Standard.",
+          "unavailable": "Selected speed is unavailable. Refresh the catalog or choose Standard.",
+          "available": "Speed available for the next turn.",
+          "applied": "Last host-applied speed: {{speed}}",
+          "processingUnknown": "Actual processing: unknown",
+          "processingReported": "Actual processing: {{speed}}",
+          "pendingFast": "Fast (awaiting catalog)",
+          "providerDefault": "Provider default",
+          "waitForChange": "Wait for the speed change to finish before sending, or update Orca on the execution host.",
+          "recoveryStorage": "Could not restore the unsent message. Free storage and retry; its saved recovery copy is retained."
         },
         "imageUnavailable": "Preview unavailable"
       },

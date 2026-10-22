@@ -129,7 +129,7 @@ beforeEach(() => {
         throw new Error('deploy without a fence')
       }
       if (!listEnvironments(path).some((entry) => entry.id === owner)) {
-        addManagedOrcadEnvironment(path, {
+        await addManagedOrcadEnvironment(path, {
           id: owner,
           name: args.name,
           pairingCode: encodePairingOffer({
@@ -360,14 +360,14 @@ describe('moving onto a server another desktop already added the same project to
 // #29560: `orca environment stop` unlinks the server but leaves its profile on the host.
 describe('moving the host again after its server was stopped', () => {
   // The local half of stop (unlinkEnvironmentLocally); the server keeps its profile.
-  function stopServer(): void {
+  async function stopServer(): Promise<void> {
     const owner = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))
     if (!owner) {
       throw new Error('no managed server to stop')
     }
-    removeManagedOrcadEnvironment(userDataPath, owner)
+    await removeManagedOrcadEnvironment(userDataPath, owner)
     targetStore.getOrcadRuntimeClaims().release(TARGET.id, owner)
-    removeOrcadMigrationJournalsForDestination(userDataPath, TARGET.id, owner)
+    await removeOrcadMigrationJournalsForDestination(userDataPath, TARGET.id, owner)
   }
 
   it('links the projects the server kept from the first move instead of conflicting', async () => {
@@ -379,7 +379,7 @@ describe('moving the host again after its server was stopped', () => {
     server.setWorktreeMeta(onServer('desktop-repo::/root/migrepo'), {
       comment: 'edited on the server'
     })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({
       outcome: 'converted',
@@ -437,7 +437,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, groupId)).toBe('Renamed on the server')
@@ -450,7 +450,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     store.addRepo(repo('added-after-stop', '/root/later'))
     store.moveProjectToGroup(store.getRepo('added-after-stop')!, groupId)
 
@@ -463,7 +463,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await convert()
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     await convert()
     store.addRepo(repo('added-later', '/root/later'))
     reconcileManagedOrcadSshTargets(userDataPath, store)
@@ -490,7 +490,7 @@ describe('moving the host again after its server was stopped', () => {
     store.moveProjectToGroup(store.getRepo('desktop-repo')!, child.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
-    stopServer()
+    await stopServer()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
 
@@ -504,7 +504,7 @@ describe('moving the host again after its server was stopped', () => {
   it('still moves a later folder workspace that takes its host from the server’s group', async () => {
     const groupId = groupDesktopRepo()
     await convert()
-    stopServer()
+    await stopServer()
     await convert()
     const folder = store.createFolderWorkspace({
       projectGroupId: groupId,
@@ -535,7 +535,7 @@ describe('moving the host again after its server was stopped', () => {
     })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateFolderWorkspace(folder.id, { comment: 'edited on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getFolderWorkspace(folder.id)?.comment).toBe('edited on the server')
@@ -546,7 +546,7 @@ describe('moving the host again after its server was stopped', () => {
     const group = targetGroup('Empty')
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, group.id)).toBe('Renamed on the server')
@@ -562,7 +562,7 @@ describe('moving the host again after its server was stopped', () => {
     const child = targetGroup('Child', parent.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
@@ -573,7 +573,7 @@ describe('moving the host again after its server was stopped', () => {
     const group = targetGroup('Empty')
     await convert()
     server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     const remoteCopy = server.getProjectGroups().find((entry) => entry.id === group.id)!
     // The server's row sits on one of its own SSH hosts, so it is not this desktop's group.
     const serverCatalog = async () => ({
@@ -597,7 +597,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await convert()
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     const folder = store.createFolderWorkspace({
       projectGroupId: groupId,
@@ -630,7 +630,7 @@ describe('moving the host again after its server was stopped', () => {
       const groupId = groupDesktopRepo()
       await convert()
       if (relink) {
-        stopServer()
+        await stopServer()
         await convert()
       }
       server.moveProjectToGroup(server.getRepo('desktop-repo')!, null)
@@ -793,7 +793,7 @@ describe('moving the host again after its SSH target was deleted and re-created'
 })
 
 describe('what a linked project leaves behind', () => {
-  it('counts this desktop’s automations on each linked project only', () => {
+  it('counts this desktop’s automations on each linked project only', async () => {
     const runIn = (repoId: string) => ({
       kind: 'workspace-run' as const,
       projectId: repoId,
@@ -829,18 +829,18 @@ describe('which projects are the same checkout', () => {
   const incoming = [{ id: 'mine', path: '/root/app' }]
   const NONE = { otherId: [], sameId: [] }
 
-  it('links the same absolute path on the host, spelled with a trailing slash', () => {
+  it('links the same absolute path on the host, spelled with a trailing slash', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/app/' }])).toEqual({
       otherId: ['mine'],
       sameId: []
     })
   })
 
-  it('keeps a POSIX path that differs only in case apart', () => {
+  it('keeps a POSIX path that differs only in case apart', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/App' }])).toEqual(NONE)
   })
 
-  it('folds case on a Windows host', () => {
+  it('folds case on a Windows host', async () => {
     expect(
       repositoriesHeldByServer(
         [{ id: 'mine', path: 'C:\\src\\app' }],
@@ -849,14 +849,14 @@ describe('which projects are the same checkout', () => {
     ).toEqual({ otherId: ['mine'], sameId: [] })
   })
 
-  it('tells apart a project the server holds under the same id', () => {
+  it('tells apart a project the server holds under the same id', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'mine', path: '/root/app' }])).toEqual({
       otherId: [],
       sameId: ['mine']
     })
   })
 
-  it('does not link a different path', () => {
+  it('does not link a different path', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/app2' }])).toEqual(NONE)
   })
 })
@@ -879,26 +879,26 @@ describe('which folder workspaces the server already holds', () => {
       serverRepos
     )
 
-  it('links the same id at the same folder', () => {
+  it('links the same id at the same folder', async () => {
     expect(held({})).toEqual(['notes'])
   })
 
-  it('keeps a same-id row at another folder apart, so the server refuses it', () => {
+  it('keeps a same-id row at another folder apart, so the server refuses it', async () => {
     expect(held({ folderPath: '/root/other' })).toEqual([])
   })
 
-  it('keeps a same-path row under another id apart', () => {
+  it('keeps a same-path row under another id apart', async () => {
     expect(held({ id: 'other' })).toEqual([])
   })
 
-  it('keeps a row whose files are on another host apart', () => {
+  it('keeps a row whose files are on another host apart', async () => {
     expect(held({ connectionId: 'nested-target' })).toEqual([])
     expect(held({ executionHostId: 'ssh:nested-target' })).toEqual([])
     expect(held({}, [], { connectionId: 'nested-target' })).toEqual([])
   })
 
   // Codex repro: a bare row its group's nested SSH project places on another host.
-  it('keeps a bare row apart when its group puts it on another host', () => {
+  it('keeps a bare row apart when its group puts it on another host', async () => {
     const nested = { id: 'r', path: '/srv/app', projectGroupId: 'group', connectionId: 'nested' }
     expect(held({}, [nested])).toEqual([])
     expect(held({}, [{ ...nested, connectionId: null }])).toEqual(['notes'])

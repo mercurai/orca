@@ -76,6 +76,7 @@ describe('model catalog prewarm', () => {
     // A picker opening while the prewarm lists joins it instead of spawning a second listing.
     expect(await service.read({ agent: 'codex' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     codexListed.resolve(listing('gpt-a'))
@@ -216,7 +217,7 @@ describe('model catalog prewarm', () => {
     })
     versionChecked.resolve()
     await prewarmed
-    expect(opened).toEqual({ origin: 'unknown', listingInProgress: true })
+    expect(opened).toEqual({ origin: 'unknown', catalogState: 'loading', listingInProgress: true })
     expect((await waited).origin).toBe('probe')
     expect(probe).toHaveBeenCalledTimes(1)
     expect(probe).toHaveBeenCalledWith(HOME('OPENCODE_HOME', '/homes/a'), {
@@ -310,6 +311,7 @@ describe('model catalog prewarm', () => {
     // Its first chat still lists it on demand.
     expect(await service.read({ agent: 'pi' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     expect(probes.pi).toHaveBeenCalledTimes(1)
@@ -349,7 +351,10 @@ describe('model catalog prewarm', () => {
     expect(signals.every((signal) => signal.aborted)).toBe(true)
 
     // A read or another prewarm after stop spawns nothing.
-    expect(await service.read({ agent: 'grok' })).toEqual({ origin: 'unknown' })
+    expect(await service.read({ agent: 'grok' })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     hasChatRecords.mockClear()
     await service.prewarm()
     expect(started).toEqual(['codex', 'claude'])

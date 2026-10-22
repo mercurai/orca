@@ -9,7 +9,7 @@ import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
 export function codexAcquireCatalogAccess(
   deps: Pick<
     CodexStructuredSessionAdapterDeps,
-    'modelCatalog' | 'readModelCatalog' | 'demandModelCatalog'
+    'modelCatalog' | 'readModelCatalog' | 'demandModelCatalog' | 'isModelCatalogListing'
   >,
   launch: Pick<CodexStructuredLaunch, 'codexHome'>,
   sessionId?: string
@@ -23,6 +23,7 @@ export function codexAcquireCatalogAccess(
   return access && sessionId
     ? {
         ...access,
+        ...(deps.isModelCatalogListing ? { isListing: () => deps.isModelCatalogListing?.(sessionId) ?? false } : {}),
         ...(deps.readModelCatalog
           ? {
               read: (verifiedOnly?: boolean) =>
