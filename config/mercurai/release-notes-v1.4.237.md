@@ -18,9 +18,9 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`762af1b09d9f61cee8d39e1ccaac1d25a339cb48`. Do not merge the comparison PR into its CI base.
-Local linear patch `d010f7f476d4466ca8ea95a583eb8c643c6c5548` has the identical tree
-`698a3a64e64ef16fac57e8e76f4638ca7624fb60`; the patch branch is pushed, while candidate verification remains pending.
+`a53250ad62ce2ec1735ed36d35aa79c385d36a56`. Do not merge the comparison PR into its CI base.
+Local linear patch `f04c812e03768e764fee33cf952ea7dbd5a51de6` has the identical tree
+`975618366a1d9d29b6ffb0fef3ff1bcac3932f88`; the patch branch is pushed, while candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -51,7 +51,10 @@ Previous candidates failed CI. Reviewed discovery, launch, lifecycle and queued-
 are included; current-head CI is newly submitted. The previous full product suite failed;
 reviewed async/fixture corrections and strict speed-refusal assertions address those failures.
 Ubuntu WSL setup timed out twice before Orca acceptance; phase diagnostics are included,
-and no successful Ubuntu acceptance is claimed. Earlier passing checks do not approve this revision.
+and no successful Ubuntu acceptance is claimed. Diagnostics located the stall in rootfs
+download, before import; bounded native curl replaces the stalled client while preserving
+the pinned checksum and setup deadline. Windows launcher fixtures handle the platform suffix.
+Retained-row calculations moved unchanged to a focused module to preserve the file-size gate. Earlier passing checks do not approve this revision.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
 and Windows package checks must pass at the frozen candidate before publication.
