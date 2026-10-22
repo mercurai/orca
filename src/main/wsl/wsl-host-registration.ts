@@ -71,8 +71,18 @@ export async function registerWslHost(
     environmentId,
     connection,
     isCurrent: () =>
-      generation === context.disableGeneration() && context.canRegister(environmentId),
-    abandon: () => abandonWslHostAdd(context.wsl(), distro.name),
+      generation === context.disableGeneration() &&
+      context.canRegister(environmentId) &&
+      context.wsl().get(distro.name) === connection,
+    abandon: async () => {
+      const connector = context.wsl()
+      const current = connector.get(distro.name)
+      if (current && current !== connection) {
+        await connection.close().catch(() => {})
+        return
+      }
+      await abandonWslHostAdd(connector, distro.name)
+    },
     publish: () => {
       const record = context.recordForEnvironment(environmentId)
       if (record) {
