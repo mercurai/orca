@@ -95,13 +95,22 @@ function composeLiveCodexCatalog(
       : {})
   })
   const { fastMode: catalogFastMode, ...current } = catalog.current
-  const fastMode = serviceTier !== undefined
-    ? codexFastModeOfServiceTier(serviceTier, listing.models.find((entry) => entry.id === model))
-    : catalogFastMode
+  const fastMode =
+    serviceTier !== undefined
+      ? codexFastModeOfServiceTier(
+          serviceTier,
+          listing.models.find((entry) => entry.id === catalog.current.model)
+        )
+      : catalogFastMode
   return {
     ...catalog,
     fastModeSupport: listing.fastModeSupport,
-    current: { ...current, ...(serviceTier !== undefined ? { serviceTier } : {}), ...(typeof fastMode === 'boolean' ? { fastMode } : {}), ...(pendingFast ? { fastMode: true } : {}) },
+    current: {
+      ...current,
+      ...(serviceTier !== undefined ? { serviceTier } : {}),
+      ...(typeof fastMode === 'boolean' ? { fastMode } : {}),
+      ...(pendingFast ? { fastMode: true } : {})
+    },
     speed: readCodexSessionSpeed(session, listing)
   }
 }
