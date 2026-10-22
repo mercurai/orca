@@ -112,6 +112,24 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  ubuntu-rootfs:
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
+    name: Fetch the pinned Ubuntu rootfs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download and verify the Ubuntu image
+        run: |
+          mkdir -p rootfs
+          curl --fail --location --silent --show-error --connect-timeout 30 --max-time 480 --output rootfs/ubuntu.wsl "$ROOTFS_URL"
+          printf '%s  %s\n' "$ROOTFS_SHA256" rootfs/ubuntu.wsl | sha256sum --check --strict
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wsl-orcad-rootfs-ubuntu-24.04
+          path: rootfs/ubuntu.wsl
+          retention-days: 1
+          if-no-files-found: error
+
   # Container images ship no systemd, so these families run the systemd-off distro only.
   container-rootfs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft != true
@@ -145,7 +163,7 @@ jobs:
 
   wsl2:
     name: WSL2 distro (${{ matrix.family }})
-    needs: [template, container-rootfs]
+    needs: [template, ubuntu-rootfs, container-rootfs]
     runs-on: windows-2025
     timeout-minutes: 45
     strategy:
@@ -225,15 +243,7 @@ jobs:
           $match = [regex]::Match($details, '(?m)^WSL version:\s*(\d+(?:\.\d+){2,3})\s*$')
           if (-not $match.Success) { throw 'Could not parse the WSL version' }
           if ([version]$match.Groups[1].Value -lt [version]'3.0.1') { throw "WSL $($match.Groups[1].Value) is older than 3.0.1" }
-      - name: Restore the pinned rootfs
-        id: rootfs-cache
-        if: ${{ matrix.family == 'ubuntu-24.04' }}
-        uses: actions/cache/restore@v5
-        with:
-          path: ${{ runner.temp }}/wsl-rootfs
-          key: wsl-orcad-rootfs-${{ env.ROOTFS_SHA256 }}
       - uses: actions/download-artifact@v8
-        if: ${{ matrix.family != 'ubuntu-24.04' }}
         with:
           name: wsl-orcad-rootfs-${{ matrix.family }}
           path: ${{ runner.temp }}/wsl-rootfs
@@ -249,11 +259,6 @@ jobs:
             $rootfs = Join-Path $cache 'rootfs.tar'
           } else {
             $rootfs = Join-Path $cache 'ubuntu.wsl'
-            Write-Output 'WSL setup phase: Ubuntu rootfs download'
-            if (-not (Test-Path $rootfs)) {
-              & "$env:WINDIR\System32\curl.exe" --fail --location --silent --show-error --connect-timeout 30 --max-time 180 --retry 2 --retry-max-time 360 --output $rootfs $env:ROOTFS_URL
-              if ($LASTEXITCODE -ne 0) { throw "Ubuntu rootfs download failed: $LASTEXITCODE" }
-            }
             Write-Output 'WSL setup phase: Ubuntu rootfs checksum'
             if ((Get-FileHash $rootfs -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:ROOTFS_SHA256) {
               Remove-Item $rootfs; throw 'rootfs checksum mismatch'
@@ -302,13 +307,6 @@ jobs:
           name: wsl-orcad-template
           path: ${{ runner.temp }}/orcad-template
       - wait: import
-      # Saved even when the lane fails; the import step verified its checksum.
-      - name: Save the pinned rootfs
-        if: ${{ matrix.family == 'ubuntu-24.04' && steps.rootfs-cache.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v5
-        with:
-          path: ${{ runner.temp }}/wsl-rootfs
-          key: wsl-orcad-rootfs-${{ env.ROOTFS_SHA256 }}
       - name: Isolate the desktop test home
         run: |
           New-Item -ItemType Directory -Force $env:ORCA_WSL_ORCAD_LANE_RECEIPTS | Out-Null
