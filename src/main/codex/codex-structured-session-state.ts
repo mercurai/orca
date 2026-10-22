@@ -1,6 +1,7 @@
 import type { CodexSpeedRequestState } from './codex-structured-speed-state'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
+import type { StructuredAgentSessionAtRestCommands } from '../native-chat/agent-session-wire/structured-agent-session-at-rest-commands'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import type {
   AgentJournalAnsweredTurnIdentity,
@@ -21,6 +22,7 @@ import {
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import type { AgentChildWorkEvidence } from '../../shared/agent-status-child-work-evidence'
 import type { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
+import type { CodexSkillReport } from './codex-structured-skill-report'
 import type { CodexJournalTranslator } from './codex-structured-journal-translation'
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { CodexStructuredPermissionPolicy } from './codex-structured-permission-policy'
@@ -31,8 +33,12 @@ import type {
 } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import type { StructuredAgentSessionProviderOpen } from '../native-chat/agent-session-wire/structured-agent-session-provider-open-contract'
 import type { NativeChatVisualsLaunch } from '../native-chat/native-chat-visuals-delivery'
+import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 
-export type CodexSessionCatalogAccess = AgentModelCatalogSessionAccess
+export type CodexSessionCatalogAccess = AgentModelCatalogSessionAccess & {
+  read?: (verifiedOnly?: boolean) => ReturnType<AgentModelCatalogStore['get']>
+  demand?: (legacy?: boolean) => Promise<unknown>
+}
 
 export type CodexStructuredLaunch = {
   command: string
@@ -40,7 +46,6 @@ export type CodexStructuredLaunch = {
   cwd: string
   codexHome: string | null
   resumeThreadId: string | null
-  resumePath?: string | null
   /** The resumed thread is this session's own creation: when Codex answers that it holds no
    *  rollout for it, start a new thread in its place. Never set for a thread a resume proved. */
   supersedeIfUnsaved?: boolean
@@ -95,6 +100,8 @@ export type CodexStructuredSessionEvent =
 
 export type CodexStructuredSessionAdapterDeps = {
   resolveAccountKind?: (home: string) => AgentSessionAccountKind | undefined
+  /** What a resting Codex chat's menu lists, as Codex itself would list it there. */
+  atRestCommands?: StructuredAgentSessionAtRestCommands
   resolveLaunch: (input: StructuredLaunchRequest) => Promise<CodexStructuredLaunch>
   onEvent?: (event: CodexStructuredSessionEvent) => void
   /** Where bookkeeping a close or exit does after the child is gone reports a failure. */
@@ -127,9 +134,15 @@ export type CodexStructuredSessionAdapterDeps = {
   requestTimeoutMs?: number
   /** Host model catalog; sessions write their listings through and read back. */
   modelCatalog?: AgentModelCatalogStore
+  readModelCatalog?: (
+    sessionId: string,
+    verifiedOnly?: boolean
+  ) => ReturnType<AgentModelCatalogStore['get']>
+  demandModelCatalog?: (sessionId: string, legacy?: boolean) => Promise<unknown>
 }
 
 export type CodexSession = CodexSpeedRequestState & {
+  events?: StructuredAgentSessionEventSink
   account?: AgentSessionAccountKind
   connection: CodexAppServerConnection
   ended: boolean
@@ -159,8 +172,8 @@ export type CodexSession = CodexSpeedRequestState & {
     serviceTier?: string | null
     serviceTierKnown?: true
   }
-  /** A fresh thread opened without a model override proved these native defaults. */
-  nativeDefaults?: { model?: string; effort?: string; personality?: string; serviceTier?: string }
+  /** The configured personality and tier a reset returns to, read before the first override. */
+  nativeDefaults?: { personality?: string; serviceTier?: string }
   /** Overrides actually attempted on this child, independently of future saved picks. */
   appliedTurnOptions?: Readonly<Record<string, string>>
   /** Absent when the adapter runs without a host catalog store (tests). */
@@ -170,6 +183,8 @@ export type CodexSession = CodexSpeedRequestState & {
   translator: CodexJournalTranslator | null
   /** Ephemeral roster behind the background-tasks strip; never durable state. */
   backgroundTasks: CodexBackgroundTaskTracker
+  /** What this child's Codex lists as its skills; absent until the thread is open. */
+  skillReport?: CodexSkillReport
   unbindReadingControl?: () => void
   /** Terminates this exact child as an unexpected death and enters host recovery. */
   forceCloseUnexpected?: (reason: Error) => Promise<boolean>

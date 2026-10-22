@@ -20,6 +20,7 @@ import {
 import { fileExplorerRefreshConcurrency } from './file-explorer-refresh-concurrency'
 import { createFileExplorerWatchRefreshScheduler } from './file-explorer-watch-refresh-scheduler'
 import { processFileExplorerFsPayload } from './file-explorer-watch-reconcile'
+import { selectWorktreesByRepo } from '@/store/workspace-record-selectors'
 
 export {
   canonicalizeFileExplorerWatchPath,
@@ -58,7 +59,7 @@ export function getFileExplorerWatchRuntimeEnvironmentId(
     activeWorkspaceExecutionHostId: state.activeWorkspaceExecutionHostId,
     settings: state.settings,
     repos: state.repos,
-    worktreesByRepo: state.worktreesByRepo,
+    worktreesByRepo: selectWorktreesByRepo(state),
     detectedWorktreesByRepo: state.detectedWorktreesByRepo ?? {},
     folderWorkspaces: state.folderWorkspaces ?? [],
     projectGroups: state.projectGroups ?? [],
@@ -164,13 +165,7 @@ export function useFileExplorerWatch({
         normalizeRuntimePathForComparison(dirPath) ===
           normalizeRuntimePathForComparison(currentWorktreePath) ||
         expandedRef.current.has(dirPath),
-      dirConcurrency: fileExplorerRefreshConcurrency(owner),
-      // Why 0ms for every transport: each producer already flushes on the shared
-      // watch batch window — local/SSH via filesystem-watcher, runtime files.watch via
-      // createFileWatchEventBatcher — so a second window here only adds latency, not coalescing.
-      // A new transport must batch at the producer before joining this path.
-      trailingMs: 0,
-      maxWaitMs: 0
+      dirConcurrency: fileExplorerRefreshConcurrency(owner)
     })
     activeResyncByWatchKey.set(currentWatchKey, scheduler.requestFullRefresh)
 

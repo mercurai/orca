@@ -98,7 +98,7 @@ const POSIX_HOST_OP_BYTE_BUDGET = 6 * 1024
 // Ops already past the budget, at their measured size. Ceilings may only shrink.
 const OVER_BUDGET_CEILINGS: Readonly<Record<string, number>> = {
   tryStealInstallLockCommand: 9_022,
-  orcadLaunchCommand: 8_122,
+  orcadLaunchCommand: 7_130,
   'orcadLaunchCommand (WSL setsid)': 6_439
 }
 

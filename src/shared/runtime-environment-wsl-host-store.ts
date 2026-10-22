@@ -146,7 +146,7 @@ export function refreshWslHostPairing(
 async function refreshWslHostPairingWithinMutation(
   userDataPath: string,
   environmentId: string,
-  args: { pairingCode: string; shouldPublish?: () => boolean } & WslHostPorts,
+  args: { pairingCode: string; shouldPublish?: () => boolean; expectedPairingRevision?: number } & WslHostPorts,
   now = Date.now()
 ): Promise<{ environment: KnownRuntimeEnvironment; pairingChanged: boolean }> {
   const snapshotIsCurrent = captureEnvironmentStoreVersion(userDataPath)
@@ -161,6 +161,11 @@ async function refreshWslHostPairingWithinMutation(
   }
   const store = readPersistedEnvironmentStore(userDataPath)
   const existing = resolveEnvironmentFromStore(store, environmentId)
+  if (args.expectedPairingRevision !== undefined &&
+      (existing.pairingRevision ?? existing.createdAt) !== args.expectedPairingRevision) {
+    return { environment: resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId), pairingChanged: false }
+  }
+
   const changedPorts = record.localPort !== args.localPort || record.remotePort !== args.remotePort
   const nextRecord = { ...record, localPort: args.localPort, remotePort: args.remotePort }
   const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)

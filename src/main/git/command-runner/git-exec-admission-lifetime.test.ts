@@ -46,6 +46,7 @@ vi.mock('../../../shared/git-fetch-head-lock', async (importOriginal) => {
   }
 })
 
+import { RuntimeRemoteFetchController } from '../../runtime/runtime-remote-fetch-controller'
 import { gitExecFileAsync, gitExecFileAsyncBuffer } from './git-exec-file'
 import { execFileCapture } from './exec-file-capture'
 import {
@@ -99,6 +100,7 @@ describe.each(GIT_SPAWN_MODES)('git exec admission lifetime (%s spawn)', (mode) 
   afterEach(() => {
     vi.useRealTimers()
     restoreGitSpawnMode()
+    vi.unstubAllEnvs()
     _resetGitAdmissionForTests()
   })
 
@@ -124,6 +126,31 @@ describe.each(GIT_SPAWN_MODES)('git exec admission lifetime (%s spawn)', (mode) 
     blocker.release()
     expect(_gitAdmissionSnapshotForTests().queued).toBe(0)
   })
+
+  it.each([false, true])(
+    'never spawns an expired preview after admission (late timer: %s)',
+    async (lateTimer) => {
+      vi.stubEnv('GIT_SSH_COMMAND', 'ssh')
+      _resetGitAdmissionForTests(new GitAdmissionScheduler({ networkCap: 1, networkHeadroom: 0 }))
+      const blocker = await acquireGitAdmission({ args: ['fetch'], cwd: '/preview' })
+      const controller = new RuntimeRemoteFetchController()
+      vi.spyOn(controller, 'getCanonicalRepoKey').mockResolvedValue('local::/preview/.git')
+      const preview = controller.refreshRemoteTrackingBaseForPreview('/preview', {
+        remote: 'origin',
+        branch: 'main',
+        ref: 'refs/remotes/origin/main',
+        base: 'origin/main'
+      })
+      await settleAdmissionGrant()
+      expect(_gitAdmissionSnapshotForTests().queued).toBe(1)
+      vi.setSystemTime(Date.now() + (lateTimer ? 10_001 : 0))
+      await vi.advanceTimersByTimeAsync(lateTimer ? 0 : 10_001)
+      blocker.release()
+      await settleAdmissionGrant()
+      await expect(preview).resolves.toEqual({ ok: false, errorKind: 'git_error' })
+      expect(execFileMock).not.toHaveBeenCalled()
+    }
+  )
 
   it('retains the string-exec permit after timeout settlement until close', async () => {
     const child = mockChild()

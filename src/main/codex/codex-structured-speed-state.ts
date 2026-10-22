@@ -33,7 +33,7 @@ export function readCodexSessionSpeed(
   const requested =
     tierId !== undefined ? { tierId } : legacyFast ? { legacyFast: true as const } : undefined
   const access = session.catalogAccess
-  const entry = access?.store.get(access.fingerprint)
+  const entry = access?.read ? access.read(true) : access?.store.get(access.fingerprint)
   const usable =
     !access ||
     (!!entry &&

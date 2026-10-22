@@ -1,35 +1,37 @@
-import { describe, expect, it, vi } from 'vitest'
 import { createCodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { createCodexTurnOpenWaits } from './codex-structured-turn-open-wait'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import { CodexAcquisitionWindow } from './codex-structured-acquisition-window'
-import {
-  applyCodexStructuredSessionOption,
-  readLiveCodexSessionOptions
-} from './codex-structured-session-options'
-import { fetchCodexModelCatalogListing } from './codex-structured-model-catalog'
 import { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
 import type { CodexSession } from './codex-structured-session-state'
-import {
-  AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
-  AGENT_MODEL_CATALOG_FRESH_MS,
-  AgentModelCatalogStore,
-  type AgentModelCatalogProbe
-} from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { AgentModelCatalogUnavailableError } from '../native-chat/agent-model-catalog/agent-model-catalog-unavailable'
 import { createAgentModelCatalogService } from '../native-chat/agent-model-catalog/agent-model-catalog-service'
 import { agentModelCatalogFingerprint } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
 
 const FINGERPRINT = 'fp-session-account'
 
+import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
+import { projectCodexSessionOptions } from './codex-structured-service-tier'
+import {
+  applyCodexStructuredSessionOption,
+  readLiveCodexSessionOptions
+} from './codex-structured-session-options'
+import {
+  AgentModelCatalogStore,
+  AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
+  AGENT_MODEL_CATALOG_FRESH_MS,
+  type AgentModelCatalogProbe
+} from '../native-chat/agent-model-catalog/agent-model-catalog-store'
+import { optionSession } from './codex-structured-option-session.test-fixture'
+import { describe, expect, it, vi } from 'vitest'
+import { fetchCodexModelCatalogListing } from './codex-structured-model-catalog'
+
 function modelRow(id: string, isDefault = false): Record<string, unknown> {
   return {
     model: id,
     displayName: id.toUpperCase(),
-    hidden: false,
-    supportedReasoningEfforts: [{ reasoningEffort: 'high' }],
-    defaultReasoningEffort: 'high',
-    isDefault
+    isDefault,
+    supportedReasoningEfforts: [{ reasoningEffort: 'high' }]
   }
 }
 
@@ -46,6 +48,10 @@ function storeSession(
   request: CodexAppServerConnection['request'],
   store: AgentModelCatalogStore
 ): CodexSession {
+  const probe: AgentModelCatalogProbe = async () => {
+    const listing = await fetchCodexModelCatalogListing({ connection: { request } })
+    return { models: listing.models, origin: 'probe', complete: true }
+  }
   return {
     connection: {
       pid: 1,
@@ -67,7 +73,16 @@ function storeSession(
     dispatchEchoes: createCodexDispatchEchoes(),
     turnOpenWaits: createCodexTurnOpenWaits(),
     translator: null,
-    catalogAccess: { store, fingerprint: FINGERPRINT, accountHomePath: '/homes/a' }
+    catalogAccess: {
+      store, fingerprint: FINGERPRINT, accountHomePath: '/homes/a',
+      demand: async () => {
+        if (store.shouldRefresh(FINGERPRINT)) {
+          void store.refresh(FINGERPRINT, 'codex', probe, () =>
+            probe({ variable: 'CODEX_HOME', path: '/homes/a' })
+          )
+        }
+      }
+    }
   }
 }
 
@@ -83,7 +98,8 @@ function seedEntry(store: AgentModelCatalogStore, ...ids: string[]): void {
         efforts: [{ value: 'high', label: 'High' }],
         defaultEffort: 'high'
       })),
-      origin: 'live-session'
+      origin: 'probe',
+      complete: true
     },
     'discovery'
   )
@@ -355,7 +371,7 @@ describe('first-turn catalog deadline', () => {
       async (
         method: string,
         _params?: Record<string, unknown>,
-        options?: { timeoutMs?: number }
+        options?: { timeoutMs?: number | null }
       ) => {
         timeouts.push(options?.timeoutMs ?? 0)
         if (method === 'model/list') {
@@ -375,4 +391,40 @@ describe('first-turn catalog deadline', () => {
       clock.mockRestore()
     }
   })
+})
+
+it('uses installed choices after an update and keeps saved values for the next turn', async () => {
+  const request = vi.fn(async () => {
+    throw new Error('child catalog must not be read')
+  })
+  const session = optionSession(request)
+  session.options = new Map([
+    ['model', 'A'],
+    ['effort', 'low']
+  ])
+  const store = new AgentModelCatalogStore()
+  const install = (models: AgentSessionOptionsResult['models']) =>
+    store.recordSuccess('scope', 'codex', { origin: 'probe', complete: true, models }, 'discovery')
+  install([{ id: 'A', label: 'A', isDefault: true, efforts: [{ value: 'high', label: 'High' }] }])
+  session.catalogAccess = {
+    store,
+    fingerprint: 'scope',
+    accountHomePath: '/account',
+    demand: async () => {}
+  }
+  const before = await readLiveCodexSessionOptions(session, 100)
+  expect(before.models[0]?.efforts).toEqual([{ value: 'high', label: 'High' }])
+  expect(before.current).toMatchObject({ model: 'A', effort: 'low' })
+  await expect(applyCodexStructuredSessionOption(session, 'effort', 'low')).rejects.toThrow(
+    'does not support low'
+  )
+  install([{ id: 'B', label: 'B', isDefault: true, efforts: [] }])
+  const after = await readLiveCodexSessionOptions(session, 100)
+  expect(after.models.map((row) => row.id)).toEqual(['B', 'A'])
+  expect(after.models[1]).toMatchObject({ efforts: [], effortsKnown: false })
+  expect(after.current).toMatchObject({ model: 'A', effort: 'low' })
+  expect(projectCodexSessionOptions(session, Object.fromEntries(session.options))?.options).toEqual(
+    { model: 'A', effort: 'low' }
+  )
+  expect(request).not.toHaveBeenCalled()
 })

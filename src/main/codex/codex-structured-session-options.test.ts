@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   applyCodexStructuredSessionOption,
   readCodexStructuredSessionOptions,
+  readCodexStructuredSessionOptionCatalog,
   readLiveCodexSessionOptions,
   restoredCodexSessionOptions
 } from './codex-structured-session-options'
@@ -25,8 +26,21 @@ async function primePicker(session: CodexSession): Promise<void> {
     fingerprint: 'codex-test-account',
     accountHomePath: '/test-account'
   }
-  await readLiveCodexSessionOptions(session, undefined)
-  await session.catalogAccess.store.pendingListing(session.catalogAccess.fingerprint)
+  const listing = await readCodexStructuredSessionOptionCatalog({
+    connection: session.connection,
+    current: {}
+  })
+  session.catalogAccess.store.recordSuccess(
+    session.catalogAccess.fingerprint,
+    'codex',
+    {
+      models: listing.models,
+      origin: 'probe',
+      complete: true,
+      ...(listing.fastModeSupport ? { fastModeSupport: listing.fastModeSupport } : {})
+    },
+    'discovery'
+  )
 }
 
 describe('structured Codex session options', () => {
@@ -356,6 +370,10 @@ describe('structured Codex session options', () => {
       serviceTier: 'unrecognized-tier',
       confirmed: ['serviceTier']
     })
+    // A thread that reported no model runs the listing's default, which the chat never chose.
+    await expect(
+      readCodexStructuredSessionOptions({ connection, current: {} })
+    ).resolves.toMatchObject({ current: { model: 'gpt-live', defaulted: ['model'] } })
   })
 
   it('hides and rejects Fast mode when the running catalog does not advertise it', async () => {
@@ -390,6 +408,7 @@ describe('structured Codex session options', () => {
       }))
     )
     session.options.set('serviceTier', 'priority')
+    await primePicker(session)
 
     await expect(readLiveCodexSessionOptions(session, undefined)).resolves.toMatchObject({
       current: { serviceTier: 'priority' }
@@ -662,31 +681,28 @@ describe('Codex reported tier', () => {
   it.each([
     ['untouched', []],
     ['re-picked', ['priority', 'ultrafast']]
-  ])(
-    'preserves a %s reported tier without inserting a Standard override on model switch',
-    async (_case, picks) => {
-      const session = optionSession(vi.fn(async () => listing))
-      session.reportedOptions = {
-        model: 'gpt-6.1-sol',
-        serviceTier: 'ultrafast',
-        serviceTierKnown: true
-      }
-      await primePicker(session)
-      for (const pick of picks) {
-        await applyCodexStructuredSessionOption(session, 'serviceTier', pick)
-      }
-
-      await expect(
-        applyCodexStructuredSessionOption(session, 'model', 'gpt-6-luna')
-      ).resolves.toEqual({
-        model: 'gpt-6-luna',
-        ...(picks.length ? { serviceTier: 'ultrafast' } : {})
-      })
-      await expect(
-        applyCodexStructuredSessionOption(session, 'serviceTier', 'ultrafast')
-      ).rejects.toThrow('does not offer the ultrafast tier')
+  ])('preserves a %s tier choice when switching models', async (_case, picks) => {
+    const session = optionSession(vi.fn(async () => listing))
+    session.reportedOptions = {
+      model: 'gpt-6.1-sol',
+      serviceTier: 'ultrafast',
+      serviceTierKnown: true
     }
-  )
+    await primePicker(session)
+    for (const pick of picks) {
+      await applyCodexStructuredSessionOption(session, 'serviceTier', pick)
+    }
+
+    await expect(
+      applyCodexStructuredSessionOption(session, 'model', 'gpt-6-luna')
+    ).resolves.toEqual({
+      model: 'gpt-6-luna',
+      ...(picks.length ? { serviceTier: 'ultrafast' } : {})
+    })
+    await expect(
+      applyCodexStructuredSessionOption(session, 'serviceTier', 'ultrafast')
+    ).rejects.toThrow('does not offer the ultrafast tier')
+  })
 })
 
 describe('Codex option picks before the model list arrives', () => {
@@ -702,9 +718,7 @@ describe('Codex option picks before the model list arrives', () => {
       fence: 7,
       spawnToken: 'spawn-1'
     })
-    await vi.waitFor(() =>
-      expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(true)
-    )
+    expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(false)
     const pick = (key: string, value: string) =>
       adapter.setOption({ sessionId: 'session-1', key, value, fence: 7 })
 
@@ -735,7 +749,7 @@ describe('Codex option picks before the model list arrives', () => {
     })
     expect(codex.connections[0].calls.some((call) => call.method === 'turn/start')).toBe(false)
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
-      1
+      0
     )
     pending.resolve({ data: [], nextCursor: null })
   })

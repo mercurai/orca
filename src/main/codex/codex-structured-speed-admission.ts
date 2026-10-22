@@ -24,7 +24,7 @@ export function assertCodexSpeedAdmitted(host: {
     return
   }
   const access = host.catalogAccess
-  const entry = access?.store.get(access.fingerprint)
+  const entry = access?.read ? access.read(true) : access?.store.get(access.fingerprint)
   if (
     !access ||
     !entry ||

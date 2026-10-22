@@ -13,7 +13,7 @@ import {
   updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 
-export type OrcadMigrationDraftRenameStore = Pick<
+type OrcadMigrationDraftRenameStore = Pick<
   Store,
   | 'collectOrcadMigrationSourceDrafts'
   | 'getWorkspaceSession'

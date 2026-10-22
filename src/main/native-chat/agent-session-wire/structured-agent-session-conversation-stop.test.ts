@@ -1,3 +1,4 @@
+import { fetchCodexModelCatalogListing } from '../../codex/codex-structured-model-catalog'
 // A Stop that names no turn stops what the conversation has in flight: it withdraws what is
 // queued, and interrupts a handed-over message even before the provider has opened its turn —
 // the gap no client can name a turn for. Against the real host, store and journal.
@@ -204,7 +205,7 @@ async function statusRows(): Promise<string[]> {
 }
 
 describe('a Stop that names no turn', () => {
-  it('does not let a stalled catalog hold an option pick, steer, Stop, or replacement send', async () => {
+  it('does not let independent discovery hold an option pick, Stop, or replacement send', async () => {
     const pending = Promise.withResolvers<unknown>()
     const codex = fakeCodex({ 'model/list': () => pending.promise })
     codex.routes['turn/start'] = answerWithOpenedTurn(codex, 'turn-1')
@@ -216,7 +217,20 @@ describe('a Stop that names no turn', () => {
       accountHomePath: '/codex/home',
       wslDistro: null
     })
-    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], { modelCatalog })
+    const probe = async () => {
+      const result = await fetchCodexModelCatalogListing({ connection: {
+        request: async (method, params) => codex.routes[method]?.(params) ?? {}
+      } })
+      return { models: result.models, origin: 'probe' as const, complete: true }
+    }
+    const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
+      modelCatalog,
+      demandModelCatalog: async () => {
+        if (modelCatalog.shouldRefresh(fingerprint)) {
+          void modelCatalog.refresh(fingerprint, 'codex', probe, probe)
+        }
+      }
+    })
     await acquireReadyCodexForTest(adapter, {
       identity: identityFor(SESSION),
       fence: 1,
@@ -264,7 +278,7 @@ describe('a Stop that names no turn', () => {
     expect(codexCalls(codex, 'turn/start')[1]?.params).toMatchObject({ serviceTier: 'default' })
     pending.resolve({ data: [], nextCursor: null })
     await eventually(() => expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(true))
-    expect(modelCatalog.failureDetail(fingerprint)).toContain('no available models')
+    expect(modelCatalog.failureDetail(fingerprint)).toContain('listed no models')
   })
 
   // Codex can abort a turn before it starts: it answers the interrupt, then ends the turn it never
@@ -399,7 +413,8 @@ describe('a Stop that names no turn', () => {
       return answerWithOpenedTurn(codex, 'turn-ok')(params)
     }
     const adapter = adapterFor(codex, { codexHome: '/codex/home' }, [], {
-      modelCatalog: new AgentModelCatalogStore()
+      modelCatalog: new AgentModelCatalogStore(),
+      demandModelCatalog: () => pending.promise
     })
     await acquireReadyCodexForTest(adapter, {
       identity: identityFor(SESSION),

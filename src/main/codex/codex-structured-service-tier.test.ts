@@ -1,23 +1,56 @@
+import { fetchCodexModelCatalogListing } from './codex-structured-model-catalog'
 import { describe, expect, it, vi, type Mock } from 'vitest'
 import {
   acquireReadyCodexForTest,
   codexStartReport,
   THREAD_ID,
   USER_MESSAGE,
-  adapterFor,
+  adapterFor as baseAdapterFor,
   answerWithOpenedTurn,
   fakeCodex,
   identityFor,
   type Route
 } from './codex-structured-session-adapter-fixture'
-import {
-  AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
-  AgentModelCatalogStore
-} from '../native-chat/agent-model-catalog/agent-model-catalog-store'
+import { AgentModelCatalogStore, AGENT_MODEL_CATALOG_FAILURE_TTL_MS } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { agentModelCatalogSessionAccess } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
 import { createAgentModelCatalogSettingsExpiry } from '../native-chat/agent-model-catalog/agent-model-catalog-account-expiry'
 import type { CodexStructuredSessionAdapter } from './codex-structured-session-adapter'
 import { CODEX_STRUCTURED_AGENT } from './codex-structured-agent-definition'
+
+const discoveryRequests = new WeakMap<ReturnType<typeof fakeCodex>, ReturnType<typeof vi.fn<Route>>>()
+const discoveryWork = new WeakMap<ReturnType<typeof fakeCodex>, Promise<unknown>[]>()
+
+function adapterFor(...args: Parameters<typeof baseAdapterFor>): CodexStructuredSessionAdapter {
+  const [codex, launch = {}, events = [], deps = {}] = args
+  const modelCatalog = deps.modelCatalog ?? new AgentModelCatalogStore()
+  const home = launch.codexHome ?? '/codex/home'
+  const access = agentModelCatalogSessionAccess(modelCatalog, CODEX_STRUCTURED_AGENT, home)!
+  const request = vi.fn<Route>((params) => codex.routes['model/list']?.(params) ?? {})
+  discoveryRequests.set(codex, request)
+  const work: Promise<unknown>[] = []
+  discoveryWork.set(codex, work)
+  const probe = async () => {
+    const answer = await fetchCodexModelCatalogListing({ connection: {
+      request: async (method, params) => method === 'model/list' ? request(params) : {}
+    } })
+    return { models: answer.models, origin: 'probe' as const, complete: true }
+  }
+  const demand = async () => {
+    if (modelCatalog.shouldRefresh(access.fingerprint)) {
+      work.push(modelCatalog.refresh(access.fingerprint, 'codex', probe, probe))
+    }
+  }
+  const adapter = baseAdapterFor(codex, { ...launch, codexHome: home }, events, {
+    ...deps, modelCatalog, demandModelCatalog: demand
+  })
+  const open = adapter.open.bind(adapter)
+  adapter.open = async (input) => {
+    const answer = await open(input)
+    await demand()
+    return answer
+  }
+  return adapter
+}
 
 function listing(tier = 'priority') {
   return {
@@ -96,7 +129,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     })
     await acquire(adapter)
     await vi.waitFor(() =>
-      expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(true)
+      expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce()
     )
     expect(await send(adapter, 'first')).toMatchObject({
       state: 'rejected',
@@ -135,7 +168,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       { serviceTier: 'priority' }
     )
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
-      1
+      0
     )
     pending.resolve(listing())
   })
@@ -217,7 +250,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
     }
   })
 
-  it('does not record an obsolete child’s catalog over its replacement’s', async () => {
+  it('does not record an invalidated discovery over its replacement’s', async () => {
     const oldListing = Promise.withResolvers<unknown>()
     const newListing = Promise.withResolvers<unknown>()
     const codex = fakeCodex({
@@ -234,6 +267,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       '/codex/home'
     )!
     await acquire(adapter)
+    modelCatalog.expireAgent('codex')
     await acquire(adapter)
     oldListing.resolve(listing('priority-old'))
     newListing.resolve(listing('priority-new'))
@@ -258,11 +292,9 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       }
       const { fingerprint } = session.catalogAccess
       await vi.waitFor(() =>
-        expect(
-          codex.connections[0].calls.filter((call) => call.method === 'model/list')
-        ).toHaveLength(1)
+        expect(discoveryRequests.get(codex)).toHaveBeenCalledOnce()
       )
-      expect(session.catalogListingInProgress).toBe(true)
+      expect(modelCatalog.isListing(fingerprint)).toBe(true)
       expect(modelCatalog.get(fingerprint)).toBeNull()
       const expire = createAgentModelCatalogSettingsExpiry(modelCatalog, {})
       expire(
@@ -288,7 +320,7 @@ describe('Codex structured service tier without send-path catalog waits', () => 
       } else {
         pending.reject(new Error('old account listing rejected'))
       }
-      await vi.waitFor(() => expect(session.catalogListingInProgress).toBe(false))
+      await Promise.allSettled(discoveryWork.get(codex) ?? [])
       expect(modelCatalog.get(fingerprint)).toBeNull()
       expect(modelCatalog.hasActiveFailure(fingerprint)).toBe(false)
       expect(modelCatalog.failure(fingerprint)).toBeNull()
@@ -374,7 +406,8 @@ describe('Codex service tier across clients and rest', () => {
             serviceTiers: [{ value: 'priority', label: 'Fast' }]
           }
         ],
-        origin: 'probe'
+        origin: 'probe',
+        complete: true
       },
       'discovery'
     )

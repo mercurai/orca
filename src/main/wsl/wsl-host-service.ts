@@ -1,4 +1,4 @@
-import { completeWslHostAdd, WslHostConnectionChanges } from './wsl-host-connection-change'
+import { WslHostConnectionChanges } from './wsl-host-connection-change'
 /**
  * WSL distros as hosts (WSL-via-orcad C7): add and remove them, persist what each connection
  * reports, and connect only for the user. A stopped distro boots on an explicit add or connect,
@@ -12,25 +12,22 @@ import {
 } from '../../shared/wsl-host-deployment-store'
 import type {
   WslHostAddResult,
+  WslHostConnectIntent,
   WslHostDistro,
   WslHostServerStop,
   WslHostStatus
 } from '../../shared/wsl-host-types'
-import { wslHostSshManagedRefusal } from './wsl-host-ssh-orcad-conflict'
 import { wslDistroHolderKey } from './wsl-distro-holder-record'
 import { persistWslHostConnection, toWslHostStatus } from './wsl-host-connection-record'
 import {
-  admitWslHostDistro,
   sameWslDistro,
   wslHostNotConnectedMessage,
   WSL_HOST_REMOVING_MESSAGE,
-  WSL_HOSTS_DISABLED_MESSAGE,
   wslHostRunRefusal
 } from './wsl-host-add-admission'
 import type { WslOrcadConnection } from './wsl-orcad-connection'
-import { abandonWslHostAdd, connectForWslHostAdd } from './wsl-host-first-connect'
+import { registerWslHost } from './wsl-host-registration'
 import type { WslOrcadConnectionStatus } from './wsl-orcad-connection-status'
-import { defaultWslOrcadEnvironmentId } from './wsl-orcad-deploy'
 
 import type { WslHostConnector } from './wsl-host-connector'
 export type { WslHostConnector } from './wsl-host-connector'
@@ -57,6 +54,7 @@ export class WslHostService {
   // Bumped on disable so an Add that started before it cannot finish as a ready host.
   private disableGeneration = 0
   private readonly connectionChanges: WslHostConnectionChanges
+  private readonly statusListeners = new Set<() => void>()
 
   constructor(private readonly deps: WslHostServiceDependencies) {
     this.connectionChanges = new WslHostConnectionChanges({
@@ -111,6 +109,20 @@ export class WslHostService {
     return [...this.statuses.values()]
   }
 
+  /** Hears every change to what `getStatuses` returns. */
+  onStatusesChanged(listener: () => void): () => void {
+    this.statusListeners.add(listener)
+    return () => {
+      this.statusListeners.delete(listener)
+    }
+  }
+
+  private notifyStatusesChanged(): void {
+    for (const listener of this.statusListeners) {
+      listener()
+    }
+  }
+
   async listDistros(): Promise<WslHostDistro[]> {
     const records = this.records()
     const candidates = await this.wsl.listDistros()
@@ -127,7 +139,19 @@ export class WslHostService {
     if (pending) {
       return pending
     }
-    const operation = this.addOnce(args).finally(() => this.adding.delete(key))
+    const operation = registerWslHost(
+      {
+        deps: this.deps,
+        wsl: () => this.wsl,
+        disableGeneration: () => this.disableGeneration,
+        canRegister: (environmentId) => this.canRun() && !this.removing.has(environmentId),
+        recordForDistro: (distro) => this.recordForDistro(distro),
+        recordForEnvironment: (environmentId) => this.recordForEnvironment(environmentId),
+        setReady: (record, connection) =>
+          this.setStatus(record, { state: 'ready', census: null }, connection)
+      },
+      args
+    ).finally(() => this.adding.delete(key))
     this.adding.set(key, operation)
     return operation
   }
@@ -157,6 +181,7 @@ export class WslHostService {
       this.removing.delete(environmentId)
     }
     this.statuses.delete(environmentId)
+    this.notifyStatusesChanged()
     await this.deps.removed(environmentId)
     return serverStop
   }
@@ -182,8 +207,11 @@ export class WslHostService {
     }
   }
 
-  /** The user asked for this host: may boot its distro. `force` takes a deferred update now. */
-  async connect(environmentId: string, options: { force?: boolean } = {}): Promise<void> {
+  /** The user asked for this host: may boot its distro. An intent retries or forces an update. */
+  async connect(
+    environmentId: string,
+    options: { intent?: WslHostConnectIntent } = {}
+  ): Promise<void> {
     const record = this.recordForEnvironment(environmentId)
     if (!record) {
       throw new Error('This server is not a WSL host.')
@@ -192,6 +220,7 @@ export class WslHostService {
     if (refusal || this.removing.has(environmentId)) {
       throw new Error(refusal?.message ?? WSL_HOST_REMOVING_MESSAGE)
     }
+    this.wsl.forgetPairingFailures?.(environmentId)
     await this.wsl.connect(record.distro, options)
   }
 
@@ -263,66 +292,6 @@ export class WslHostService {
     await this.connector?.dispose()
   }
 
-  private async addOnce(args: {
-    distro: string
-    startIfStopped?: boolean
-  }): Promise<WslHostAddResult> {
-    const refusal = wslHostRunRefusal(this.deps)
-    if (refusal) {
-      return refusal
-    }
-    const generation = this.disableGeneration
-    const admission = admitWslHostDistro({
-      requested: args.distro,
-      candidates: await this.wsl.listDistros(),
-      alreadyAdded: (name) => this.recordForDistro(name) !== null,
-      startIfStopped: args.startIfStopped === true
-    })
-    if (!('distro' in admission)) {
-      return admission
-    }
-    if (generation !== this.disableGeneration || !this.canRun()) {
-      return { ok: false, kind: 'disabled', message: WSL_HOSTS_DISABLED_MESSAGE }
-    }
-    const { distro } = admission
-    const userDataPath = this.deps.userDataPath()
-    const sharing = await wslHostSshManagedRefusal(distro.name, userDataPath, (name) =>
-      this.wsl.readOrcadPublicKey(name)
-    )
-    if (sharing) {
-      return sharing
-    }
-    if (generation !== this.disableGeneration || !this.canRun()) {
-      return { ok: false, kind: 'disabled', message: WSL_HOSTS_DISABLED_MESSAGE }
-    }
-    const environmentId = defaultWslOrcadEnvironmentId(distro.name)
-    const connected = await connectForWslHostAdd(this.wsl, distro.name, () =>
-      generation === this.disableGeneration
-        ? wslHostRunRefusal(this.deps)
-        : { ok: false, kind: 'disabled', message: WSL_HOSTS_DISABLED_MESSAGE }
-    )
-    if (!('connection' in connected)) {
-      return connected
-    }
-    const { connection } = connected
-    return completeWslHostAdd({
-      userDataPath,
-      distro,
-      environmentId,
-      connection,
-      isCurrent: () =>
-        generation === this.disableGeneration && this.canRun() && !this.removing.has(environmentId),
-      abandon: () => abandonWslHostAdd(this.wsl, distro.name),
-      publish: () => {
-        const record = this.recordForEnvironment(environmentId)
-        if (record) {
-          this.setStatus(record, { state: 'ready', census: null }, connection)
-        }
-        this.deps.ready(environmentId)
-      }
-    })
-  }
-
   private setStatus(
     record: WslHostDeploymentRecord,
     status: WslOrcadConnectionStatus,
@@ -331,6 +300,7 @@ export class WslHostService {
     const next = toWslHostStatus(record, status, connection)
     this.statuses.set(record.environmentId, next)
     this.deps.publish(next)
+    this.notifyStatusesChanged()
   }
 
   private records(): WslHostDeploymentRecord[] {

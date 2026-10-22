@@ -8,6 +8,7 @@ import type {
 import {
   applyStructuredAgentSessionModelCatalog,
   applyStructuredAgentSessionOptions,
+  commitStructuredAgentSessionOption,
   createStructuredAgentSessionOptionState,
   structuredAgentSessionOptionSnapshot,
   type StructuredAgentSessionOptionState
@@ -59,11 +60,7 @@ const carried = (
   state: StructuredAgentSessionOptionState,
   seed?: Readonly<Record<string, string>>,
   picks: Readonly<Record<string, string>> = {}
-) =>
-  structuredAgentSessionSendSelection(
-    state.record.agent,
-    structuredAgentSessionOptionSnapshot(structuredAgentSessionOptionView(state, seed, picks))
-  )
+) => structuredAgentSessionSendSelection(structuredAgentSessionOptionView(state, seed, picks))
 
 describe('a Claude model its CLI no longer lists', () => {
   it('stays the chat model through a refresh and every send, its effort read-only', () => {
@@ -89,7 +86,7 @@ describe('a Claude model its CLI no longer lists', () => {
     }
   })
 
-  it('keeps a remembered model for a new chat, and offers no effort under a listed model with none', () => {
+  it('keeps a remembered model and effort, including under a model with no listed effort', () => {
     // The placeholder stands until the host answers with the chat's own model; create seeds it.
     expect(carried(withHostList(), remembered)).toBeUndefined()
     const haiku = { id: 'haiku', label: 'Haiku', isDefault: false, efforts: [] }
@@ -98,7 +95,7 @@ describe('a Claude model its CLI no longer lists', () => {
       listedModelIds: ['opus[1m]', 'haiku'],
       current: { model: 'haiku', effort: 'high' }
     })
-    expect(shown(listed, undefined, {})).toEqual({ model: 'haiku', effort: undefined })
+    expect(shown(listed, undefined, {})).toEqual({ model: 'haiku', effort: 'high' })
   })
 })
 
@@ -128,6 +125,26 @@ describe('what a send carries', () => {
   })
 })
 
+function legacySelection(snapshot: SessionOptionDescriptor[]) {
+  const state = createStructuredAgentSessionOptionState('codex', {
+    ...CLAUDE_SESSION_OPTION_CATALOG,
+    agent: 'codex',
+    defaultModelIsCliDefault: false,
+    models: [{ id: 'synthetic-model', label: 'Synthetic', options: [
+      { id: 'fastMode', label: 'Fast', kind: { type: 'boolean', defaultValue: false }, apply: {} }
+    ] }]
+  })
+  state.catalogSource = 'live'
+  state.record.values.model = { value: 'synthetic-model', source: 'default' }
+  for (const option of snapshot) {
+    const value = option.kind.currentValue
+    if (value !== undefined) {
+      state.record.values[option.id] = { value, source: option.valueSource }
+    }
+  }
+  return structuredAgentSessionSendSelection(state)
+}
+
 describe('Codex legacy Fast provenance on sends', () => {
   function legacy(
     valueSource: SessionOptionValueSource,
@@ -146,17 +163,17 @@ describe('Codex legacy Fast provenance on sends', () => {
   it.each(['unknown', 'default'] as const)(
     'does not turn an %s false display into an explicit Standard request',
     (source) => {
-      expect(structuredAgentSessionSendSelection('codex', [legacy(source, false)])).toBeUndefined()
+      expect(legacySelection( [legacy(source, false)])).toBeUndefined()
     }
   )
 
   it.each(['applied', 'dispatched', 'reported'] as const)(
     'preserves explicit false and true from %s',
     (source) => {
-      expect(structuredAgentSessionSendSelection('codex', [legacy(source, false)])).toEqual({
+      expect(legacySelection( [legacy(source, false)])).toEqual({
         fastMode: 'false'
       })
-      expect(structuredAgentSessionSendSelection('codex', [legacy(source, true)])).toEqual({
+      expect(legacySelection( [legacy(source, true)])).toEqual({
         fastMode: 'true'
       })
     }
@@ -172,10 +189,57 @@ describe('Codex legacy Fast provenance on sends', () => {
       settable: true
     }
     expect(
-      structuredAgentSessionSendSelection('codex', [model, legacy('dispatched', false)])
+      legacySelection( [model, legacy('dispatched', false)])
     ).toEqual({
       model: 'synthetic-model',
       fastMode: 'false'
+    })
+  })
+})
+
+describe("a chat's model and effort, apart from the defaults filling them in", () => {
+  const listed = CLI302.map((row) => row.id)
+  // A resumed chat at rest that never picked a model: its host fills in the listing's default.
+  const resumed = (defaulted?: readonly ('model' | 'effort')[]) =>
+    applyStructuredAgentSessionOptions(
+      applyStructuredAgentSessionModelCatalog(
+        fresh(),
+        CLAUDE_SESSION_OPTION_CATALOG,
+        { ...LISTED, models: CLI302 },
+        { newLaunch: false }
+      ),
+      CLAUDE_SESSION_OPTION_CATALOG,
+      {
+        models: CLI302,
+        listedModelIds: listed,
+        current: { model: 'opus', effort: 'low', ...(defaulted ? { defaulted } : {}) }
+      }
+    )
+
+  it("names a resumed chat's defaults but never sends them, only its picks", () => {
+    const state = resumed(['model', 'effort'])
+    expect(shown(state, undefined, {})).toEqual({ model: 'opus', effort: 'low' })
+    expect(carried(state)).toBeUndefined()
+    const effort = commitStructuredAgentSessionOption(state, 'effort', 'xhigh')
+    expect(carried(effort)).toEqual({ effort: 'xhigh' })
+  })
+
+  it("reads an older host's answer, which marks no default, as it always has", () => {
+    const state = resumed()
+    expect(shown(state, undefined, {})).toEqual({ model: 'opus', effort: 'low' })
+    expect(carried(state)).toEqual({ model: 'opus', effort: 'low' })
+  })
+
+  it('lets a new chat pick its effort before its first message, under the default it shows', () => {
+    const state = withHostList(fresh(), {
+      ...LISTED,
+      models: CLI302,
+      listingNamesConfiguredModel: true
+    })
+    expect(shown(state, undefined, { effort: 'xhigh' })).toEqual({ model: 'opus', effort: 'xhigh' })
+    expect(carried(state, undefined, { effort: 'xhigh' })).toEqual({
+      model: 'opus',
+      effort: 'xhigh'
     })
   })
 })

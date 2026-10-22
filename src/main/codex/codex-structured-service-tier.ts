@@ -6,6 +6,8 @@ import type {
 import { readRecord } from './codex-item-field-readers'
 import type { CodexOpenedThread } from './codex-structured-thread-open'
 import type { CodexSession } from './codex-structured-session-state'
+import { codexSessionCapabilities } from './codex-structured-catalog-entry'
+import { effectiveServiceTier } from '../../shared/structured-agent-session-effective-tier'
 
 /** Codex's request value for a model's standard tier. */
 export const CODEX_DEFAULT_SERVICE_TIER = 'default'
@@ -90,24 +92,45 @@ export function reportedCodexThreadOptions(
   }
 }
 
-function codexListsServiceTier(
-  model: Pick<AgentSessionModelOption, 'serviceTiers'> | undefined,
-  tier: string
-): boolean {
-  return model?.serviceTiers?.some((choice) => choice.value === tier) === true
-}
+const tierValues = (model: Pick<AgentSessionModelOption, 'serviceTiers'> | undefined) =>
+  model?.serviceTiers?.map((choice) => choice.value) ?? []
 
 /** Codex also takes the thread's reported tier when no model lists it, such as a configured `flex`. */
 export function codexOffersServiceTier(
-  session: CodexSession,
+  session: Pick<CodexSession, 'reportedOptions'>,
   model: AgentSessionModelOption | undefined,
   models: readonly AgentSessionModelOption[],
-  tier: string
+  tier: string,
+  listedTiers: readonly string[] = models.flatMap(tierValues)
 ): boolean {
+  const reported = tier === session.reportedOptions.serviceTier
   return (
-    tier === CODEX_DEFAULT_SERVICE_TIER ||
-    codexListsServiceTier(model, tier) ||
-    (tier === session.reportedOptions.serviceTier &&
-      !models.some((entry) => codexListsServiceTier(entry, tier)))
+    effectiveServiceTier({
+      tier,
+      modelTiers: model?.serviceTiers?.map((row) => row.value),
+      listedTiers,
+      reported
+    }) === tier
   )
+}
+
+/** Preserve requested intent; turn admission refuses unavailable tiers before dispatch. */
+export function codexTurnRequestOptions(
+  session: Parameters<typeof codexSessionCapabilities>[0]
+): Record<string, string> {
+  return Object.fromEntries(session.options)
+}
+
+export function projectCodexSessionOptions(
+  session: CodexSession | undefined,
+  options: Readonly<Record<string, string>>
+) {
+  if (!session || session.ended || session.connection.closed) {
+    return undefined
+  }
+  const selected = { ...session, options: new Map(Object.entries(options)) }
+  return {
+    models: codexSessionCapabilities(selected).models,
+    options: codexTurnRequestOptions(selected)
+  }
 }

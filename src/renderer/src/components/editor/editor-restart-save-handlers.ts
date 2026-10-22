@@ -1,8 +1,8 @@
 import type { OpenFile } from '@/store/slices/editor'
 import { shouldPersistWorkspaceSession } from '@/lib/workspace-session'
 import { canAutoSaveOpenFile } from './editor-autosave'
-import { flushPendingEditorChange } from './editor-pending-flush'
-import { getDuplicateDirtySavePaths } from './editor-autosave-state-projections'
+import { flushPendingEditorBuffer } from './editor-pending-flush'
+import { getDuplicateDirtySavePaths, restartSaveTargets } from './editor-autosave-state-projections'
 import type { AppStoreApi, EditorSaveQueue } from './editor-save-queue'
 import type {
   EditorPrepareHotExitDetail,
@@ -12,13 +12,13 @@ import type {
 type EditorRestartSaveHandlerOptions = {
   store: AppStoreApi
   queueSave: EditorSaveQueue['queueSave']
-  quiesceFileSave: EditorSaveQueue['quiesceFileSave']
+  settleFileSaves: EditorSaveQueue['settleFileSaves']
 }
 
 export function createEditorRestartSaveHandlers({
   store,
   queueSave,
-  quiesceFileSave
+  settleFileSaves
 }: EditorRestartSaveHandlerOptions): {
   handleSaveDirtyFiles: (event: Event) => Promise<void>
   handlePrepareHotExit: (event: Event) => Promise<void>
@@ -37,7 +37,7 @@ export function createEditorRestartSaveHandlers({
     try {
       detail.claim()
 
-      const dirtyFiles = store.getState().openFiles.filter((file) => file.isDirty)
+      const dirtyFiles = restartSaveTargets(store.getState())
       const unsupportedDirtyFiles = dirtyFiles.filter((file) => !canAutoSaveOpenFile(file))
       if (unsupportedDirtyFiles.length > 0) {
         detail.reject('Some unsaved editor changes cannot be auto-saved before restart.')
@@ -45,7 +45,7 @@ export function createEditorRestartSaveHandlers({
       }
 
       for (const file of dirtyFiles) {
-        flushPendingEditorChange(file.id)
+        flushPendingEditorBuffer(store.getState(), file.id)
       }
 
       const duplicateDirtySavePaths = getDuplicateDirtySavePaths(dirtyFiles)
@@ -86,7 +86,7 @@ export function createEditorRestartSaveHandlers({
       detail.claim()
 
       const initiallyDirtyFiles = store.getState().openFiles.filter((file) => file.isDirty)
-      await Promise.all(initiallyDirtyFiles.map((file) => quiesceFileSave(file.id)))
+      await Promise.all(initiallyDirtyFiles.map((file) => settleFileSaves(file.id)))
 
       const state = store.getState()
       const dirtyFiles = state.openFiles.filter((file) => file.isDirty)

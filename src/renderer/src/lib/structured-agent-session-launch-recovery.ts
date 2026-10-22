@@ -82,7 +82,7 @@ export async function recoverPublishedSessionReceipt(
     if (options.replayMissingMessage === false) {
       throw new Error('Opening message receipt is not yet available; retry confirmation')
     }
-    return launchStructuredAgentSession(state.intent, state.onHostSeed, true)
+    return launchStructuredAgentSession(state.intent, state.onHostSeed, true, () => state.cancelled)
   }
   if (state.intent.createMessageSupport === true) {
     publishStructuredAgentSessionCreateHydration(state.intent, history.page, fence)
@@ -102,7 +102,12 @@ async function retrySameIntent(
 ): Promise<StructuredAgentLaunchReceipt> {
   throwIfLaunchCancelled(state)
   try {
-    const receipt = await launchStructuredAgentSession(state.intent, state.onHostSeed, true)
+    const receipt = await launchStructuredAgentSession(
+      state.intent,
+      state.onHostSeed,
+      true,
+      () => state.cancelled
+    )
     throwIfLaunchCancelled(state)
     if (state.intent.createMessageSupport !== true) {
       await verifyPublishedSession(state)
@@ -134,7 +139,12 @@ export async function launchAndReconcile(
   throwIfLaunchCancelled(state)
   let receipt: StructuredAgentLaunchReceipt
   try {
-    receipt = await launchStructuredAgentSession(state.intent, state.onHostSeed)
+    receipt = await launchStructuredAgentSession(
+      state.intent,
+      state.onHostSeed,
+      false,
+      () => state.cancelled
+    )
   } catch (error) {
     if (state.cancelled) {
       throw new StructuredAgentSessionLaunchCancelledError()

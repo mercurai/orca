@@ -14,6 +14,7 @@ import {
   structuredLaunchIdentity,
   type StructuredLaunchState
 } from './structured-agent-session-launch-registry'
+import { initialStructuredLaunchSelection } from './structured-agent-session-launch-options'
 
 export function restorePersistedStructuredLaunchState(
   worktreeId: string,
@@ -67,7 +68,7 @@ export function restorePersistedStructuredLaunchState(
     onVisibilityChanged: undefined,
     callers,
     ...(record.heldPromptDrafts ? { heldPromptDrafts: record.heldPromptDrafts } : {}),
-    selection: { seed: intent.seedOptions, held: record.heldOptions ?? {} }
+    selection: { ...initialStructuredLaunchSelection(intent), held: record.heldOptions ?? {} }
   }
   callers.outcome = record.lifecycle === 'failed' ? 'failed' : 'unknown'
   callers.failedAt = record.failedAt

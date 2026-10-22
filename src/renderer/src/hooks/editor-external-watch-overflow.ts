@@ -1,10 +1,7 @@
 import { useAppStore } from '@/store'
 import type { OpenFile } from '@/store/slices/editor'
 import type { EditorExternalWatchBatchPathIndex } from '@/components/editor/editor-external-watch-path-index'
-import {
-  canAutoSaveOpenFile,
-  isExternalReloadableEditorTab
-} from '@/components/editor/editor-autosave'
+import { isExternalReloadableEditorTab } from '@/components/editor/editor-autosave'
 import { forgetCombinedDiffViewBodiesForWorktree } from '@/components/editor/combined-diff/remember-view/combined-diff-view-cache'
 import { getRuntimeTargetForFileOwner } from '@/lib/file-owner-runtime-target'
 import { runtimePathsExist } from '@/runtime/runtime-path-existence-batch'
@@ -12,7 +9,6 @@ import {
   PATH_EXISTENCE_BATCH_MAX,
   type PathExistenceResult
 } from '../../../shared/path-existence-batch'
-import { requestRestoredTabReverification } from '@/components/editor/editor-restored-tab-conflict-scan'
 import {
   getLocalWindowsWslAliasOption,
   getOpenFileRuntimeOwner,
@@ -20,6 +16,7 @@ import {
 } from './editor-external-watch-targets'
 import {
   scheduleDebouncedEditorExternalReload,
+  scheduleEditorSelfMoveEchoVerification,
   type EditorExternalWatchNotification
 } from './editor-external-watch-disk-verification'
 
@@ -79,12 +76,15 @@ type EditTabProbe = {
 }
 
 /**
- * An overflow (or a switch-back catch-up) names no paths, so every tab of the workspace may be stale.
- * Clean tabs reload unless disk proves the file gone; dirty tabs get the restored-tab disk check.
+ * An overflow names no paths, so every clean tab of the workspace reloads.
+ * A resync (the watch was down) also probes clean edit tabs for deletion; an event-storm overflow
+ * skips that so it never fans out per-tab probes.
  */
-export function reconcileEditorTabsAfterOverflow(target: OverflowTarget): void {
-  // Why: unmounted combined-diff tabs get no per-path reload, so drop their cached bodies before a remount replays them.
-  forgetCombinedDiffViewBodiesForWorktree(target.worktreeId)
+export function reconcileEditorTabsAfterOverflow(target: OverflowTarget, resync: boolean): void {
+  if (resync) {
+    // Why: unmounted combined-diff tabs get no per-path reload, so drop their cached bodies before a remount replays them.
+    forgetCombinedDiffViewBodiesForWorktree(target.worktreeId)
+  }
   const state = useAppStore.getState()
   const probes: EditTabProbe[] = []
   for (const file of state.openFiles) {
@@ -95,16 +95,19 @@ export function reconcileEditorTabsAfterOverflow(target: OverflowTarget): void {
     ) {
       continue
     }
+    // Why: compare dirty tabs asynchronously; autosave stays free to run its own guarded check.
     if (file.isDirty) {
-      // Why: a dirty tab is never reloaded; the restored-tab scan shows the changed-on-disk banner if disk moved.
-      // Mirrors the scan's eligibility so it always resolves the flag.
-      if (
-        file.lastKnownDiskSignature &&
-        file.externalMutation !== 'changed' &&
-        canAutoSaveOpenFile(file)
-      ) {
-        requestRestoredTabReverification(file.id)
-        state.setPendingDiskBaselineVerification(file.id, true)
+      if (resync) {
+        scheduleEditorSelfMoveEchoVerification(
+          {
+            ...target,
+            connectionId: target.connectionId,
+            runtimeEnvironmentId: target.runtimeEnvironmentId ?? null
+          },
+          [file.id],
+          false,
+          true
+        )
       }
       continue
     }
@@ -115,7 +118,9 @@ export function reconcileEditorTabsAfterOverflow(target: OverflowTarget): void {
       runtimeEnvironmentId: target.runtimeEnvironmentId ?? null,
       ...getLocalWindowsWslAliasOption(target)
     }
-    if (file.mode !== 'edit') {
+    if (file.mode !== 'edit' || !resync) {
+      // Why: this reload is newer than any pending resync probe for the tab.
+      probeGenerationByFileId.delete(file.id)
       if (file.externalMutation) {
         state.setExternalMutation(file.id, null)
       }

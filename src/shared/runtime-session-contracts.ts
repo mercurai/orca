@@ -158,9 +158,23 @@ export type RuntimeSyncedLeaf = {
   parked?: boolean
 }
 
+/** Layout-owner builds: a pane the window shows of a workspace main owns. */
+export type RuntimeMountedLeaf = {
+  tabId: string
+  leafId: string
+  paneRuntimeId: number
+  /** Retained by a parked PTY watcher, not mounted in the renderer. */
+  parked?: boolean
+  /** The pane's title as the window resolves it, a reset of a stuck agent title included. */
+  paneTitle?: string | null
+}
+
 export type RuntimeSyncWindowGraph = {
   tabs: RuntimeSyncedTab[]
   leaves: RuntimeSyncedLeaf[]
+  /** Layout-owner builds: what the window shows of main's panes; `tabs` and `leaves` then hold
+   *  only workspaces main does not own. Window-to-main only. */
+  mountedLeaves?: RuntimeMountedLeaf[]
   mobileSessionTabs?: RuntimeMobileSessionTabsSnapshot[]
   unchangedMobileSessionWorktrees?: string[]
   /** Terminal grid that fills each shown tab group, by group id, so main starts a new tab's
@@ -304,7 +318,13 @@ export type RuntimeMobileSessionCreateTerminalResult = {
   publicationEpoch: string
   snapshotVersion: number
   warning?: 'desktop-tab-not-shown'
+  /** The saved folder was gone, so the terminal started at the workspace root. */
+  startupCwdFallback?: 'workspace-root'
 }
+
+/** Activation's reply: the fallback rides this one answer and is never stored on the snapshot. */
+export type RuntimeMobileSessionTabActivationResult = RuntimeMobileSessionTabsResult &
+  Pick<RuntimeMobileSessionCreateTerminalResult, 'startupCwdFallback'>
 
 export type RuntimeMobileSessionTabsRemovedResult = RuntimeMobileSessionTabsResult & {
   removed: true

@@ -15,11 +15,8 @@ import { isReloadableSingleFileDiffTab } from './editor-panel-diff-reload'
 import { createEditorWatcherReloadCoalescer } from './editor-watcher-reload-coalescer'
 import { markFileChangedOnDisk } from './editor-changed-on-disk-mark'
 import { hasRecentSelfWrite } from './editor-self-write-registry'
-import {
-  editorModelSiblingTabs,
-  isEditorModelDirty,
-  isWholeEditorState
-} from './editor-save-disk-precondition'
+import { editorModelSiblingTabs, isEditorModelDirty } from './editor-save-disk-precondition'
+import { withRecordDiskText } from './editor-buffer-adapter'
 
 type EditorViewModeByFile = ReturnType<typeof useAppStore.getState>['editorViewMode']
 
@@ -93,7 +90,7 @@ export function useEditorPanelExternalContentEvents({
         return 'stale'
       }
       // Why: a clean tab of a model another tab is editing shows that buffer; never reload it alone.
-      if (isWholeEditorState(state) && isEditorModelDirty(state, file)) {
+      if (isEditorModelDirty(state, file)) {
         return null
       }
       return isVisibleRef.current && file.id === activeContentFileIdRef.current ? file : 'stale'
@@ -142,8 +139,7 @@ export function useEditorPanelExternalContentEvents({
         // clean tab of a model another tab is editing shows that buffer too.
         if (
           file.isDirty ||
-          (isWholeEditorState(storeState) &&
-            storeState.openFiles.some((tab) => tab.id === file.id) &&
+          (storeState.openFiles.some((tab) => tab.id === file.id) &&
             isEditorModelDirty(storeState, file))
         ) {
           continue
@@ -195,12 +191,17 @@ export function useEditorPanelExternalContentEvents({
         return
       }
       const file = openFilesRef.current.find((openFile) => openFile.id === detail.fileId)
+      const recordViewIds = detail.recordViewIds ?? [detail.fileId]
       if (!file) {
+        // Why: the saving tab closed mid-save; the record's other views still move to the disk text.
+        setFileContents((prev) =>
+          withRecordDiskText(prev, recordViewIds, detail.fileId, detail.content)
+        )
         return
       }
       if (file.mode === 'edit' || file.mode === 'markdown-preview') {
         setFileContents((prev) => ({
-          ...prev,
+          ...withRecordDiskText(prev, recordViewIds, file.id, detail.content),
           [file.id]: { content: detail.content, isBinary: false }
         }))
       }

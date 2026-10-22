@@ -8,6 +8,7 @@ import {
   MIN_EDITOR_AUTO_SAVE_DELAY_MS
 } from '../../../../shared/constants'
 import { clampNumber } from '@/lib/terminal-theme'
+import { isAutosavePausedForNonUtf8File } from './editor-non-utf8-autosave-pause'
 
 export const ORCA_EDITOR_QUIESCE_FILE_SAVES_EVENT = 'orca:editor-quiesce-file-saves'
 export const ORCA_EDITOR_EXTERNAL_FILE_CHANGE_EVENT = 'orca:editor-external-file-change'
@@ -36,11 +37,19 @@ export type EditorPathMutationTarget = {
   }
 }
 
-export type EditorSaveQuiesceTarget = { fileId: string } | EditorPathMutationTarget
+export type EditorSaveQuiesceTarget =
+  | {
+      fileId: string
+      /** Don't Save: no flush, and autosave held until the release runs. */ discard?: true
+    }
+  | EditorPathMutationTarget
 
 export type EditorSaveQuiesceDetail = EditorSaveQuiesceTarget & {
   claim: () => void
   resolve: () => void
+  reject?: (message: string) => void
+  /** A path or discard quiesce holds autosave of that file in every workspace until this release runs. */
+  onHold?: (release: () => void) => void
 }
 
 export type EditorSaveFileTarget = {
@@ -48,8 +57,6 @@ export type EditorSaveFileTarget = {
   fallbackContent?: string
   /** Only the conflict banner's Overwrite sets this. */
   overwrite?: true
-  /** A save sent from the mobile app; its refusal is reported to mobile, not the desktop banner. */
-  origin?: 'mobile'
 }
 
 export type EditorSaveAndCloseDetail = {
@@ -67,6 +74,8 @@ export type EditorSaveFileDetail = EditorSaveFileTarget & {
 export type EditorFileSavedDetail = {
   fileId: string
   content: string
+  /** Every view of the saved record, read when the write landed: the saving view may close. */
+  recordViewIds?: readonly string[]
 }
 
 export type EditorRequestFileCloseDetail = {
@@ -100,24 +109,19 @@ export function canAutoSaveOpenFile(file: OpenFile): boolean {
   return file.mode === 'edit' || (file.mode === 'diff' && file.diffSource === 'unstaged')
 }
 
-// Why: autosave must not resolve a changed-on-disk conflict by overwriting
-// the newer external content, nor write over a restored tab whose disk
-// baseline is still unverified (the conflict may simply not be marked YET).
+// Why: autosave must not resolve a changed-on-disk conflict by overwriting the newer external
+// content. An unmarked conflict needs no pause: every save is guarded, and a refusal sets the mark.
 // One predicate so the save-queue gate and the timer scheduler cannot drift.
 export function isAutosaveSuspendedForFile(
   file: Pick<
     OpenFile,
-    | 'externalMutation'
-    | 'pendingDiskBaselineVerification'
-    | 'pendingLiveDiskVerification'
-    | 'pendingOwnerMigration'
+    'externalMutation' | 'pendingOwnerMigration' | 'filePath' | 'runtimeEnvironmentId'
   >
 ): boolean {
   return (
     file.externalMutation === 'changed' ||
-    file.pendingDiskBaselineVerification === true ||
-    file.pendingLiveDiskVerification === true ||
-    file.pendingOwnerMigration === true
+    file.pendingOwnerMigration === true ||
+    isAutosavePausedForNonUtf8File(file)
   )
 }
 
@@ -172,8 +176,12 @@ export function getOpenFilesForExternalFileChange(
   })
 }
 
-export async function requestEditorSaveQuiesce(target: EditorSaveQuiesceTarget): Promise<void> {
-  await new Promise<void>((resolve) => {
+/** Resolves to a release for the autosave hold a path quiesce takes; call it once git finishes. */
+export async function requestEditorSaveQuiesce(
+  target: EditorSaveQuiesceTarget
+): Promise<() => void> {
+  let release = (): void => {}
+  await new Promise<void>((resolve, reject) => {
     let claimed = false
     window.dispatchEvent(
       new CustomEvent<EditorSaveQuiesceDetail>(ORCA_EDITOR_QUIESCE_FILE_SAVES_EVENT, {
@@ -182,7 +190,11 @@ export async function requestEditorSaveQuiesce(target: EditorSaveQuiesceTarget):
           claim: () => {
             claimed = true
           },
-          resolve
+          resolve,
+          reject: (message) => reject(new Error(message)),
+          onHold: (hold) => {
+            release = hold
+          }
         }
       })
     )
@@ -193,6 +205,7 @@ export async function requestEditorSaveQuiesce(target: EditorSaveQuiesceTarget):
       resolve()
     }
   })
+  return release
 }
 
 export async function requestEditorFileSave(target: EditorSaveFileTarget): Promise<void> {

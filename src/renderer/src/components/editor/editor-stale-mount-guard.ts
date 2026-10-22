@@ -1,7 +1,7 @@
 import { useAppStore } from '@/store'
 import { getDiskBaselineSignature } from '../../../../shared/disk-baseline-signature'
 import { notifyEditorFileCacheStale } from './editor-autosave'
-import { isEditorModelDirty, isWholeEditorState } from './editor-save-disk-precondition'
+import { isEditorModelDirty } from './editor-save-disk-precondition'
 
 /**
  * A clean tab's text (cache, or a leftover draft) that no longer matches its disk version, such as
@@ -22,10 +22,17 @@ const requestedReloads = new Map<string, string>()
 
 /** Drops a stale cache so it reloads from disk, once per cached text and baseline: a reload that lands the same text can't loop. */
 export function requestStaleCacheReload(fileId: string, content: string): void {
-  const file = useAppStore.getState()?.openFiles?.find((openFile) => openFile.id === fileId)
+  const openFiles = useAppStore.getState()?.openFiles ?? []
+  const file = openFiles.find((openFile) => openFile.id === fileId)
   const stamp = `${file?.lastKnownDiskSignature ?? ''}\n${getDiskBaselineSignature(content)}`
   if (requestedReloads.get(fileId) === stamp) {
     return
+  }
+  // Why: drop closed tabs' stamps, which no settling mount will ever clear.
+  for (const id of requestedReloads.keys()) {
+    if (!openFiles.some((openFile) => openFile.id === id)) {
+      requestedReloads.delete(id)
+    }
   }
   requestedReloads.set(fileId, stamp)
   notifyEditorFileCacheStale(fileId)
@@ -42,13 +49,14 @@ export function settleStaleCacheReload(fileId: string): void {
  */
 export function mayPushTabTextIntoModel(fileId: string): boolean {
   const state = useAppStore.getState()
-  if (!isWholeEditorState(state)) {
+  const file = state.openFiles.find((openFile) => openFile.id === fileId)
+  if (!file) {
     return true
   }
-  const file = state.openFiles.find((openFile) => openFile.id === fileId)
-  if (!file || file.isDirty) {
-    // Why: a dirty tab's text is its own edits.
-    return true
+  if (file.isDirty) {
+    // Why: a dirty view's text is its draft; with no draft (host-mirrored dirty, dropped draft) its
+    // text is disk-derived and must not overwrite the shared model's unsaved edits.
+    return state.editorDrafts[fileId] !== undefined
   }
   // Why backstop: a clean tab's leftover draft is never restored into the model, whatever its state.
   if (state.editorDrafts[fileId] !== undefined) {

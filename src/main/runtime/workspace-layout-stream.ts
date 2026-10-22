@@ -24,6 +24,7 @@ import type {
 } from '../../shared/workspace-layout/workspace-layout-stream-frames'
 import type { RuntimeStore } from './runtime-store-contract'
 import { withLiveTitles } from './published-pane-live-titles'
+import { paneStartFactsOf, withPaneStartFacts, type PaneFactSources } from './pane-start-statuses'
 import {
   workspaceLayoutFrameObserver,
   workspaceLayoutPartitionReadObserver
@@ -87,7 +88,7 @@ export class WorkspaceLayoutStream {
   private readonly epoch = ORCA_LAYOUT_OWNER_IS_MAIN ? randomUUID() : undefined
 
   constructor(
-    private readonly deps: {
+    private readonly deps: PaneFactSources & {
       store: () => StreamStore | null
       /** The partition that owns a workspace key; null when none does. */
       homeHostId: (key: string) => ExecutionHostId | null
@@ -278,13 +279,17 @@ export class WorkspaceLayoutStream {
     const changed: string[] = []
     for (const [key, { layout, json }] of next) {
       const titles = this.liveTitlesOf(layout)
-      const liveTitles = JSON.stringify(titles)
+      // Switch point: a pane's start facts are live state, laid over as its title is.
+      const starts = ORCA_LAYOUT_OWNER_IS_MAIN ? paneStartFactsOf(layout, this.deps) : null
+      const liveTitles = JSON.stringify(starts ? [titles, starts] : titles)
       const previous = before.get(key)
       if (previous?.json === json && previous.liveTitles === liveTitles) {
         shown.set(key, previous)
         continue
       }
-      shown.set(key, { json, liveTitles, layout: withLiveTitles(layout, titles) })
+      const shownLayout = withLiveTitles(layout, titles)
+      const laid = starts ? withPaneStartFacts(shownLayout, starts) : shownLayout
+      shown.set(key, { json, liveTitles, layout: laid })
       changed.push(key)
     }
     this.shown = shown
@@ -334,7 +339,9 @@ export class WorkspaceLayoutStream {
   private freshLayouts(): Map<string, PublishedWorkspaceLayout> {
     const fresh = new Map<string, PublishedWorkspaceLayout>()
     for (const [key, { layout }] of this.projection.projectFresh()) {
-      fresh.set(key, withLiveTitles(layout, this.liveTitlesOf(layout)))
+      const titled = withLiveTitles(layout, this.liveTitlesOf(layout))
+      const starts = ORCA_LAYOUT_OWNER_IS_MAIN ? paneStartFactsOf(layout, this.deps) : null
+      fresh.set(key, starts ? withPaneStartFacts(titled, starts) : titled)
     }
     return fresh
   }

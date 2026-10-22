@@ -23,6 +23,9 @@ const {
   prunePackagedRuntimeNodeModules,
   verifyPackagedMainRuntimeDeps
 } = require('./packaged-runtime-node-modules.cjs')
+const {
+  assertNoWindowsExecutablesInRuntimeNodeModules
+} = require('./packaged-windows-only-runtime-files.cjs')
 const { verifyLinuxGlibcFloor } = require('./scripts/verify-linux-glibc-floor.cjs')
 const {
   verifyPackagedWindowsAgentHook
@@ -375,7 +378,6 @@ module.exports = {
     'out/main/agent-hooks/**',
     'out/main/antigravity/**',
     'out/main/claude/**',
-    'out/main/claude-accounts/keychain.js',
     'out/main/codex/**',
     'out/main/copilot/**',
     'out/main/cursor/**',
@@ -384,6 +386,8 @@ module.exports = {
     'out/main/gitlab/project-ref-parser.js',
     'out/main/grok/**',
     'out/main/hermes/**',
+    'out/main/asar-transparent-fs.js',
+    'out/main/macos-tree-clone.js',
     'out/main/orca-profiles/profile-index-store.js',
     'out/main/persistence/profile-state/**',
     'out/main/startup/http1-compatibility-marker.js',
@@ -468,6 +472,7 @@ module.exports = {
     }
     stampPackagedCliVersion(resourcesDir, context.packager.appInfo.version)
     prunePackagedRuntimeNodeModules(resourcesDir, context.electronPlatformName, context.arch)
+    assertNoWindowsExecutablesInRuntimeNodeModules(resourcesDir, context.electronPlatformName)
     // Why: a Linux runner-image glibc bump silently shipped a node-pty pty.node
     // requiring GLIBC_2.34, crashing the app on startup on Ubuntu 20.04 (#9902).
     // Fail packaging if any bundled native binary exceeds the supported floor.
@@ -647,6 +652,7 @@ module.exports = {
     icon: 'resources/build/icon.icns',
     entitlements: 'resources/build/entitlements.mac.plist',
     entitlementsInherit: 'resources/build/entitlements.mac.plist',
+    ...(isMacRelease ? { sign: resolve(__dirname, 'scripts/sign-mac-app.mjs') } : {}),
     signIgnore: [
       ...bundledRipgrepMacSignIgnore,
       ...orcadTemplateMacSignIgnore,

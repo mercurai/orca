@@ -1,4 +1,6 @@
 import { readCodexSessionSpeed } from './codex-structured-speed-state'
+import type { StructuredAgentSessionLiveOptions } from '../native-chat/agent-session-wire/structured-agent-session-option-models'
+import { agentSessionEffortLevels } from '../../shared/agent-session-effort-levels'
 import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
 import type { CodexAppServerConnection } from './codex-app-server-connection'
 import type { CodexSession } from './codex-structured-session-state'
@@ -13,14 +15,11 @@ import {
 } from './codex-structured-service-tier'
 import {
   composeCodexSessionOptionCatalog,
-  fetchCodexModelCatalogListing,
-  readCodexStructuredSessionOptionCatalog,
-  type CodexModelCatalogListing
+  readCodexStructuredSessionOptionCatalog
 } from './codex-structured-model-catalog'
 import {
   codexAcquireCatalogListing,
-  initialCodexSessionPickerListing,
-  listingFromEntry
+  codexSessionCapabilities
 } from './codex-structured-catalog-entry'
 export { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
 
@@ -63,52 +62,6 @@ export type { CodexSessionOptionCatalog } from './codex-structured-model-catalog
 
 export { readCodexStructuredSessionOptionCatalog } from './codex-structured-model-catalog'
 
-async function fetchCodexListingThroughStore(
-  session: CodexSession,
-  timeoutMs: number | undefined
-): Promise<CodexModelCatalogListing> {
-  const access = session.catalogAccess
-  if (!access) {
-    return fetchCodexModelCatalogListing({ connection: session.connection, timeoutMs })
-  }
-  const entry = await access.store.refresh(access.fingerprint, 'codex', access, async () => {
-    const listing = await fetchCodexModelCatalogListing({
-      connection: session.connection,
-      timeoutMs
-    })
-    return { models: listing.models, origin: 'live-session' }
-  })
-  if (!entry) {
-    throw new Error(access.store.failureDetail(access.fingerprint) ?? 'codex model listing failed')
-  }
-  return listingFromEntry(entry)
-}
-
-/**
- * The listing a picker read answers with: any stored entry immediately, with a
- * background refresh once it ages out; a provider fetch only when this key has
- * never listed. The refresh rides the session's own connection and its bounded
- * request timeout, off the caller's path.
- */
-export async function codexSessionCatalogListingForPicker(
-  session: CodexSession,
-  timeoutMs: number | undefined
-): Promise<CodexModelCatalogListing> {
-  const access = session.catalogAccess
-  const entry = access?.store.get(access.fingerprint)
-  if (access && entry) {
-    if (access.store.shouldRefresh(access.fingerprint)) {
-      void fetchCodexListingThroughStore(session, timeoutMs).catch(() => {})
-    }
-    return listingFromEntry(entry)
-  }
-  return (
-    initialCodexSessionPickerListing(session, () =>
-      fetchCodexListingThroughStore(session, timeoutMs)
-    ) ?? fetchCodexListingThroughStore(session, timeoutMs)
-  )
-}
-
 export async function readCodexStructuredSessionOptions(input: {
   connection: Pick<CodexAppServerConnection, 'request'>
   current: { model?: string; effort?: string; serviceTier?: string }
@@ -121,31 +74,29 @@ export async function readCodexStructuredSessionOptions(input: {
 
 function composeLiveCodexCatalog(
   session: CodexSession,
-  listing: CodexModelCatalogListing
-): AgentSessionOptionsResult {
+  listing: ReturnType<typeof codexSessionCapabilities>
+): StructuredAgentSessionLiveOptions {
   const model = session.options.get('model') ?? session.reportedOptions.model
   const effort = session.options.get('effort') ?? session.reportedOptions.effort
   const serviceTier = session.options.get('serviceTier')
-  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
-  if (!model && listing.models.length === 0) {
-    return { models: [], current: {}, speed: readCodexSessionSpeed(session, listing) }
-  }
-  const result = composeCodexSessionOptionCatalog(listing, {
+  const catalog = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
       ...(effort ? { effort } : {}),
       ...(serviceTier ? { serviceTier } : {})
     },
-    ...(session.reportedOptions.serviceTierKnown && !pendingFast
+    ...(session.reportedOptions.serviceTierKnown
       ? {
           reportedServiceTier: session.reportedOptions.serviceTier ?? null,
           reportedServiceTierKnown: true
         }
       : {})
   })
+  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
   return {
-    ...result,
-    ...(pendingFast ? { current: { ...result.current, fastMode: true } } : {}),
+    ...catalog,
+    fastModeSupport: listing.fastModeSupport,
+    ...(pendingFast ? { current: { ...catalog.current, fastMode: true } } : {}),
     speed: readCodexSessionSpeed(session, listing)
   }
 }
@@ -153,18 +104,17 @@ function composeLiveCodexCatalog(
 export async function readLiveCodexSessionOptions(
   session: CodexSession,
   timeoutMs: number | undefined
-): Promise<AgentSessionOptionsResult> {
-  const listing = await codexSessionCatalogListingForPicker(session, timeoutMs)
-  return composeLiveCodexCatalog(session, listing)
+): Promise<StructuredAgentSessionLiveOptions> {
+  return (await prepareLiveCodexSessionOptions(session, timeoutMs))()
 }
 
-/** Fetch outside the session lane; apply against current options inside it. */
+/** Demand discovery outside the session lane; compose from its installed snapshot inside it. */
 export async function prepareLiveCodexSessionOptions(
   session: CodexSession,
-  timeoutMs: number | undefined
-): Promise<() => AgentSessionOptionsResult> {
-  const listing = await codexSessionCatalogListingForPicker(session, timeoutMs)
-  return () => composeLiveCodexCatalog(session, listing)
+  _timeoutMs: number | undefined
+): Promise<() => StructuredAgentSessionLiveOptions> {
+  await session.catalogAccess?.demand?.()
+  return () => composeLiveCodexCatalog(session, codexSessionCapabilities(session))
 }
 
 export async function applyCodexStructuredSessionOption(
@@ -181,7 +131,7 @@ export async function applyCodexStructuredSessionOption(
 
 /**
  * With no listing known, a pick is kept as the next turn's intent rather than refused: catalog
- * bookkeeping does not discard it. New-turn admission validates speed support before sending.
+ * bookkeeping must not gate it. Codex judges the model and tier on `turn/start`.
  */
 function applyUnlistedCodexSessionOption(
   session: CodexSession,
@@ -208,7 +158,10 @@ function applyValidatedCodexStructuredSessionOption(
   requestedKey: string,
   requestedValue: string
 ): Readonly<Record<string, string>> {
-  const listing = codexAcquireCatalogListing(session.catalogAccess)
+  const verified = codexAcquireCatalogListing(session.catalogAccess, true)
+  const capabilities = codexSessionCapabilities(session)
+  const listing =
+    requestedKey === 'model' ? verified : capabilities.models.length ? capabilities : null
   const priorModel = session.options.get('model') ?? session.reportedOptions.model
   const catalog = listing
     ? composeCodexSessionOptionCatalog(listing, {
@@ -241,7 +194,15 @@ function applyValidatedCodexStructuredSessionOption(
   const modelId = key === 'model' ? value : catalog.current.model
   const model = catalog.models.find((entry) => entry.id === modelId)
   if (key === 'serviceTier') {
-    if (!codexOffersServiceTier(session, model, catalog.models, value)) {
+    if (
+      !codexOffersServiceTier(
+        session,
+        model,
+        catalog.models,
+        value,
+        capabilities.listedServiceTiers
+      )
+    ) {
       throw new Error(`codex app-server model ${modelId} does not offer the ${value} tier`)
     }
     setCodexServiceTier(session.options, value)
@@ -249,18 +210,18 @@ function applyValidatedCodexStructuredSessionOption(
   }
   const priorEffort = session.options.get('effort') ?? session.reportedOptions.effort
   const requestedEffort = key === 'effort' ? value : priorEffort
-  if (
-    key === 'effort' &&
-    (!model?.efforts.length || !model.efforts.some((effort) => effort.value === requestedEffort))
-  ) {
+  const levels = agentSessionEffortLevels(model)
+  if (key === 'effort' && levels && !levels.has(value)) {
     throw new Error(`codex app-server model ${modelId} does not support ${value}`)
   }
   const effort =
-    model?.efforts.length === 0
-      ? undefined
-      : (model?.efforts.find((entry) => entry.value === requestedEffort)?.value ??
-        model?.defaultEffort ??
-        model?.efforts[0]?.value)
+    levels === null
+      ? requestedEffort
+      : levels.size === 0
+        ? undefined
+        : (model?.efforts.find((entry) => entry.value === requestedEffort)?.value ??
+          model?.defaultEffort ??
+          model?.efforts[0]?.value)
   session.options.set('model', modelId)
   if (effort) {
     session.options.set('effort', effort)

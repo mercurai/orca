@@ -1,4 +1,6 @@
 import { acknowledgeCodexSpeed, type CodexSpeedRequestState } from './codex-structured-speed-state'
+import { pickedSkillsInText } from '../../shared/structured-agent-session-send-mutation'
+import type { CodexSkillReport } from './codex-structured-skill-report'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import { agentSessionFailureFact, providerDiagnosticOf } from '../../shared/agent-session-failure'
 import type {
@@ -16,9 +18,9 @@ import {
   assertCodexSpeedAdmitted,
   CodexSpeedAdmissionError
 } from './codex-structured-speed-admission'
-import type { CodexSessionCatalogAccess } from './codex-structured-session-state'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
+import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
   type CodexTurnOpenWaits
@@ -58,12 +60,14 @@ function checkDispatchAuthority(host: CodexTurnHost, id: string, signal?: AbortS
 /** The session state one turn needs. */
 export type CodexTurnHost = CodexSpeedRequestState & {
   account?: AgentSessionAccountKind
+  /** The skills this child's Codex listed; a picked skill outside them is left to its `$name`. */
+  skillReport?: Pick<CodexSkillReport, 'hasSkillPath'>
   connection: Pick<CodexAppServerConnection, 'request'>
   threadId: string
   options: Map<string, string>
-  catalogAccess?: CodexSessionCatalogAccess
   appliedTurnOptions?: Readonly<Record<string, string>>
-  reportedOptions?: { model?: string }
+  reportedOptions?: CodexSession['reportedOptions']
+  catalogAccess?: CodexSession['catalogAccess']
   dispatchEchoes: CodexDispatchEchoes
   activeTurnIds?: ReadonlySet<string>
   /** Running turns whose interrupt Codex already answered: aborted, so never steered. */
@@ -71,15 +75,28 @@ export type CodexTurnHost = CodexSpeedRequestState & {
   turnOpenWaits: Pick<CodexTurnOpenWaits, 'wait'>
 }
 
-function turnInputFor(body: AgentJournalMessageItem): Record<string, unknown>[] {
+function turnInputFor(
+  host: CodexTurnHost,
+  body: AgentJournalMessageItem
+): Record<string, unknown>[] {
   const input: Record<string, unknown>[] = []
+  let text = ''
   for (const block of body.blocks as NativeChatBlock[]) {
     if (block.type === 'text' && block.text.length > 0) {
       input.push({ type: 'text', text: block.text })
+      text += `${block.text}\n`
     } else if (block.type === 'image-ref' && block.path) {
       input.push({ type: 'localImage', path: block.path })
     } else if (block.type === 'image-ref' && block.url) {
       input.push({ type: 'image', url: block.url })
+    }
+  }
+  // Each picked skill goes beside the text by the file Codex loaded, as Codex's own composer sends
+  // it: a shared name alone is ambiguous. Codex blocks the plain name for every skill item, so one
+  // whose file this child never loaded would stop even a unique `$name` from running.
+  for (const skill of pickedSkillsInText(text, body.skills ?? [])) {
+    if (host.skillReport?.hasSkillPath(skill.path) !== false) {
+      input.push({ type: 'skill', name: skill.name, path: skill.path })
     }
   }
   return input
@@ -109,7 +126,7 @@ async function steerCodexTurn(
         threadId: host.threadId,
         expectedTurnId,
         clientUserMessageId: input.clientMessageId,
-        input: turnInputFor(input.body)
+        input: turnInputFor(host, input.body)
       },
       { timeoutMs: input.timeoutMs, onReply: input.onReply }
     )
@@ -187,7 +204,7 @@ export async function startCodexTurn(
       {
         threadId: host.threadId,
         clientUserMessageId: input.clientMessageId,
-        input: turnInputFor(input.body),
+        input: turnInputFor(host, input.body),
         ...options
       },
       { timeoutMs: input.timeoutMs, onReply: input.onReply }
@@ -293,5 +310,20 @@ export async function dispatchCodexTurn(
         ...codexAnsweredTurn(session, input.sessionId, answer.turnId, answer.via),
         ...rejection
       }
-    : { state: 'admitted' }
+    : { state: 'admitted', ranOptions: codexRanOptions(session) }
+}
+
+/** What a turn on this child runs, a steer its running turn's: the request's model and effort over
+ *  the thread's own, and the tier it runs as. */
+function codexRanOptions(session: CodexTurnHost): Record<string, string> {
+  const requested = codexTurnRequestOptions(session)
+  const thread = session.reportedOptions ?? {}
+  const model = requested.model ?? thread.model
+  const effort = requested.effort ?? (model === thread.model ? thread.effort : undefined)
+  const { serviceTier } = requested
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(serviceTier ? { serviceTier } : {})
+  }
 }

@@ -1,5 +1,6 @@
-import type { WslHostServerStop } from '../../shared/wsl-host-types'
+import type { WslHostServerStop, WslHostConnectIntent } from '../../shared/wsl-host-types'
 /** The production WSL side of `WslHostService`: one holder, connection manager and supervisor. */
+import { createWslOrcadPairingRecovery } from './wsl-orcad-pairing-repair'
 import { readConfirmedRunningWslDistros } from '../wsl-background-distro-gate'
 import { parsePairingCode } from '../../shared/pairing'
 import { pairedRuntimeConnectionFromOffer } from '../../shared/paired-runtime-connection'
@@ -25,7 +26,7 @@ import {
 } from './wsl-host-server-stop'
 import { createWslOrcadLivenessSupervisor } from './wsl-orcad-liveness-wiring'
 import type { WslOrcadLivenessSupervisor } from './wsl-orcad-liveness-supervisor'
-import { confirmsRunning } from './wsl-orcad-liveness-model'
+import { confirmsRunning } from './wsl-orcad-liveness-evidence'
 import { wslDistroHolderKey } from './wsl-distro-holder-record'
 
 function targetFor(distro: string): WslOrcadHostTarget {
@@ -62,8 +63,10 @@ export function createWslHostConnector(options: {
         ? unguardedHolder.ensureHeld(distro)
         : Promise.reject(refuseUnknown(distro))
   }
+  const pairingRecovery = createWslOrcadPairingRecovery(options.userDataPath)
   const manager = new WslOrcadConnectionManager({
     holder,
+    pairingRecovery,
     getPairingOffer: (environmentId) =>
       findWslHostDeployment(options.userDataPath, environmentId)
         ? resolveEnvironmentPairingOffer(options.userDataPath, environmentId)
@@ -141,6 +144,7 @@ export function createWslHostConnector(options: {
     listDistros: () => listWslHostDistros(),
     readOrcadPublicKey: (distro) => readWslDistroOrcadPublicKey(transportFor(distro)),
     connect: (distro, connectOptions) => liveness.connect(distro, connectOptions),
+    forgetPairingFailures: (environmentId) => pairingRecovery.repairs.forgetFailures(environmentId),
     get: (distro) => manager.get(distro),
     isReachable: async (distro, environmentId) =>
       options.runtime.isReady?.(environmentId) ||
@@ -183,7 +187,8 @@ export type WslHostConnector = {
   /** Runs in the distro, so it boots a stopped one: only after the user chose to. */
   readOrcadPublicKey(distro: string): Promise<string | null>
   /** User-initiated; may boot the distro. `force` takes an update live terminals deferred. */
-  connect(distro: string, options?: { force?: boolean }): Promise<WslOrcadConnection>
+  connect(distro: string, options?: { intent?: WslHostConnectIntent }): Promise<WslOrcadConnection>
+  forgetPairingFailures?(environmentId: string): void
   get(distro: string): WslOrcadConnection | null
   /** Checks the paired server without starting a stopped or unconfirmed distro. */
   isReachable(distro: string, environmentId: string): Promise<boolean>

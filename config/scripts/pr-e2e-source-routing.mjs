@@ -136,14 +136,17 @@ export const PR_E2E_SOURCE_ROUTES = [
   // COMPAT(legacy-relay-bridge): revisit 2027-01-15 with src/main/ssh/legacy-relay/.
   {
     id: 'ssh.orcad-legacy-relay-bridge',
-    specs: ['tests/e2e/ssh-orcad-legacy-relay-bridge.spec.ts'],
+    specs: [
+      'tests/e2e/ssh-orcad-legacy-relay-bridge.spec.ts',
+      'tests/e2e/ssh-orcad-relay-tab-only-shell.spec.ts'
+    ],
     matches: (file) =>
       MANAGED_SSH_HARNESS.test(file) ||
       /^tests\/e2e\/(?:helpers\/(?:legacy-relay-docker-host|build-released-relay-bundle)|cross-version-wire\/released-relay-(?:daemon|transport))\.m?ts$/.test(
         file
       ) ||
       (isProductSource(file) &&
-        /(?:legacy-relay(?:-bridge|\/)|orcad-migration-terminal-gate|ssh-host-relay-terminals-on-connect)/.test(
+        /(?:legacy-relay(?:-bridge|\/)|orcad-migration-terminal-gate|ssh-host-relay-terminals-on-connect|orcad-source-dependency-census)/.test(
           file
         ))
   },
@@ -250,6 +253,17 @@ export const PR_E2E_SOURCE_ROUTES = [
       ) ||
       (isProductSource(file) &&
         /^src\/(?:main\/(?:ssh|managed-server\/[a-z-]+)\/orcad-managed-|main\/ipc\/(?:ssh\/)?ssh-port-forward|main\/(?:ipc\/(?:(?:ssh\/)?ssh-(?:connect-flow|connection-handlers|host-user-disconnect|session-teardown)|(?:runtime-environments\/)?runtime-environment-(?:connectivity-handlers|manual-disconnect))|ssh\/(?:connection\/ssh-connection-manager|ssh-user-disconnect))\.ts$|renderer\/src\/startup\/(?:ssh-startup-reconnect|startup-ssh-connection-restore)\.ts$|renderer\/src\/runtime\/(?:web-runtime-session|web-session-close-|runtime-terminal-artifact-read\.ts$)|renderer\/src\/components\/terminal-pane\/(?:remote-runtime-|terminal-host-(?:workspace-file|file-link-existence)\.ts$))/.test(
+          file
+        ))
+  },
+  {
+    // A reconnect the host cannot image must still bring an idle full-screen program up to date (#26887).
+    id: 'ssh.orcad-reconnect-idle-frame',
+    specs: ['tests/e2e/ssh-orcad-terminal-reconnect-idle-frame.spec.ts'],
+    matches: (file) =>
+      MANAGED_SSH_HARNESS.test(file) ||
+      (isProductSource(file) &&
+        /^src\/(?:renderer\/src\/components\/terminal-pane\/(?:remote-runtime-|pty-connection\/(?:remote-program-redraw|hidden-output-restore-|park-reveal-snapshot-verdict))|main\/runtime\/rpc\/methods\/terminal\/terminal-(?:multiplex-initial-snapshot|snapshot-publication)\.ts$)/.test(
           file
         ))
   },

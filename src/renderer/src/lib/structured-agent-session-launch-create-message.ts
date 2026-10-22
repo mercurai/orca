@@ -9,10 +9,10 @@ import {
   structuredAgentSessionOptionView,
   structuredAgentSessionSendSelection
 } from '../../../shared/structured-agent-session-option-view'
-import { structuredAgentSessionOptionSnapshot } from '../../../shared/structured-agent-session-options'
 import { firstFrameOptionState } from '@/components/native-chat/use-structured-agent-session-option-state'
 import {
   applyStructuredLaunchHeldOptions,
+  holdStructuredLaunchCreatePicks,
   settleStructuredLaunchCreateOptions
 } from './structured-agent-session-launch-options'
 
@@ -28,11 +28,13 @@ export function prepareStructuredLaunchCreateMessage(
   if (intent.createPrepared) {
     return { params: intent.params }
   }
+  const heldPicks = { ...state.selection.held }
   const options = structuredLaunchCreateOptions(state, createMessageSupport)
   const params = { ...intent.params, ...(options ? { options } : {}) }
   return {
     params,
     commit: () => {
+      holdStructuredLaunchCreatePicks(state, heldPicks)
       // A joiner may hand off the CLI source while speed authorization awaits.
       const { options: _currentOptions, ...currentFields } = intent.params
       const currentParams = {
@@ -49,8 +51,8 @@ export function prepareStructuredLaunchCreateMessage(
   }
 }
 
-/** Picks held so far, and the model and effort the chat shows: a first message starts its turn
- *  on them, as a later send does. */
+/** Picks held so far, and the chat's own model and effort: a first message starts its turn on
+ *  them, as a later send does. */
 function structuredLaunchCreateOptions(
   state: StructuredLaunchState,
   createMessageSupport: boolean
@@ -84,7 +86,7 @@ function structuredLaunchCreateOptions(
       ? { permissionMode: seededPermission }
       : {}),
     ...selection.held,
-    ...structuredAgentSessionSendSelection(intent.agent, structuredAgentSessionOptionSnapshot(view))
+    ...structuredAgentSessionSendSelection(view)
   }
   return Object.keys(options).length ? options : undefined
 }
