@@ -924,7 +924,7 @@ for v in "$full_other" "${sha:0:12}" "$(printf 'z%.0s' $(seq 1 40))" true; do
 done
 # Integration: the range guard passes, the result guard would refuse. The exact sha lets the merge stay; nothing else does.
 mkdir -p "$root/mfstub"; cp "$here/merge-forward.sh" "$root/mfstub/"
-printf '#!/usr/bin/env bash\necho .github/workflows/ci.yml\nexit 3\n' > "$root/mfstub/merge-result-guard.sh"
+printf '#!/usr/bin/env bash\nif [ -n "${2:-}" ]; then exit 0; fi\necho .github/workflows/ci.yml\nexit 3\n' > "$root/mfstub/merge-result-guard.sh"
 for mode in exact none; do
   gs_clean; sha=$(git rev-parse up); git checkout -q fork; before=$(git rev-parse HEAD)
   if [ "$mode" = exact ]; then rc=$(gs_run "$sha"); else rc=$(gs_run ''); fi
