@@ -129,7 +129,7 @@ test('the merge runs from copies, before it is pushed, with one push per attempt
   assert.match(merge, /^\s+GUARD_ALLOWED: \$\{\{ steps\.guard\.outputs\.allowed \}\}$/m)
   assert.match(merge, /10 \| 11\) return 1 ;;/)
   assert.match(merge, /\*\) exit "\$rc" ;;/)
-  assert.match(merge, /merge-result-guard\.sh "\$before" "\$UPSTREAM_SHA"/)
+  assert.match(read('config', 'mercurai', 'scripts', 'merge-forward.sh'), /merge-result-guard\.sh "\$before" "\$UPSTREAM_SHA"/)
 })
 
 test('privileged sync runs only from the protected default branch', () => {

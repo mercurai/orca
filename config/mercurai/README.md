@@ -230,12 +230,14 @@ Trust boundary:
 
 ## One-time setup
 
-1. `FORK_BOT_TOKEN` repository secret, required: a fine-grained token (or GitHub App installation
+1. `FORK_BOT_TOKEN` environment secret in `mercurai-sync`, required: a fine-grained token (or GitHub App installation
    token) for `mercurai/orca` with Contents, Workflows, Issues and Actions write. `GITHUB_TOKEN`
    is not enough: it cannot push commits that touch `.github/workflows`, and upstream changes those
    in most releases, so the hourly merge-forward would fail; its pushes also trigger no workflow.
-   Only the jobs that write (the push and publish jobs, and the sync) use it, and they fail while
-   it is missing.
+   Store the secret on the `mercurai-sync` environment, restrict that environment to the `mercurai`
+   branch, and remove the old repository-level copy after the first successful sync. The sync job
+   uses this environment secret and fails while it is missing; release workflows keep their own
+   separately scoped token configuration.
 2. Scheduled workflows in a fork are disabled until enabled once in the Actions tab ("Enable
    workflow" on each `fork-*` workflow), or via
    `gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/enable`.
