@@ -21,7 +21,7 @@ if [ "${GUARD_REFUSED:-true}" != false ]; then
 fi
 : "${UPSTREAM_SHA:?}"
 eligible() {
-  git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai
+  git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai config/scripts
 }
 summary() { if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then echo "$1" >> "$GITHUB_STEP_SUMMARY"; fi; }
 display() { printf '%s' "$*" | LC_ALL=C sed 's|[^A-Za-z0-9._/@+ -]|?|g'; }

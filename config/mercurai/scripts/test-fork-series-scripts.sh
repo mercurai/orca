@@ -4,7 +4,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(mktemp -d)
-trap 'rm -rf "$root"' EXIT
+trap 'cd /; rm -rf "$root"' EXIT
 export PUSH_RETRY_SLEEP=0 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fails=0
 pass() { echo "PASS $1"; }
@@ -380,8 +380,8 @@ if run_rebase v1.0.1 patch/crc && [ "$(cat "$FORK_STATE_DIR/conflicted")" = "pat
 # `fork` and `up` leave one base; the fork has a file of its own under config/mercurai, which never counts.
 guard_setup() {
   rm -rf "$root/g"; git init -q -b fork "$root/g"; cd "$root/g"
-  mkdir -p .github/workflows config/mercurai config/mercurai-docs src docs
-  commit base.txt one "base"; commit .github/workflows/ci.yml ci "ci"; commit config/mercurai/keep.md keep "keep"; commit src/a.txt a "a"
+  mkdir -p .github/workflows config/mercurai config/scripts config/mercurai-docs src docs
+  commit base.txt one "base"; commit .github/workflows/ci.yml ci "ci"; commit config/mercurai/keep.md keep "keep"; commit config/scripts/keep.sh keep "keep"; commit src/a.txt a "a"
   git branch up; commit config/mercurai/fork-own.md own "the fork's own file"; git checkout -q up
 }
 guard_rc() {  # guard_rc: runs the guard, prints its exit status; the output is left in $root/guard.out
@@ -424,6 +424,10 @@ guard_expect "guard: a rename out of a guarded path is refused" 3 .github/workfl
 guard_setup; git rm -q config/mercurai/keep.md; git commit -qm "delete"
 guard_expect "guard: a delete in a guarded path is refused" 3 config/mercurai/keep.md
 
+# 32b. Scripts consumed by privileged workflows are guarded too.
+guard_setup; commit config/scripts/upstream.sh x "upstream privileged script"
+guard_expect "guard: a change under config/scripts is refused" 3 config/scripts/upstream.sh
+
 # 33. The owner's override is the full sha of the commit that is merged: it merges (exit 4) and still lists the paths.
 # true, a short sha, and the sha of an older reviewed commit, with upstream moved on since, all refuse.
 guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"
@@ -458,6 +462,12 @@ guard_setup; mkdir -p .github/actions/x; commit .github/actions/x/action.yml x "
 rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
 if [ "$rc" = 3 ] && grep -qxF .github/actions/x/action.yml "$root/guard.out"; then pass "result guard: a merge that changed .github/actions is refused"; else fail "result guard: a merge that changed .github/actions is refused"; cat "$root/guard.out"; fi
 
+# 33ca. An approved guarded path must retain the exact merge-tree content; a same-path edit is refused.
+guard_setup; git checkout -q up; commit .github/workflows/ci.yml approved "approved workflow"; approved=$(git rev-parse HEAD)
+git checkout -q fork; before=$(git rev-parse HEAD); git merge -q --no-edit up; echo tampered >> .github/workflows/ci.yml; git add .github/workflows/ci.yml; git commit -qm "tamper approved workflow"
+rc=0; bash "$here/merge-result-guard.sh" "$before" "$approved" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && grep -qxF .github/workflows/ci.yml "$root/guard.out"; then pass "result guard: an approved path with altered content is refused"; else fail "result guard: an approved path with altered content is refused"; cat "$root/guard.out"; fi
+
 # 33d. merge-forward.sh: the merge, the result check and the reset, as the workflow runs them (the push stays outside).
 mf_run() {  # mf_run <GUARD_ALLOWED>: merges `up` into `fork`; prints the exit status
   local rc=0; git checkout -q fork; : > "$root/mf.gho"
@@ -475,6 +485,10 @@ if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/w
   pass "merge-forward: an unallowed guarded result is reset, exits 11 and sets guarded"; else fail "merge-forward: an unallowed guarded result is reset, exits 11 and sets guarded"; cat "$root/mf.out"; mf_outputs; fi
 git checkout -q up; rc=$(mf_run true)
 if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ]; then pass "merge-forward: an allowed guarded commit merges"; else fail "merge-forward: an allowed guarded commit merges"; cat "$root/mf.out"; fi
+guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"; commit docs/up.md up "upstream docs"; git checkout -q fork
+rc=$(mf_run true)
+if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ] && [ -f docs/up.md ]; then
+  pass "merge-forward: an allowed guarded commit still merges its unguarded companions"; else fail "merge-forward: an allowed guarded commit still merges its unguarded companions"; cat "$root/mf.out"; fi
 guard_setup; commit base.txt upside "upstream edits base"; git checkout -q fork; commit base.txt forkside "fork edits base"
 before=$(git rev-parse HEAD); rc=$(mf_run false)
 if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$FORK_STATE_DIR/sync-conflicts" && [ "$(mf_outputs)" = "conflict=false guarded=false conflict=true " ]; then
@@ -914,14 +928,12 @@ for v in "$full_other" "${sha:0:12}" "$(printf 'z%.0s' $(seq 1 40))" true; do
   gs_clean; rc=$(gs_run "$v")
   if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false " ]; then pass "guard step: a clean range with owner value '${v:0:12}' is not allowed and not refused"; else fail "guard step: a clean range with owner value '${v:0:12}' is not allowed and not refused"; echo "rc=$rc $(gs_outputs)"; fi
 done
-# Integration: the range guard passes, the result guard would refuse. The exact sha lets the merge stay; nothing else does.
-mkdir -p "$root/mfstub"; cp "$here/merge-forward.sh" "$root/mfstub/"
-printf '#!/usr/bin/env bash\necho .github/workflows/ci.yml\nexit 3\n' > "$root/mfstub/merge-result-guard.sh"
+# Integration: the range guard passes, and the real result guard checks the approved merge tree.
 for mode in exact none; do
-  gs_clean; sha=$(git rev-parse up); git checkout -q fork; before=$(git rev-parse HEAD)
+  gs_clean; git checkout -q up; commit .github/workflows/ci.yml approved "approved workflow"; sha=$(git rev-parse up); git checkout -q fork; before=$(git rev-parse HEAD)
   if [ "$mode" = exact ]; then rc=$(gs_run "$sha"); else rc=$(gs_run ''); fi
   allowed=false; if grep -qx 'allowed=true' "$root/gs.gho"; then allowed=true; fi
-  mrc=0; git checkout -q fork; UPSTREAM_SHA=$sha GUARD_ALLOWED=$allowed bash "$root/mfstub/merge-forward.sh" > "$root/mf.out" 2>&1 || mrc=$?
+  mrc=0; git checkout -q fork; GITHUB_OUTPUT="$root/mf.gho" FORK_STATE_DIR="$root" UPSTREAM_SHA=$sha GUARD_ALLOWED=$allowed bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || mrc=$?
   if [ "$mode" = exact ]; then
     if [ "$rc" = 0 ] && [ "$allowed" = true ] && [ "$mrc" = 0 ] && git merge-base --is-ancestor up fork && [ "$(git rev-parse HEAD)" != "$before" ]; then
       pass "guard step + merge-forward: an exact sha keeps a merge the result guard would refuse"; else fail "guard step + merge-forward: an exact sha keeps a merge the result guard would refuse"; echo "rc=$rc allowed=$allowed mrc=$mrc"; cat "$root/mf.out"; fi

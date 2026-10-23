@@ -1,7 +1,8 @@
 # mercurai fork: mirror upstream into `main` (fast-forward only), mirror tags, hand the newest
 # release tag to fork-rebase-patches, then merge `main` forward into `mercurai` (the default
 # branch that carries the fork's own files). Lives in the fork only; never sent upstream.
-# Dispatched from a non-default branch it only reports (nothing is pushed).
+# The privileged job runs only from the protected default branch. A dispatch from another
+# branch is skipped before checkout or any secret-bearing step.
 name: fork-sync-upstream
 
 on:
@@ -22,7 +23,7 @@ on:
         type: string
         default: ''
       allow_guarded_merge_sha:
-        description: Full sha of the upstream commit whose range you reviewed (it touches .github/ or config/mercurai); merges only that commit. The schedule never sets it
+        description: Full sha of the upstream commit whose range you reviewed (it touches .github/, config/mercurai/ or config/scripts/); merges only that commit. The schedule never sets it
         type: string
         default: ''
 
@@ -53,6 +54,11 @@ env:
 
 jobs:
   mirror:
+    # Never execute a workflow file from a feature branch with the fork write token. The
+    # environment applies an additional branch policy to the token-bearing job.
+    if: ${{ github.ref_name == (github.event.repository.default_branch || 'mercurai') }}
+    environment:
+      name: mercurai-sync
     runs-on: ubuntu-latest
     steps:
       - name: Require the bot token
@@ -75,8 +81,8 @@ jobs:
       - name: Decide whether this run may push
         id: mode
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ] || [ "$FORK_BRANCH" != "$DEFAULT_BRANCH" ]; then
-            echo "push=false" >> "$GITHUB_OUTPUT"; echo "report-only run (dry_run or non-default branch $FORK_BRANCH)"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"; echo "report-only run (dry_run)"
           else
             echo "push=true" >> "$GITHUB_OUTPUT"
           fi
@@ -108,7 +114,7 @@ jobs:
       - name: Guard every push and the merge-forward
         id: guard
         # Git only, no token, and before anything is pushed: a pushed workflow file is active at once and runs
-        # with the repository secrets, so a range that touches .github/ or config/mercurai/ waits for the owner.
+        # with the repository secrets, so a range that touches .github/, config/mercurai/ or config/scripts/ waits for the owner.
         # The ranges are what the main mirror would publish (origin/main..) and what the merge-forward would
         # bring in (merge base with this branch..), both up to the one pinned commit (claude-code-config#1148).
         env:

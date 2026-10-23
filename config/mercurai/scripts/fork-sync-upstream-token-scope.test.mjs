@@ -60,6 +60,14 @@ test('the default token reads only and no secret is workflow-level', () => {
   assert.doesNotMatch(header, /GH_TOKEN/)
 })
 
+test('the token-bearing job is unavailable to workflow files from untrusted branches', () => {
+  assert.match(
+    code,
+    /^  mirror:\n    if: \$\{\{ github\.ref_name == \(github\.event\.repository\.default_branch \|\| 'mercurai'\) \}\}$/m
+  )
+  assert.match(code, /^    environment:\n      name: mercurai-sync$/m)
+})
+
 test('the checkout is pinned by commit and persists no credential', () => {
   const checkouts = steps.filter((step) => /uses: actions\/checkout@/.test(step))
   assert.equal(checkouts.length, 1)

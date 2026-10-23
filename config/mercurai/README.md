@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-18.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-23.
 
 ## Branches
 
@@ -49,8 +49,11 @@ series.
 
 - `fork-sync-upstream`: hourly. It pins one upstream commit (`UPSTREAM_SHA`, the tip of
   `upstream/main`) and guards it before anything is pushed: a pushed workflow file is active at once
-  and runs with the repository secrets. `scripts/merge-guard.sh` (git only, no token) lists what
-  changed under `.github/` (workflows and the composite actions they run) or `config/mercurai/` in
+  and runs with the repository secrets. The token-bearing job is restricted to the protected default
+  branch and the `mercurai-sync` environment; dispatches from other branches are skipped before
+  checkout. `scripts/merge-guard.sh` (git only, no token) lists what changed under `.github/`
+  (workflows and the composite actions they run), `config/mercurai/`, or `config/scripts/` (privileged
+  helper scripts) in
   the union of two ranges: `origin/main..` (what the main mirror publishes) and the merge base with
   the fork branch`..` (what the merge-forward brings in); a rename or delete counts. A guarded range
   pushes nothing and merges nothing: no `main`, no tags, no branches, no merge-forward. The run opens
@@ -58,13 +61,15 @@ series.
   and fails. An unguarded range runs, in order, from `UPSTREAM_SHA` only (`scripts/sync-push.sh`):
   `main` fast-forwarded to exactly that commit (a non-fast-forward push fails the run; `main` never
   carries fork commits); new release tags (`vX.Y.Z` and `vX.Y.Z-rc.N` names, never moved) whose
-  commit is inside it and has the same `.github/` and `config/mercurai/` tree as it (a workflow added
+  commit is inside it and has the same `.github/`, `config/mercurai/`, and `config/scripts/` tree as it (a workflow added
   and removed again inside the range nets to nothing, so a ref on the commit between would otherwise
   push it), the rest skipped with a warning and tried again next run; the `fork-rebase-patches`
   dispatch for the newest tag mirrored this run (a stable `vX.Y.Z` wins over an `-rc.N`; one dispatch
   per run); with `mirror_branches`, the upstream branches that pass the same test; then the merge
   into `mercurai` in `scripts/merge-forward.sh`, which checks the merge result against the branch
-  again and resets a merge that changed a guarded path before anything is pushed (that run's
+  again and resets a merge that changed an unapproved guarded path before anything is pushed. An
+  owner-approved range still runs this result check; its guarded blobs must match the exact
+  three-way merge of the approved upstream commit (that run's
   `fork-sync guard:` issue says main, tags and branches were already mirrored, unlike a refusal,
   which says nothing was pushed). A merge conflict opens a `fork-sync:` issue and fails the run;
   the tags were already handed on. Both kinds of issue are looked up through every open
@@ -89,8 +94,8 @@ series.
   A release-named tag that points at a tree or a blob is skipped with a warning. Upstream decides
   how many tags there are, so a run opens at most 5 new issues and makes at most 20 updates, and
   lists the rest in one `fork-sync tag: summary` issue (bounded, sanitised) that later runs work
-  through. Each issue prints the tag's `git diff --stat` and paths under `.github/` and
-  `config/mercurai/` against the trusted tree (the pin once it is guarded and the main mirror
+  through. Each issue prints the tag's `git diff --stat` and paths under `.github/`, `config/mercurai/`, and
+  `config/scripts/` against the trusted tree (the pin once it is guarded and the main mirror
   succeeded, `origin/main` as found otherwise), bounded to 50 lines and sanitised, and the exact
   input. To mirror the tag, dispatch from `mercurai` with `allow_tag=<tag>@<40-hex sha>`
   (`scripts/mirror-allowed-tag.sh`): the tag must match the release-name pattern, the sha must be
@@ -108,7 +113,7 @@ series.
   lane on orca-config-0f's explicit order after an independent security read (the fleet's default
   reviewer, never the lane itself) of the diff the issue points at. Either one publishes
   upstream-authored `.github/` content that runs with the fork token. That read always recomputes the
-  diff locally (`git diff <trusted> <sha> -- .github config/mercurai`) and never trusts the
+  diff locally (`git diff <trusted> <sha> -- .github config/mercurai config/scripts`) and never trusts the
   issue text: the issue is a pointer, anyone with write access can edit it, and the sha in the
   dispatch input is the only thing that is mirrored or merged.
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
@@ -225,12 +230,14 @@ Trust boundary:
 
 ## One-time setup
 
-1. `FORK_BOT_TOKEN` repository secret, required: a fine-grained token (or GitHub App installation
+1. `FORK_BOT_TOKEN` environment secret in `mercurai-sync`, required: a fine-grained token (or GitHub App installation
    token) for `mercurai/orca` with Contents, Workflows, Issues and Actions write. `GITHUB_TOKEN`
    is not enough: it cannot push commits that touch `.github/workflows`, and upstream changes those
    in most releases, so the hourly merge-forward would fail; its pushes also trigger no workflow.
-   Only the jobs that write (the push and publish jobs, and the sync) use it, and they fail while
-   it is missing.
+   Store the secret on the `mercurai-sync` environment, restrict that environment to the `mercurai`
+   branch, and remove the old repository-level copy after the first successful sync. The sync job
+   uses this environment secret and fails while it is missing; release workflows keep their own
+   separately scoped token configuration.
 2. Scheduled workflows in a fork are disabled until enabled once in the Actions tab ("Enable
    workflow" on each `fork-*` workflow), or via
    `gh api -X PUT repos/mercurai/orca/actions/workflows/<id>/enable`.
