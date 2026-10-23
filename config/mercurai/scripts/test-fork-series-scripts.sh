@@ -380,8 +380,8 @@ if run_rebase v1.0.1 patch/crc && [ "$(cat "$FORK_STATE_DIR/conflicted")" = "pat
 # `fork` and `up` leave one base; the fork has a file of its own under config/mercurai, which never counts.
 guard_setup() {
   rm -rf "$root/g"; git init -q -b fork "$root/g"; cd "$root/g"
-  mkdir -p .github/workflows config/mercurai config/mercurai-docs src docs
-  commit base.txt one "base"; commit .github/workflows/ci.yml ci "ci"; commit config/mercurai/keep.md keep "keep"; commit src/a.txt a "a"
+  mkdir -p .github/workflows config/mercurai config/scripts config/mercurai-docs src docs
+  commit base.txt one "base"; commit .github/workflows/ci.yml ci "ci"; commit config/mercurai/keep.md keep "keep"; commit config/scripts/keep.sh keep "keep"; commit src/a.txt a "a"
   git branch up; commit config/mercurai/fork-own.md own "the fork's own file"; git checkout -q up
 }
 guard_rc() {  # guard_rc: runs the guard, prints its exit status; the output is left in $root/guard.out
@@ -423,6 +423,10 @@ guard_expect "guard: a rename out of a guarded path is refused" 3 .github/workfl
 # 32. A delete in a guarded path is refused.
 guard_setup; git rm -q config/mercurai/keep.md; git commit -qm "delete"
 guard_expect "guard: a delete in a guarded path is refused" 3 config/mercurai/keep.md
+
+# 32b. Scripts consumed by privileged workflows are guarded too.
+guard_setup; commit config/scripts/upstream.sh x "upstream privileged script"
+guard_expect "guard: a change under config/scripts is refused" 3 config/scripts/upstream.sh
 
 # 33. The owner's override is the full sha of the commit that is merged: it merges (exit 4) and still lists the paths.
 # true, a short sha, and the sha of an older reviewed commit, with upstream moved on since, all refuse.
@@ -475,6 +479,10 @@ if [ "$rc" = 11 ] && [ "$(git rev-parse HEAD)" = "$before" ] && [ ! -e .github/w
   pass "merge-forward: an unallowed guarded result is reset, exits 11 and sets guarded"; else fail "merge-forward: an unallowed guarded result is reset, exits 11 and sets guarded"; cat "$root/mf.out"; mf_outputs; fi
 git checkout -q up; rc=$(mf_run true)
 if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ]; then pass "merge-forward: an allowed guarded commit merges"; else fail "merge-forward: an allowed guarded commit merges"; cat "$root/mf.out"; fi
+guard_setup; commit .github/workflows/evil.yml evil "upstream workflow"; commit docs/up.md up "upstream docs"; git checkout -q fork
+rc=$(mf_run true)
+if [ "$rc" = 0 ] && [ -f .github/workflows/evil.yml ] && [ -f docs/up.md ]; then
+  pass "merge-forward: an allowed guarded commit still merges its unguarded companions"; else fail "merge-forward: an allowed guarded commit still merges its unguarded companions"; cat "$root/mf.out"; fi
 guard_setup; commit base.txt upside "upstream edits base"; git checkout -q fork; commit base.txt forkside "fork edits base"
 before=$(git rev-parse HEAD); rc=$(mf_run false)
 if [ "$rc" = 10 ] && [ "$(git rev-parse HEAD)" = "$before" ] && ! git rev-parse -q --verify MERGE_HEAD >/dev/null && grep -qxF base.txt "$FORK_STATE_DIR/sync-conflicts" && [ "$(mf_outputs)" = "conflict=false guarded=false conflict=true " ]; then
