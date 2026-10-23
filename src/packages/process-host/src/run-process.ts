@@ -1,10 +1,16 @@
+import { routeRunProcess } from './run-process-route'
+export { setRunProcessRoute, type RunProcessRoute } from './run-process-route'
 import {
   spawn as nodeSpawn,
   spawnSync as nodeSpawnSync,
   type ChildProcess
 } from 'node:child_process'
 import { resolveSpawn, type ResolvedSpawn } from './spawn-resolution'
-import { forceTerminateProcessTree, signalProcessTree } from './process-tree-termination'
+import {
+  forceTerminateProcessTree,
+  signalProcessTree,
+  killRoot as terminate
+} from './process-tree-termination'
 import { inFlightWindowsTreeKill } from './windows-tree-kill'
 
 import { hasSpawnObserver, notifySpawnObserver } from './spawn-observer'
@@ -76,6 +82,16 @@ export function runProcess(
     spec.onChildTerminated?.()
     return Promise.resolve({ code: null, signal: null, stdout: '', stderr: '', timedOut: false })
   }
+  // Why: libuv runs CreateProcess on the calling thread, so main hands the spawn to the worker.
+  const inProcess = (): Promise<ProcessResult> => runProcessInProcess(spec, outputCapture)
+  return routeRunProcess(spec, outputCapture, inProcess)
+}
+
+/** runProcess without the worker route: what the spawn worker itself runs, and main's fallback. */
+export function runProcessInProcess(
+  spec: ProcessSpec,
+  outputCapture: 'head' | 'tail'
+): Promise<ProcessResult> {
   const maxOutputBytes = spec.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
 
   return new Promise<ProcessResult>((resolve, reject) => {
@@ -88,6 +104,7 @@ export function runProcess(
       reject(error)
       return
     }
+    spec.onSpawn?.(child)
 
     const stdout = createOutputSink(maxOutputBytes, outputCapture)
     const stderr = createOutputSink(maxOutputBytes, outputCapture)
@@ -110,7 +127,7 @@ export function runProcess(
       clearTimeout(timer)
       clearTimeout(graceTimer)
       clearTimeout(barrierDeadlineTimer)
-      spec.signal?.removeEventListener('abort', onAbort)
+      spec.signal?.removeEventListener('abort', stopAndSettle)
       act()
     }
 
@@ -289,13 +306,12 @@ export function runProcess(
 
     // Why the same escalation: an aborted caller has stopped waiting, so an
     // unkillable child must not keep the promise alive on their behalf either.
-    const onAbort = (): void => stopAndSettle()
-    spec.signal?.addEventListener('abort', onAbort, { once: true })
+    spec.signal?.addEventListener('abort', stopAndSettle, { once: true })
     // Why check after subscribing: a signal that was already aborted never
     // fires the event, so the child would otherwise run to its full timeout on
     // behalf of a caller who had already given up.
     if (spec.signal?.aborted) {
-      onAbort()
+      stopAndSettle()
     }
 
     child.once('error', (error) => {
@@ -308,9 +324,7 @@ export function runProcess(
       settle(() => reject(error))
     })
     child.once('exit', (code, signal) => {
-      if (!barrierStopping) {
-        rootExitedBeforeBarrier = true
-      }
+      rootExitedBeforeBarrier ||= !barrierStopping
       deferredExit = { code, signal }
       if (barrierStopping) {
         resolveBarrierIfSafe()
@@ -318,9 +332,7 @@ export function runProcess(
     })
     child.once('close', (code, signal) => {
       terminationReporter.report()
-      if (!barrierStopping) {
-        rootExitedBeforeBarrier = true
-      }
+      rootExitedBeforeBarrier ||= !barrierStopping
       if (barrierStopping) {
         deferredClose = { code, signal }
         resolveBarrierIfSafe()
@@ -334,15 +346,6 @@ export function runProcess(
     // timeout instead of seeing EOF immediately.
     child.stdin?.end(spec.input)
   })
-}
-
-/** Best-effort root termination, or whole-tree termination for barrier callers. */
-function terminate(child: ChildProcess, signal?: NodeJS.Signals): void {
-  try {
-    child.kill(signal)
-  } catch {
-    /* already gone */
-  }
 }
 
 /**

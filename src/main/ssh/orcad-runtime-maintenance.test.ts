@@ -1,3 +1,5 @@
+import * as managedPairingStore from '../../shared/runtime-environment-managed-orcad-store'
+import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
 import { rmSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listEnvironments } from '../../shared/runtime-environment-store'
@@ -85,11 +87,11 @@ const {
 } = await import('./orcad-runtime-maintenance')
 
 const idle = { liveSessions: 0, startedSinceActivation: 0, daemonProtocolVersion: 7 }
-let harness: ReturnType<typeof createManagedLifecycleHarness>
+let harness: Awaited<ReturnType<typeof createManagedLifecycleHarness>>
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
-  harness = createManagedLifecycleHarness()
+  harness = await createManagedLifecycleHarness()
   mocks.state.store = harness.targetStore
   mocks.resolveContext.mockImplementation(async () => harness.context())
   mocks.census.mockResolvedValue(idle)
@@ -246,7 +248,7 @@ describe('updateManagedOrcadEnvironment', () => {
 
   it('keeps a pairing the terminal count repaired, not the one read before it', async () => {
     mocks.census.mockImplementationOnce(async () => {
-      refreshManagedOrcadPairing(
+      await refreshManagedOrcadPairing(
         harness.userDataPath,
         'environment-1',
         encodePairingOffer({
@@ -263,6 +265,53 @@ describe('updateManagedOrcadEnvironment', () => {
     await updateManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     const [environment] = listEnvironments(harness.userDataPath)
     expect(environment?.endpoints[0]?.deviceToken).toBe('repaired-token')
+  })
+
+  it('does not restore an old grant over a newer repair queued before maintenance', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const queued = Promise.withResolvers<void>()
+    const held = withRuntimeEnvironmentMutation(harness.userDataPath, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const newer = refreshManagedOrcadPairing(
+      harness.userDataPath,
+      'environment-1',
+      encodePairingOffer({
+        v: PAIRING_OFFER_VERSION,
+        endpoint: `ws://127.0.0.1:${MANAGED_LOCAL_PORT}/`,
+        deviceToken: 'queued-repaired-token',
+        publicKeyB64: 'public-key'
+      }),
+      (harness.environment.pairingRevision ?? harness.environment.createdAt) + 1
+    )
+    const refresh = managedPairingStore.refreshManagedOrcadPairing
+    const spy = vi
+      .spyOn(managedPairingStore, 'refreshManagedOrcadPairing')
+      .mockImplementation((...args) => {
+        const result = refresh(...args)
+        queued.resolve()
+        return result
+      })
+    mocks.deploy.mockResolvedValueOnce({ outcome: 'already-active', fullVersion: MANAGED_VERSION })
+    mocks.probe.mockResolvedValueOnce(managedReadiness('startup-offer-token'))
+    const updated = updateManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
+    try {
+      await queued.promise
+      release.resolve()
+      await held
+      const repaired = await newer
+      await updated
+      const [saved] = listEnvironments(harness.userDataPath)
+      expect(saved?.endpoints[0]?.deviceToken).toBe('queued-repaired-token')
+      expect(saved?.pairingRevision).toBe(repaired.pairingRevision)
+    } finally {
+      release.resolve()
+      await Promise.allSettled([held, newer, updated])
+      spy.mockRestore()
+    }
   })
 
   it('keeps the enrolled grant when the updated server offers a new device', async () => {
@@ -333,7 +382,11 @@ describe('rollbackManagedOrcadEnvironment', () => {
 
   it('refuses a rollback to a snapshot older than the migrated catalog, not a newer one', async () => {
     // The harness's active version activated 2026-01-01.
-    recordManagedOrcadMigration(harness.userDataPath, 'environment-1', '2026-02-01T00:00:00.000Z')
+    await recordManagedOrcadMigration(
+      harness.userDataPath,
+      'environment-1',
+      '2026-02-01T00:00:00.000Z'
+    )
     await expect(
       rollbackManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     ).resolves.toMatchObject({ outcome: 'refused', code: 'orcad_rollback_crosses_migration' })
@@ -348,7 +401,7 @@ describe('rollbackManagedOrcadEnvironment', () => {
 
   it('refuses a rollback across a retained delta move that predates the mark', async () => {
     // A delta finished by an earlier build left no mark; its retained journal still counts.
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('delta-1', 'ssh-1', { environmentId: 'environment-1' }),
       startedAt: '2026-02-01T00:00:00.000Z',
       phase: 'destination-committed',

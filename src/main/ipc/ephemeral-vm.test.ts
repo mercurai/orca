@@ -300,7 +300,7 @@ describe('registerEphemeralVmHandlers', () => {
       pluginDestroyPath,
       "require('fs').writeFileSync('plugin-destroy-ran.txt', 'unsafe')"
     )
-    upsertEphemeralVmRuntime(userDataPath, {
+    await upsertEphemeralVmRuntime(userDataPath, {
       id: 'legacy-runtime',
       recipeId: 'shared-id',
       repoId: 'repo-1',
@@ -565,7 +565,7 @@ describe('registerEphemeralVmHandlers', () => {
     const userDataPath = makeDir('orca-ephemeral-vm-ipc-user-data-')
     const repoPath = makeDir('orca-ephemeral-vm-ipc-repo-')
     getPathMock.mockReturnValue(userDataPath)
-    upsertEphemeralVmRuntime(userDataPath, {
+    await upsertEphemeralVmRuntime(userDataPath, {
       id: 'runtime-cleanup-retry',
       recipeId: 'cloud-sandbox',
       repoId: 'repo-1',

@@ -21,7 +21,10 @@ const PUSH_BODY_MAX_LENGTH = 180
 
 export type PushDispatcherRegistry = {
   listDevices(): readonly { deviceId: string; pushRegistration?: MobilePushRegistration }[]
-  setPushRegistration(deviceId: string, registration: MobilePushRegistration | null): boolean
+  setPushRegistration(
+    deviceId: string,
+    registration: MobilePushRegistration | null
+  ): Promise<boolean>
 }
 
 type PushDispatcherOptions = {
@@ -230,7 +233,7 @@ export class PushDispatcher {
             this.outcomes.record(entry.status)
           }
         }
-        this.dropDeadRegistrations(targets, result.results)
+        await this.dropDeadRegistrations(targets, result.results)
         return
       }
       this.outcomes.record(result.reason)
@@ -246,10 +249,10 @@ export class PushDispatcher {
     }
   }
 
-  private dropDeadRegistrations(
+  private async dropDeadRegistrations(
     targets: readonly PushTarget[],
     results: readonly { registrationId: string; status: string }[]
-  ): void {
+  ): Promise<void> {
     for (const result of results) {
       if (result.status !== 'dead') {
         continue
@@ -265,7 +268,7 @@ export class PushDispatcher {
         continue
       }
       try {
-        this.registry.setPushRegistration(target.deviceId, null)
+        await this.registry.setPushRegistration(target.deviceId, null)
       } catch (error) {
         console.warn('[push] Failed to drop a dead push registration:', error)
       }

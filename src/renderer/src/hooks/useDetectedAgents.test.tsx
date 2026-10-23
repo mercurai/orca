@@ -14,7 +14,7 @@ import {
   RUNTIME_PROTOCOL_VERSION
 } from '../../../shared/protocol-version'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
-import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
+import { FLOATING_TERMINAL_WORKTREE_ID, getDefaultSettings } from '../../../shared/constants'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -252,6 +252,53 @@ describe('useDetectedAgents (ssh call site)', () => {
     })
     await flushEffects()
     expect(detectRemoteAgents).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useDetectedAgents (local launch settings)', () => {
+  it('refreshes a cached local inventory when an agent command override changes', async () => {
+    const initialSettings = getDefaultSettings('/tmp')
+    useAppStore.setState({
+      settings: {
+        ...initialSettings,
+        agentCmdOverrides: {}
+      },
+      localDetectedAgentIdsByContext: {}
+    })
+
+    const root = await renderProbe({ kind: 'local' })
+    expect(detectLocalAgents).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().detectedAgentIds).toEqual(['codex'])
+
+    refreshLocalAgents.mockResolvedValueOnce({
+      agents: ['codex', 'claude'],
+      addedPathSegments: [],
+      shellHydrationOk: true,
+      pathSource: 'process_env',
+      pathFailureReason: 'none'
+    })
+
+    await act(async () => {
+      const currentSettings = useAppStore.getState().settings
+      if (!currentSettings) {
+        throw new Error('test settings were cleared during the test')
+      }
+      useAppStore.setState({
+        settings: {
+          ...currentSettings,
+          agentCmdOverrides: { codex: 'golden-stub-agent' }
+        }
+      })
+    })
+    await flushEffects()
+
+    expect(refreshLocalAgents).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().detectedAgentIds).toEqual(['codex', 'claude'])
+
+    await act(async () => {
+      root.unmount()
+    })
+    roots.splice(roots.indexOf(root), 1)
   })
 })
 

@@ -112,7 +112,7 @@ describe('a managed orcad that dropped this desktop and restarted', () => {
     })
     await first.stop()
     // Host side: this desktop's device is removed, then the server restarts.
-    new DeviceRegistry(hostProfile).removeDevice(paired.pairedDeviceId!)
+    await new DeviceRegistry(hostProfile).removeDevice(paired.pairedDeviceId!)
     const restarted = await startOrcad(hostProfile)
     const readiness = await publishedReadiness(restarted)
     const reached = { ...paired, endpoint: offerIn(readiness).endpoint }

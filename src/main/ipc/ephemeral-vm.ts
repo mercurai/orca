@@ -208,7 +208,7 @@ export function registerEphemeralVmHandlers(store: Store, pluginService?: Plugin
               runtimeId: result.runtime.id,
               connection
             })
-            const runtime = updateEphemeralVmRuntimeStatus(
+            const runtime = await updateEphemeralVmRuntimeStatus(
               app.getPath('userData'),
               result.runtime.id,
               {
@@ -242,9 +242,9 @@ export function registerEphemeralVmHandlers(store: Store, pluginService?: Plugin
           }
         }
 
-        let environment: ReturnType<typeof addEnvironmentFromPairingCode>
+        let environment: Awaited<ReturnType<typeof addEnvironmentFromPairingCode>>
         try {
-          environment = addEnvironmentFromPairingCode(app.getPath('userData'), {
+          environment = await addEnvironmentFromPairingCode(app.getPath('userData'), {
             name: buildEphemeralEnvironmentName(repo.repo.displayName, result.runtime.id),
             pairingCode: connection.pairingCode,
             source: 'ephemeral-vm'
@@ -263,9 +263,11 @@ export function registerEphemeralVmHandlers(store: Store, pluginService?: Plugin
             stderr: redactEphemeralVmRecipeDiagnosticText(result.start.stderr)
           }
         }
-        const runtime = updateEphemeralVmRuntimeStatus(app.getPath('userData'), result.runtime.id, {
-          runtimeEnvironmentId: environment.id
-        })
+        const runtime = await updateEphemeralVmRuntimeStatus(
+          app.getPath('userData'),
+          result.runtime.id,
+          { runtimeEnvironmentId: environment.id }
+        )
         return {
           ok: true,
           connectionType: 'orca-server',

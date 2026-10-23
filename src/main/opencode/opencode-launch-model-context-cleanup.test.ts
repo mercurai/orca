@@ -13,7 +13,8 @@ import { PROVIDER_SUPERVISOR_MAX_STOP_MS } from '../provider-process/provider-pr
 import { terminateProviderProcessTree } from '../provider-process/provider-process-teardown'
 
 vi.mock('@orca/process-host', () => ({ spawnProcess: vi.fn() }))
-vi.mock('@orca/process-host/process-tree-termination', () => ({
+vi.mock('@orca/process-host/process-tree-termination', async (original) => ({
+  ...(await original()),
   signalProcessTree: vi.fn(),
   forceTerminateProcessTree: vi.fn()
 }))

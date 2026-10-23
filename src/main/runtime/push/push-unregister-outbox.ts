@@ -4,11 +4,9 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  hardenExistingSecureFile,
-  isUnreadableError,
-  writeSecureJsonFile
-} from '../../../shared/secure-file'
+import { serializePathWrite } from '../../../shared/path-write-serializer'
+import { hardenExistingSecureFile, isUnreadableError } from '../../../shared/secure-file'
+import { writeSecureJsonFileAsync } from '../../../shared/secure-file-async-write'
 
 export type PushUnregisterOutboxItem = {
   reqId: string
@@ -41,16 +39,21 @@ export class PushUnregisterOutbox {
     this.items = this.load()
   }
 
-  enqueue(entry: { registrationId: string; deviceId: string }): PushUnregisterOutboxItem {
-    const existing = this.items.find((item) => item.registrationId === entry.registrationId)
-    if (existing) {
-      return existing
-    }
-    const item = { ...entry, reqId: randomUUID() }
-    const next = [...this.items, item]
-    this.save(next)
-    this.items = next
-    return item
+  // Why: items are read, awaited through the write, then swapped in, so two mutations must not interleave.
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
+    return serializePathWrite(`${this.path}#read-modify-write`, task)
+  }
+
+  enqueue(entry: { registrationId: string; deviceId: string }): Promise<PushUnregisterOutboxItem> {
+    return this.serialized(async () => {
+      const existing = this.items.find((item) => item.registrationId === entry.registrationId)
+      if (existing) {
+        return existing
+      }
+      const item = { ...entry, reqId: randomUUID() }
+      await this.save([...this.items, item])
+      return item
+    })
   }
 
   isUnreadable(): boolean {
@@ -61,13 +64,14 @@ export class PushUnregisterOutbox {
     return this.items
   }
 
-  remove(reqId: string): void {
-    const next = this.items.filter((item) => item.reqId !== reqId)
-    if (next.length === this.items.length) {
-      return
-    }
-    this.save(next)
-    this.items = next
+  remove(reqId: string): Promise<void> {
+    return this.serialized(async () => {
+      const next = this.items.filter((item) => item.reqId !== reqId)
+      if (next.length === this.items.length) {
+        return
+      }
+      await this.save(next)
+    })
   }
 
   private load(): PushUnregisterOutboxItem[] {
@@ -84,10 +88,11 @@ export class PushUnregisterOutbox {
     }
   }
 
-  private save(items: readonly PushUnregisterOutboxItem[]): void {
+  private async save(items: PushUnregisterOutboxItem[]): Promise<void> {
     if (this.outboxUnreadable) {
       throw new Error('Cannot overwrite unreadable push unregister outbox')
     }
-    writeSecureJsonFile(this.path, items)
+    await writeSecureJsonFileAsync(this.path, items)
+    this.items = items
   }
 }

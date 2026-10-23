@@ -197,8 +197,8 @@ describe('the incumbent terminal count across restarts', () => {
     const dir = mkdtempSync(join(tmpdir(), 'orca-incumbent-registry-'))
     try {
       const registry = new DeviceRegistry(dir)
-      const enrolled = registry.getOrCreatePendingDevice('CLI', 'runtime')
-      registry.updateLastSeen(enrolled.deviceId)
+      const enrolled = await registry.getOrCreatePendingDevice('CLI', 'runtime')
+      await registry.updateLastSeen(enrolled.deviceId)
       const paired = parsePairingCode(
         encodePairingOffer({
           v: 2,
@@ -210,7 +210,7 @@ describe('the incumbent terminal count across restarts', () => {
       )
       for (let start = 0; start < 3; start += 1) {
         // Each orcad start publishes whatever pending device its registry holds.
-        const pending = registry.getOrCreatePendingDevice('CLI', 'runtime')
+        const pending = await registry.getOrCreatePendingDevice('CLI', 'runtime')
         const readiness: ServeReadiness = {
           ...READINESS,
           pairing: {
@@ -235,7 +235,7 @@ describe('the incumbent terminal count across restarts', () => {
             const token = pairedRuntimeConnectionToken(connection)
             const device = registry.listDevices().find((entry) => entry.token === token)
             if (device) {
-              registry.updateLastSeen(device.deviceId)
+              await registry.updateLastSeen(device.deviceId)
             }
             return LIVE
           })

@@ -126,12 +126,12 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
     return { server, runtime, writes, userDataPath }
   }
 
-  function pair(
+  async function pair(
     server: OrcaRuntimeRpcServer,
     scope: 'mobile' | 'runtime',
     name: string
-  ): PairingOffer {
-    const offer = server.createPairingOffer({ address: '127.0.0.1', name, scope })
+  ): Promise<PairingOffer> {
+    const offer = await server.createPairingOffer({ address: '127.0.0.1', name, scope })
     if (!offer.available) {
       throw new Error('pairing unavailable')
     }
@@ -143,7 +143,7 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
     const host = await startRuntime()
     const desktopSpawns: string[] = []
     const desktop = await startRuntime(desktopSpawns)
-    const desktopOnHost = pair(host.server, 'runtime', 'MacBook')
+    const desktopOnHost = await pair(host.server, 'runtime', 'MacBook')
     const registry = host.server.getDeviceRegistry()!
     const children = () => registry.listDelegatedMobileDevices(desktopOnHost.pairedDeviceId!)
     const syncedNames: string[][] = []
@@ -213,7 +213,7 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
   }
 
   async function connectPhone(desktop: OrcaRuntimeRpcServer, name: string) {
-    const pairing = pair(desktop, 'mobile', name)
+    const pairing = await pair(desktop, 'mobile', name)
     const keys = generateKeyPair()
     const sharedKey = deriveSharedKey(keys.secretKey, publicKeyFromBase64(pairing.publicKeyB64))
     const ws = new WebSocket(pairing.endpoint)
@@ -311,9 +311,9 @@ describe('mobile desktop relay: phone -> desktop -> server', () => {
     // A phone another desktop relays to this one is that desktop's to relay, never re-relayed.
     const registry = desktop.server.getDeviceRegistry()!
     const otherDesktop = registry.getDevice(
-      pair(desktop.server, 'runtime', 'Other Mac').pairedDeviceId!
+      (await pair(desktop.server, 'runtime', 'Other Mac')).pairedDeviceId!
     )!
-    registry.upsertDelegatedMobileDevices(otherDesktop, [
+    await registry.upsertDelegatedMobileDevices(otherDesktop, [
       { phoneKey: 'p', name: 'iPad via Other Mac' }
     ])
     const phone = await connectPhone(desktop.server, 'iPhone')

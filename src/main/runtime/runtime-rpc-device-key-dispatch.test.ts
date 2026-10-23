@@ -10,7 +10,7 @@ import type { OrcaRuntimeService } from './orca-runtime'
 import { OrcaRuntimeRpcServer } from './runtime-rpc'
 import type { AuthenticatedMobileSocket } from './rpc/mobile-socket-wiring'
 
-function keyedServer() {
+async function keyedServer() {
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-device-key-dispatch-'))
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: status.get only reads these three members.
   const runtime = {
@@ -21,8 +21,8 @@ function keyedServer() {
   const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
   const registry = new DeviceRegistry(userDataPath)
   server['deviceRegistry'] = registry
-  const legacy = registry.addDevice('Laptop', 'runtime')
-  const keyed = registry.forkDeviceKey(
+  const legacy = await registry.addDevice('Laptop', 'runtime')
+  const keyed = await registry.forkDeviceKey(
     legacy.deviceId,
     Buffer.alloc(32, 5).toString('base64'),
     'Mac'
@@ -55,7 +55,7 @@ function keyedServer() {
 
 describe('requests on a key-authenticated socket', () => {
   it('dispatch with the device id as client id and no token', async () => {
-    const { server, keyed, send } = keyedServer()
+    const { server, keyed, send } = await keyedServer()
     const dispatch = vi.spyOn(server['dispatcher'], 'dispatchStreaming')
     const reply = await send({ id: 'r1', method: 'status.get' })
     expect(reply).not.toMatchObject({ error: { code: 'unauthorized' } })
@@ -66,15 +66,21 @@ describe('requests on a key-authenticated socket', () => {
   })
 
   it('refuses a request that carries any token, and every request once the row is revoked', async () => {
-    const { registry, keyed, legacy, send } = keyedServer()
+    const { registry, keyed, legacy, send } = await keyedServer()
     expect(await send({ id: 'r1', method: 'status.get', deviceToken: legacy.token })).toMatchObject(
       {
         ok: false,
         error: { code: 'unauthorized' }
       }
     )
-    registry.removeDevice(keyed.deviceId)
+    const removal = registry.removeDevice(keyed.deviceId)
+    // Why: the revoke refuses the socket from its first moment, before the row write lands.
     expect(await send({ id: 'r2', method: 'status.get' })).toMatchObject({
+      ok: false,
+      error: { code: 'unauthorized' }
+    })
+    await removal
+    expect(await send({ id: 'r3', method: 'status.get' })).toMatchObject({
       ok: false,
       error: { code: 'unauthorized' }
     })
@@ -94,7 +100,7 @@ describe('pairing.registerDeviceKey over the dispatcher', () => {
       const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
       const registry = new DeviceRegistry(userDataPath)
       server['deviceRegistry'] = registry
-      const legacy = registry.addDevice('Device', scope)
+      const legacy = await registry.addDevice('Device', scope)
       const transcriptHashB64 = Buffer.alloc(32, 9).toString('base64')
       const key = nacl.sign.keyPair()
       const proof = nacl.sign.detached(

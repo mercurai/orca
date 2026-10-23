@@ -53,18 +53,18 @@ describe('pairing.delegatedMobileDevice.sync', () => {
     return { server, userDataPath, registry: server.getDeviceRegistry()! }
   }
 
-  function pair(
+  async function pair(
     server: OrcaRuntimeRpcServer,
     args: Parameters<OrcaRuntimeRpcServer['createPairingOffer']>[0]
-  ): PairingOffer {
-    const offer = server.createPairingOffer({ address: '127.0.0.1', ...args })
+  ): Promise<PairingOffer> {
+    const offer = await server.createPairingOffer({ address: '127.0.0.1', ...args })
     if (!offer.available) {
       throw new Error('pairing unavailable')
     }
     return parsePairingCode(offer.pairingUrl)!
   }
 
-  function pairDesktop(server: OrcaRuntimeRpcServer, name = 'MacBook'): PairingOffer {
+  function pairDesktop(server: OrcaRuntimeRpcServer, name = 'MacBook'): Promise<PairingOffer> {
     return pair(server, { name, scope: 'runtime' })
   }
 
@@ -105,7 +105,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
   it('advertises the capability a desktop gates on', async () => {
     const { server } = await startServer()
     const status = await sendRemoteRuntimeRequest<{ capabilities: string[] }>(
-      pairedRuntimeConnectionFromOffer(pairDesktop(server)),
+      pairedRuntimeConnectionFromOffer(await pairDesktop(server)),
       'status.get',
       {},
       5_000
@@ -118,7 +118,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('creates an ordinary mobile device a real E2EE client uses, idempotently', async () => {
     const { server, registry } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const devices = await sync(desktop, [{ phoneKey: 'phone-1', name: 'iPhone via MacBook' }])
     expect(devices).toEqual([
       { phoneKey: 'phone-1', deviceId: expect.any(String), token: expect.any(String) }
@@ -158,7 +158,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('refuses a directly paired phone and a local caller with no paired device', async () => {
     const { server, registry, userDataPath } = await startServer()
-    const phone = pair(server, { name: 'phone', scope: 'mobile' })
+    const phone = await pair(server, { name: 'phone', scope: 'mobile' })
     await expect(
       sendRemoteRuntimeRequest(
         pairedRuntimeConnectionFromOffer(phone),
@@ -184,9 +184,9 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('refuses a child the pairing admin its parent was never granted', async () => {
     const { server } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [child] = await sync(desktop, [{ phoneKey: 'p', name: 'p' }])
-    const directPhone = pair(server, { name: 'phone', scope: 'mobile' })
+    const directPhone = await pair(server, { name: 'phone', scope: 'mobile' })
     const registerPush = (caller: PairingOffer) =>
       sendRemoteRuntimeRequest(
         pairedRuntimeConnectionFromOffer(caller),
@@ -204,20 +204,24 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('gives children the parent grant reach, so they never widen the bind', async () => {
     const { server, registry } = await startServer()
-    const desktop = pair(server, { name: 'local Mac', scope: 'runtime', reach: 'this-computer' })
+    const desktop = await pair(server, {
+      name: 'local Mac',
+      scope: 'runtime',
+      reach: 'this-computer'
+    })
     const [child] = await sync(desktop, [{ phoneKey: 'p', name: 'p' }])
     expect(registry.getDevice(child!.deviceId)?.pairingReach).toBe('this-computer')
   })
 
   it('never lets the QR pending lookups hand out or delete a child', async () => {
     const { server, registry } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [child] = await sync(desktop, [{ phoneKey: 'phone-1', name: 'iPhone via MacBook' }])
 
     expect(registry.getPendingDevice('mobile')).toBeNull()
-    const offer = server.createPairingOffer({ address: '127.0.0.1', scope: 'mobile' })
+    const offer = await server.createPairingOffer({ address: '127.0.0.1', scope: 'mobile' })
     expect(offer.available && offer.deviceId).not.toBe(child!.deviceId)
-    const rotated = server.createPairingOffer({
+    const rotated = await server.createPairingOffer({
       address: '127.0.0.1',
       scope: 'mobile',
       rotate: true
@@ -236,7 +240,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('revokes a dropped child and closes its socket', async () => {
     const { server, registry } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [a, b] = await sync(desktop, [
       { phoneKey: 'phone-a', name: 'A' },
       { phoneKey: 'phone-b', name: 'B' }
@@ -251,10 +255,10 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('cascades a parent revoke to its children only', async () => {
     const { server, registry } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [child] = await sync(desktop, [{ phoneKey: 'phone-a', name: 'A' }])
     // Paired after the first desktop consumed its pending offer; the same phoneKey is scoped per parent.
-    const otherDesktop = pairDesktop(server, 'Other Mac')
+    const otherDesktop = await pairDesktop(server, 'Other Mac')
     const [otherChild] = await sync(otherDesktop, [{ phoneKey: 'phone-a', name: 'A' }])
     expect(otherChild!.deviceId).not.toBe(child!.deviceId)
 
@@ -265,7 +269,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
     await expect(reader.next('s')).resolves.toMatchObject({ ok: true })
     const closed = waitForWsClose(session.ws)
 
-    expect(server.revokeRuntimeAccess(desktop.pairedDeviceId!)).toBe(true)
+    expect(await server.revokeRuntimeAccess(desktop.pairedDeviceId!)).toBe(true)
     expect(registry.getDevice(child!.deviceId)).toBeNull()
     expect(registry.getDevice(otherChild!.deviceId)).not.toBeNull()
     await closed
@@ -273,7 +277,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('renames a child in place and rejects duplicate or too many phones', async () => {
     const { server, registry, userDataPath } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [child] = await sync(desktop, [{ phoneKey: 'p', name: 'iPhone via MacBook' }])
     expect(await sync(desktop, [{ phoneKey: 'p', name: 'iPad via MacBook' }])).toEqual([child])
     expect(new DeviceRegistry(userDataPath).getDevice(child!.deviceId)?.name).toBe(
@@ -298,39 +302,39 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('keeps the parent when a child cleanup cannot be saved', async () => {
     const { server, registry } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [child] = await sync(desktop, [{ phoneKey: 'p', name: 'p' }])
-    expect(
+    await expect(
       server.setMobileRelayBinding(child!.deviceId, {
         relayHostId: 'host',
         relayDeviceId: child!.deviceId,
         ownerIdentityKey: 'owner'
       })
-    ).toBe(true)
-    const enqueue = vi.spyOn(server.getRelayRevokeOutbox(), 'enqueue').mockImplementation(() => {
-      throw new Error('disk full')
-    })
+    ).resolves.toBe(true)
+    const enqueue = vi
+      .spyOn(server.getRelayRevokeOutbox(), 'enqueue')
+      .mockRejectedValue(new Error('disk full'))
     cleanups.push(() => enqueue.mockRestore())
 
-    expect(server.revokeRuntimeAccess(desktop.pairedDeviceId!)).toBe(false)
+    expect(await server.revokeRuntimeAccess(desktop.pairedDeviceId!)).toBe(false)
     expect(registry.getDevice(desktop.pairedDeviceId!)).not.toBeNull()
     expect(registry.getDevice(child!.deviceId)).not.toBeNull()
   })
 
   it('fails a sync whose dropped child cannot be revoked, keeping that child', async () => {
     const { server, registry } = await startServer()
-    const desktop = pairDesktop(server)
+    const desktop = await pairDesktop(server)
     const [child] = await sync(desktop, [{ phoneKey: 'p', name: 'p' }])
-    expect(
+    await expect(
       server.setMobileRelayBinding(child!.deviceId, {
         relayHostId: 'host',
         relayDeviceId: child!.deviceId,
         ownerIdentityKey: 'owner'
       })
-    ).toBe(true)
-    const enqueue = vi.spyOn(server.getRelayRevokeOutbox(), 'enqueue').mockImplementation(() => {
-      throw new Error('disk full')
-    })
+    ).resolves.toBe(true)
+    const enqueue = vi
+      .spyOn(server.getRelayRevokeOutbox(), 'enqueue')
+      .mockRejectedValue(new Error('disk full'))
     cleanups.push(() => enqueue.mockRestore())
 
     await expect(sendSync(desktop, [{ phoneKey: 'q', name: 'q' }])).resolves.toMatchObject({
@@ -344,7 +348,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
 
   it('keeps the parent link across a restart, so the cascade still applies', async () => {
     const first = await startServer()
-    const desktop = pairDesktop(first.server)
+    const desktop = await pairDesktop(first.server)
     const [child] = await sync(desktop, [{ phoneKey: 'p', name: 'p' }])
     await first.server.stop()
 
@@ -353,7 +357,7 @@ describe('pairing.delegatedMobileDevice.sync', () => {
       { deviceId: child!.deviceId, phoneKey: 'p', parentDeviceId: desktop.pairedDeviceId }
     ])
     const { server, registry } = await startServer(first.userDataPath)
-    expect(server.revokeRuntimeAccess(desktop.pairedDeviceId!)).toBe(true)
+    expect(await server.revokeRuntimeAccess(desktop.pairedDeviceId!)).toBe(true)
     expect(registry.getDevice(child!.deviceId)).toBeNull()
   })
 

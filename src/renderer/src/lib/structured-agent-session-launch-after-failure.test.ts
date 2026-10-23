@@ -224,7 +224,9 @@ describe('a new launch after a failed one', () => {
     const next = startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'plus-pick' })
 
     expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, failed.sessionId)).toBe(true)
-    expect(mocks.launch.mock.calls[2]?.[0]).toMatchObject({ sessionId: failed.sessionId })
+    await vi.waitFor(() =>
+      expect(mocks.launch.mock.calls[2]?.[0]).toMatchObject({ sessionId: failed.sessionId })
+    )
     // A re-delivery of the new pick joins the new launch, not the retried chat.
     expect(
       startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'plus-pick' }).sessionId
@@ -316,7 +318,7 @@ describe('a message sent to a chat whose start failed', () => {
       'restart and say hi'
     )
     expect(delivery).not.toBeNull()
-    expect(mocks.retryIntent).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(mocks.retryIntent).toHaveBeenCalledOnce())
     // Held in the chat's one send slot, drawn as sending; nothing typed meanwhile goes first.
     expect(getStructuredAgentSessionPendingSends(failed.sessionId).map((e) => e.phase)).toEqual([
       'sending'

@@ -1,3 +1,4 @@
+import type { WslHostServerStop, WslHostConnectIntent } from '../../shared/wsl-host-types'
 /** The production WSL side of `WslHostService`: one holder, connection manager and supervisor. */
 import { createWslOrcadPairingRecovery } from './wsl-orcad-pairing-repair'
 import { readConfirmedRunningWslDistros } from '../wsl-background-distro-gate'
@@ -7,8 +8,7 @@ import { verifyOrcadPairingIdentity } from '../managed-server/lifecycle/orcad-ma
 import { resolveEnvironmentPairingOffer } from '../../shared/runtime-environment-store'
 import { findWslHostDeployment } from '../../shared/runtime-environment-wsl-host-store'
 import { createWslDistroHolder, type WslDistroHolder } from './wsl-distro-holder'
-import { listWslHostDistros } from './wsl-host-distro-list'
-import type { WslHostConnector } from './wsl-host-service'
+import { listWslHostDistros, type WslHostDistroCandidate } from './wsl-host-distro-list'
 import { readWslDistroOrcadPublicKey } from './wsl-host-ssh-orcad-conflict'
 import {
   WslOrcadConnectionManager,
@@ -179,4 +179,23 @@ export function createWslHostConnector(options: {
     },
     dispose: () => liveness.dispose()
   }
+}
+
+/** The WSL side the service drives: C3 holder, C5 connections, C6 liveness (or an e2e fake). */
+export type WslHostConnector = {
+  listDistros(): Promise<WslHostDistroCandidate[]>
+  /** Runs in the distro, so it boots a stopped one: only after the user chose to. */
+  readOrcadPublicKey(distro: string): Promise<string | null>
+  /** User-initiated; may boot the distro. `force` takes an update live terminals deferred. */
+  connect(distro: string, options?: { intent?: WslHostConnectIntent }): Promise<WslOrcadConnection>
+  forgetPairingFailures?(environmentId: string): void
+  get(distro: string): WslOrcadConnection | null
+  /** Checks the paired server without starting a stopped or unconfirmed distro. */
+  isReachable(distro: string, environmentId: string): Promise<boolean>
+  disconnect(distro: string): Promise<void>
+  /** Ends the host's terminals, orcad and its terminal daemon; never boots a stopped distro. */
+  stopServer(distro: string, environmentId: string): Promise<WslHostServerStop>
+  releaseHolder(distro: string): Promise<void>
+  adoptHolders(): Promise<void>
+  dispose(): Promise<void>
 }

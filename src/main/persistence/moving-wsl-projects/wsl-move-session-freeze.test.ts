@@ -65,15 +65,15 @@ afterEach(async () => {
 })
 
 describe('WSL move session freeze', () => {
-  it("lets the quiesce's own Sleep write while the move is only fenced", () => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
+  it("lets the quiesce's own Sleep write while the move is only fenced", async () => {
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
     store.setWorkspaceSession(session('after-sleep', 'terminal'))
     expect(titles(store)).toEqual({ moving: ['after-sleep'], staying: ['after-sleep'] })
   })
 
   describe('once quiesced', () => {
-    beforeEach(() => {
-      seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
+    beforeEach(async () => {
+      await seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
     })
 
     it('keeps the moving workspace as the quiesce left it and takes the rest', () => {
@@ -105,8 +105,8 @@ describe('WSL move session freeze', () => {
     })
   })
 
-  it('keeps freezing through commit, so the retained rows survive for a downgrade', () => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
+  it('keeps freezing through commit, so the retained rows survive for a downgrade', async () => {
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
     store.setWorkspaceSession(session('edited', 'editor'))
     expect(titles(store)).toEqual({ moving: ['slept'], staying: ['edited'] })
   })
@@ -124,8 +124,8 @@ describe('WSL move session freeze', () => {
 })
 
 describe('WSL move session freeze: other session writers', () => {
-  beforeEach(() => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
+  beforeEach(async () => {
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
   })
 
   it('keeps the frozen rows through a failed durable mutation that rolls the session back', async () => {

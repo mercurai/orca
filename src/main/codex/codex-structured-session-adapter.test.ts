@@ -112,6 +112,8 @@ describe('CodexStructuredSessionAdapter.acquire', () => {
     })
     await expect(adapter.readOptions({ sessionId: 'session-1', fence: 7 })).resolves.toEqual({
       current: { model: 'gpt-live', effort: 'medium' },
+      fastModeSupport: undefined,
+      speed: { support: 'unknown', processing: { status: 'unknown' } },
       models: [
         {
           id: 'gpt-live',
@@ -171,7 +173,9 @@ describe('CodexStructuredSessionAdapter.acquire', () => {
           'shell_environment_policy.set.ORCA_AGENT_SESSION_ID': 'session-1',
           'shell_environment_policy.set.ORCA_STRUCTURED_SESSION': '1',
           'shell_environment_policy.set.ORCA_CLI_COMMAND': expect.stringMatching(
-            /^[^:;]*[\\/]cli[\\/]bin[\\/]orca-dev$/
+            process.platform === 'win32'
+              ? /^[a-z]:[\\/][^:;]*[\\/]cli[\\/]bin[\\/]orca-dev\.cmd$/i
+              : /^[^:;]*[\\/]cli[\\/]bin[\\/]orca-dev$/
           ),
           'shell_environment_policy.set.ORCA_USER_DATA_PATH': expect.any(String),
           'shell_environment_policy.set.ORCA_ENVIRONMENT': '',

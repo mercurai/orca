@@ -10,20 +10,32 @@ type FakeTransaction = {
   error: Error | null
   objectStore: () => FakeStore
   commit: () => void
+  abort: () => void
 }
+type FakeRead = { result: unknown; onsuccess: (() => void) | null }
 type FakeStore = {
   put: (value: unknown, key: string) => object
   delete: (key: string) => object
-  get: (key: string) => { result: unknown; onsuccess: (() => void) | null }
+  get: (key: string) => FakeRead
 }
 
-function fakeDatabase(): {
+function fakeDatabase(options: { manualRead?: boolean } = {}): {
   factory: IDBFactory
   transactions: FakeTransaction[]
   puts: unknown[]
+  deletes: string[]
+  commits: FakeTransaction[]
+  aborts: FakeTransaction[]
+  reads: FakeRead[]
+  readStarted: Promise<void>
 } {
   const transactions: FakeTransaction[] = []
   const puts: unknown[] = []
+  const deletes: string[] = []
+  const commits: FakeTransaction[] = []
+  const aborts: FakeTransaction[] = []
+  const reads: FakeRead[] = []
+  const readStarted = Promise.withResolvers<void>()
   const database = {
     objectStoreNames: { contains: () => true },
     transaction: () => {
@@ -32,13 +44,20 @@ function fakeDatabase(): {
           puts.push(value)
           return {}
         },
-        delete: () => ({}),
+        delete: (key) => {
+          deletes.push(key)
+          return {}
+        },
         get: () => {
-          const request: { result: unknown; onsuccess: (() => void) | null } = {
+          const request: FakeRead = {
             result: undefined,
             onsuccess: null
           }
-          queueMicrotask(() => request.onsuccess?.())
+          reads.push(request)
+          readStarted.resolve()
+          if (!options.manualRead) {
+            queueMicrotask(() => request.onsuccess?.())
+          }
           return request
         }
       }
@@ -48,7 +67,13 @@ function fakeDatabase(): {
         onabort: null,
         error: null,
         objectStore: () => store,
-        commit: () => {}
+        commit: () => {
+          commits.push(transaction)
+        },
+        abort: () => {
+          aborts.push(transaction)
+          queueMicrotask(() => transaction.onabort?.())
+        }
       }
       transactions.push(transaction)
       return transaction
@@ -64,8 +89,17 @@ function fakeDatabase(): {
       return request
     }
   }
-  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a stand-in exposing only the calls the adapter makes.
-  return { factory: factory as unknown as IDBFactory, transactions, puts }
+  return {
+    // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: a stand-in exposing only the calls the adapter makes.
+    factory: factory as unknown as IDBFactory,
+    transactions,
+    puts,
+    deletes,
+    commits,
+    aborts,
+    reads,
+    readStarted: readStarted.promise
+  }
 }
 
 const DRAFT = { text: 'unsent', images: [], savedAt: 1 }
@@ -108,6 +142,47 @@ describe('the IndexedDB draft storage', () => {
     transactions[0]!.onabort?.()
 
     await expect(write).rejects.toThrow('QuotaExceededError')
+  })
+
+  it('aborts and rejects an update whose application callback throws without writing a result', async () => {
+    const { factory, readStarted, reads, puts, deletes, commits, aborts } = fakeDatabase({
+      manualRead: true
+    })
+    const failure = new Error('Synthetic recovery receipt capacity exceeded')
+    let observed: unknown
+    const update = createIndexedDbNativeChatComposerDraftStorage(factory).update(
+      'scope',
+      (stored) => {
+        observed = stored
+        throw failure
+      }
+    )
+    let outcome = 'pending'
+    const settled = update.then(
+      () => {
+        outcome = 'committed'
+      },
+      () => {
+        outcome = 'rejected'
+      }
+    )
+    await readStarted
+    const read = reads[0]
+    expect(read).toBeDefined()
+    if (!read) {
+      throw new Error('Expected the IndexedDB read request')
+    }
+    read.result = DRAFT
+
+    expect(() => read.onsuccess?.()).not.toThrow()
+
+    expect(observed).toBe(DRAFT)
+    expect(aborts).toHaveLength(1)
+    expect(puts).toEqual([])
+    expect(deletes).toEqual([])
+    expect(commits).toEqual([])
+    await settled
+    expect(outcome).toBe('rejected')
   })
 
   describe('through the draft store', () => {

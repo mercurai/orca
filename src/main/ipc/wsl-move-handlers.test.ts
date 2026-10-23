@@ -24,11 +24,11 @@ vi.mock('electron', () => ({
 import { registerWslMoveHandlers } from './wsl-move-handlers'
 
 let userDataPath: string
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-ipc-'))
   vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
   registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
   registerWslMoveHandlers(() => userDataPath)
 })
 afterEach(() => {
@@ -40,12 +40,12 @@ afterEach(() => {
 const invoke = (channel: string, request?: unknown) => handlers.get(channel)?.({}, request)
 
 describe('WSL move IPC', () => {
-  it('lists pending renderer rewrites and records one', () => {
+  it('lists pending renderer rewrites and records one', async () => {
     expect(invoke('wslMove:listPendingRendererRewrites')).toMatchObject([
       { migrationId: 'move-1', storeIds: ['renderer-a'] }
     ])
     expect(
-      invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
+      await invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
     ).toEqual({ recorded: true })
     // The registry is incomplete until D1b-7f, so the move stays in its rewrite phase.
     expect(listWslMoveCutovers(userDataPath)[0]).toMatchObject({
@@ -60,19 +60,19 @@ describe('WSL move IPC', () => {
     'renderer-a',
     { migrationId: 'move-1' },
     { migrationId: 1, storeId: 2 }
-  ])('refuses a malformed request %j', (request) => {
-    expect(invoke('wslMove:recordStoreRewritten', request)).toEqual({
+  ])('refuses a malformed request %j', async (request) => {
+    expect(await invoke('wslMove:recordStoreRewritten', request)).toEqual({
       recorded: false,
       reason: 'unknown-store'
     })
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
   })
 
-  it('answers empty and refuses with the gate closed', () => {
+  it('answers empty and refuses with the gate closed', async () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     expect(invoke('wslMove:listPendingRendererRewrites')).toEqual([])
     expect(
-      invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
+      await invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
     ).toEqual({ recorded: false, reason: 'gated-off' })
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
   })
