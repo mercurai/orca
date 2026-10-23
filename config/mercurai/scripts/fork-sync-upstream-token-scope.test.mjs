@@ -63,7 +63,7 @@ test('the default token reads only and no secret is workflow-level', () => {
 test('the token-bearing job is unavailable to workflow files from untrusted branches', () => {
   assert.match(
     code,
-    /^  mirror:\n    if: \$\{\{ github\.ref_name == github\.event\.repository\.default_branch \}\}$/m
+    /^  mirror:\n    if: \$\{\{ github\.ref_name == \(github\.event\.repository\.default_branch \|\| 'mercurai'\) \}\}$/m
   )
   assert.match(code, /^    environment:\n      name: mercurai-sync$/m)
 })

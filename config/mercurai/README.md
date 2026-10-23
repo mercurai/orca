@@ -68,8 +68,8 @@ series.
   per run); with `mirror_branches`, the upstream branches that pass the same test; then the merge
   into `mercurai` in `scripts/merge-forward.sh`, which checks the merge result against the branch
   again and resets a merge that changed an unapproved guarded path before anything is pushed. An
-  owner-approved range still runs this result check; its changed guarded paths must be a subset of
-  the exact approved upstream commit (that run's
+  owner-approved range still runs this result check; its guarded blobs must match the exact
+  three-way merge of the approved upstream commit (that run's
   `fork-sync guard:` issue says main, tags and branches were already mirrored, unlike a refusal,
   which says nothing was pushed). A merge conflict opens a `fork-sync:` issue and fails the run;
   the tags were already handed on. Both kinds of issue are looked up through every open

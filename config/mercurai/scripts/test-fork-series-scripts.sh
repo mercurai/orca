@@ -462,6 +462,12 @@ guard_setup; mkdir -p .github/actions/x; commit .github/actions/x/action.yml x "
 rc=0; bash "$here/merge-result-guard.sh" "$before" > "$root/guard.out" 2>&1 || rc=$?
 if [ "$rc" = 3 ] && grep -qxF .github/actions/x/action.yml "$root/guard.out"; then pass "result guard: a merge that changed .github/actions is refused"; else fail "result guard: a merge that changed .github/actions is refused"; cat "$root/guard.out"; fi
 
+# 33ca. An approved guarded path must retain the exact merge-tree content; a same-path edit is refused.
+guard_setup; git checkout -q up; commit .github/workflows/ci.yml approved "approved workflow"; approved=$(git rev-parse HEAD)
+git checkout -q fork; before=$(git rev-parse HEAD); git merge -q --no-edit up; echo tampered >> .github/workflows/ci.yml; git add .github/workflows/ci.yml; git commit -qm "tamper approved workflow"
+rc=0; bash "$here/merge-result-guard.sh" "$before" "$approved" > "$root/guard.out" 2>&1 || rc=$?
+if [ "$rc" = 3 ] && grep -qxF .github/workflows/ci.yml "$root/guard.out"; then pass "result guard: an approved path with altered content is refused"; else fail "result guard: an approved path with altered content is refused"; cat "$root/guard.out"; fi
+
 # 33d. merge-forward.sh: the merge, the result check and the reset, as the workflow runs them (the push stays outside).
 mf_run() {  # mf_run <GUARD_ALLOWED>: merges `up` into `fork`; prints the exit status
   local rc=0; git checkout -q fork; : > "$root/mf.gho"
@@ -922,14 +928,12 @@ for v in "$full_other" "${sha:0:12}" "$(printf 'z%.0s' $(seq 1 40))" true; do
   gs_clean; rc=$(gs_run "$v")
   if [ "$rc" = 0 ] && [ "$(gs_outputs)" = "allowed=false refused=false " ]; then pass "guard step: a clean range with owner value '${v:0:12}' is not allowed and not refused"; else fail "guard step: a clean range with owner value '${v:0:12}' is not allowed and not refused"; echo "rc=$rc $(gs_outputs)"; fi
 done
-# Integration: the range guard passes, the result guard would refuse. The exact sha lets the merge stay; nothing else does.
-mkdir -p "$root/mfstub"; cp "$here/merge-forward.sh" "$root/mfstub/"
-printf '#!/usr/bin/env bash\nif [ -n "${2:-}" ]; then exit 0; fi\necho .github/workflows/ci.yml\nexit 3\n' > "$root/mfstub/merge-result-guard.sh"
+# Integration: the range guard passes, and the real result guard checks the approved merge tree.
 for mode in exact none; do
-  gs_clean; sha=$(git rev-parse up); git checkout -q fork; before=$(git rev-parse HEAD)
+  gs_clean; git checkout -q up; commit .github/workflows/ci.yml approved "approved workflow"; sha=$(git rev-parse up); git checkout -q fork; before=$(git rev-parse HEAD)
   if [ "$mode" = exact ]; then rc=$(gs_run "$sha"); else rc=$(gs_run ''); fi
   allowed=false; if grep -qx 'allowed=true' "$root/gs.gho"; then allowed=true; fi
-  mrc=0; git checkout -q fork; UPSTREAM_SHA=$sha GUARD_ALLOWED=$allowed bash "$root/mfstub/merge-forward.sh" > "$root/mf.out" 2>&1 || mrc=$?
+  mrc=0; git checkout -q fork; GITHUB_OUTPUT="$root/mf.gho" FORK_STATE_DIR="$root" UPSTREAM_SHA=$sha GUARD_ALLOWED=$allowed bash "$here/merge-forward.sh" > "$root/mf.out" 2>&1 || mrc=$?
   if [ "$mode" = exact ]; then
     if [ "$rc" = 0 ] && [ "$allowed" = true ] && [ "$mrc" = 0 ] && git merge-base --is-ancestor up fork && [ "$(git rev-parse HEAD)" != "$before" ]; then
       pass "guard step + merge-forward: an exact sha keeps a merge the result guard would refuse"; else fail "guard step + merge-forward: an exact sha keeps a merge the result guard would refuse"; echo "rc=$rc allowed=$allowed mrc=$mrc"; cat "$root/mf.out"; fi

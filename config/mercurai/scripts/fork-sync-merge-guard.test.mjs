@@ -133,8 +133,15 @@ test('the merge runs from copies, before it is pushed, with one push per attempt
 })
 
 test('privileged sync runs only from the protected default branch', () => {
-  assert.match(code, /^  mirror:\n    if: \$\{\{ github\.ref_name == github\.event\.repository\.default_branch \}\}$/m)
+  assert.match(
+    code,
+    /^  mirror:\n    if: \$\{\{ github\.ref_name == \(github\.event\.repository\.default_branch \|\| 'mercurai'\) \}\}$/m
+  )
   assert.match(code, /^    environment:\n      name: mercurai-sync$/m)
+})
+
+test('the schedule-safe fallback keeps the default branch gate when the event has no repository payload', () => {
+  assert.match(code, /github\.event\.repository\.default_branch \|\| 'mercurai'/)
 })
 
 test('the scripts the steps run after the merge are copied in the fetch step, before it could change them', () => {

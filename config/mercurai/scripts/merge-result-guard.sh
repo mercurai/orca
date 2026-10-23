@@ -13,9 +13,11 @@ approved=${2:-}
 paths=$(git diff --name-only --no-renames -z "$before" HEAD -- .github config/mercurai config/scripts | tr '\0' '\n')
 if [ -z "$paths" ]; then exit 0; fi
 if [ -n "$approved" ]; then
-  base=$(git merge-base "$before" "$approved")
-  expected=$(git diff --name-only --no-renames -z "$base" "$approved" -- .github config/mercurai config/scripts | tr '\0' '\n' | sort -u)
-  paths=$(comm -23 <(printf '%s\n' "$paths" | sort -u) <(printf '%s\n' "$expected"))
+  # Recompute the merge tree from the exact pre-merge branch and approved commit. Comparing
+  # blobs, rather than only path names, rejects a malicious resolution that edits an approved
+  # workflow or helper while retaining its name.
+  expected_tree=$(git merge-tree --write-tree "$before" "$approved")
+  paths=$(git diff --name-only --no-renames -z "$expected_tree" HEAD -- .github config/mercurai config/scripts | tr '\0' '\n')
   [ -n "$paths" ] || exit 0
 fi
 count=$(printf '%s\n' "$paths" | wc -l)

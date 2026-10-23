@@ -56,7 +56,7 @@ jobs:
   mirror:
     # Never execute a workflow file from a feature branch with the fork write token. The
     # environment applies an additional branch policy to the token-bearing job.
-    if: ${{ github.ref_name == github.event.repository.default_branch }}
+    if: ${{ github.ref_name == (github.event.repository.default_branch || 'mercurai') }}
     environment:
       name: mercurai-sync
     runs-on: ubuntu-latest
