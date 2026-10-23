@@ -90,7 +90,7 @@ export async function convertSshTargetToManagedOrcad(
     throw new Error('orcad_migration_destination_environment_mismatch')
   }
   // Before any commit can land, so a crash after it still blocks rollbacks across it.
-  recordManagedOrcadMigration(
+  await recordManagedOrcadMigration(
     userDataPath,
     environment.id,
     (args.now ?? (() => new Date()))().toISOString()
@@ -178,7 +178,7 @@ async function fenceOrResume(
   const stale = existing.state === 'stale-journal' ? existing.cutover : null
   if (stale && !isRegistered(userDataPath, stale.destinationEnvironmentId)) {
     // Its fence is gone and its server unregistered, so nothing it records can still be acted on.
-    removeOrcadMigrationJournalsForDestination(
+    await removeOrcadMigrationJournalsForDestination(
       userDataPath,
       target.id,
       stale.destinationEnvironmentId

@@ -54,7 +54,6 @@ describe('automatic mobile pairing with a missing Relay provider (#20005)', () =
   })
 
   it('reports the provider missing when an install outlives the mint budget', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const server = new OrcaRuntimeRpcServer({
       methods: [],
       runtime: new OrcaRuntimeService(),
@@ -62,11 +61,28 @@ describe('automatic mobile pairing with a missing Relay provider (#20005)', () =
       enableWebSocket: true,
       wsPort: 0
     })
-    server.setMobileRelayPairingProviderInstaller(() => new Promise(() => {}))
+    const entered = Promise.withResolvers<void>()
+    server.setMobileRelayPairingProviderInstaller(() => {
+      entered.resolve()
+      return new Promise(() => {})
+    })
     await server.start()
     try {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       const offer = server.createMobilePairingOffer({ address: '100.64.1.20' })
-      await vi.advanceTimersByTimeAsync(15_000)
+      let settled = false
+      void offer.then(
+        () => {
+          settled = true
+        },
+        () => {
+          settled = true
+        }
+      )
+      await entered.promise
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
       await expect(offer).resolves.toMatchObject({
         available: false,
         relayFailure: { stage: 'provider_missing' }

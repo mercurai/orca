@@ -142,6 +142,10 @@ export const AGENT_SESSION_FAILURE_COPY = {
   backgroundTaskNotStopped: "The background task wasn't stopped.",
   backgroundTasksNotStopped: "The background tasks weren't stopped.",
   answerUnconfirmed: 'Your answer was recorded but the agent did not confirm it.',
+  speedSupportUnknown:
+    'Orca has not verified the selected speed for this model and account. Refresh the model catalog or choose Standard, then send again.',
+  speedUnavailable:
+    'The selected speed is unavailable for this model and account. Refresh the model catalog or choose Standard, then send again.',
   hostFault: "Orca ran into a problem, so this didn't go through.",
   hostFaultTryAgain: "Orca ran into a problem, so this didn't go through. Try again.",
   hostStopped: '{{agent}} never finished starting, so Orca stopped it.',

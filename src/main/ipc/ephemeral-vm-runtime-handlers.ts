@@ -51,7 +51,10 @@ export function registerEphemeralVmRuntimeHandlers(store: Store): void {
 
   ipcMain.handle(
     'ephemeralVm:attachWorkspace',
-    (_event, args: { runtimeId: string; workspaceId: string }): EphemeralVmRuntimeRecord => {
+    async (
+      _event,
+      args: { runtimeId: string; workspaceId: string }
+    ): Promise<EphemeralVmRuntimeRecord> => {
       return attachEphemeralVmRuntimeToWorkspace({
         userDataPath: app.getPath('userData'),
         runtimeId: args.runtimeId,
@@ -81,7 +84,7 @@ export function registerEphemeralVmRuntimeHandlers(store: Store): void {
         try {
           resolved = getRuntimeRecipeContext(store, userDataPath, runtime.id)
         } catch (error) {
-          const failed = updateEphemeralVmRuntimeStatus(userDataPath, runtime.id, {
+          const failed = await updateEphemeralVmRuntimeStatus(userDataPath, runtime.id, {
             status: 'cleanup_failed',
             cleanupStatus: 'failed',
             cleanupLastAttemptAt: Date.now(),
@@ -183,7 +186,7 @@ export function registerEphemeralVmRuntimeHandlers(store: Store): void {
         if (!pairingCode) {
           throw new Error('Resume result did not include an Orca Server pairing code.')
         }
-        updateEnvironmentFromPairingCode(userDataPath, runtime.runtimeEnvironmentId, {
+        await updateEnvironmentFromPairingCode(userDataPath, runtime.runtimeEnvironmentId, {
           pairingCode
         })
         invalidateRuntimeEnvironmentTransport(runtime.runtimeEnvironmentId)
@@ -194,13 +197,13 @@ export function registerEphemeralVmRuntimeHandlers(store: Store): void {
             runtimeId: result.runtime.id,
             connection
           })
-          return updateEphemeralVmRuntimeStatus(userDataPath, result.runtime.id, {
+          return await updateEphemeralVmRuntimeStatus(userDataPath, result.runtime.id, {
             connectionMode: 'ssh',
             sshTargetId: ssh.targetId,
             runtimeEnvironmentId: ssh.environmentId
           })
         } catch (error) {
-          updateEphemeralVmRuntimeStatus(userDataPath, result.runtime.id, {
+          await updateEphemeralVmRuntimeStatus(userDataPath, result.runtime.id, {
             status: 'resume_failed'
           })
           throw error

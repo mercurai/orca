@@ -112,6 +112,8 @@ export function sendStructuredAgentSessionMessage(
 }
 
 export type StructuredAgentSessionReservedSend = {
+  /** The exact reserved operation, absent from older reservation producers. */
+  clientMessageId?: string
   outcome: Promise<StructuredAgentSessionSendOutcome>
   /** Older creates wait for acquisition; their send budget still begins at send. */
   legacy: () => void
@@ -160,6 +162,7 @@ export function reserveStructuredAgentSessionSend(
     }
   }, STRUCTURED_AGENT_SESSION_SEND_BUDGET_MS)
   return {
+    clientMessageId: entry.clientMessageId,
     outcome,
     legacy: () => clearTimeout(deadline),
     send: (target) => {

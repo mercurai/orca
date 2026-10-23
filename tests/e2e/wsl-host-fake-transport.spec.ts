@@ -44,7 +44,10 @@ async function launchDesktopWithFakeWsl(
   pairingCode: string,
   testInfo: Parameters<typeof forwardElectronProcessLogs>[1],
   fakeOverrides: Record<string, unknown> = {},
-  options: { internalGate?: boolean; beforeLaunch?: (userDataDir: string) => void } = {}
+  options: {
+    internalGate?: boolean
+    beforeLaunch?: (userDataDir: string) => void | Promise<unknown>
+  } = {}
 ): Promise<{
   app: ElectronApplication
   page: Page
@@ -56,7 +59,7 @@ async function launchDesktopWithFakeWsl(
     path.join(userDataDir, 'orca-data.json'),
     `${JSON.stringify(getE2ECompletedOnboardingProfile(), null, 2)}\n`
   )
-  options.beforeLaunch?.(userDataDir)
+  await options.beforeLaunch?.(userDataDir)
   const { ELECTRON_RUN_AS_NODE: _unused, ...cleanEnv } = process.env
   void _unused
   const isolation = createElectronHomeIsolation({

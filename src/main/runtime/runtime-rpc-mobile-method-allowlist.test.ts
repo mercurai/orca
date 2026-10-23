@@ -13,7 +13,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const { runtime, mocks, expectedCodexResetScope } = createMobileRpcSurfaceRuntime()
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const mobile = server['deviceRegistry']!.addDevice('phone', 'mobile')
+    const mobile = await server['deviceRegistry']!.addDevice('phone', 'mobile')
     const replies: Record<string, unknown>[] = []
     const dispatch = async (request: Record<string, unknown>): Promise<void> => {
       await server['handleWebSocketMessage'](

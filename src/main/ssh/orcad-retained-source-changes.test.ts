@@ -1,3 +1,4 @@
+import { serializePathWrite } from '../../shared/path-write-serializer'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,7 +11,8 @@ import { SshConnectionStore } from './connection/ssh-connection-store'
 import { orcadMigrationCutoverFixture } from './orcad-migration-cutover-fixture'
 import {
   findOrcadMigrationSourceCutoverForTarget,
-  writeOrcadMigrationSourceCutover
+  writeOrcadMigrationSourceCutover,
+  orcadMigrationCutoverJournalDirectory
 } from './orcad-migration-cutover-journal'
 import { keepOrcadServerVersion } from './orcad-migration-delta-move'
 import { createOrcadMigrationManifest } from './orcad-migration-manifest-export'
@@ -47,13 +49,13 @@ function repo(id: string, path: string): Repo {
 }
 
 /** A host moved and committed: its manifest is the source as it stood, its rows kept and hidden. */
-function movedHost(): void {
+async function movedHost(): Promise<void> {
   const manifest = createOrcadMigrationManifest(store, store.getSshTarget(TARGET.id)!, {
     migrationId: 'm-1',
     destinationEnvironmentId: FENCE.environmentId,
     now
   })
-  writeOrcadMigrationSourceCutover(userDataPath, {
+  await writeOrcadMigrationSourceCutover(userDataPath, {
     ...orcadMigrationCutoverFixture('m-1', TARGET.id),
     phase: 'destination-committed',
     sourceRetainedAt: now().toISOString(),
@@ -87,67 +89,102 @@ afterEach(async () => {
 })
 
 describe('what makes a moved host changed', () => {
-  it('keeps the host served when its groups are deleted or created (#31523)', () => {
-    movedHost()
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+  it('keeps the host served when its groups are deleted or created (#31523)', async () => {
+    await movedHost()
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeUndefined()
 
     // Deleting the group also drops the folder workspace in it; the server keeps its own copy.
     store.deleteProjectGroup(store.getProjectGroups()[0]!.id)
     store.createProjectGroup({ name: 'later', connectionId: TARGET.id, createdFrom: 'manual' })
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
 
     expect(changedAt()).toBeUndefined()
     expect(visibleIds()).toEqual([])
   })
 
-  it('still marks a project no move took', () => {
-    movedHost()
+  it('still marks a project no move took', async () => {
+    await movedHost()
     store.addRepo(repo('repo-2', '/srv/tool'))
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
 
     expect(changedAt()).toBeDefined()
     expect(visibleIds().sort()).toEqual(['repo-1', 'repo-2'])
   })
 
-  it('lifts a mark an earlier build set for a group edit, but not one for an added project', () => {
-    movedHost()
+  it('lifts a mark an earlier build set for a group edit, but not one for an added project', async () => {
+    await movedHost()
     store.deleteProjectGroup(store.getProjectGroups()[0]!.id)
     store.updateSshTarget(TARGET.id, { orcadFence: { ...FENCE, sourceChangedAt: 'earlier' } })
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeUndefined()
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toEqual(FENCE)
 
     store.addRepo(repo('repo-2', '/srv/tool'))
     store.updateSshTarget(TARGET.id, { orcadFence: { ...FENCE, sourceChangedAt: 'earlier' } })
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBe('earlier')
   })
 
-  it('upgrades a server version an earlier build kept, so a later group edit is no change', () => {
-    movedHost()
+  it('upgrades a server version an earlier build kept, so a later group edit is no change', async () => {
+    await movedHost()
     store.addRepo(repo('repo-2', '/srv/tool'))
     // What an earlier build's "keep the server's version" wrote: a baseline, no list of kept rows.
     const head = findOrcadMigrationSourceCutoverForTarget(userDataPath, TARGET.id)!
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...head,
       sourceBaselineFingerprint: currentOrcadSourceFingerprint(store, TARGET)
     })
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeUndefined()
 
     store.deleteProjectGroup(store.getProjectGroups()[0]!.id)
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeUndefined()
     store.addRepo(repo('repo-3', '/srv/docs'))
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeDefined()
   })
 
-  it('keeps the server version so a later group edit is no change, and a new project is', async () => {
-    movedHost()
+  it('keeps a later source edit visible while the baseline upgrade waits for durable storage', async () => {
+    await movedHost()
     store.addRepo(repo('repo-2', '/srv/tool'))
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    const head = findOrcadMigrationSourceCutoverForTarget(userDataPath, TARGET.id)!
+    await writeOrcadMigrationSourceCutover(userDataPath, {
+      ...head,
+      sourceBaselineFingerprint: currentOrcadSourceFingerprint(store, TARGET)
+    })
+    store.updateSshTarget(TARGET.id, { orcadFence: { ...FENCE, sourceChangedAt: 'earlier' } })
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const held = serializePathWrite(
+      orcadMigrationCutoverJournalDirectory(userDataPath),
+      async () => {
+        entered.resolve()
+        await release.promise
+      }
+    )
+    await entered.promise
+    const reconciling = reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    try {
+      store.addRepo(repo('repo-3', '/srv/docs'))
+      expect(changedAt()).toBe('earlier')
+    } finally {
+      release.resolve()
+      await held
+      await reconciling
+    }
+    expect(changedAt()).toBe('earlier')
+    expect(visibleIds()).toContain('repo-3')
+    expect(
+      findOrcadMigrationSourceCutoverForTarget(userDataPath, TARGET.id)?.keptRepositoryIds
+    ).toContain('repo-2')
+  })
+
+  it('keeps the server version so a later group edit is no change, and a new project is', async () => {
+    await movedHost()
+    store.addRepo(repo('repo-2', '/srv/tool'))
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: SshConnectionStore wraps the real test store it is given.
     const claims = new SshConnectionStore(store as never).getOrcadRuntimeClaims()
     await keepOrcadServerVersion({
@@ -159,10 +196,10 @@ describe('what makes a moved host changed', () => {
     expect(changedAt()).toBeUndefined()
 
     store.deleteProjectGroup(store.getProjectGroups()[0]!.id)
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeUndefined()
     store.addRepo(repo('repo-3', '/srv/docs'))
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(changedAt()).toBeDefined()
   })
 })

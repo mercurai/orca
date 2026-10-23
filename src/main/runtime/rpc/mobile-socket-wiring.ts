@@ -46,8 +46,18 @@ export type AuthenticatedMobileSocket = {
   transport: MobileSocketTransportMetadata
 }
 
+/** Registry operations used by socket admission, activity and ephemeral-device cleanup. */
+export type MobileSocketDeviceRegistry = Pick<
+  DeviceRegistry,
+  | 'validateToken'
+  | 'lookupDeviceKey'
+  | 'prepareDeviceAuthentication'
+  | 'updateLastSeenDeferred'
+  | 'pruneIdleEphemeralDevices'
+>
+
 type MobileSocketWiringOptions = {
-  deviceRegistry: DeviceRegistry
+  deviceRegistry: MobileSocketDeviceRegistry
   e2eeKeypair: E2EEKeypair
   onText: (
     socket: AuthenticatedMobileSocket,
@@ -70,7 +80,7 @@ function toAuthenticatedDevice(device: DeviceEntry): E2EEAuthenticatedDevice {
 }
 
 export class MobileSocketWiring {
-  private readonly deviceRegistry: DeviceRegistry
+  private readonly deviceRegistry: MobileSocketDeviceRegistry
   private readonly e2eeKeypair: E2EEKeypair
   private readonly onText: MobileSocketWiringOptions['onText']
   private readonly onBinary: MobileSocketWiringOptions['onBinary']
@@ -93,7 +103,7 @@ export class MobileSocketWiring {
     this.onReady = options.onReady
     this.onUnpairedDeviceAuthFailure = options.onUnpairedDeviceAuthFailure
     this.ephemeralSweep = setInterval(
-      () => this.sweepIdleEphemeralDevices(Date.now()),
+      () => void this.sweepIdleEphemeralDevices(Date.now()),
       EPHEMERAL_DEVICE_SWEEP_INTERVAL_MS
     )
     // Why: bookkeeping must never hold the process open.
@@ -105,10 +115,10 @@ export class MobileSocketWiring {
   }
 
   /** Removes idle session-only browser rows and cuts any socket still bound to them. */
-  sweepIdleEphemeralDevices(now: number): string[] {
+  async sweepIdleEphemeralDevices(now: number): Promise<string[]> {
     let removed: string[] = []
     try {
-      removed = this.deviceRegistry.pruneIdleEphemeralDevices(now, (deviceId) =>
+      removed = await this.deviceRegistry.pruneIdleEphemeralDevices(now, (deviceId) =>
         this.hasAuthenticatedSocket(deviceId)
       )
     } catch (error) {
@@ -218,6 +228,7 @@ export class MobileSocketWiring {
             devicePublicKeyB64: lookup.device.devicePublicKeyB64
           }
         },
+        beforeReady: (_channel, device) => this.deviceRegistry.prepareDeviceAuthentication(device),
         onReady: (channel, device) => {
           const socket = {
             ws,
@@ -238,7 +249,7 @@ export class MobileSocketWiring {
           }
           this.authenticatedSockets.set(ws, socket)
           transport.setClientId(ws, device.deviceId)
-          // Why: deferred — the client's e2ee_authenticated must not wait on a secure-file rewrite.
+          // First sighting was durably admitted; ordinary timestamp refreshes stay deferred.
           this.deviceRegistry.updateLastSeenDeferred(device.deviceId)
           this.onReady?.(socket)
         },

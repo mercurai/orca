@@ -14,6 +14,7 @@ import {
   acquireProfileStateRuntimeAdmission,
   type ProfileStateRuntimeAdmission
 } from '../persistence/profile-state/profile-state-access'
+import { drainPathWritesForQuit } from '../startup/path-write-quit-drain'
 
 const bundledLauncherChannel = process.env[ORCAD_BUNDLED_LAUNCHER_ENV] === '1'
 delete process.env[ORCAD_BUNDLED_LAUNCHER_ENV]
@@ -150,25 +151,56 @@ export async function startOrcadWithHost<T extends object>(
       setDesktopBrowserBridgeHostEnabled(Boolean(process.env[ORCAD_MANAGED_ACTIVATION_ROOT_ENV]))
       return { ...(await start(registerCleanup)), instance }
     },
-    async (runtimeCleanupSucceeded) => {
-      // Failed teardown keeps both fences until the process actually exits.
-      const host = new OrcadRuntimeLifetime(() => {
-        if (runtimeCleanupSucceeded) {
-          instanceLock.release()
+    (runtimeCleanupSucceeded) =>
+      runOrcadHostCleanup({
+        stopBrowserProvider: async () => {
+          await browserProvider?.stop()
+        },
+        clearBrowserCommands: () => {
+          setRuntimeBrowserCommandsFactory(null)
+          setDesktopBrowserBridgeHostEnabled(false)
+        },
+        runQuitHandlers,
+        // Failed teardown keeps both fences until the process actually exits.
+        releaseAdmission: () => {
+          if (runtimeCleanupSucceeded) {
+            admission?.release()
+          }
+        },
+        releaseInstanceLock: () => {
+          if (runtimeCleanupSucceeded) {
+            instanceLock.release()
+          }
         }
       })
-      host.add(({ failed }) => {
-        if (runtimeCleanupSucceeded && !failed) {
-          admission?.release()
-        }
-      })
-      host.add(() => runQuitHandlers())
-      host.add(() => setRuntimeBrowserCommandsFactory(null))
-      host.add(() => setDesktopBrowserBridgeHostEnabled(false))
-      host.add(() => browserProvider?.stop())
-      await host.stop()
-    }
   )
+}
+
+/**
+ * The host's last teardown before process.exit. Steps run in reverse registration order; a failed
+ * step still lets the later ones run, but leaves admission and the lock held.
+ */
+export async function runOrcadHostCleanup(steps: {
+  stopBrowserProvider: () => Promise<void>
+  clearBrowserCommands: () => void
+  runQuitHandlers: () => void
+  releaseAdmission: () => void
+  releaseInstanceLock: () => void
+}): Promise<void> {
+  const host = new OrcadRuntimeLifetime(steps.releaseInstanceLock)
+  host.add(({ failed }) => {
+    if (!failed) {
+      steps.releaseAdmission()
+    }
+  })
+  // Why after the quit handlers (push, relay): secure-file writes are async now, and the synchronous
+  // ones always finished before exit. Wait for every one still queued (bounded, inside
+  // ORCAD_SHUTDOWN_DEADLINE_MS) while the lock still fences a second orcad out.
+  host.add(() => drainPathWritesForQuit(undefined, { throwOnTimeout: true }))
+  host.add(() => steps.runQuitHandlers())
+  host.add(() => steps.clearBrowserCommands())
+  host.add(() => steps.stopBrowserProvider())
+  await host.stop()
 }
 
 export async function flushOrcadProfileStoreForShutdown(store: {

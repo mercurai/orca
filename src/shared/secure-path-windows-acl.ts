@@ -12,6 +12,15 @@ export function restrictWindowsDirectory(dirPath: string): Promise<boolean> {
   return security ? restrictAsync(security, dirPath, true) : Promise.resolve(false)
 }
 
+/**
+ * Restricts a path off the event loop for the async secure-file lane. The addon orders its async
+ * DACL writes per path, so this needs no lane of its own. Never rejects.
+ */
+export function restrictNewFileAsync(targetPath: string, isDirectory = false): Promise<boolean> {
+  const security = securityFor(targetPath)
+  return security ? restrictAsync(security, targetPath, isDirectory) : Promise.resolve(false)
+}
+
 async function restrictAsync(
   security: WindowsSecurity,
   targetPath: string,

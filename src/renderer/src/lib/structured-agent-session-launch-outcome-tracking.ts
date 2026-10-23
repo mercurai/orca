@@ -30,6 +30,7 @@ function cleanupLaunchState(state: StructuredLaunchState): void {
 export function maybeCleanupLaunchState(state: StructuredLaunchState): void {
   if (
     state.callers.outcome === 'failed' ||
+    Boolean(state.heldPromptDrafts?.length) ||
     structuredLaunchCallersHavePendingWork(state.callers) ||
     Object.keys(state.selection.held).length > 0
   ) {

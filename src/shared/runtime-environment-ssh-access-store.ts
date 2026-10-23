@@ -1,25 +1,29 @@
+import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import type { PairedRuntimeConnection } from './paired-runtime-connection'
 import { randomUUID } from 'node:crypto'
-import { runtimeEnvironmentSshAccessBinding } from './runtime-environment-authority-binding'
+import {
+  nextRuntimeEnvironmentPairingRevision as nextPairingRevision,
+  runtimeEnvironmentSshAccessError as invalid,
+  requireMatchingRuntimeEnvironmentSshAccessIntent as requireMatchingIntent,
+  requireUnchangedRuntimeEnvironmentSshAccess as requireUnchangedEnvironment
+} from './runtime-environment-authority-binding'
 export { runtimeEnvironmentSshAccessBinding } from './runtime-environment-authority-binding'
 import {
   getPreferredPairingOffer,
   RuntimeSshAccessOperationSchema,
   type KnownRuntimeEnvironment,
   type PersistedRuntimeEnvironment,
-  type RuntimeSshAccessOperation,
   type RuntimeSshTunnelLink
 } from './runtime-environments'
 import {
   readEnvironmentStore,
-  readPersistedEnvironmentStore,
-  RuntimeEnvironmentStoreError
+  readPersistedEnvironmentStore
 } from './runtime-environment-store-file'
 import {
   overlayRuntimeEnvironmentSidecar,
   readCurrentRuntimeEnvironmentSidecarEntry,
   runtimeEnvironmentSidecarBinding,
-  writeRuntimeEnvironmentSidecarEntry,
+  writeRuntimeEnvironmentSidecarEntryWithinMutation,
   type RuntimeEnvironmentSidecarEntry
 } from './runtime-environment-sidecar'
 
@@ -32,7 +36,14 @@ type AccessContext = {
   view: KnownRuntimeEnvironment
 }
 
-export function prepareRuntimeEnvironmentSshAccessLink(
+export const prepareRuntimeEnvironmentSshAccessLink = (
+  ...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessLinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    prepareRuntimeEnvironmentSshAccessLinkWithinMutation(...args)
+  )
+
+async function prepareRuntimeEnvironmentSshAccessLinkWithinMutation(
   userDataPath: string,
   args: {
     expectedEnvironment: KnownRuntimeEnvironment
@@ -42,7 +53,7 @@ export function prepareRuntimeEnvironmentSshAccessLink(
     remotePort: number
     targetFingerprint: string
   }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const { expectedEnvironment: _expected, ...fields } = args
   const intent = RuntimeSshAccessOperationSchema.parse({ ...fields, operation: 'link' })
   const context = readAccessContext(userDataPath, args.expectedEnvironment, true)
@@ -60,7 +71,14 @@ export function prepareRuntimeEnvironmentSshAccessLink(
   return commit(userDataPath, context, { ...context.entry, pendingSshAccessOperation: intent })
 }
 
-export function linkVerifiedRuntimeEnvironmentSshAccess(
+export const linkVerifiedRuntimeEnvironmentSshAccess = (
+  ...args: Parameters<typeof linkVerifiedRuntimeEnvironmentSshAccessWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(...args)
+  )
+
+async function linkVerifiedRuntimeEnvironmentSshAccessWithinMutation(
   userDataPath: string,
   args: {
     expectedEnvironment: KnownRuntimeEnvironment
@@ -70,7 +88,7 @@ export function linkVerifiedRuntimeEnvironmentSshAccess(
     tunnel: RuntimeSshTunnelLink
     now?: number
   }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const views = readEnvironmentStore(userDataPath).environments
   const completed = views.find((entry) => entry.id === args.expectedEnvironment.id)
   if (completed?.sshAccess?.requestId && completed.sshAccess.requestId === args.requestId) {
@@ -130,10 +148,17 @@ export function linkVerifiedRuntimeEnvironmentSshAccess(
   })
 }
 
-export function prepareRuntimeEnvironmentSshAccessUnlink(
+export const prepareRuntimeEnvironmentSshAccessUnlink = (
+  ...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation(...args)
+  )
+
+async function prepareRuntimeEnvironmentSshAccessUnlinkWithinMutation(
   userDataPath: string,
   args: { expectedEnvironment: KnownRuntimeEnvironment; requestId: string; now?: number }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const context = readAccessContext(userDataPath, args.expectedEnvironment)
   const existing = context.view
   if (existing.pendingSshAccessOperation) {
@@ -164,10 +189,17 @@ export function prepareRuntimeEnvironmentSshAccessUnlink(
   })
 }
 
-export function completeRuntimeEnvironmentSshAccessUnlink(
+export const completeRuntimeEnvironmentSshAccessUnlink = (
+  ...args: Parameters<typeof completeRuntimeEnvironmentSshAccessUnlinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    completeRuntimeEnvironmentSshAccessUnlinkWithinMutation(...args)
+  )
+
+async function completeRuntimeEnvironmentSshAccessUnlinkWithinMutation(
   userDataPath: string,
   args: { expectedEnvironment: KnownRuntimeEnvironment; requestId: string }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const context = readAccessContext(userDataPath, args.expectedEnvironment)
   const intent = context.view.pendingSshAccessOperation
   if (!intent || intent.operation !== 'unlink' || intent.requestId !== args.requestId) {
@@ -177,10 +209,17 @@ export function completeRuntimeEnvironmentSshAccessUnlink(
   return commit(userDataPath, context, remaining)
 }
 
-export function cancelRuntimeEnvironmentSshAccessLink(
+export const cancelRuntimeEnvironmentSshAccessLink = (
+  ...args: Parameters<typeof cancelRuntimeEnvironmentSshAccessLinkWithinMutation>
+) =>
+  withRuntimeEnvironmentMutation(args[0], () =>
+    cancelRuntimeEnvironmentSshAccessLinkWithinMutation(...args)
+  )
+
+async function cancelRuntimeEnvironmentSshAccessLinkWithinMutation(
   userDataPath: string,
   args: { expectedEnvironment: KnownRuntimeEnvironment; requestId: string }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const context = readAccessContext(userDataPath, args.expectedEnvironment)
   const intent = context.view.pendingSshAccessOperation
   if (!intent || intent.requestId !== args.requestId) {
@@ -251,11 +290,11 @@ function readAccessContext(
 }
 
 /** Writes only after the overlay proves every requested field survives validation. */
-function commit(
+async function commit(
   userDataPath: string,
   context: AccessContext,
   next: SidecarState
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const view = overlayRuntimeEnvironmentSidecar(context.persisted, {
     ...next,
     binding: runtimeEnvironmentSidecarBinding(context.persisted)
@@ -267,41 +306,11 @@ function commit(
   ) {
     throw invalid('The SSH access state is inconsistent with this paired server.')
   }
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, context.environments, context.persisted, next)
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(
+    userDataPath,
+    context.environments,
+    context.persisted,
+    next
+  )
   return view
-}
-
-function requireMatchingIntent(
-  environment: KnownRuntimeEnvironment,
-  intent: RuntimeSshAccessOperation
-): void {
-  if (JSON.stringify(environment.pendingSshAccessOperation) !== JSON.stringify(intent)) {
-    throw invalid('Another SSH access operation is pending.')
-  }
-}
-
-function requireUnchangedEnvironment(
-  environments: KnownRuntimeEnvironment[],
-  expected: KnownRuntimeEnvironment,
-  ignoreIntent = false
-): KnownRuntimeEnvironment {
-  const existing = environments.find((entry) => entry.id === expected.id)
-  if (
-    !existing ||
-    JSON.stringify(runtimeEnvironmentSshAccessBinding(existing, ignoreIntent)) !==
-      JSON.stringify(runtimeEnvironmentSshAccessBinding(expected, ignoreIntent))
-  ) {
-    throw invalid(
-      'The paired server changed while SSH access was being verified. Retry with its current pairing.'
-    )
-  }
-  return existing
-}
-
-function nextPairingRevision(environment: KnownRuntimeEnvironment, now: number): number {
-  return Math.max(now, (environment.pairingRevision ?? environment.createdAt) + 1)
-}
-
-function invalid(message: string): RuntimeEnvironmentStoreError {
-  return new RuntimeEnvironmentStoreError('invalid_argument', message)
 }

@@ -5,6 +5,7 @@ import { useAppStore } from '../../store'
 import { getShortcutPlatform } from '@/lib/shortcut-platform'
 import type { ReleaseBuild } from '../../../../shared/release-channel'
 import { ReleaseChannelSection } from './ReleaseChannelSection'
+import { TooltipProvider } from '../ui/tooltip'
 
 vi.mock('@/lib/shortcut-platform', () => ({ getShortcutPlatform: vi.fn(() => 'darwin') }))
 
@@ -66,7 +67,7 @@ async function searchForOlderBuild(): Promise<void> {
 }
 
 it('keeps searching local and switches only to the explicitly selected build on confirmation', async () => {
-  render(<ReleaseChannelSection />)
+  render(<ReleaseChannelSection />, { wrapper: TooltipProvider })
   await searchForOlderBuild()
   expect(listBuilds).toHaveBeenCalledTimes(1)
   expect(check).not.toHaveBeenCalled()
@@ -81,7 +82,7 @@ it('keeps searching local and switches only to the explicitly selected build on 
 
 it('keeps the Windows manual-install path tied to the selected search result', async () => {
   vi.mocked(getShortcutPlatform).mockReturnValue('win32')
-  render(<ReleaseChannelSection />)
+  render(<ReleaseChannelSection />, { wrapper: TooltipProvider })
   await searchForOlderBuild()
   fireEvent.click(screen.getByRole('button', { name: 'Download installer' }))
   expect(openUrl).toHaveBeenCalledWith(builds[1].installerUrl)
@@ -89,7 +90,7 @@ it('keeps the Windows manual-install path tied to the selected search result', a
 })
 
 it('resets selection on refresh and keeps load failures recoverable', async () => {
-  render(<ReleaseChannelSection />)
+  render(<ReleaseChannelSection />, { wrapper: TooltipProvider })
   await searchForOlderBuild()
   listBuilds.mockResolvedValueOnce({ ok: false, message: 'Build feed unavailable.' })
   fireEvent.click(screen.getByRole('button', { name: 'Refresh build list' }))
@@ -110,7 +111,7 @@ it('resets selection on refresh and keeps load failures recoverable', async () =
 })
 
 it('discards a previous channel search and offers only the newly loaded channel', async () => {
-  render(<ReleaseChannelSection />)
+  render(<ReleaseChannelSection />, { wrapper: TooltipProvider })
   await searchForOlderBuild()
   fireEvent.click(screen.getByRole('combobox', { name: 'Build' }))
   fireEvent.change(screen.getByRole('combobox', { name: 'Search builds' }), {

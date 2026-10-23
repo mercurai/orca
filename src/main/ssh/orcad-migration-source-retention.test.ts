@@ -9,6 +9,7 @@ import { closeTestStores, createSqliteTestStore } from '../persistence-test-harn
 import { Store } from '../persistence/loading-store/store'
 import {
   listOrcadMigrationSourceCutovers,
+  removeOrcadMigrationSourceCutover,
   writeOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 import { orcadMigrationCutoverFixture } from './orcad-migration-cutover-fixture'
@@ -85,11 +86,11 @@ const serverFiles = () => store.getWorkspaceSession(SERVER_HOST).openFilesByWork
 
 describe('retaining a committed migration source', () => {
   it('marks only a committed cutover, idempotently, and stops counting it as pending', async () => {
-    writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-1'))
+    await writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-1'))
     await expect(retainOrcadMigrationSource(userDataPath, 'm-1', store)).rejects.toThrow(
       'orcad_migration_retain_before_commit'
     )
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('m-1'),
       phase: 'destination-committed'
     })
@@ -107,18 +108,35 @@ describe('retaining a committed migration source', () => {
     expect(listPendingManagedOrcadMigrations(userDataPath)).toEqual([])
   })
 
-  it('does not count retained cutovers against the in-flight journal capacity', () => {
+  it('does not recreate a journal when cleanup was queued before retention', async () => {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
+      ...orcadMigrationCutoverFixture('m-removed'),
+      phase: 'destination-committed'
+    })
+    const results = await Promise.allSettled([
+      removeOrcadMigrationSourceCutover(userDataPath, 'm-removed'),
+      retainOrcadMigrationSource(userDataPath, 'm-removed', store)
+    ])
+    expect(results[0]).toEqual({ status: 'fulfilled', value: undefined })
+    expect(results[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({ message: 'orcad_migration_retain_before_commit' })
+    })
+    expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([])
+  })
+
+  it('does not count retained cutovers against the in-flight journal capacity', async () => {
     for (let index = 0; index < 4; index += 1) {
       const id = `m-${index}`
-      writeOrcadMigrationSourceCutover(userDataPath, {
+      await writeOrcadMigrationSourceCutover(userDataPath, {
         ...orcadMigrationCutoverFixture(id, `ssh-${index}`),
         phase: 'destination-committed',
         sourceRetainedAt: '2026-10-03T00:00:00.000Z'
       })
     }
-    expect(() =>
+    await expect(
       writeOrcadMigrationSourceCutover(userDataPath, orcadMigrationCutoverFixture('m-new', 'ssh-9'))
-    ).not.toThrow()
+    ).resolves.toBeUndefined()
   })
 })
 
@@ -139,7 +157,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
     saveFiles(SOURCE_HOST, [draftedFile('/srv/app/host.md', 'host draft')])
     saveFiles('local', [draftedFile('/srv/app/desktop.md', 'desktop draft')])
     const source = JSON.stringify(store.getWorkspaceSession(SOURCE_HOST))
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
 
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
 
@@ -164,7 +182,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
       draftedFile('/srv/app/b.md', 'source B')
     ])
     saveFiles(SERVER_HOST, [{ ...draftedFile('/srv/app/a.md', 'newer A') }])
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
 
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
     expect(serverFiles()?.map((file) => file.dirtyDraftContent)).toEqual(['newer A', 'source B'])
@@ -180,7 +198,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
 
   it('renames and retains at startup after a cut-off commit, so a draft closed later stays closed', async () => {
     saveFiles(SOURCE_HOST, [draftedFile('/srv/app/a.md', 'source A')])
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
     await restart()
 
     await retainUnretainedOrcadMigrationSources(userDataPath, store)
@@ -197,7 +215,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
 
   it('shares one retain between concurrent callers, so a later one never renames again', async () => {
     saveFiles(SOURCE_HOST, [draftedFile('/srv/app/a.md', 'source A')])
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
     const first = retainOrcadMigrationSource(userDataPath, 'm-1', store)
     expect(retainOrcadMigrationSource(userDataPath, 'm-1', store)).toBe(first)
     await first
@@ -207,7 +225,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
   })
 
   it("never retains another profile's migration at startup", async () => {
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('m-9', 'ssh-other-profile'),
       phase: 'destination-committed'
     })
@@ -220,7 +238,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
     saveFiles(SERVER_HOST, [
       { ...draftedFile('/srv/app/a.md', 'typed after'), runtimeEnvironmentId: 'env-1' }
     ])
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
     await retainUnretainedOrcadMigrationSources(userDataPath, store)
     expect(serverFiles()?.map((file) => file.dirtyDraftContent)).toEqual(['typed after'])
@@ -228,7 +246,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
 
   it('makes the startup rename durable before its retained mark', async () => {
     saveFiles(SOURCE_HOST, [draftedFile('/srv/app/a.md', 'source A')])
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
     await restart()
     await retainUnretainedOrcadMigrationSources(userDataPath, store)
     expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.sourceRetainedAt).toBeDefined()
@@ -254,7 +272,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
       },
       SOURCE_HOST
     )
-    writeOrcadMigrationSourceCutover(userDataPath, committed())
+    await writeOrcadMigrationSourceCutover(userDataPath, committed())
 
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
     expect(store.getWorkspaceSession(SERVER_HOST).openFilesByWorktree ?? {}).toEqual({})

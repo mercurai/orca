@@ -164,7 +164,7 @@ async function cleanupEphemeralVmRuntimeOnce(
   }
 
   const now = args.now ?? Date.now()
-  const running = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+  const running = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
     status: 'cleanup_pending',
     cleanupStatus: args.recipe.destroyDisabled ? 'disabled' : 'running',
     cleanupLastAttemptAt: now,
@@ -182,7 +182,7 @@ async function cleanupEphemeralVmRuntimeOnce(
   })
 
   if (!cleanup.ok) {
-    const failed = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+    const failed = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
       status: 'cleanup_failed',
       cleanupStatus: 'failed',
       cleanupLastError: cleanup.error ?? 'Destroy failed.',
@@ -191,7 +191,7 @@ async function cleanupEphemeralVmRuntimeOnce(
     return { ok: false, runtime: failed, error: cleanup.error ?? 'Destroy failed.' }
   }
 
-  const cleaned = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+  const cleaned = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
     status: 'cleaned',
     cleanupStatus: cleanup.skipped ? 'disabled' : 'succeeded',
     cleanupLastError: null,
@@ -220,14 +220,14 @@ export async function suspendEphemeralVmRuntime(
   })
 
   if (!suspend.ok) {
-    const failed = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+    const failed = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
       status: 'suspend_failed',
       updatedAt: Date.now()
     })
     return { ok: false, runtime: failed, error: suspend.error ?? 'Suspend failed.' }
   }
 
-  const suspended = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+  const suspended = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
     status: suspend.skipped ? existing.status : 'suspended',
     updatedAt: Date.now()
   })
@@ -254,7 +254,7 @@ export async function resumeEphemeralVmRuntime(
   })
 
   if (!resume.ok) {
-    const failed = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+    const failed = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
       status: 'resume_failed',
       updatedAt: Date.now()
     })
@@ -265,14 +265,14 @@ export async function resumeEphemeralVmRuntime(
     ? null
     : getProvisionedRootResumeIntegrityError(existing.recipeResult, resume.result)
   if (resumeIntegrityError) {
-    const failed = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+    const failed = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
       status: 'resume_failed',
       updatedAt: Date.now()
     })
     return { ok: false, runtime: failed, error: resumeIntegrityError }
   }
 
-  const runtime = updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
+  const runtime = await updateEphemeralVmRuntimeStatus(args.userDataPath, existing.id, {
     status: 'running',
     ...(!resume.skipped ? { recipeResult: resume.result } : {}),
     updatedAt: Date.now()

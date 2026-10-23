@@ -1,4 +1,9 @@
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import {
+  bumpEnvironmentWriteGeneration,
+  captureEnvironmentStoreVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import {
   RuntimeEnvironmentStoreSchema,
@@ -33,7 +38,7 @@ export {
 
 /**
  * The orca-environments.json records this build can read. Unreadable ones (corrupt, or written by
- * a newer build) are left out here and carried through every write by writeEnvironmentStore.
+ * a newer build) are left out here and carried through every write by writeEnvironmentStoreSnapshotAsync.
  */
 export function readPersistedEnvironmentStore(
   userDataPath: string,
@@ -121,7 +126,22 @@ export function readEnvironmentStore(
  * Writes only persisted fields; sidecar state is written by the sidecar module. Records on disk
  * this build cannot read are appended verbatim, in their original order.
  */
-export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
+export function writeEnvironmentStoreSnapshotAsync(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore
+): Promise<void> {
+  return withRuntimeEnvironmentMutation(userDataPath, () =>
+    writeEnvironmentStoreAsync(userDataPath, store)
+  )
+}
+
+/** Publication inside a caller-owned transaction; the caller must compute from a current snapshot. */
+export async function writeEnvironmentStoreAsync(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore,
+  options: { shouldPublish?: () => boolean } = {}
+): Promise<void> {
+  const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const path = getEnvironmentStorePath(userDataPath)
   const environments = RuntimeEnvironmentStoreSchema.parse(store).environments
   const onDisk = readEnvironmentStoreRecords(userDataPath)
@@ -135,13 +155,22 @@ export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnviro
     )
   }
   try {
-    writeSecureJsonFileWithinLimit(
+    await writeSecureJsonFileWithinLimitAsync(
       path,
       {
         version: 1,
         environments: [...environments, ...onDisk.unreadable.map((record) => record.raw)]
       },
-      MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES
+      MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
+      {
+        shouldPublish: () => {
+          if (!isCurrent() || options.shouldPublish?.() === false) {
+            return false
+          }
+          bumpEnvironmentWriteGeneration()
+          return true
+        }
+      }
     )
   } catch (error) {
     if (error instanceof JsonStringifyByteLimitError) {

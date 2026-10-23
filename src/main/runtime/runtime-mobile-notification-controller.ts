@@ -69,8 +69,15 @@ export class RuntimeMobileNotificationController {
   private dismissalStore: MobileNotificationDismissalStore | null = null
   private readonly desktopClients = new DesktopClientPresenceTracker()
 
-  configureDismissalStore(userDataPath: string): void {
+  private hasPairedMobileDevice: () => boolean = () => true
+
+  /** `hasPairedMobileDevice` gates persistence: with no phone paired, nothing could be delivered to dismiss. */
+  configureDismissalStore(
+    userDataPath: string,
+    options: { hasPairedMobileDevice?: () => boolean } = {}
+  ): void {
     this.dismissalStore = new MobileNotificationDismissalStore(userDataPath)
+    this.hasPairedMobileDevice = options.hasPairedMobileDevice ?? (() => true)
   }
 
   /** Waits for the pending dismissal write without closing the store. */
@@ -159,15 +166,16 @@ export class RuntimeMobileNotificationController {
       }
     }
     const seq = this.replay.record(event)
-    try {
-      this.dismissalStore?.record({
-        ...event,
-        notificationSeq: seq,
-        notificationEpoch: this.replay.epoch
+    // `dispatch` is synchronous; the store commits the entry in memory before it awaits the write,
+    // so `reconcile` is already correct by the time this returns.
+    void this.dismissalStore
+      ?.record(
+        { ...event, notificationSeq: seq, notificationEpoch: this.replay.epoch },
+        { persist: this.hasPairedMobileDevice() }
+      )
+      .catch((error: unknown) => {
+        console.warn('[notifications] Could not persist dismissal recovery state', error)
       })
-    } catch {
-      console.warn('[notifications] Could not persist dismissal recovery state')
-    }
     notifyRuntimeListeners(
       this.listeners,
       (listener) =>
