@@ -255,6 +255,48 @@ describe('useDetectedAgents (ssh call site)', () => {
   })
 })
 
+describe('useDetectedAgents (local launch settings)', () => {
+  it('refreshes a cached local inventory when an agent command override changes', async () => {
+    useAppStore.setState({
+      settings: {
+        ...(useAppStore.getState().settings ?? {}),
+        agentCmdOverrides: {}
+      } as never,
+      localDetectedAgentIdsByContext: {}
+    })
+
+    const root = await renderProbe({ kind: 'local' })
+    expect(detectLocalAgents).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().detectedAgentIds).toEqual(['codex'])
+
+    refreshLocalAgents.mockResolvedValueOnce({
+      agents: ['codex', 'claude'],
+      addedPathSegments: [],
+      shellHydrationOk: true,
+      pathSource: 'process_env',
+      pathFailureReason: 'none'
+    })
+
+    await act(async () => {
+      useAppStore.setState({
+        settings: {
+          ...(useAppStore.getState().settings ?? {}),
+          agentCmdOverrides: { codex: 'golden-stub-agent' }
+        } as never
+      })
+    })
+    await flushEffects()
+
+    expect(refreshLocalAgents).toHaveBeenCalledTimes(1)
+    expect(useAppStore.getState().detectedAgentIds).toEqual(['codex', 'claude'])
+
+    await act(async () => {
+      root.unmount()
+    })
+    roots.splice(roots.indexOf(root), 1)
+  })
+})
+
 describe('useDetectedAgents (unresolved target)', () => {
   it('does not fall back to detecting or refreshing the local client', async () => {
     await renderProbe(undefined)
