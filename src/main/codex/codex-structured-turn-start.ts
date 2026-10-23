@@ -1,3 +1,5 @@
+import { codexTurnRequestOptions } from './codex-structured-service-tier'
+import { acknowledgeCodexSpeed, type CodexSpeedRequestState } from './codex-structured-speed-state'
 import { pickedSkillsInText } from '../../shared/structured-agent-session-send-mutation'
 import type { CodexSkillReport } from './codex-structured-skill-report'
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
@@ -13,9 +15,12 @@ import {
   type CodexAppServerConnection
 } from './codex-app-server-connection'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
+import {
+  assertCodexSpeedAdmitted,
+  CodexSpeedAdmissionError
+} from './codex-structured-speed-admission'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
-import { codexTurnRequestOptions } from './codex-structured-service-tier'
 import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
@@ -54,7 +59,7 @@ function checkDispatchAuthority(host: CodexTurnHost, id: string, signal?: AbortS
 }
 
 /** The session state one turn needs. */
-export type CodexTurnHost = {
+export type CodexTurnHost = CodexSpeedRequestState & {
   account?: AgentSessionAccountKind
   /** The skills this child's Codex listed; a picked skill outside them is left to its `$name`. */
   skillReport?: Pick<CodexSkillReport, 'hasSkillPath'>
@@ -179,17 +184,20 @@ export async function startCodexTurn(
     return steered
   }
   checkDispatchAuthority(host, input.clientMessageId, input.signal)
+  // Validate the message's frozen choices, not a later picker update. Legacy Fast is
+  // resolved against this message's model before filtering it off the provider wire.
+  const selected = new Map(Object.entries(input.turnOptions ?? Object.fromEntries(host.options)))
+  assertCodexSpeedAdmitted({ ...host, options: selected })
+  const options = Object.fromEntries([...selected].filter(([key]) => isCodexTurnOptionKey(key)))
   const previousApplied = host.appliedTurnOptions
   const previousOptions = input.turnOptions ? new Map(host.options) : null
-  if (input.turnOptions) {
-    host.options.clear()
-    for (const [key, value] of Object.entries(input.turnOptions)) {
-      host.options.set(key, value)
-    }
+  host.options.clear()
+  for (const [key, value] of Object.entries(options)) {
+    host.options.set(key, value)
   }
-  host.appliedTurnOptions = input.turnOptions ?? Object.fromEntries(host.options)
-  // host.options now holds this message's choices; an unoffered tier runs as standard.
-  const requested = codexTurnRequestOptions(host)
+  host.appliedTurnOptions = options
+  const sequence = (host.speedDispatchSequence ?? 0) + 1
+  host.speedDispatchSequence = sequence
   let answer: unknown
   try {
     answer = await host.connection.request(
@@ -198,7 +206,7 @@ export async function startCodexTurn(
         threadId: host.threadId,
         clientUserMessageId: input.clientMessageId,
         input: turnInputFor(host, input.body),
-        ...requested
+        ...options
       },
       { timeoutMs: input.timeoutMs, onReply: input.onReply }
     )
@@ -215,7 +223,9 @@ export async function startCodexTurn(
     }
     throw error
   }
-  return { turnId: readCodexTurnId(answer), via: 'start' }
+  const turnId = readCodexTurnId(answer)
+  acknowledgeCodexSpeed(host, sequence, options.serviceTier, turnId)
+  return { turnId, via: 'start' }
 }
 
 /**
@@ -245,6 +255,13 @@ export async function dispatchCodexTurn(
   try {
     answer = await startCodexTurn(session, { ...input, timeoutMs, onReply })
   } catch (error) {
+    if (error instanceof CodexSpeedAdmissionError) {
+      session.dispatchEchoes.disarm(input.clientMessageId)
+      return {
+        state: 'rejected',
+        ...codexDispatchRejection(agentSessionFailureFact(error.kind, { neverReachedAgent: true }))
+      }
+    }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       // Codex answered and declined, so no echo for this write can arrive.
       session.dispatchEchoes.disarm(input.clientMessageId)

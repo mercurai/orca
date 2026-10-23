@@ -89,7 +89,8 @@ run(runtimePath, [
   'run',
   '--config',
   'config/vitest.config.ts',
-  ...(testArgs.length > 0 ? testArgs : defaultTestArgs())
+  ...(testArgs.length > 0 ? testArgs : defaultTestArgs()),
+  '--maxWorkers=2'
 ])
 
 function defaultTestArgs() {

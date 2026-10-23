@@ -4,11 +4,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import nacl from 'tweetnacl'
-import {
-  hardenExistingSecureFile,
-  isUnreadableError,
-  writeSecureJsonFile
-} from '../../shared/secure-file'
+import { hardenExistingSecureFile, isUnreadableError } from '../../shared/secure-file'
+import { writeSecureJsonFileAsync } from '../../shared/secure-file-async-write'
 import {
   E2EE_KEYPAIR_FILENAME as KEYPAIR_FILENAME,
   MAX_E2EE_KEYPAIR_FILE_BYTES as MAX_KEYPAIR_FILE_BYTES
@@ -41,7 +38,7 @@ function keypairFromSecret(secretKey: Uint8Array, storedPublicKey: Uint8Array): 
   return { publicKey, secretKey, publicKeyB64: Buffer.from(publicKey).toString('base64') }
 }
 
-export function loadOrCreateE2EEKeypair(userDataPath: string): E2EEKeypair {
+export async function loadOrCreateE2EEKeypair(userDataPath: string): Promise<E2EEKeypair> {
   const filePath = join(userDataPath, KEYPAIR_FILENAME)
 
   if (existsSync(filePath)) {
@@ -80,7 +77,7 @@ export function loadOrCreateE2EEKeypair(userDataPath: string): E2EEKeypair {
   const secretKeyB64 = Buffer.from(keypair.secretKey).toString('base64')
 
   const data: KeypairFile = { v: KEYPAIR_VERSION, publicKeyB64, secretKeyB64 }
-  writeSecureJsonFile(filePath, data)
+  await writeSecureJsonFileAsync(filePath, data)
 
   return { publicKey: keypair.publicKey, secretKey: keypair.secretKey, publicKeyB64 }
 }

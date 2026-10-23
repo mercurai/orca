@@ -75,10 +75,10 @@ function refreshAfterChange(rateLimits: UsageRefresher | null, action: 'save' | 
   )
 }
 
-export function saveMiniMaxSessionCookieCredential(
+export async function saveMiniMaxSessionCookieCredential(
   rateLimits: UsageRefresher | null,
   cookie: unknown
-): MiniMaxCredentialsStatus {
+): Promise<MiniMaxCredentialsStatus> {
   // Why: the value arrives as unknown over IPC/RPC; the declared type is compile-time only.
   if (typeof cookie !== 'string') {
     throw new Error('MiniMax session cookie must be a string')
@@ -89,7 +89,7 @@ export function saveMiniMaxSessionCookieCredential(
       'MiniMax session cookies need the Orca desktop app on this computer. Save an API key instead.'
     )
   }
-  saveMiniMaxSessionCookie(cookie)
+  await saveMiniMaxSessionCookie(cookie)
   refreshAfterChange(rateLimits, 'save')
   return getMiniMaxCredentialsStatus()
 }
@@ -107,14 +107,14 @@ export async function clearMiniMaxSessionCookieCredential(
   return getMiniMaxCredentialsStatus()
 }
 
-export function saveMiniMaxApiKeyCredential(
+export async function saveMiniMaxApiKeyCredential(
   rateLimits: UsageRefresher | null,
   key: unknown
-): MiniMaxCredentialsStatus {
+): Promise<MiniMaxCredentialsStatus> {
   if (typeof key !== 'string') {
     throw new Error('MiniMax API key must be a string')
   }
-  saveMiniMaxApiKey(key)
+  await saveMiniMaxApiKey(key)
   refreshAfterChange(rateLimits, 'save')
   return getMiniMaxCredentialsStatus()
 }

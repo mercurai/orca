@@ -1,11 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import {
-  hardenExistingSecureFile,
-  isUnreadableError,
-  writeSecureJsonFile
-} from '../../../shared/secure-file'
+import { serializePathWrite } from '../../../shared/path-write-serializer'
+import { hardenExistingSecureFile, isUnreadableError } from '../../../shared/secure-file'
+import { writeSecureJsonFileAsync } from '../../../shared/secure-file-async-write'
 
 export type RelayDeviceBinding = {
   relayHostId: string
@@ -49,21 +47,26 @@ export class RelayRevokeOutbox {
     this.items = this.load()
   }
 
-  enqueue(binding: RelayDeviceBinding): RelayRevokeOutboxItem {
-    const existing = this.items.find(
-      (item) =>
-        item.relayHostId === binding.relayHostId &&
-        item.relayDeviceId === binding.relayDeviceId &&
-        item.ownerIdentityKey === binding.ownerIdentityKey
-    )
-    if (existing) {
-      return existing
-    }
-    const item = { ...binding, reqId: randomUUID(), createdAt: Date.now() }
-    const next = [...this.items, item]
-    this.save(next)
-    this.items = next
-    return item
+  // Why: items are read, awaited through the write, then swapped in, so two mutations must not interleave.
+  private serialized<T>(task: () => Promise<T>): Promise<T> {
+    return serializePathWrite(`${this.path}#read-modify-write`, task)
+  }
+
+  enqueue(binding: RelayDeviceBinding): Promise<RelayRevokeOutboxItem> {
+    return this.serialized(async () => {
+      const existing = this.items.find(
+        (item) =>
+          item.relayHostId === binding.relayHostId &&
+          item.relayDeviceId === binding.relayDeviceId &&
+          item.ownerIdentityKey === binding.ownerIdentityKey
+      )
+      if (existing) {
+        return existing
+      }
+      const item = { ...binding, reqId: randomUUID(), createdAt: Date.now() }
+      await this.save([...this.items, item])
+      return item
+    })
   }
 
   pendingFor(ownerIdentityKey: string, relayHostId: string): readonly RelayRevokeOutboxItem[] {
@@ -72,13 +75,14 @@ export class RelayRevokeOutbox {
     )
   }
 
-  remove(reqId: string): void {
-    const next = this.items.filter((item) => item.reqId !== reqId)
-    if (next.length === this.items.length) {
-      return
-    }
-    this.save(next)
-    this.items = next
+  remove(reqId: string): Promise<void> {
+    return this.serialized(async () => {
+      const next = this.items.filter((item) => item.reqId !== reqId)
+      if (next.length === this.items.length) {
+        return
+      }
+      await this.save(next)
+    })
   }
 
   private load(): RelayRevokeOutboxItem[] {
@@ -97,12 +101,13 @@ export class RelayRevokeOutbox {
     }
   }
 
-  private save(items: readonly RelayRevokeOutboxItem[]): void {
+  private async save(items: RelayRevokeOutboxItem[]): Promise<void> {
     if (this.outboxUnreadable) {
       throw new Error(
         `Cannot read the relay revoke outbox at ${this.path}: the read failed. Refusing to overwrite it, which would drop pending revocations.`
       )
     }
-    writeSecureJsonFile(this.path, items)
+    await writeSecureJsonFileAsync(this.path, items)
+    this.items = items
   }
 }

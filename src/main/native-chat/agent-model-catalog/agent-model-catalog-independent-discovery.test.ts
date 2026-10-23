@@ -1,3 +1,7 @@
+import { readCodexRestingSpeed } from '../../codex/codex-structured-resting-speed'
+import { codexAcquireCatalogAccess } from '../../codex/codex-structured-acquire-catalog'
+import { readCodexSessionSpeed } from '../../codex/codex-structured-speed-state'
+import { optionSession } from '../../codex/codex-structured-option-session.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentSessionRecord } from '../../../shared/agent-session-record'
 import { agentSessionRecordFixture } from '../agent-session-record-test-fixture'
@@ -90,7 +94,8 @@ describe('independent installed CLI discovery', () => {
     await h.read('a', { waitForListing: true })
     expect(await h.read()).toMatchObject({ models: [{ id: 'new' }] })
     expect(await h.read('a', { savedOnly: true, verifiedOnly: true })).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     h.service.stop()
   })
@@ -171,6 +176,7 @@ describe('independent installed CLI discovery', () => {
     h.update({ ...listing('partial', 'partial'), complete: false })
     expect(await h.read('a', { waitForListing: true })).toMatchObject({
       models: [{ id: 'partial', isDefault: false }],
+      catalogState: 'unknown',
       listingNamesConfiguredModel: false
     })
     expect(h.service.peek('a', true)).toBeNull()
@@ -182,3 +188,84 @@ describe('independent installed CLI discovery', () => {
     h.service.stop()
   })
 })
+
+it.each(['resolve', 'partial', 'reject'] as const)(
+  'reports scoped Codex discovery loading then %s',
+  async (outcome) => {
+    const home = { variable: 'CODEX_HOME', path: '/synthetic-account' }
+    const pending = Promise.withResolvers<AgentModelCatalogSuccess>()
+    const store = new AgentModelCatalogStore()
+    const row = agentSessionRecordFixture({
+      sessionId: 'scoped-speed',
+      provider: 'codex',
+      accountHome: home,
+      options: { model: 'synthetic-model', serviceTier: 'exact-fast-id' },
+      location: {
+        executionHostId: 'local',
+        wslDistro: null,
+        workspaceId: 'folder',
+        workspaceKind: 'folder'
+      }
+    })
+    const probe: AgentModelCatalogProbe = Object.assign(async () => pending.promise, {
+      resolve: async () => ({
+        identity: { command: 'synthetic-cli', cwd: '/synthetic-project' },
+        run: () => pending.promise
+      })
+    })
+    const service = createAgentModelCatalogService({
+      store,
+      getRecord: () => row,
+      drivesRecord: () => true,
+      resolveAccountHome: async () => home,
+      recordWorkspacePath: async () => '/synthetic-project',
+      probes: { codex: probe }
+    })
+    const session = optionSession(
+      vi.fn(async () => {
+        throw new Error('child must not list')
+      })
+    )
+    session.options = new Map(Object.entries(row.options ?? {}))
+    session.catalogAccess = codexAcquireCatalogAccess(
+      {
+        modelCatalog: store,
+        readModelCatalog: (id, verified) => service.peek(id, verified),
+        isModelCatalogListing: (id) => service.isListing?.(id) ?? false,
+        demandModelCatalog: (id) => service.read({ agent: 'codex', sessionId: id })
+      },
+      { codexHome: home.path },
+      row.sessionId
+    )
+    await session.catalogAccess?.demand?.()
+    expect(store.isListing(session.catalogAccess!.fingerprint)).toBe(false)
+    expect(readCodexSessionSpeed(session, { models: [] }).support).toBe('loading')
+    const settled = service.read({ agent: 'codex', sessionId: row.sessionId, waitForListing: true })
+    if (outcome !== 'reject') {
+      pending.resolve({
+        origin: 'probe',
+        complete: outcome === 'resolve',
+        models: [
+          {
+            id: 'synthetic-model',
+            label: 'Synthetic',
+            isDefault: true,
+            efforts: [],
+            serviceTiers: [{ value: 'exact-fast-id', label: 'Fast' }]
+          }
+        ]
+      })
+    } else {
+      pending.reject(new Error('synthetic listing unavailable'))
+    }
+    const catalog = await settled
+    expect(catalog.catalogState).toBe(outcome === 'resolve' ? 'available' : 'unknown')
+    expect(readCodexRestingSpeed({ saved: row.options ?? {}, catalog }).support).toBe(
+      outcome === 'resolve' ? 'available' : 'unknown'
+    )
+    expect(readCodexSessionSpeed(session, { models: [] }).support).toBe(
+      outcome === 'resolve' ? 'available' : 'unknown'
+    )
+    service.stop()
+  }
+)
