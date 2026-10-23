@@ -268,13 +268,17 @@ function adoptForeignChange(message: unknown): void {
     typeof message === 'object' && message !== null && 'scopeKey' in message
       ? message.scopeKey
       : null
-  if (typeof scopeKey !== 'string' || hasLocalChange(scopeKey)) {
+  if (
+    typeof scopeKey !== 'string' ||
+    disposedDraftScopes.has(scopeKey) ||
+    hasLocalChange(scopeKey)
+  ) {
     return
   }
   void nativeChatComposerDraftStorage()
     .read(scopeKey)
     .then((value) => {
-      if (hasLocalChange(scopeKey)) {
+      if (disposedDraftScopes.has(scopeKey) || hasLocalChange(scopeKey)) {
         return
       }
       const draft = parseStoredNativeChatComposerDraft(value)
