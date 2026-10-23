@@ -14,7 +14,7 @@ import {
   RUNTIME_PROTOCOL_VERSION
 } from '../../../shared/protocol-version'
 import { clearRuntimeCompatibilityCacheForTests } from '@/runtime/runtime-rpc-client'
-import { FLOATING_TERMINAL_WORKTREE_ID } from '../../../shared/constants'
+import { FLOATING_TERMINAL_WORKTREE_ID, getDefaultSettings } from '../../../shared/constants'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -257,10 +257,7 @@ describe('useDetectedAgents (ssh call site)', () => {
 
 describe('useDetectedAgents (local launch settings)', () => {
   it('refreshes a cached local inventory when an agent command override changes', async () => {
-    const initialSettings = useAppStore.getState().settings
-    if (!initialSettings) {
-      throw new Error('test settings were not initialized')
-    }
+    const initialSettings = getDefaultSettings('/tmp')
     useAppStore.setState({
       settings: {
         ...initialSettings,
@@ -284,7 +281,7 @@ describe('useDetectedAgents (local launch settings)', () => {
     await act(async () => {
       const currentSettings = useAppStore.getState().settings
       if (!currentSettings) {
-        throw new Error('test settings were not initialized')
+        throw new Error('test settings were cleared during the test')
       }
       useAppStore.setState({
         settings: {
