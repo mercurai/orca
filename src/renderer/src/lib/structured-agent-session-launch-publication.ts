@@ -7,6 +7,7 @@ import {
   hasStructuredAgentSessionLaunchCancellationTombstone,
   notifyStructuredLaunchListeners
 } from './structured-agent-session-launch-registry'
+import { forgetUnlistedCreatedChat } from './structured-agent-session-unlisted-created-chats'
 
 function confirmStructuredLaunchPublication(worktreeId: string, sessionId: string): void {
   // Store teardown imports publication bookkeeping; recovery may read the store after it exists.
@@ -48,6 +49,7 @@ export function markStructuredAgentSessionLaunchPublished(
   ) {
     return false
   }
+  state.hostListed = true
   if (state.callers.outcome === 'published') {
     return true
   }
@@ -80,6 +82,7 @@ export function markStructuredAgentSessionLaunchesPublished(
   published: Iterable<{ worktreeId: string; sessionId: string }>
 ): void {
   for (const { worktreeId, sessionId } of published) {
+    forgetUnlistedCreatedChat(worktreeId, sessionId, executionHostId)
     if (!hasStructuredAgentSessionLaunchCancellationTombstone(worktreeId, sessionId)) {
       markStructuredAgentSessionLaunchPublished(worktreeId, sessionId, executionHostId)
     }

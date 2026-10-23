@@ -44,6 +44,8 @@ export type StructuredLaunchState = StructuredLaunchRecoveryState & {
   heldPromptDrafts?: readonly StructuredLaunchPromptDraft[]
   draftRecovery?: Promise<boolean>
   selection: StructuredLaunchSelection
+  /** A host list showed the chat, so its create reply needs no protection from older lists. */
+  hostListed?: true
 }
 
 export type StructuredAgentLaunchStatus = 'idle' | 'pending' | 'unknown'

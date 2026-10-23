@@ -5,7 +5,7 @@
 // shared host code read a definition through it and never branch on the agent's name.
 
 import type { AgentSessionCapabilities } from '../../../shared/agent-session-capabilities'
-import type { AgentSessionStoredAgent } from '../../../shared/agent-session-stored-agent'
+import type { AgentSessionStoredAgent } from '../../../shared/agent-session/lifecycle/agent-session-stored-agent'
 import type { AgentSessionSpeed } from '../../../shared/agent-session-speed'
 import type {
   AgentSessionModelCatalogResult,

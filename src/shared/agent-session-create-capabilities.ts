@@ -5,6 +5,10 @@
 // reserved `tabId` rather than ignoring it. A client sends the field only to a host advertising this.
 export const AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY =
   'agentSession.create.tab-id.v1' as const
+// Why: same strict object; a host advertising this opens the created chat's tab at `tabPlacement`
+// (its own group and tab ids), so a paired client's chosen place survives the host's save (L270).
+export const AGENT_SESSION_CREATE_TAB_PLACEMENT_RUNTIME_CAPABILITY =
+  'agentSession.create.tab-placement.v1' as const
 // Why: same strict object; a host advertising this records the conversation's first message with
 // the chat it creates, so the message is the host's from the start.
 export const AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY =
@@ -34,6 +38,7 @@ export const AGENT_SESSION_CREATE_RUNTIME_CAPABILITIES = [
   CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY,
+  AGENT_SESSION_CREATE_TAB_PLACEMENT_RUNTIME_CAPABILITY,
   AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY,
   AGENT_SESSION_ACCOUNT_ENV_RUNTIME_CAPABILITY,
   AGENT_SESSION_SEND_SKILLS_RUNTIME_CAPABILITY
