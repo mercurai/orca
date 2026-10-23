@@ -40,7 +40,6 @@ export type { PluginLogLine } from './plugin-log-buffer'
 export type { PluginServiceOptions } from './plugin-service-options'
 
 export class PluginService {
-  readonly options: PluginServiceOptions
   private readonly registry = createPluginExtensionRegistry()
   private readonly eventBus = new PluginEventBus()
   private readonly audit: PluginAuditLog
@@ -61,8 +60,7 @@ export class PluginService {
     notifyChanged: () => this.notifyChanged(false)
   })
 
-  constructor(options: PluginServiceOptions) {
-    this.options = options
+  constructor(readonly options: PluginServiceOptions) {
     this.contentPacks = new PluginContentPackRegistry(this.contentVerifier, (pluginKey) =>
       Boolean(this.options.getPluginKillListEntry?.(pluginKey))
     )
@@ -260,6 +258,7 @@ export class PluginService {
           ? bindPluginHostServices({
               delegate: this.runtimeDelegate,
               pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
+              invokePluginCommand: this.invokeCommand.bind(this),
               subscribeEvents: (key, events) => this.eventBus.subscribe(key, events)
             })
           : null,

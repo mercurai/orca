@@ -2,12 +2,12 @@ import { EventEmitter } from 'node:events'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const dependencyExports: [string, string[]][] = [
-  ['../ipc/filesystem-watcher', ['closeAllWatchers']],
+  ['../ipc/filesystem-watcher-shutdown', ['closeAllWatchers']],
   ['../ipc/worktree-base-directory-watcher', ['disposeWorktreeBaseDirectoryWatchers']],
   ['../ipc/folder-repo-git-upgrade', ['stopFolderRepoGitUpgradeWatch']],
   ['../ipc/pty/kill-all', ['killAllPty']],
   ['../daemon/daemon-provider-state', ['disconnectDaemon', 'shutdownDaemon']],
-  ['../ipc/ssh-shutdown-drain', ['beginSshShutdown']],
+  ['../ipc/ssh/ssh-shutdown-drain', ['beginSshShutdown']],
   ['../agent-hooks/server', ['agentHookServer']],
   ['../agent-hooks/wsl-hook-relay-manager', ['wslHookRelayManager']],
   ['../agent-hooks/managed-agent-hook-controls', ['removeManagedAgentHooksAsync']],
@@ -22,6 +22,9 @@ const dependencyExports: [string, string[]][] = [
     '../browser/paired-runtime-browser-client-host-runtime',
     ['shutdownPairedRuntimeBrowserClientHosts']
   ],
+  ['../ipc/desktop-browser-bridge-wiring', ['disposeDesktopBrowserBridge']],
+  ['../orca-profiles/profile-cloud-session-owner', ['flushUnsavedCloudSessions']],
+  ['./path-write-quit-drain', ['drainPathWritesForQuit']],
   ['../browser/browser-manager', ['browserManager']],
   ['../codex/codex-state-db-backfill-recovery', ['stopCodexStateDbBackfillRecoveries']],
   ['../codex/codex-account-session-bridge', ['stopCodexAccountSessionBridges']],

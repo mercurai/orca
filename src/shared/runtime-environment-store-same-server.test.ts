@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodePairingOffer } from './pairing'
 import {
   addEnvironmentFromPairingCode,
@@ -11,6 +11,10 @@ import {
 } from './runtime-environment-store'
 import { addManagedOrcadEnvironment } from './runtime-environment-managed-orcad-store'
 
+vi.mock('./windows-security-addon', () => ({
+  loadWindowsSecurity: () => ({ error: 'native DACL unavailable in ordering fixture' })
+}))
+
 const serverKey = Buffer.alloc(32, 7).toString('base64')
 
 function pairingCode(endpoint: string, deviceToken = 'first-token', publicKeyB64 = serverKey) {
@@ -19,27 +23,22 @@ function pairingCode(endpoint: string, deviceToken = 'first-token', publicKeyB64
 
 describe('pairing a server that is already saved', () => {
   let userDataPath: string
-  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
   beforeEach(() => {
     // Why: this suite tests store contents, while secure-file tests cover Windows ACLs.
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-same-server-'))
   })
   afterEach(() => {
-    if (originalPlatform) {
-      Object.defineProperty(process, 'platform', originalPlatform)
-    }
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  it('refreshes the saved entry instead of saving the server twice under a new name', () => {
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+  it('refreshes the saved entry instead of saving the server twice under a new name', async () => {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768'),
       now: 100
     })
 
-    const outcome = addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+    const outcome = await addOrUpdateEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio over relay',
       pairingCode: pairingCode('wss://relay.example/runtime', 'second-token'),
       runtimeId: 'runtime-after-restart',
@@ -62,41 +61,41 @@ describe('pairing a server that is already saved', () => {
     })
   })
 
-  it('refuses a second entry for the same server where it cannot switch connections over', () => {
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+  it('refuses a second entry for the same server where it cannot switch connections over', async () => {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
-    expect(() =>
+    await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'Studio again',
         pairingCode: pairingCode('ws://192.0.2.10:6768', 'second-token')
       })
-    ).toThrow(
+    ).rejects.toThrow(
       'This server is already paired as "Studio". To update its connection, add it again under Settings > Remote Orca Servers.'
     )
     expect(listEnvironments(userDataPath)).toEqual([first])
   })
 
-  it("refreshes the saved server when the code is entered under the server's own name", () => {
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+  it("refreshes the saved server when the code is entered under the server's own name", async () => {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
-    const outcome = addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+    const outcome = await addOrUpdateEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768', 'second-token')
     })
     expect(outcome).toMatchObject({ updatedExisting: true, environment: { id: first.id } })
   })
 
-  it('matches the same key spelled unpadded or URL-safe', () => {
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+  it('matches the same key spelled unpadded or URL-safe', async () => {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
     const urlSafeUnpadded = Buffer.alloc(32, 0xfb).toString('base64url')
-    addEnvironmentFromPairingCode(userDataPath, {
+    await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Wide',
       pairingCode: pairingCode(
         'ws://192.0.2.12:6768',
@@ -107,7 +106,7 @@ describe('pairing a server that is already saved', () => {
     for (const spelling of [serverKey.replace(/=+$/, ''), urlSafeUnpadded]) {
       const target = spelling === urlSafeUnpadded ? 'Wide' : 'Studio'
       expect(
-        addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+        await addOrUpdateEnvironmentFromPairingCode(userDataPath, {
           name: `${target} again`,
           pairingCode: pairingCode('ws://192.0.2.20:6768', 'other-token', spelling)
         })
@@ -125,12 +124,12 @@ describe('pairing a server that is already saved', () => {
     expect(listEnvironments(userDataPath)).toHaveLength(2)
   })
 
-  it('still saves a different server as its own entry', () => {
-    addEnvironmentFromPairingCode(userDataPath, {
+  it('still saves a different server as its own entry', async () => {
+    await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
-    const outcome = addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+    const outcome = await addOrUpdateEnvironmentFromPairingCode(userDataPath, {
       name: 'Laptop',
       pairingCode: pairingCode(
         'ws://192.0.2.11:6768',
@@ -142,23 +141,23 @@ describe('pairing a server that is already saved', () => {
     expect(listEnvironments(userDataPath).map((entry) => entry.name)).toEqual(['Laptop', 'Studio'])
   })
 
-  it('takes the tunnel dependency from the new pairing, not the replaced one', () => {
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+  it('takes the tunnel dependency from the new pairing, not the replaced one', async () => {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://127.0.0.1:41000/runtime'),
       connectionDependency: 'ssh-tunnel'
     })
     expect(first.connectionDependency).toBe('ssh-tunnel')
 
-    const outcome = addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+    const outcome = await addOrUpdateEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio on LAN',
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
     expect(outcome.environment.connectionDependency).toBeUndefined()
   })
 
-  it('refuses, naming the saved entry, when Orca manages that server over SSH', () => {
-    const managed = addManagedOrcadEnvironment(userDataPath, {
+  it('refuses, naming the saved entry, when Orca manages that server over SSH', async () => {
+    const managed = await addManagedOrcadEnvironment(userDataPath, {
       id: 'managed',
       name: 'Managed box',
       pairingCode: pairingCode('ws://127.0.0.1:41000/runtime'),
@@ -171,27 +170,27 @@ describe('pairing a server that is already saved', () => {
       now: 100
     })
 
-    expect(() =>
+    await expect(
       addOrUpdateEnvironmentFromPairingCode(userDataPath, {
         name: 'Managed box by hand',
         pairingCode: pairingCode('ws://192.0.2.10:6768', 'second-token')
       })
-    ).toThrow('This server is already paired as "Managed box".')
+    ).rejects.toThrow('This server is already paired as "Managed box".')
     expect(listEnvironments(userDataPath)).toEqual([managed])
   })
 
-  it('refuses to fold a cloud workspace server into a saved entry', () => {
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+  it('refuses to fold a cloud workspace server into a saved entry', async () => {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'Studio',
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
-    expect(() =>
+    await expect(
       addOrUpdateEnvironmentFromPairingCode(userDataPath, {
         name: 'VM',
         pairingCode: pairingCode('ws://192.0.2.20:6768', 'vm-token'),
         source: 'ephemeral-vm'
       })
-    ).toThrow('This server is already paired as "Studio".')
+    ).rejects.toThrow('This server is already paired as "Studio".')
     expect(listEnvironments(userDataPath)).toEqual([first])
   })
 })

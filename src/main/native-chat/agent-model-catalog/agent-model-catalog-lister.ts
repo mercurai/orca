@@ -30,7 +30,10 @@ export type AgentModelCatalogSessionAccess = {
   accountHomePath: string
 }
 
-export type InFlightListings = Map<AgentModelCatalogLister, Promise<AgentModelCatalogEntry | null>>
+export type InFlightListings = {
+  agent: string
+  listings: Map<AgentModelCatalogLister, Promise<AgentModelCatalogEntry | null>>
+}
 
 type CatalogSuccessWriter = (
   fingerprint: string,
@@ -61,7 +64,11 @@ export function refreshAgentModelCatalogListing(input: {
   recordFailure: (fingerprint: string, detail: string, agent?: string) => void
 }): Promise<AgentModelCatalogEntry | null> {
   const { fingerprint, agent, lister, listModels } = input
-  const listers: InFlightListings = input.refreshes.get(fingerprint) ?? new Map()
+  const refresh: InFlightListings = input.refreshes.get(fingerprint) ?? {
+    agent,
+    listings: new Map()
+  }
+  const listers = refresh.listings
   const inFlight = independentAgentModelCatalog(agent)
     ? listers.values().next().value
     : listers.get(lister)
@@ -70,7 +77,7 @@ export function refreshAgentModelCatalogListing(input: {
   }
   const settle = (): void => {
     listers.delete(lister)
-    if (listers.size === 0 && input.refreshes.get(fingerprint) === listers) {
+    if (listers.size === 0 && input.refreshes.get(fingerprint) === refresh) {
       input.refreshes.delete(fingerprint)
       input.latestWrittenOrder.delete(fingerprint)
     }
@@ -85,6 +92,10 @@ export function refreshAgentModelCatalogListing(input: {
     (success) => {
       span.setAttribute('models', success.models.length)
       span.end()
+      if (input.refreshes.get(fingerprint) !== refresh) {
+        settle()
+        return null
+      }
       // An older lister still receives its own result, but cannot replace a newer discovery.
       const superseded =
         (input.latestWrittenOrder.get(fingerprint) ?? 0) > order && input.entries.has(fingerprint)
@@ -99,6 +110,10 @@ export function refreshAgentModelCatalogListing(input: {
     },
     (error: unknown) => {
       span.fail(error instanceof Error ? error : String(error))
+      if (input.refreshes.get(fingerprint) !== refresh) {
+        settle()
+        return null
+      }
       // Probes are functions; a live session lists through its access object.
       if (typeof lister === 'function') {
         if (!(error instanceof AgentModelCatalogListingStoppedError)) {
@@ -116,7 +131,7 @@ export function refreshAgentModelCatalogListing(input: {
     }
   )
   listers.set(lister, run)
-  input.refreshes.set(fingerprint, listers)
+  input.refreshes.set(fingerprint, refresh)
   return run
 }
 

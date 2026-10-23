@@ -33,6 +33,7 @@ import {
 } from '../local-worktree-runtime-options'
 import { getWorktreeSharedLinkPaths } from '../../git/worktree-shared-directories'
 import { applyGitStatusUpstreamRefWatchRequest } from '../git-status-upstream-ref-watch-request'
+import { bindGitCaller } from '../../git/command-runner/git-operation-executor'
 import type { FilesystemHandlerContext } from './filesystem-handler-context'
 import { requireReachableGitRoute } from '../../providers/execution-host-provider-dispatch'
 import { getConnectionExecutionHostId } from '../../../shared/execution-host'
@@ -41,51 +42,54 @@ export function registerFilesystemGitStatusHandlers(context: FilesystemHandlerCo
   const { store, gitStatusCancellations } = context
   ipcMain.handle(
     'git:status',
-    async (
-      event,
-      args: {
-        worktreePath: string
-        connectionId?: string
-        admissionTier?: GitAdmissionTier
-        includeIgnored?: boolean
-        includeLineStats?: boolean
-        bypassEffectiveUpstreamNegativeCache?: boolean
-        reuseLineStats?: boolean
-        branchLineTotalMergeBase?: string
-        requestToken?: string
+    bindGitCaller(
+      'git:status',
+      async (
+        event,
+        args: {
+          worktreePath: string
+          connectionId?: string
+          admissionTier?: GitAdmissionTier
+          includeIgnored?: boolean
+          includeLineStats?: boolean
+          bypassEffectiveUpstreamNegativeCache?: boolean
+          reuseLineStats?: boolean
+          branchLineTotalMergeBase?: string
+          requestToken?: string
+        }
+      ): Promise<GitStatusResult> => {
+        const controller = gitStatusCancellations.begin(event, args.requestToken)
+        const options = {
+          includeIgnored: args.includeIgnored ?? false,
+          admissionTier: args.admissionTier ?? ('status' as const),
+          ...(args.includeLineStats === false ? { includeLineStats: false } : {}),
+          ...(args.reuseLineStats === true ? { reuseLineStats: true } : {}),
+          ...(args.branchLineTotalMergeBase === undefined
+            ? {}
+            : { branchLineTotalMergeBase: args.branchLineTotalMergeBase }),
+          ...(args.bypassEffectiveUpstreamNegativeCache === true
+            ? { bypassEffectiveUpstreamNegativeCache: true }
+            : {}),
+          ...(controller ? { signal: controller.signal } : {})
+        }
+        try {
+          requireReachableGitRoute(getConnectionExecutionHostId(args.connectionId))
+          const worktreePath = await resolveRegisteredWorktreePath(args.worktreePath, store)
+          // Why: one registered-worktree lookup feeds both — status polls this
+          // handler, and the scan walks every repo's worktree meta.
+          const repo = getLocalRepoForRegisteredWorktree(store, args.worktreePath, worktreePath)
+          const gitOptions = getLocalGitOptionsForRepo(store, repo)
+          const sharedLinkPaths = repo ? getWorktreeSharedLinkPaths(repo) : []
+          return await getStatus(worktreePath, {
+            ...options,
+            ...gitOptions,
+            ...(sharedLinkPaths.length > 0 ? { sharedLinkPaths } : {})
+          })
+        } finally {
+          gitStatusCancellations.finish(event, args.requestToken, controller)
+        }
       }
-    ): Promise<GitStatusResult> => {
-      const controller = gitStatusCancellations.begin(event, args.requestToken)
-      const options = {
-        includeIgnored: args.includeIgnored ?? false,
-        admissionTier: args.admissionTier ?? ('status' as const),
-        ...(args.includeLineStats === false ? { includeLineStats: false } : {}),
-        ...(args.reuseLineStats === true ? { reuseLineStats: true } : {}),
-        ...(args.branchLineTotalMergeBase === undefined
-          ? {}
-          : { branchLineTotalMergeBase: args.branchLineTotalMergeBase }),
-        ...(args.bypassEffectiveUpstreamNegativeCache === true
-          ? { bypassEffectiveUpstreamNegativeCache: true }
-          : {}),
-        ...(controller ? { signal: controller.signal } : {})
-      }
-      try {
-        requireReachableGitRoute(getConnectionExecutionHostId(args.connectionId))
-        const worktreePath = await resolveRegisteredWorktreePath(args.worktreePath, store)
-        // Why: one registered-worktree lookup feeds both — status polls this
-        // handler, and the scan walks every repo's worktree meta.
-        const repo = getLocalRepoForRegisteredWorktree(store, args.worktreePath, worktreePath)
-        const gitOptions = getLocalGitOptionsForRepo(store, repo)
-        const sharedLinkPaths = repo ? getWorktreeSharedLinkPaths(repo) : []
-        return await getStatus(worktreePath, {
-          ...options,
-          ...gitOptions,
-          ...(sharedLinkPaths.length > 0 ? { sharedLinkPaths } : {})
-        })
-      } finally {
-        gitStatusCancellations.finish(event, args.requestToken, controller)
-      }
-    }
+    )
   )
 
   ipcMain.handle('git:cancelStatus', (event, args: { requestToken: string }): void => {

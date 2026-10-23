@@ -2,7 +2,12 @@ import { getSecretStore } from '../../shared/secret-store'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { hardenExistingSecureFile, writeSecureFile } from '../../shared/secure-file'
+import { hardenExistingSecureFile } from '../../shared/secure-file'
+import {
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 
 const ZCODE_PLAN_API_KEY_FILE = 'zcode-plan-api-key.enc'
@@ -84,11 +89,11 @@ export function getZcodePlanApiKeyProtection(): SecretAtRestProtection | null {
   }
 }
 
-function rollbackPlaintextEnvelope(
+async function rollbackPlaintextEnvelope(
   keyPath: string,
   attemptedEnvelope: string,
   previousEnvelope: Buffer | null
-): void {
+): Promise<void> {
   const attempted = Buffer.from(attemptedEnvelope, 'utf8')
   try {
     if (!readFileSync(keyPath).equals(attempted)) {
@@ -96,7 +101,7 @@ function rollbackPlaintextEnvelope(
     }
     if (previousEnvelope) {
       try {
-        writeSecureFile(keyPath, previousEnvelope.toString('utf8'), {
+        await writeSecureFileAsync(keyPath, previousEnvelope.toString('utf8'), {
           shouldPublish: () => readFileSync(keyPath).equals(attempted)
         })
       } catch {
@@ -115,7 +120,11 @@ function rollbackPlaintextEnvelope(
   }
 }
 
-export function saveZcodePlanApiKey(key: string): void {
+export async function saveZcodePlanApiKey(key: string): Promise<void> {
+  await ignoreDiscardedSecureWrite(() => saveZcodePlanApiKeyUnlessCleared(key))
+}
+
+async function saveZcodePlanApiKeyUnlessCleared(key: string): Promise<void> {
   const trimmed = key.trim()
   if (!trimmed) {
     throw new Error('GLM Coding Plan API key is required')
@@ -124,7 +133,7 @@ export function saveZcodePlanApiKey(key: string): void {
     throw new Error('GLM Coding Plan API key must be a single line')
   }
   if (getSecretStore().isEncryptionAvailable()) {
-    writeSecureFile(
+    await writeSecureFileAsync(
       getZcodePlanApiKeyPath(),
       encodeApiKeyEnvelope('encrypted', getSecretStore().encryptString(trimmed))
     )
@@ -135,7 +144,7 @@ export function saveZcodePlanApiKey(key: string): void {
     '[zcode] safeStorage encryption unavailable — storing GLM Coding Plan API key in plaintext'
   )
   const keyPath = getZcodePlanApiKeyPath()
-  // Why: capture the previous envelope — writeSecureFile has already replaced
+  // Why: capture the previous envelope — the write has already replaced
   // the file by the time it reports that restriction failed, and deleting the
   // result must not take the user's previous working key with it.
   let previousEnvelope: Buffer | null = null
@@ -147,10 +156,10 @@ export function saveZcodePlanApiKey(key: string): void {
     }
   }
   const attemptedEnvelope = encodeApiKeyEnvelope('plaintext', Buffer.from(trimmed, 'utf8'))
-  const wroteRestricted = writeSecureFile(keyPath, attemptedEnvelope)
+  const wroteRestricted = await writeSecureFileAsync(keyPath, attemptedEnvelope)
   // Why: an unrestricted plaintext credential must never be reported as saved.
   if (!wroteRestricted) {
-    rollbackPlaintextEnvelope(keyPath, attemptedEnvelope, previousEnvelope)
+    await rollbackPlaintextEnvelope(keyPath, attemptedEnvelope, previousEnvelope)
     throw new Error('GLM Coding Plan API key could not be stored securely on this device')
   }
   cachedZcodePlanApiKey = trimmed
@@ -184,5 +193,5 @@ export function readZcodePlanApiKey(): string | null {
 
 export function clearZcodePlanApiKey(): void {
   cachedZcodePlanApiKey = null
-  rmSync(getZcodePlanApiKeyPath(), { force: true })
+  removeSecureFile(getZcodePlanApiKeyPath())
 }

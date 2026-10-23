@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import { withTimeout } from '../../../shared/promise-timeout-fallback'
 import { parseWslPath } from '../../wsl'
@@ -12,6 +14,7 @@ import {
 } from '../wsl-git-read-environment'
 import { usesHostGitForWslLinkedWorktree } from '../wsl-linked-worktree-git-routing'
 import { withWslWindowsCheckoutGitConfig } from '../wsl-windows-checkout-git-config'
+import { resolveWslExecutablePath } from '../../wsl/wsl-executable-path'
 import { resolveCommand, type ResolvedCommand } from './wsl-command-resolution'
 import type { GitExecOptions } from './git-exec-options'
 
@@ -29,11 +32,82 @@ export function wslDistroForCommand(cwd: string | undefined, override?: string):
   return (cwd ? parseWslPath(cwd)?.distro : undefined) ?? override ?? null
 }
 
+const BARE_HOST_BINARIES = new Set(['git', 'gh', 'wsl.exe'])
+const MAX_PATH_GENERATIONS = 8
+// Why PATH-keyed: shell-PATH hydration rewrites PATH, so a new PATH is a new generation.
+const hostBinariesByPath = new Map<string, Map<string, string>>()
+
+function searchPathForExecutable(binary: string, pathValue: string): string | null {
+  // Why this order: libuv's search tries .com before .exe, and skips relative PATH entries here.
+  for (const entry of pathValue.split(';')) {
+    const dir = entry.replace(/^"(.*)"$/, '$1')
+    for (const extension of ['.com', '.exe']) {
+      const candidate = path.join(dir, binary + extension)
+      if (dir && path.isAbsolute(candidate) && existsSync(candidate)) {
+        return candidate
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * Absolute path for a bare git, gh or wsl.exe on Windows, found once per PATH generation, so
+ * CreateProcess stops searching a long hydrated PATH on every spawn. Anything else, and a
+ * binary that is not found, comes back unchanged for the OS to resolve as before.
+ */
+export function resolveHostBinaryOnce(
+  binary: string,
+  env: NodeJS.ProcessEnv = process.env
+): string {
+  if (process.platform !== 'win32' || !BARE_HOST_BINARIES.has(binary)) {
+    return binary
+  }
+  if (binary === 'wsl.exe') {
+    return resolveWslExecutablePath()
+  }
+  const pathValue = env.PATH ?? env.Path ?? ''
+  let resolved = hostBinariesByPath.get(pathValue)
+  if (!resolved) {
+    if (hostBinariesByPath.size >= MAX_PATH_GENERATIONS) {
+      hostBinariesByPath.clear()
+    }
+    resolved = new Map()
+    hostBinariesByPath.set(pathValue, resolved)
+  }
+  const known = resolved.get(binary)
+  // Why re-stat a hit: PATH stays the same when the binary is removed or moved.
+  if (known !== undefined && (known === binary || existsSync(known))) {
+    return known
+  }
+  // A miss is cached too, so a host without gh does not search the PATH on every call.
+  const found = searchPathForExecutable(binary, pathValue) ?? binary
+  resolved.set(binary, found)
+  return found
+}
+
 export function resolveGitCommand(
   args: string[],
   options: GitExecOptions,
   forceLoginShell = false,
   captureLoginShellOutput = false
+): ResolvedCommand {
+  return withAbsoluteBinary(
+    resolveGitCommandUnresolved(args, options, forceLoginShell, captureLoginShellOutput),
+    options.env
+  )
+}
+
+function withAbsoluteBinary(resolved: ResolvedCommand, env?: NodeJS.ProcessEnv): ResolvedCommand {
+  const binary = resolveHostBinaryOnce(resolved.binary, env)
+  return binary === resolved.binary ? resolved : { ...resolved, binary }
+}
+
+function resolveGitCommandUnresolved(
+  args: string[],
+  options: GitExecOptions,
+  forceLoginShell: boolean,
+  captureLoginShellOutput: boolean
 ): ResolvedCommand {
   if (usesHostGitForWslLinkedWorktree(options.cwd, options.wslDistro)) {
     // Why: WSL Git resolves a Windows-authored linked-worktree pointer relative to cwd.
@@ -121,12 +195,19 @@ export function resolveGitCommandWithoutProbe(
   options: GitExecOptions,
   captureLoginShellOutput = false
 ): ResolvedCommand {
-  return resolveCommand('git', wslGitArgs(args, options), options.cwd, options.wslDistro, {
-    useWslLoginShell: Boolean(options.wslDistro),
-    captureLoginShellOutput,
-    env: options.env,
-    terminationBarrier: options.terminationBarrier
-  })
+  const resolved = resolveCommand(
+    'git',
+    wslGitArgs(args, options),
+    options.cwd,
+    options.wslDistro,
+    {
+      useWslLoginShell: Boolean(options.wslDistro),
+      captureLoginShellOutput,
+      env: options.env,
+      terminationBarrier: options.terminationBarrier
+    }
+  )
+  return withAbsoluteBinary(resolved, options.env)
 }
 
 function isDirectWslGitNotFound(error: unknown, resolved: ResolvedCommand): boolean {

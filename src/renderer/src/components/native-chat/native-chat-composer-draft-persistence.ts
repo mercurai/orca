@@ -1,11 +1,14 @@
 // Keeps storage a copy of the draft store's memory: writes each changed draft whole, journals what
 // storage has not confirmed when the window goes away, and follows other windows' writes.
 
+import { includeCommittedDraftRecoveries } from './native-chat-composer-draft-recovery'
+import { preserveDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
 import { basename } from '@/lib/path'
 import { isNativeChatKeptPastePath, isNativeChatPastedImagePath } from './native-chat-image-paste'
 import { isAgentSessionAttachmentStorePath } from '../../../../shared/agent-session-attachments'
 import {
   dirtyScopes,
+  disposedDraftScopes,
   hasLocalChange,
   load,
   nextSavedAt,
@@ -68,10 +71,14 @@ function savedForm(record: DraftRecord): StoredNativeChatComposerDraft | null {
       : image
   )
   const text = saved.text === unsavedText ? '' : saved.text
-  if (text === '' && images.length === 0) {
+  if (text === '' && images.length === 0 && !saved.recoveredMessageIds?.length) {
     return null
   }
   return { ...saved, text, images }
+}
+
+export function broadcastNativeChatComposerDraftChange(scopeKey: string): void {
+  channel?.postMessage({ scopeKey })
 }
 
 function confirm(scopeKey: string, change: UnconfirmedDraftChange): void {
@@ -104,16 +111,28 @@ function persist(scopeKey: string): void {
   const change: UnconfirmedDraftChange = { draft, at: draft?.savedAt ?? nextSavedAt() }
   unconfirmed.set(scopeKey, change)
   const storage = nativeChatComposerDraftStorage()
-  const written = (draft ? storage.write(scopeKey, draft) : storage.remove([scopeKey])).then(
-    () => {
-      confirm(scopeKey, change)
-      return true
-    },
-    (error: unknown) => {
-      refuse(scopeKey, change, error)
-      return false
-    }
-  )
+  const written = Promise.resolve()
+    .then(() =>
+      disposedDraftScopes.has(scopeKey)
+        ? storage.remove([scopeKey])
+        : storage.update(scopeKey, (raw) => {
+            const previous = parseStoredNativeChatComposerDraft(raw)
+            return preserveDraftRecoveryReceipts(
+              includeCommittedDraftRecoveries(scopeKey, draft, previous),
+              previous
+            )
+          })
+    )
+    .then(
+      () => {
+        confirm(scopeKey, change)
+        return true
+      },
+      (error: unknown) => {
+        refuse(scopeKey, change, error)
+        return false
+      }
+    )
   track(scopeKey, written)
 }
 

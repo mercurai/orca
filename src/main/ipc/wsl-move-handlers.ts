@@ -26,7 +26,7 @@ export function registerWslMoveHandlers(getUserDataPath: () => string): void {
   )
   ipcMain.handle(
     'wslMove:recordStoreRewritten',
-    (_event, request: unknown): WslMoveRecordStoreRewrittenResult => {
+    async (_event, request: unknown): Promise<WslMoveRecordStoreRewrittenResult> => {
       // Renderer input: anything but two strings is an unknown store.
       if (
         typeof request !== 'object' ||

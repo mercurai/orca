@@ -90,11 +90,12 @@ function modelOptionView(
 export function structuredAgentSessionSendSelection(
   view: StructuredAgentSessionOptionState
 ): Record<string, string> | undefined {
-  if (view.record.agent !== 'claude') {
+  if (view.record.agent !== 'claude' && view.record.agent !== 'codex') {
     return undefined
   }
   const snapshot =
-    view.catalog?.defaultModelIsCliDefault === true && !view.defaultsUnsent
+    view.record.agent === 'codex' ||
+    (view.catalog?.defaultModelIsCliDefault === true && !view.defaultsUnsent)
       ? structuredAgentSessionOptionSnapshot(view)
       : []
   const shown = (id: string): string | undefined => {
@@ -103,6 +104,23 @@ export function structuredAgentSessionSendSelection(
   }
   const model = structuredAgentSessionOwnValue(view.record, 'model') ?? shown('model')
   const effort = structuredAgentSessionOwnValue(view.record, 'effort') ?? shown('effort')
+  if (view.record.agent === 'codex') {
+    const serviceTier = shown('serviceTier')
+    const legacy = snapshot.find((descriptor) => descriptor.id === 'fastMode')
+    const legacyIntent =
+      legacy?.valueSource === 'applied' ||
+      legacy?.valueSource === 'dispatched' ||
+      legacy?.valueSource === 'reported'
+    const speed: Record<string, string> | undefined =
+      serviceTier !== undefined
+        ? { serviceTier }
+        : legacyIntent && legacy?.kind.type === 'boolean'
+          ? { fastMode: String(legacy.kind.currentValue) }
+          : undefined
+    return speed
+      ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed }
+      : undefined
+  }
   return model || effort
     ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
     : undefined

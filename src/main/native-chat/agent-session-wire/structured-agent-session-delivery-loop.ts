@@ -1,3 +1,4 @@
+import { speedOptionDeliveryFailure } from './structured-agent-session-speed-option-error'
 // The one thing that starts a provider child for a send, the one thing that hands a message to
 // it, and the one thing that settles a queued message because of a start, a child or a leftover.
 //
@@ -203,9 +204,8 @@ export class StructuredAgentSessionDeliveryLoop {
         sessionId,
         error
       })
-      const cause = { hostFault: true } as const
       await this.deps
-        .serialize(sessionId, () => this.fail(sessionId, { startKey: null, cause }))
+        .serialize(sessionId, () => this.fail(sessionId, speedOptionDeliveryFailure(error)))
         .catch((failure: unknown) => {
           // Rows left queued go to the next loop an accept wakes, or the next open settles them.
           this.running.delete(sessionId)

@@ -42,13 +42,13 @@ beforeAll(async () => {
 }, SUITE_TIMEOUT_MS)
 
 describe('cross-version: device keys against a released host', () => {
-  it('a released registry keeps keyed rows intact and inert, and token rows working', () => {
+  it('a released registry keeps keyed rows intact and inert, and token rows working', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-xv-device-key-'))
     const current = new DeviceRegistry(userDataPath)
-    const legacy = current.addDevice('Phone', 'mobile')
-    current.updateLastSeen(legacy.deviceId)
+    const legacy = await current.addDevice('Phone', 'mobile')
+    await current.updateLastSeen(legacy.deviceId)
     const keyB64 = Buffer.from(nacl.sign.keyPair().publicKey).toString('base64')
-    const forked = current.forkDeviceKey(legacy.deviceId, keyB64, 'Phone (key)')
+    const forked = await current.forkDeviceKey(legacy.deviceId, keyB64, 'Phone (key)')
 
     const released = new ReleasedRegistry(userDataPath)
     expect(released.validateToken(legacy.token)?.deviceId).toBe(legacy.deviceId)

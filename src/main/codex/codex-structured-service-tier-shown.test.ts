@@ -90,10 +90,16 @@ async function hostRuns(
     offline = true
     store.recordFailure('codex-account', 'offline', 'codex')
   }
-  await startCodexTurn(session, {
-    clientMessageId: 'message-1',
-    body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'go' }] }
-  })
+  try {
+    await startCodexTurn(session, {
+      clientMessageId: 'message-1',
+      body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'go' }] }
+    })
+  } catch (error) {
+    expect(request.mock.calls.some(([method]) => method === 'turn/start')).toBe(false)
+    expect(session.options.get('serviceTier')).toBe(saved.serviceTier)
+    throw error
+  }
   const firstTurn = request.mock.calls.find(([method]) => method === 'turn/start')?.[1]
   await readLiveCodexSessionOptions(session, undefined)
   return {
@@ -120,40 +126,40 @@ function shownTier(state: StructuredAgentSessionOptionState): string | undefined
 }
 
 describe("a Codex chat's speed, shown and sent", () => {
-  it('uses installed tiers through discovery failure, retaining only reported opaque exceptions', async () => {
-    for (const [child, tier, runs] of [
-      [{ tiers: ['priority'] }, 'priority', 'default'],
-      [{ tiers: ['ultrafast'] }, 'priority', 'default'],
-      [{}, 'priority', 'default'],
-      [{ tiers: [] }, 'priority', 'default'],
-      [{ tiers: [], reported: 'opaque' }, 'opaque', 'opaque'],
-      [{ tiers: [], reported: 'ultrafast' }, 'ultrafast', 'ultrafast']
+  it('refuses paid speed after discovery failure, including reported opaque tiers', async () => {
+    for (const [child, tier] of [
+      [{ tiers: ['priority'] }, 'priority'],
+      [{ tiers: ['ultrafast'] }, 'priority'],
+      [{}, 'priority'],
+      [{ tiers: [] }, 'priority'],
+      [{ tiers: [], reported: 'opaque' }, 'opaque'],
+      [{ tiers: [], reported: 'ultrafast' }, 'ultrafast']
     ] as const) {
-      await expect(hostRuns({ model: 'm2', serviceTier: tier }, 120_000, child)).resolves.toEqual({
-        firstTurn: runs,
-        shown: runs,
-        afterLiveRead: tier
+      await expect(
+        hostRuns({ model: 'm2', serviceTier: tier }, 120_000, child)
+      ).rejects.toMatchObject({
+        kind: 'speedSupportUnknown'
       })
     }
   })
-  it('shows what the host runs, an older host as it sends it, and keeps the saved tier', async () => {
-    // [saved, shown from this host, shown from an older host, what this host's turns run]
-    for (const [saved, shown, olderShown, runs] of [
-      [{ model: 'm2', serviceTier: 'priority' }, 'default', 'default', 'default'],
-      [{ model: 'm2', serviceTier: 'flex' }, 'default', 'flex', 'default'],
-      [{ model: 'm1', serviceTier: 'priority' }, 'priority', 'priority', 'priority']
-    ] as const) {
-      expect(shownTier(answered(saved, true))).toBe(shown)
-      // An older host sends its Flex unchanged, and Codex passes Flex.
-      expect(shownTier(answered(saved, false))).toBe(olderShown)
-      for (const ageMs of [0, 2 * 60_000]) {
-        await expect(hostRuns(saved, ageMs)).resolves.toEqual({
-          firstTurn: runs,
-          afterLiveRead: saved.serviceTier
-        })
+
+  it('preserves unavailable selection on modern and older hosts without dispatching a downgrade', async () => {
+    for (const tier of ['priority', 'flex']) {
+      const saved = { model: 'm2', serviceTier: tier }
+      for (const marksDefaults of [true, false]) {
+        expect(shownTier(answered(saved, marksDefaults))).toBe(tier)
       }
+      await expect(hostRuns(saved)).rejects.toMatchObject({ kind: 'speedUnavailable' })
     }
-    // Back on a model that offers it, the saved tier is the chat's again.
+  })
+
+  it('sends the exact advertised tier and retains it through live reads and model changes', async () => {
+    for (const tier of ['priority', 'flex']) {
+      await expect(hostRuns({ model: 'm1', serviceTier: tier })).resolves.toEqual({
+        firstTurn: tier,
+        afterLiveRead: tier
+      })
+    }
     const back = commitStructuredAgentSessionOption(
       answered({ model: 'm2', serviceTier: 'flex' }, true),
       'model',
