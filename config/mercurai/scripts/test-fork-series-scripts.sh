@@ -4,7 +4,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(mktemp -d)
-trap 'rm -rf "$root"' EXIT
+trap 'cd /; rm -rf "$root"' EXIT
 export PUSH_RETRY_SLEEP=0 GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 fails=0
 pass() { echo "PASS $1"; }
