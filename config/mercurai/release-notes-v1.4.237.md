@@ -1,6 +1,6 @@
 ---
 owner: Mercurai release owner
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 stability: draft
 ---
 
@@ -11,16 +11,15 @@ This draft describes a candidate, not a published or verified installed update.
 
 ## Source boundary
 
-Official main is frozen at `ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1`.
+Official main is frozen at `54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40`.
 The version floor is `v1.4.237`, release commit `071747853f5995ee233b36751613f09a60007c2b`.
 The release commit differs from main ancestor `a04b2ebc33efebe6c24a7ef2eeb1ec9f1de8238d`
 only by package version. Main therefore supplies the released product code and later main changes.
 Later official changes require another explicitly frozen cut.
 
-Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`25f51b09759724ee956057339334ab75aa487760`. Do not merge the comparison PR into its CI base.
-Local linear patch `b318454346ebbcef414ac433a6f67bcc56cc786e` has the identical tree
-`2585b3bd44b6d9db9376e5eb91ef4e6f279a0e67`; the patch branch is pushed, while candidate verification remains pending.
+Product candidate: source merge `66107c52ca703f9ef27d5ba0bb1b2bd593315f8d` and linear patch
+`83840aae8c6b6ab425b4ed80744e567bb4aabda8`, with tree
+`c006ce4c8c61c708e38ca19cced8e959907c444f`. The patch branch is pushed; candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -69,10 +68,22 @@ three-day dependency delay. Independent dependency review accepted the bounded l
 fresh security and behavioral CI remain required.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
-and Windows package checks must pass at the frozen candidate before publication.
+and Windows package checks must pass at the frozen candidate before publication. The upstream paired
+CLI launch spec currently has two pre-existing E2E type errors; the candidate records that exact
+baseline without changing runtime behavior.
 All 207 predecessor test paths remain; scoped discovery, queued ownership and release regression
-coverage bring the manifest to 218 unique test paths.
+coverage bring the manifest to 219 unique test paths.
 Path existence is not a test result.
+
+The current candidate also refreshes local agent detection when command, argument or environment
+launch settings change. This prevents the new upstream empty-workspace launch surface from retaining
+an early empty inventory after a user configures a CLI override; it is covered by
+`src/renderer/src/hooks/useDetectedAgents.test.tsx`.
+
+The candidate bounds renderer deletion tombstones to 1,024 recency-ordered scopes and rejects
+foreign-window draft adoption while a scope is disposed. This prevents deleted chat keys from
+accumulating for the renderer lifetime and prevents a stale cross-window write from resurrecting a
+deleted draft; both cases are covered by `native-chat-composer-draft-store.test.ts`.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
 Keep source landed, package published, package installed, runtime loaded and remote hosts distinct.

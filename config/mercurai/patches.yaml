@@ -5,16 +5,16 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
+base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-20261022
-    branch: patch/current-main-release-ec5eaf96
+  - slug: current-main-release-20261023
+    branch: patch/current-main-release-54e8ee5e
     status: ours-only
-    base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
-    commit: b318454346ebbcef414ac433a6f67bcc56cc786e
+    base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
+    commit: 83840aae8c6b6ab425b4ed80744e567bb4aabda8
     owner: harness
-    added: 2026-10-22
+    added: 2026-10-23
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
@@ -110,6 +110,7 @@ patches:
       - src/shared/structured-agent-session-option-view.test.ts
       - src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
       - src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
+      - src/renderer/src/hooks/useDetectedAgents.test.tsx
       - src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
       - src/shared/agent-session-failure-words.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
@@ -235,10 +236,10 @@ patches:
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Provisional exact candidate b318454346ebbcef414ac433a6f67bcc56cc786e,
-      source 25f51b09759724ee956057339334ab75aa487760,
-      tree 2585b3bd44b6d9db9376e5eb91ef4e6f279a0e67.
-      Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
+      Provisional exact candidate 83840aae8c6b6ab425b4ed80744e567bb4aabda8,
+      source 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40 plus the pinned Mercurai patch,
+      tree c006ce4c8c61c708e38ca19cced8e959907c444f.
+      Frozen official base is 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.
       Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,
