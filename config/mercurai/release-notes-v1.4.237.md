@@ -18,8 +18,8 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: source merge `66107c52ca703f9ef27d5ba0bb1b2bd593315f8d` and linear patch
-`48dfa916a83c29e3bab301ac9c2d1ed9cc02e032`, with tree
-`76b56ce1150126a0d3a01d2e3b9516635b985e56`. The patch branch is pushed; candidate verification remains pending.
+`a66c629437e70cac0c0121f22191e5ddbef8cca3`, with tree
+`690242f7613a699a2bb69470fc877b927f76623b`. The patch branch is pushed; candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -72,13 +72,18 @@ and Windows package checks must pass at the frozen candidate before publication.
 CLI launch spec currently has two pre-existing E2E type errors; the candidate records that exact
 baseline without changing runtime behavior.
 All 207 predecessor test paths remain; scoped discovery, queued ownership and release regression
-coverage bring the manifest to 218 unique test paths.
+coverage bring the manifest to 219 unique test paths.
 Path existence is not a test result.
 
 The current candidate also refreshes local agent detection when command, argument or environment
 launch settings change. This prevents the new upstream empty-workspace launch surface from retaining
 an early empty inventory after a user configures a CLI override; it is covered by
 `src/renderer/src/hooks/useDetectedAgents.test.tsx`.
+
+The candidate bounds renderer deletion tombstones to 1,024 recency-ordered scopes and rejects
+foreign-window draft adoption while a scope is disposed. This prevents deleted chat keys from
+accumulating for the renderer lifetime and prevents a stale cross-window write from resurrecting a
+deleted draft; both cases are covered by `native-chat-composer-draft-store.test.ts`.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
 Keep source landed, package published, package installed, runtime loaded and remote hosts distinct.
