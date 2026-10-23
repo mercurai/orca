@@ -68,7 +68,9 @@ three-day dependency delay. Independent dependency review accepted the bounded l
 fresh security and behavioral CI remain required.
 Independent bounded review accepted the final legacy compatibility correction at `28bc8ff4e1`.
 Full independent review, full PR checks, deterministic cost/compatibility checks, protected dry assembly
-and Windows package checks must pass at the frozen candidate before publication.
+and Windows package checks must pass at the frozen candidate before publication. The upstream paired
+CLI launch spec currently has two pre-existing E2E type errors; the candidate records that exact
+baseline without changing runtime behavior.
 All 207 predecessor test paths remain; scoped discovery, queued ownership and release regression
 coverage bring the manifest to 218 unique test paths.
 Path existence is not a test result.
