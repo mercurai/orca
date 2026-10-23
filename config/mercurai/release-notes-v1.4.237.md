@@ -1,6 +1,6 @@
 ---
 owner: Mercurai release owner
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 stability: draft
 ---
 
@@ -11,16 +11,15 @@ This draft describes a candidate, not a published or verified installed update.
 
 ## Source boundary
 
-Official main is frozen at `ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1`.
+Official main is frozen at `52e413ec853225131a3d24c9dd29b16074686242`.
 The version floor is `v1.4.237`, release commit `071747853f5995ee233b36751613f09a60007c2b`.
 The release commit differs from main ancestor `a04b2ebc33efebe6c24a7ef2eeb1ec9f1de8238d`
 only by package version. Main therefore supplies the released product code and later main changes.
 Later official changes require another explicitly frozen cut.
 
-Product candidate: [PR68](https://github.com/mercurai/orca/pull/68), source
-`25f51b09759724ee956057339334ab75aa487760`. Do not merge the comparison PR into its CI base.
-Local linear patch `b318454346ebbcef414ac433a6f67bcc56cc786e` has the identical tree
-`2585b3bd44b6d9db9376e5eb91ef4e6f279a0e67`; the patch branch is pushed, while candidate verification remains pending.
+Product candidate: source merge `27977abfe238014fca52e41e5b870c15d04a7915` and linear patch
+`146f3bbbd4d10674e7b139fd0317768c5a7bba88`, with tree
+`39351e2edf25ad6dc8c64aeb537321e9cd4bee62`. The patch branch is pushed; candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior

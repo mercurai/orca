@@ -5,16 +5,16 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
+base: 52e413ec853225131a3d24c9dd29b16074686242
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-20261022
-    branch: patch/current-main-release-ec5eaf96
+  - slug: current-main-release-20261023
+    branch: patch/current-main-release-52e413ec
     status: ours-only
-    base: ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1
-    commit: b318454346ebbcef414ac433a6f67bcc56cc786e
+    base: 52e413ec853225131a3d24c9dd29b16074686242
+    commit: 146f3bbbd4d10674e7b139fd0317768c5a7bba88
     owner: harness
-    added: 2026-10-22
+    added: 2026-10-23
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
@@ -235,10 +235,10 @@ patches:
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Provisional exact candidate b318454346ebbcef414ac433a6f67bcc56cc786e,
-      source 25f51b09759724ee956057339334ab75aa487760,
-      tree 2585b3bd44b6d9db9376e5eb91ef4e6f279a0e67.
-      Frozen official base is ec5eaf96c174d907ea914b1a8d58edd9cb35f9e1;
+      Provisional exact candidate 146f3bbbd4d10674e7b139fd0317768c5a7bba88,
+      source 52e413ec853225131a3d24c9dd29b16074686242 plus the pinned Mercurai patch,
+      tree 39351e2edf25ad6dc8c64aeb537321e9cd4bee62.
+      Frozen official base is 52e413ec853225131a3d24c9dd29b16074686242;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.
       Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,
