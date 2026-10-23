@@ -16,7 +16,29 @@ export type UnconfirmedDraftChange = {
   readonly at: number
 }
 
-export const disposedDraftScopes = new Set<string>()
+/**
+ * Deletion tombstones only guard asynchronous load/recovery work. Keep a bounded, recency-ordered
+ * set so closing many unique chats cannot retain every scope key for the lifetime of the renderer.
+ */
+export const MAX_DISPOSED_DRAFT_SCOPES = 1024
+
+class BoundedScopeSet extends Set<string> {
+  override add(scopeKey: string): this {
+    // Re-adding a scope makes its tombstone recent without growing the set.
+    super.delete(scopeKey)
+    super.add(scopeKey)
+    while (this.size > MAX_DISPOSED_DRAFT_SCOPES) {
+      const oldest = this.values().next().value
+      if (oldest === undefined) {
+        break
+      }
+      super.delete(oldest)
+    }
+    return this
+  }
+}
+
+export const disposedDraftScopes = new BoundedScopeSet()
 export const records = new Map<string, DraftRecord>()
 // Changed in memory with no write issued yet; a refused write comes back here for the next flush.
 export const dirtyScopes = new Set<string>()

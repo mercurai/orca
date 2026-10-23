@@ -808,6 +808,34 @@ describe('native-chat composer draft store', () => {
     expect(modules.drafts.readNativeChatDraftCache('tab-1:pane')).toBe('mine, not saved yet')
   })
 
+  it('does not re-adopt a deleted draft from a foreign window', async () => {
+    modules.drafts.writeNativeChatDraftCache('tab-1:pane', 'to be deleted')
+    modules.store.flushNativeChatComposerDrafts()
+    await modules.store.nativeChatComposerDraftWritesSettled()
+
+    const other = await reload()
+    modules.store.deleteNativeChatComposerDraft('tab-1:pane')
+    other.drafts.writeNativeChatDraftCache('tab-1:pane', 'stale foreign copy')
+    other.store.flushNativeChatComposerDrafts()
+    await other.store.nativeChatComposerDraftWritesSettled()
+
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(modules.drafts.readNativeChatDraftCache('tab-1:pane')).toBe('')
+  })
+
+  it('bounds deletion tombstones to prevent unbounded renderer memory growth', async () => {
+    const memory = await import('./native-chat-composer-draft-memory')
+    for (let index = 0; index <= memory.MAX_DISPOSED_DRAFT_SCOPES; index += 1) {
+      memory.disposedDraftScopes.add(`agent-session:closed-${index}`)
+    }
+
+    expect(memory.disposedDraftScopes.size).toBe(memory.MAX_DISPOSED_DRAFT_SCOPES)
+    expect(memory.disposedDraftScopes.has('agent-session:closed-0')).toBe(false)
+    expect(
+      memory.disposedDraftScopes.has(`agent-session:closed-${memory.MAX_DISPOSED_DRAFT_SCOPES}`)
+    ).toBe(true)
+  })
+
   it('records the workspace a draft was written in, and deletes a closed chat’s draft with it', async () => {
     const owner = { workspaceId: 'repo::/wt', executionHostId: 'local' as const }
     modules.store.setNativeChatComposerDraftOwnerResolver((scopeKey) =>
