@@ -5,14 +5,14 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: 52e413ec853225131a3d24c9dd29b16074686242
+base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
 release_branch: release/mercurai
 patches:
   - slug: current-main-release-20261023
-    branch: patch/current-main-release-52e413ec
+    branch: patch/current-main-release-54e8ee5e
     status: ours-only
-    base: 52e413ec853225131a3d24c9dd29b16074686242
-    commit: 146f3bbbd4d10674e7b139fd0317768c5a7bba88
+    base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
+    commit: 406ae7b0f8b41efe3eb7f64844952230cfbf20eb
     owner: harness
     added: 2026-10-23
     tests:
@@ -235,10 +235,10 @@ patches:
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Provisional exact candidate 146f3bbbd4d10674e7b139fd0317768c5a7bba88,
-      source 52e413ec853225131a3d24c9dd29b16074686242 plus the pinned Mercurai patch,
-      tree 39351e2edf25ad6dc8c64aeb537321e9cd4bee62.
-      Frozen official base is 52e413ec853225131a3d24c9dd29b16074686242;
+      Provisional exact candidate 406ae7b0f8b41efe3eb7f64844952230cfbf20eb,
+      source 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40 plus the pinned Mercurai patch,
+      tree b4b6fdfa143f1d2812ebf24fd966e7a9b30cd6a0.
+      Frozen official base is 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40;
       v1.4.237 is the release-version floor. This combines all released code and
       subsequent main changes while preserving the shipped Mercurai enhancements.
       Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,

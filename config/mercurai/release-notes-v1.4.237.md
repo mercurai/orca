@@ -11,15 +11,15 @@ This draft describes a candidate, not a published or verified installed update.
 
 ## Source boundary
 
-Official main is frozen at `52e413ec853225131a3d24c9dd29b16074686242`.
+Official main is frozen at `54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40`.
 The version floor is `v1.4.237`, release commit `071747853f5995ee233b36751613f09a60007c2b`.
 The release commit differs from main ancestor `a04b2ebc33efebe6c24a7ef2eeb1ec9f1de8238d`
 only by package version. Main therefore supplies the released product code and later main changes.
 Later official changes require another explicitly frozen cut.
 
-Product candidate: source merge `27977abfe238014fca52e41e5b870c15d04a7915` and linear patch
-`146f3bbbd4d10674e7b139fd0317768c5a7bba88`, with tree
-`39351e2edf25ad6dc8c64aeb537321e9cd4bee62`. The patch branch is pushed; candidate verification remains pending.
+Product candidate: source merge `66107c52ca703f9ef27d5ba0bb1b2bd593315f8d` and linear patch
+`406ae7b0f8b41efe3eb7f64844952230cfbf20eb`, with tree
+`b4b6fdfa143f1d2812ebf24fd966e7a9b30cd6a0`. The patch branch is pushed; candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
