@@ -18,8 +18,8 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: source merge `66107c52ca703f9ef27d5ba0bb1b2bd593315f8d` and linear patch
-`b7a73cd36773053ba3bdeeaa01a2f8734d52f450`, with tree
-`9eed0070c1d736ba7d1161522692c63630527ba4`. The patch branch is pushed; candidate verification remains pending.
+`140edcec2397ccb53cf492bc49f857de370b23b2`, with tree
+`4ec435311fbf531af35cd9f8bdeff91c33f1efc4`. The patch branch is pushed; candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
