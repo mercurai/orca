@@ -212,10 +212,7 @@ export function useDetectedAgents(
     } else {
       if (detectedIds === null) {
         void state.ensureDetectedAgents(localWorktreeId)
-      } else if (
-        targetKind === 'local' &&
-        localLaunchSettingsChanged
-      ) {
+      } else if (targetKind === 'local' && localLaunchSettingsChanged) {
         void state.refreshDetectedAgents(localWorktreeId)
       }
     }
