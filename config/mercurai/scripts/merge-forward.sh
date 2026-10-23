@@ -27,9 +27,14 @@ if ! git merge --no-edit "$UPSTREAM_SHA" 2>&1 | tr -d '\r'; then
   echo "conflict=true" >> "$out"
   exit 10
 fi
-if [ "${GUARD_ALLOWED:-false}" = true ]; then exit 0; fi
 rc=0
-bash "$here/merge-result-guard.sh" "$before" > "$state/guarded" || rc=$?
+if [ "${GUARD_ALLOWED:-false}" = true ]; then
+  # An approved range may change guarded paths, but the result still has to be
+  # a subset of that exact upstream range. This catches a bad merge resolution.
+  bash "$here/merge-result-guard.sh" "$before" "$UPSTREAM_SHA" > "$state/guarded" || rc=$?
+else
+  bash "$here/merge-result-guard.sh" "$before" > "$state/guarded" || rc=$?
+fi
 if [ "$rc" -eq 0 ]; then exit 0; fi
 # Guarded paths changed, or the check itself failed: either way the merge does not stay.
 git reset -q --hard "$before"

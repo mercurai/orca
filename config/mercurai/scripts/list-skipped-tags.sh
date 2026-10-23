@@ -10,7 +10,7 @@ state=${FORK_STATE_DIR:-/tmp}
 : "${UPSTREAM_SHA:?}"
 allowed=$(cat "$state/allowed-tag" 2>/dev/null || true)
 eligible() {
-  git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai
+  git merge-base --is-ancestor "$1" "$UPSTREAM_SHA" && git diff --quiet "$UPSTREAM_SHA" "$1" -- .github config/mercurai config/scripts
 }
 : > "$state/tags-skipped"
 while read -r tag; do

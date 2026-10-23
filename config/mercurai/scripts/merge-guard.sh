@@ -4,7 +4,9 @@
 # branch and upstream to upstream, so the fork's own files never count. Renames are split into a
 # delete and an add (--no-renames) so a file moved into or out of a guarded path shows both names.
 # A workflow or fork script upstream edits runs with the fork's secrets once the fork pushes it, so
-# such a range waits for the owner (claude-code-config#1148).
+# such a range waits for the owner (claude-code-config#1148). Scripts under
+# config/scripts/ are included because privileged workflows execute them with
+# the fork token.
 #
 # Usage: merge-guard.sh <fork ref> <upstream commit> [<extra ref>...]
 #        The guarded set is the union of the ranges from the merge base of each ref and the commit: the
@@ -21,7 +23,7 @@ paths=$(
     base=$(git merge-base "$ref" "$upstream") || exit 1
     # errexit is off inside $( ): a diff that fails (an unreadable tree) must not read as "nothing changed".
     git diff --name-only --no-renames -z "$base" "$upstream" | tr '\0' '\n' || exit 1
-  done | { grep -E '^(\.github/|config/mercurai/)' || true; } | sort -u
+  done | { grep -E '^(\.github/|config/mercurai/|config/scripts/)' || true; } | sort -u
 )
 if [ -z "$paths" ]; then
   echo "no guarded path in the range to $upstream"

@@ -19,13 +19,13 @@ case "$stage" in
   guard)
     prefix="fork-sync guard:"
     title="fork-sync guard: upstream main $UPSTREAM_SHA changes guarded paths; nothing was pushed or merged into ${FORK_BRANCH}"
-    body=$(printf 'Mirroring or merging upstream/main (%s) into `%s` would change files under `.github/` or `config/mercurai/`, which run with the fork token once pushed. Nothing was pushed or merged: no main, no tags, no branches, no merge-forward.\n\nGuarded paths (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview the range, then either merge it through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it mirrors and merges exactly that commit).\n' \
+    body=$(printf 'Mirroring or merging upstream/main (%s) into `%s` would change files under `.github/`, `config/mercurai/`, or `config/scripts/`, which run with the fork token once pushed. Nothing was pushed or merged: no main, no tags, no branches, no merge-forward.\n\nGuarded paths (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview the range, then either merge it through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it mirrors and merges exactly that commit).\n' \
       "$UPSTREAM_SHA" "$FORK_BRANCH" "$(cat "$state/guarded")" "$FORK_BRANCH" "$UPSTREAM_SHA")
     ;;
   merge)
     prefix="fork-sync guard:"
     title="fork-sync guard: upstream main $UPSTREAM_SHA: the merge into ${FORK_BRANCH} changed guarded paths and was reset"
-    body=$(printf 'The guard passed on the range to upstream/main (%s), so main, tags and branches were already mirrored from it. Merging it into `%s` would have changed files under `.github/` or `config/mercurai/` (a merge base that moved, or a criss-cross history), which run with the fork token once pushed. That merge was reset: nothing was pushed to `%s`.\n\nGuarded paths the merge would have changed (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview them, then either merge through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it merges exactly that commit; main, tags and branches are already there).\n' \
+    body=$(printf 'The guard passed on the range to upstream/main (%s), so main, tags and branches were already mirrored from it. Merging it into `%s` would have changed files under `.github/`, `config/mercurai/`, or `config/scripts/` (a merge base that moved, or a criss-cross history), which run with the fork token once pushed. That merge was reset: nothing was pushed to `%s`.\n\nGuarded paths the merge would have changed (first 50, odd characters shown as ?):\n\n```\n%s\n```\n\nReview them, then either merge through a reviewed PR, or dispatch fork-sync-upstream from `%s` with allow_guarded_merge_sha=%s (it merges exactly that commit; main, tags and branches are already there).\n' \
       "$UPSTREAM_SHA" "$FORK_BRANCH" "$FORK_BRANCH" "$(cat "$state/guarded")" "$FORK_BRANCH" "$UPSTREAM_SHA")
     ;;
   conflict)
