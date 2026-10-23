@@ -8,7 +8,7 @@
 #
 # In:  UPSTREAM_SHA, GUARD_ALLOWED (true when the owner allowed this commit), FORK_STATE_DIR (/tmp).
 # Out: exit 0: merged. Exit 10: conflict, merge aborted, files in <state>/sync-conflicts. Exit 11: the
-#      result changed guarded paths, branch reset to where it was, paths in <state>/guarded. Other: the result
+#      result differed from the approved merge tree, branch reset to where it was, paths in <state>/guarded. Other: the result
 #      check failed, branch reset, its exit status.
 #      Both lists are shown with odd characters as ?.
 #      Step outputs `conflict` and `guarded` (GITHUB_OUTPUT), both false first, before anything upstream-controlled
@@ -30,7 +30,7 @@ fi
 rc=0
 if [ "${GUARD_ALLOWED:-false}" = true ]; then
   # An approved range may change guarded paths, but the result still has to be
-  # a subset of that exact upstream range. This catches a bad merge resolution.
+  # must match the exact merge tree for that upstream commit. This catches a bad merge resolution.
   bash "$here/merge-result-guard.sh" "$before" "$UPSTREAM_SHA" > "$state/guarded" || rc=$?
 else
   bash "$here/merge-result-guard.sh" "$before" > "$state/guarded" || rc=$?

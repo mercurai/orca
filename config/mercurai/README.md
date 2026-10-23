@@ -94,8 +94,8 @@ series.
   A release-named tag that points at a tree or a blob is skipped with a warning. Upstream decides
   how many tags there are, so a run opens at most 5 new issues and makes at most 20 updates, and
   lists the rest in one `fork-sync tag: summary` issue (bounded, sanitised) that later runs work
-  through. Each issue prints the tag's `git diff --stat` and paths under `.github/` and
-  `config/mercurai/` against the trusted tree (the pin once it is guarded and the main mirror
+  through. Each issue prints the tag's `git diff --stat` and paths under `.github/`, `config/mercurai/`, and
+  `config/scripts/` against the trusted tree (the pin once it is guarded and the main mirror
   succeeded, `origin/main` as found otherwise), bounded to 50 lines and sanitised, and the exact
   input. To mirror the tag, dispatch from `mercurai` with `allow_tag=<tag>@<40-hex sha>`
   (`scripts/mirror-allowed-tag.sh`): the tag must match the release-name pattern, the sha must be
