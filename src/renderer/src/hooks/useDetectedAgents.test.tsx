@@ -257,11 +257,15 @@ describe('useDetectedAgents (ssh call site)', () => {
 
 describe('useDetectedAgents (local launch settings)', () => {
   it('refreshes a cached local inventory when an agent command override changes', async () => {
+    const initialSettings = useAppStore.getState().settings
+    if (!initialSettings) {
+      throw new Error('test settings were not initialized')
+    }
     useAppStore.setState({
       settings: {
-        ...useAppStore.getState().settings,
+        ...initialSettings,
         agentCmdOverrides: {}
-      } as never,
+      },
       localDetectedAgentIdsByContext: {}
     })
 
@@ -278,11 +282,15 @@ describe('useDetectedAgents (local launch settings)', () => {
     })
 
     await act(async () => {
+      const currentSettings = useAppStore.getState().settings
+      if (!currentSettings) {
+        throw new Error('test settings were not initialized')
+      }
       useAppStore.setState({
         settings: {
-          ...useAppStore.getState().settings,
+          ...currentSettings,
           agentCmdOverrides: { codex: 'golden-stub-agent' }
-        } as never
+        }
       })
     })
     await flushEffects()
