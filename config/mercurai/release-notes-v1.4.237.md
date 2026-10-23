@@ -18,8 +18,8 @@ only by package version. Main therefore supplies the released product code and l
 Later official changes require another explicitly frozen cut.
 
 Product candidate: source merge `66107c52ca703f9ef27d5ba0bb1b2bd593315f8d` and linear patch
-`406ae7b0f8b41efe3eb7f64844952230cfbf20eb`, with tree
-`b4b6fdfa143f1d2812ebf24fd966e7a9b30cd6a0`. The patch branch is pushed; candidate verification remains pending.
+`48dfa916a83c29e3bab301ac9c2d1ed9cc02e032`, with tree
+`76b56ce1150126a0d3a01d2e3b9516635b985e56`. The patch branch is pushed; candidate verification remains pending.
 The local manifest is provisional; production defaults remain on the previous released candidate.
 
 ## Integration behavior
@@ -74,6 +74,11 @@ baseline without changing runtime behavior.
 All 207 predecessor test paths remain; scoped discovery, queued ownership and release regression
 coverage bring the manifest to 218 unique test paths.
 Path existence is not a test result.
+
+The current candidate also refreshes local agent detection when command, argument or environment
+launch settings change. This prevents the new upstream empty-workspace launch surface from retaining
+an early empty inventory after a user configures a CLI override; it is covered by
+`src/renderer/src/hooks/useDetectedAgents.test.tsx`.
 
 Publish only through the protected assembler and publisher described in [the runbook](README.md).
 Keep source landed, package published, package installed, runtime loaded and remote hosts distinct.

@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-54e8ee5e
     status: ours-only
     base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
-    commit: 27d24a04b08fd8cea31f2f2be9bcc66fb3a6a7e7
+    commit: 48dfa916a83c29e3bab301ac9c2d1ed9cc02e032
     owner: harness
     added: 2026-10-23
     tests:
@@ -110,6 +110,7 @@ patches:
       - src/shared/structured-agent-session-option-view.test.ts
       - src/renderer/src/components/native-chat/use-structured-agent-session-mutate.speed-context.test.tsx
       - src/renderer/src/components/native-chat/NativeChatSessionOptionPickers.speed.test.tsx
+      - src/renderer/src/hooks/useDetectedAgents.test.tsx
       - src/main/native-chat/agent-session-wire/structured-agent-session-resting-speed.test.ts
       - src/shared/agent-session-failure-words.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-service-state.test.ts
