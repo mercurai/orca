@@ -259,7 +259,7 @@ describe('useDetectedAgents (local launch settings)', () => {
   it('refreshes a cached local inventory when an agent command override changes', async () => {
     useAppStore.setState({
       settings: {
-        ...(useAppStore.getState().settings ?? {}),
+        ...useAppStore.getState().settings,
         agentCmdOverrides: {}
       } as never,
       localDetectedAgentIdsByContext: {}
@@ -280,7 +280,7 @@ describe('useDetectedAgents (local launch settings)', () => {
     await act(async () => {
       useAppStore.setState({
         settings: {
-          ...(useAppStore.getState().settings ?? {}),
+          ...useAppStore.getState().settings,
           agentCmdOverrides: { codex: 'golden-stub-agent' }
         } as never
       })
