@@ -30,7 +30,7 @@ Update those documents with behavior during implementation; avoid maintaining an
 ## Workspace, scope, and reuse
 
 Planning workspace: `C:/Users/svere/orca/worktrees/release-registration-20261023`.
-Branch: `codex/release-registration-20261023`, implementation commit `5a5339097e`.
+Branch: `codex/release-registration-20261023`, implementation commit `9c76df8880`.
 Owner: this release session. Purpose: implementation and release handoff. Related implementation PR: none;
 prior registration PR #72 merged.
 State: promotion/coordinator implementation committed locally; no branch landing, CI dispatch, release tag,
@@ -124,9 +124,12 @@ Independent review of `d3def6cf25` returned `accept` for the scoped integration 
 verdict only. Exact-candidate CI, package qualification, installation/runtime acceptance, and protected publication
 remain open.
 The latest-main refresh is a separate candidate merge commit `3c7d22012cfae09aa32ed03c41a306b201922e74` whose
-upstream parent is `d58849a7d8`; it supersedes the three-commit `870038cfc6` candidate and needs fresh exact-SHA CI
-and review. Independent source review of that merge returned `accept`; the branch remains local and unqualified.
-Exact-candidate CI, package qualification, installation/runtime acceptance, and protected publication remain open.
+upstream parent is `d58849a7d8`; it supersedes the three-commit `870038cfc6` candidate. Because the release assembler
+cherry-picks linear patch branches, the identical tree was materialized as linear patch commit
+`5ce0aead4533980294b8c26989a173501361ee27` on `patch/current-main-release-d58849a7d8`, with tree
+`44461a36d7708752cf72803789832937d24f3a61`. Independent source review of the merge returned `accept`; exact-SHA
+CI, package qualification, installation/runtime acceptance, protected publication, and remote branch registration
+remain open.
 
 ## Requirements and acceptance criteria
 

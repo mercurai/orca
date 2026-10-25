@@ -5,16 +5,16 @@
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
 version: 1
 upstream: stablyai/orca
-base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
+base: d58849a7d8d68929bd0e686571678d85e70740af
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-20261023
-    branch: patch/current-main-release-54e8ee5e
+  - slug: current-main-release-d58849a7d8
+    branch: patch/current-main-release-d58849a7d8
     status: ours-only
-    base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
-    commit: 83840aae8c6b6ab425b4ed80744e567bb4aabda8
+    base: d58849a7d8d68929bd0e686571678d85e70740af
+    commit: 5ce0aead4533980294b8c26989a173501361ee27
     owner: harness
-    added: 2026-10-23
+    added: 2026-10-25
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
@@ -236,13 +236,15 @@ patches:
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Provisional exact candidate 83840aae8c6b6ab425b4ed80744e567bb4aabda8,
-      source 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40 plus the pinned Mercurai patch,
-      tree c006ce4c8c61c708e38ca19cced8e959907c444f.
-      Frozen official base is 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40;
-      v1.4.237 is the release-version floor. This combines all released code and
-      subsequent main changes while preserving the shipped Mercurai enhancements.
-      Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,
+      Current candidate merge 3c7d22012cfae09aa32ed03c41a306b201922e74 was refreshed
+      onto official main d58849a7d8d68929bd0e686571678d85e70740af. The release assembler
+      requires a linear patch, so the identical candidate tree was materialized as
+      5ce0aead4533980294b8c26989a173501361ee27 with parent d58849a7d8d68929bd0e686571678d85e70740af
+      and tree 44461a36d7708752cf72803789832937d24f3a61.
+      The frozen stable version floor is v1.4.239 (peeled commit
+      47f77cf7018ebc0d046b82c6dde31cf704909162). The patch branch is currently local;
+      publication and assembly must refuse until the exact branch head is visible remotely.
+      Independent source review accepted the merge candidate; exact-head CI, assembly/tree equality,
       packaging and final review remain required. No prior release receipt approves this pin.
       Registered tests retain the predecessor union and new per-message speed,
       async credential, pairing serialization and partial-template compaction regressions.

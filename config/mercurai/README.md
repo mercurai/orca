@@ -1,7 +1,19 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-24.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-25.
+
+## Current candidate registration
+
+The next candidate freezes official `main` at
+`d58849a7d8d68929bd0e686571678d85e70740af` and uses `v1.4.239` as its stable
+version floor. The retained Mercurai tree is materialized as the linear patch
+`patch/current-main-release-d58849a7d8` at
+`5ce0aead4533980294b8c26989a173501361ee27` with tree
+`44461a36d7708752cf72803789832937d24f3a61`. This branch is not yet published;
+assembly and qualification must use the exact remote head after the release
+owner lands it. Source review accepted the candidate, but CI, packaging,
+installation, and runtime evidence remain required before tagging.
 
 ## Branches
 
