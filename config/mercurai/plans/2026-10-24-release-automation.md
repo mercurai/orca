@@ -30,7 +30,7 @@ Update those documents with behavior during implementation; avoid maintaining an
 ## Workspace, scope, and reuse
 
 Planning workspace: `C:/Users/svere/orca/worktrees/release-registration-20261023`.
-Branch: `codex/release-registration-20261023`, implementation commit `cda1299769`.
+Branch: `codex/release-registration-20261023`, implementation commit `f81c19fbb5`.
 Owner: this release session. Purpose: implementation and release handoff. Related implementation PR: none;
 prior registration PR #72 merged.
 State: promotion/coordinator implementation committed locally; no branch landing, CI dispatch, release tag,
