@@ -30,7 +30,7 @@ The patch branch must be visible at the
 exact pinned head before assembly.
 
 Official `main` later advanced to
-`76f0f35bad74aa00403f76adaeb4c7f4bd2569de`. That movement is queued for a
+`f07673123107caafbfb3aa28763c72d77433b308`. That movement is queued for a
 separate candidate generation; this draft does not silently claim those newer
 commits are included. A read-only replay found three conflicts in the E2E
 type-error baseline, native-chat send recovery, and cross-version device-key

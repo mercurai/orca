@@ -17,7 +17,7 @@ review, and provenance remain required before tagging; package and digest
 verification are required before publication; installation and loaded-runtime
 evidence are collected afterward before rollout is accepted.
 
-Official `main` advanced again to `76f0f35bad74aa00403f76adaeb4c7f4bd2569de` after
+Official `main` advanced again to `f07673123107caafbfb3aa28763c72d77433b308` after
 this candidate was frozen. A read-only replay reports three conflicts in the
 E2E type-error baseline, native-chat send recovery, and cross-version device-key
 coverage. The manifest remains pinned to the reviewed candidate until those
