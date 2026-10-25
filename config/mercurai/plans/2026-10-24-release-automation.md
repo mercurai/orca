@@ -104,6 +104,8 @@ suites. The remaining 79 content conflicts still require bounded semantic reconc
 use the scaffold until each skipped upstream hunk has a disposition and exact-candidate CI passes.
 The controller now records this evidence through `release-conflict-inventory.mjs`; its precheck refuses a
 candidate with unresolved paths rather than dispatching an agent against an unreviewed merge.
+It also derives `release-conflict-task-plan.mjs` packages with deterministic family ownership, bounded path counts,
+and explicit writable paths; those packages remain blocked work until an isolated integrator resolves and reviews them.
 
 ## Requirements and acceptance criteria
 
@@ -333,6 +335,8 @@ Parallelism: coordinator worker owns new scripts and sync/rebase workflows; owne
   `fork-rebase-patches.yml` to record actionable candidates and deduplicate blockers by target/reason.
   Add one thin trusted `.github/workflows/fork-release-coordinate.yml` entry point for state transitions and dispatch.
   Preserve exact protected-range authorization and atomic series pushes; do not silently enable inherited workflows.
+  The coordinator now records a deterministic bounded task plan for every conflict inventory; no task plan bypasses
+  the unresolved-conflict admission block.
 - [x] P4.3 Coordinator worker: add proposed `config/mercurai/scripts/release-precheck.mjs`,
   `config/mercurai/scripts/release-agent-dispatch.mjs`, and `config/mercurai/automation-contract.md`.
   Use the existing Orca CLI interfaces to reconcile and launch bounded workers from the local scheduled run.

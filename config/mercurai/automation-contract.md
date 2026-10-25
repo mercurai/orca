@@ -58,7 +58,11 @@ The coordinator also runs the trusted `release-conflict-inventory.mjs` probe
 against each pinned patch head. A conflict inventory is stored in state evidence
 and blocks admission with the exact paths; the coordinator does not attempt an
 ours/theirs resolution. A changed patch head creates a new candidate identity
-and therefore a fresh inventory.
+and therefore a fresh inventory. `release-conflict-task-plan.mjs` derives a
+deterministic, bounded set of non-overlapping work packages from those paths;
+the plan is evidence for the next isolated integrator task, not permission to
+merge or publish. Each package has an owner, an explicit writable-path list,
+and an attempt limit, so a resumed agent cannot silently expand its scope.
 
 ## Promotion boundary
 

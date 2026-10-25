@@ -160,7 +160,9 @@ series.
 - `fork-release-coordinate`: hourly at minute 7 and manual. It resolves official `main`, the latest
   stable tag, and active patch heads, then updates the durable `automation/release-state` branch.
   It records a pinned `release-conflict-inventory.mjs` result for each patch and blocks admission with
-  exact conflict paths instead of attempting an automatic ours/theirs resolution.
+  exact conflict paths instead of attempting an automatic ours/theirs resolution. It also records the
+  deterministic bounded task plan produced by `release-conflict-task-plan.mjs`; local Orca workers may
+  consume those packages only in isolated worktrees with the listed writable paths.
   It coalesces one newer target while an active candidate is in progress and never publishes, starts
   an agent, or carries the channel token. See [`automation-contract.md`](automation-contract.md) for
   the state machine, structured Orca dispatch adapter, recovery, and pause/resume rules. The local

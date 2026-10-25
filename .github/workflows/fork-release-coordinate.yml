@@ -129,8 +129,10 @@ jobs:
           node --input-type=module - "$GITHUB_WORKSPACE/.state/release-state.json" <<'NODE'
           import { existsSync, readFileSync, writeFileSync } from 'node:fs'
           import { activateQueuedTarget, createState, enqueueTarget, transitionState } from './config/mercurai/scripts/release-state.mjs'
+          import { buildConflictTaskPlan } from './config/mercurai/scripts/release-conflict-task-plan.mjs'
           const path = process.argv[2]
           const conflictInventory = JSON.parse(readFileSync(process.env.CONFLICT_INVENTORY_FILE, 'utf8'))
+          const conflictTaskPlan = buildConflictTaskPlan(conflictInventory)
           const target = {
             upstreamMainSha: process.env.UPSTREAM_MAIN_SHA,
             stableTag: process.env.STABLE_TAG,
@@ -152,9 +154,13 @@ jobs:
             state = activateQueuedTarget(state, { expectedVersion: state.version })
           }
           const previousInventory = state.evidence?.conflictInventory
+          const previousTaskPlan = state.evidence?.conflictTaskPlan
           const inventoryKey = (value) =>
             JSON.stringify(value, (key, nested) => (key === 'generatedAt' ? undefined : nested))
-          if (inventoryKey(previousInventory) !== inventoryKey(conflictInventory)) {
+          if (
+            inventoryKey(previousInventory) !== inventoryKey(conflictInventory) ||
+            JSON.stringify(previousTaskPlan) !== JSON.stringify(conflictTaskPlan)
+          ) {
             if (conflictInventory.status === 'conflict' && state.state === 'detected' && !state.lease) {
               state = transitionState(state, {
                 expectedVersion: state.version,
@@ -162,14 +168,15 @@ jobs:
                 owner: 'coordinator',
                 evidence: {
                   reason: `upstream patch replay has ${conflictInventory.conflictCount} unresolved conflicts`,
-                  conflictInventory
+                  conflictInventory,
+                  conflictTaskPlan
                 }
               })
             } else {
               state = {
                 ...state,
                 version: state.version + 1,
-                evidence: { ...state.evidence, conflictInventory },
+                evidence: { ...state.evidence, conflictInventory, conflictTaskPlan },
                 updatedAt: new Date().toISOString()
               }
             }
