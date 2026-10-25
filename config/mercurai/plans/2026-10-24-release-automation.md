@@ -94,12 +94,14 @@ The current upstream refs were revalidated in an isolated worktree: official `ma
 `47f77cf7018ebc0d046b82c6dde31cf704909162`; the fork controller remains
 `c5f11af2b2dae111070cc3938a9be20267e23e48`. The active patch branch has eight commits from base
 `54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40`; its first retention commit changes 665 files.
-The refreshed current-main merge probe reported 79 conflicts (the stable-tag probe remains 76). Conflicts
-include Codex service-tier/session options and turn start, runtime/persistence, process/file async paths,
-package manifests, workflows, and renderer/session-wire code. The merge was aborted cleanly in the isolated
-worktree; no ours/theirs resolution was applied. This is an integration blocker requiring bounded semantic
-reconciliation; it is not evidence that the patch can be safely dropped or that upstream has replaced every
-enhancement.
+The refreshed current-main merge probe reported 81 conflicts (79 content and two modify/delete; the stable-tag
+probe remains 76). Conflicts include Codex service-tier/session options and turn start, runtime/persistence,
+process/file async paths, package manifests, workflows, and renderer/session-wire code. An isolated review
+scaffold at `codex/orca-upstream-reconcile-20261025` records merge commit `8f2fb7dc6d`; it used `-X ours` only
+to expose the full tree and is not a release candidate. The two modify/delete cases were deliberately accepted:
+upstream removed the unreachable hook IPC and replaced the old conversation-stop test with provider-specific
+suites. The remaining 79 content conflicts still require bounded semantic reconciliation; no publication may
+use the scaffold until each skipped upstream hunk has a disposition and exact-candidate CI passes.
 
 ## Requirements and acceptance criteria
 
