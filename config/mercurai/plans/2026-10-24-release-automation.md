@@ -91,9 +91,7 @@ The next pipeline must materialize, qualify, and tag one exact candidate commit.
 
 The current upstream refs were revalidated in an isolated worktree: the earlier official `main` snapshot
 `870038cfc646fd654a146f82d64f6019456319b6` advanced during this work to `d58849a7d8d68929bd0e686571678d85e70740af`;
-stable `v1.4.239` currently resolves through tag object `bdfc86ac882290642fae6affcb8fcae2a74f62f3`.
-The candidate was regenerated on the new main; the earlier stable line had peeled to
-`47f77cf7018ebc0d046b82c6dde31cf704909162`; the fork controller remains
+stable `v1.4.239` resolves to peeled commit `47f77cf7018ebc0d046b82c6dde31cf704909162`; the fork controller remains
 `c5f11af2b2dae111070cc3938a9be20267e23e48`. The active patch branch has eight commits from base
 `54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40`; its first retention commit changes 665 files.
 The refreshed current-main merge probe reported 81 conflicts (79 content and two modify/delete; the stable-tag
