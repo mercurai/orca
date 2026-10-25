@@ -68,7 +68,7 @@ These are observations, not a frozen next-release target. Revalidate them before
 | --- | --- |
 | Official stable release | `v1.4.239`, published October 24, 2026 |
 | Latest public Mercurai release | `v1.4.237-mercurai.2`, published October 23, 2026 |
-| Official main during planning | `d96dca39da61dece07da9662e3a0e50e2fb39885` |
+| Official main during planning | `d58849a7d8d68929bd0e686571678d85e70740af` |
 | Controller default branch | `mercurai@c5f11af2b2dae111070cc3938a9be20267e23e48` |
 | Previous release upstream base | `54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40` |
 
