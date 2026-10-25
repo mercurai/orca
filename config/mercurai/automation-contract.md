@@ -1,6 +1,6 @@
 # Mercurai release automation contract
 
-Owner: Mercurai release owner. Last reviewed: 2026-10-24.
+Owner: Mercurai release owner. Last reviewed: 2026-10-25.
 
 This contract describes the durable handoff between GitHub and a local Orca
 runtime. It is an interface contract, not permission to publish a release.
@@ -14,6 +14,10 @@ contains the candidate identity, one active generation, one coalesced queued
 target, a compare-and-swap version, an optional lease, dispatch identifiers,
 and non-secret evidence. It must never contain credentials, account data, or
 conversation text.
+Candidate identity includes the official `main` SHA, stable version tag and
+peeled stable-tag commit SHA, trusted controller SHA, and ordered patch heads.
+Changing any of those inputs queues a new target or generation; old
+qualification evidence is never reused for the changed identity.
 
 The trusted reducer in `scripts/release-state.mjs` permits only these forward
 states:
