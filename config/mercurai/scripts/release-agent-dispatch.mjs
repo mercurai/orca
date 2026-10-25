@@ -52,7 +52,16 @@ export async function executeDispatch({ state, expectedVersion, owner, objective
   if (typeof run !== 'function') throw new TypeError('run callback is required')
   if (persist !== undefined && typeof persist !== 'function') throw new TypeError('persist must be a callback')
 
-  const createdRun = resultObject(await run(plan.runArgs), 'run-create')
+  const existing = state.dispatch?.generation === state.generation && state.dispatch?.owner === owner
+    ? state.dispatch
+    : null
+  if (existing?.dispatchId) {
+    return { state: copy(state), dispatch: copy(existing), resumed: true }
+  }
+
+  const createdRun = existing?.runId
+    ? { runId: existing.runId }
+    : resultObject(await run(plan.runArgs), 'run-create')
   if (typeof createdRun.runId !== 'string' || createdRun.runId.length === 0) throw new Error('run-create returned no runId')
   let next = {
     ...copy(state),
@@ -60,8 +69,10 @@ export async function executeDispatch({ state, expectedVersion, owner, objective
     dispatch: { generation: state.generation, owner, runId: createdRun.runId },
     evidence: { ...copy(state.evidence), dispatch: { generation: state.generation, owner, runId: createdRun.runId } }
   }
-  if (persist) await persist(next)
-  const createdTask = resultObject(await run(plan.taskArgs.map((value) => (value === '<runId>' ? createdRun.runId : value))), 'task-create')
+  if (!existing?.runId && persist) await persist(next)
+  const createdTask = existing?.taskId
+    ? { taskId: existing.taskId }
+    : resultObject(await run(plan.taskArgs.map((value) => (value === '<runId>' ? createdRun.runId : value))), 'task-create')
   if (typeof createdTask.taskId !== 'string' || createdTask.taskId.length === 0) throw new Error('task-create returned no taskId')
   next = {
     ...next,
@@ -69,7 +80,7 @@ export async function executeDispatch({ state, expectedVersion, owner, objective
     dispatch: { ...next.dispatch, taskId: createdTask.taskId },
     evidence: { ...copy(next.evidence), dispatch: { ...next.dispatch, taskId: createdTask.taskId } }
   }
-  if (persist) await persist(next)
+  if (!existing?.taskId && persist) await persist(next)
   const startedWorker = resultObject(
     await run(plan.workerArgs.map((value) => (value === '<taskId>' ? createdTask.taskId : value))),
     'worker-start'
