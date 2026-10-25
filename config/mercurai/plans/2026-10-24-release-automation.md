@@ -132,14 +132,15 @@ The current tree is `73fbf286056a9106df8acd1a947dda7c8f59263a`. Independent sour
 CI, package qualification, installation/runtime acceptance, protected publication, and remote branch registration
 remain open.
 
-### Upstream refresh probe (2026-10-25)
+### Upstream refresh probe (2026-10-25, refreshed)
 
-Official `main` advanced again to `695fc0081c373e3f83664e242b39490d71038b37`; stable `v1.4.239` remains
+Official `main` advanced again to `76f0f35bad74aa00403f76adaeb4c7f4bd2569de`; stable `v1.4.239` remains
 `47f77cf7018ebc0d046b82c6dde31cf704909162`. A read-only merge-tree replay of the registered candidate
 `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` against the new main exits `1` with exactly three content conflicts:
 `config/e2e-typecheck-baseline.txt`,
 `src/renderer/src/components/native-chat/use-structured-agent-session-sends.ts`, and
 `tests/e2e/cross-version-wire/cross-version-web-device-key.unit.test.ts`.
+The target adds six upstream commits and 832 changed paths beyond the frozen `d58849a7d8` base.
 The deterministic conflict planner assigns the first and third paths to one bounded `other` task and the renderer
 path to one `renderer` task. The current manifest remains pinned to the reviewed `d58849a7d8` candidate until these
 three paths are reconciled semantically; no automatic ours/theirs resolution is authorized.
