@@ -41,6 +41,9 @@ export function parseMergeTreeOutput(output, exitCode) {
   if (exitCode > 1) {
     throw new Error(`git merge-tree failed with exit code ${exitCode}`)
   }
+  if (exitCode === 1 && conflicts.length === 0) {
+    throw new Error('git merge-tree exited 1 without reporting conflict paths')
+  }
 
   return {
     status: conflicts.length > 0 ? 'conflict' : 'clean',
@@ -101,12 +104,13 @@ export function runConflictInventory({ baseSha, upstreamSha, candidateSha } = {}
     { encoding: 'utf8', windowsHide: true }
   )
   if (result.error) throw result.error
+  if (result.status === null) throw new Error('git merge-tree did not exit normally')
   return buildConflictInventory({
     baseSha,
     upstreamSha,
     candidateSha,
     output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
-    exitCode: result.status ?? 1
+    exitCode: result.status
   })
 }
 

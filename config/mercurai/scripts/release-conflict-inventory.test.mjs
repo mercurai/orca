@@ -60,4 +60,5 @@ test('binds conflict evidence to the three immutable inputs', () => {
 
 test('rejects a merge-tree infrastructure failure instead of recording a clean result', () => {
   assert.throws(() => parseMergeTreeOutput('', 2), /failed with exit code 2/)
+  assert.throws(() => parseMergeTreeOutput(`${SHA}\n`, 1), /without reporting conflict paths/)
 })
