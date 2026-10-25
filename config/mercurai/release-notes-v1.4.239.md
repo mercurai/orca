@@ -17,12 +17,17 @@ qualification.
 - Stable floor: `v1.4.239`, peeled commit
   `47f77cf7018ebc0d046b82c6dde31cf704909162`.
 - Candidate patch branch: `patch/current-main-release-d58849a7d8`.
-- Candidate patch commit: `5ce0aead4533980294b8c26989a173501361ee27`.
-- Candidate tree: `44461a36d7708752cf72803789832937d24f3a61`.
+- Candidate patch commits: `5ce0aead4533980294b8c26989a173501361ee27`, then
+  `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b`.
+- Candidate tree: `73fbf286056a9106df8acd1a947dda7c8f59263a`.
 
-The candidate is a linear materialization of the reviewed merge candidate
-`3c7d22012cfae09aa32ed03c41a306b201922e74`, with official `main` as its parent.
-The patch branch must be visible at the exact pinned head before assembly.
+The initial linear materialization of reviewed merge candidate
+`3c7d22012cfae09aa32ed03c41a306b201922e74` is `5ce0aead4533980294b8c26989a173501361ee27`,
+with official `main` as its parent. The workflow-only stop-coverage correction
+`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` follows it; the two-commit branch
+starts from official `main`, and its final head has `5ce0aead` as its parent.
+The patch branch must be visible at the
+exact pinned head before assembly.
 
 ## Retained Mercurai behavior
 
@@ -35,14 +40,25 @@ The patch branch must be visible at the exact pinned head before assembly.
 - Existing release workflows, protected packaging boundaries, and disabled
   recurring release automation.
 
-## Required evidence before publication
+## Required evidence before tagging
 
 1. Exact-SHA full CI and targeted regressions pass.
 2. Independent review accepts the exact candidate and controller revision.
-3. Protected assembly reproduces the candidate tree and allocates a monotonic
-   `v1.4.239-mercurai.N` tag.
-4. Windows package artifacts and digests are recorded.
-5. Installation and loaded-runtime verification preserve active work and
+3. Protected assembly reproduces the candidate tree and verifies the frozen
+   source, manifest, policy, and review identities.
+
+## Required evidence before publication
+
+4. Protected packaging produces the Windows artifacts and records their
+   digests for the exact qualified candidate.
+5. The publisher accepts the qualification receipt and uploads only those
+   recorded artifacts under the allocated `v1.4.239-mercurai.N` tag.
+
+## Post-publication acceptance
+
+The following evidence is collected after the protected package is published:
+
+6. Installation and loaded-runtime verification preserve active work and
    runtime-owned configuration.
 
 Missing live catalog metadata or server-reported processing-tier evidence must

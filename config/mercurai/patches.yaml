@@ -12,7 +12,7 @@ patches:
     branch: patch/current-main-release-d58849a7d8
     status: ours-only
     base: d58849a7d8d68929bd0e686571678d85e70740af
-    commit: 5ce0aead4533980294b8c26989a173501361ee27
+    commit: a06bff3b3578b1abf1abc73a5cce15a21bc02a1b
     owner: harness
     added: 2026-10-25
     tests:
@@ -155,7 +155,12 @@ patches:
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-discovery-freshness.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-prewarm.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-saved-only-read.test.ts
-      - src/main/native-chat/agent-session-wire/structured-agent-session-conversation-stop.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-listed-stop-lifetime.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-stop-aborts-start.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-queued-stop-row.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-stop-event.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-stop-receipts.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-unnamed-stop-races.test.ts
       - src/main/orca-profiles/profile-cloud-auth-characterization.test.ts
       - src/main/persistence/migrating-orcad-catalog/migration-journal-directory.test.ts
       - src/main/persistence/moving-wsl-projects/wsl-move-background-backoff.test.ts
@@ -239,8 +244,9 @@ patches:
       Current candidate merge 3c7d22012cfae09aa32ed03c41a306b201922e74 was refreshed
       onto official main d58849a7d8d68929bd0e686571678d85e70740af. The release assembler
       requires a linear patch, so the identical candidate tree was materialized as
-      5ce0aead4533980294b8c26989a173501361ee27 with parent d58849a7d8d68929bd0e686571678d85e70740af
-      and tree 44461a36d7708752cf72803789832937d24f3a61.
+      5ce0aead4533980294b8c26989a173501361ee27 was then corrected by
+      a06bff3b3578b1abf1abc73a5cce15a21bc02a1b to track upstream's split stop
+      coverage, producing tree 73fbf286056a9106df8acd1a947dda7c8f59263a.
       The frozen stable version floor is v1.4.239 (peeled commit
       47f77cf7018ebc0d046b82c6dde31cf704909162). The patch branch is currently local;
       publication and assembly must refuse until the exact branch head is visible remotely.
@@ -249,7 +255,7 @@ patches:
       Registered tests retain the predecessor union and new per-message speed,
       async credential, pairing serialization and partial-template compaction regressions.
       CI-only dry-run assembly may use this pin. Default registration/publication remain
-      blocked until exact-candidate gates pass. See release-notes-v1.4.237.md.
+      blocked until exact-candidate gates pass. See release-notes-v1.4.239.md.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.

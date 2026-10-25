@@ -30,7 +30,7 @@ Update those documents with behavior during implementation; avoid maintaining an
 ## Workspace, scope, and reuse
 
 Planning workspace: `C:/Users/svere/orca/worktrees/release-registration-20261023`.
-Branch: `codex/release-registration-20261023`, implementation commit `9c76df8880`.
+Branch: `codex/release-registration-20261023`, implementation commit `cda1299769`.
 Owner: this release session. Purpose: implementation and release handoff. Related implementation PR: none;
 prior registration PR #72 merged.
 State: promotion/coordinator implementation committed locally; no branch landing, CI dispatch, release tag,
@@ -126,8 +126,9 @@ remain open.
 The latest-main refresh is a separate candidate merge commit `3c7d22012cfae09aa32ed03c41a306b201922e74` whose
 upstream parent is `d58849a7d8`; it supersedes the three-commit `870038cfc6` candidate. Because the release assembler
 cherry-picks linear patch branches, the identical tree was materialized as linear patch commit
-`5ce0aead4533980294b8c26989a173501361ee27` on `patch/current-main-release-d58849a7d8`, with tree
-`44461a36d7708752cf72803789832937d24f3a61`. Independent source review of the merge returned `accept`; exact-SHA
+`5ce0aead4533980294b8c26989a173501361ee27` on `patch/current-main-release-d58849a7d8`, followed by
+`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` to replace a removed stop-test path with upstream's split coverage.
+The current tree is `73fbf286056a9106df8acd1a947dda7c8f59263a`. Independent source review of the merge returned `accept`; exact-SHA
 CI, package qualification, installation/runtime acceptance, protected publication, and remote branch registration
 remain open.
 
@@ -447,7 +448,8 @@ earlier overlap count. Tasks are bounded per session, and the first release does
 
 Current implementation evidence: verifier tests 8/8, qualification/publisher contract tests 13/13,
 state/dispatch/precheck/coordinator tests 15/15, and release token-scope tests 22/22 passed through the
-shared runner. The fixture assembly suite is not locally runnable because `yq` is absent; CI must run it.
-No product build, CI dispatch, release tag, package publication, installation, runtime verification, or
-schedule enablement has occurred. The next action is independent review of the exact diff, followed by CI
-at the controller commit and a real candidate freeze.
+shared runner before the latest candidate registration. The latest linear candidate's parent, tree, and
+manifest pins were checked with Git; `git diff --check` passed. The fixture assembly suite is not locally
+runnable because `yq` is absent; CI must run it. No product build, CI dispatch, release tag, package
+publication, installation, runtime verification, or schedule enablement has occurred. The next action is
+independent review of the exact registration diff, followed by CI at the controller and candidate SHAs.

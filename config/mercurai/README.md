@@ -9,11 +9,13 @@ The next candidate freezes official `main` at
 `d58849a7d8d68929bd0e686571678d85e70740af` and uses `v1.4.239` as its stable
 version floor. The retained Mercurai tree is materialized as the linear patch
 `patch/current-main-release-d58849a7d8` at
-`5ce0aead4533980294b8c26989a173501361ee27` with tree
-`44461a36d7708752cf72803789832937d24f3a61`. This branch is not yet published;
+`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` with tree
+`73fbf286056a9106df8acd1a947dda7c8f59263a`. This branch is not yet published;
 assembly and qualification must use the exact remote head after the release
-owner lands it. Source review accepted the candidate, but CI, packaging,
-installation, and runtime evidence remain required before tagging.
+owner lands it. Source review accepted the candidate, but exact-source CI,
+review, and provenance remain required before tagging; package and digest
+verification are required before publication; installation and loaded-runtime
+evidence are collected afterward before rollout is accepted.
 
 ## Branches
 
