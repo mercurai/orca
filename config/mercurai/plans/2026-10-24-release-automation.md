@@ -100,12 +100,16 @@ process/file async paths, package manifests, workflows, and renderer/session-wir
 scaffold at `codex/orca-upstream-reconcile-20261025` records merge commit `8f2fb7dc6d`; it used `-X ours` only
 to expose the full tree and is not a release candidate. The two modify/delete cases were deliberately accepted:
 upstream removed the unreachable hook IPC and replaced the old conversation-stop test with provider-specific
-suites. The remaining 79 content conflicts still require bounded semantic reconciliation; no publication may
+suites. The initial 79 content conflicts required bounded semantic reconciliation; no publication may
 use the scaffold until each skipped upstream hunk has a disposition and exact-candidate CI passes.
 The controller now records this evidence through `release-conflict-inventory.mjs`; its precheck refuses a
 candidate with unresolved paths rather than dispatching an agent against an unreviewed merge.
 It also derives `release-conflict-task-plan.mjs` packages with deterministic family ownership, bounded path counts,
 and explicit writable paths; those packages remain blocked work until an isolated integrator resolves and reviews them.
+The scaffold has since incorporated reviewed Codex turn-receipt handling (`305e97cc91`), process-host/Git capture
+compatibility (`0d69ba4e3a`), and native catalog/session-wire allocation and intent fixes (`a066562e97`). A fresh
+merge-tree probe against the new scaffold head reports 78 remaining conflict records; these changes reduce the
+review surface but do not make the scaffold releasable.
 
 ## Requirements and acceptance criteria
 
