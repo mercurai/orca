@@ -1,8 +1,8 @@
 ---
 owner: Mercurai Orca release owner (Codex /root, delegated by the user)
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-25
 stability: draft
-status: implementation in progress; local changes uncommitted and not released
+status: implementation in progress; promotion/coordinator changes committed locally and not released
 ---
 
 # Mercurai upstream integration and release automation
@@ -22,6 +22,8 @@ integration, protected CI, packaging, installation, and automation enablement ar
 The qualification workflow binds the reviewer identity to the candidate and controller, but the independent
 fleet receipt is still owner-supplied input; P1.5 must validate that intake through the established review route
 before any real publication.
+The coordinator now resolves and persists the stable tag's peeled commit SHA and queues a new target when the
+trusted controller revision changes, preventing stale candidate evidence from being reused after workflow changes.
 The operational source of truth remains [the release README](../README.md) and [patch manifest](../patches.yaml).
 Update those documents with behavior during implementation; avoid maintaining another parallel runbook.
 
