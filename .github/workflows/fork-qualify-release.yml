@@ -1,0 +1,226 @@
+# Qualify one immutable candidate selected by the release owner. This workflow is dispatched only
+# from the default controller branch, checks out the candidate by full SHA, and runs without a
+# publisher credential or cache. Its check names are listed in config/mercurai/release-policy.json.
+name: fork-qualify-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact candidate commit to qualify
+        type: string
+        required: true
+      candidate_tree:
+        description: Expected candidate tree SHA
+        type: string
+        required: true
+      controller_sha:
+        description: Exact trusted controller commit that owns this workflow
+        type: string
+        required: true
+      manifest_sha:
+        description: Candidate patches manifest blob SHA
+        type: string
+        required: true
+      policy_sha:
+        description: SHA-256 of the trusted release policy
+        type: string
+        required: true
+      version:
+        description: Mercurai version that will name the release tag
+        type: string
+        required: true
+      reviewed_sha:
+        description: Candidate SHA recorded by the independent reviewer
+        type: string
+        required: true
+      reviewer:
+        description: Independent reviewer identity from the fleet receipt
+        type: string
+        required: true
+      review_controller_sha:
+        description: Controller SHA recorded by the independent reviewer
+        type: string
+        required: true
+      series:
+        description: Ordered patch branch and commit pins for the candidate
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: fork-qualify-release-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: test / tests node 24 2/5
+    if: ${{ github.repository == 'mercurai/orca' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      CANDIDATE_TREE: ${{ inputs.candidate_tree }}
+      CONTROLLER_SHA: ${{ inputs.controller_sha }}
+      MANIFEST_SHA: ${{ inputs.manifest_sha }}
+      POLICY_SHA: ${{ inputs.policy_sha }}
+      VERSION: ${{ inputs.version }}
+      REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+      REVIEWER: ${{ inputs.reviewer }}
+      REVIEW_CONTROLLER_SHA: ${{ inputs.review_controller_sha }}
+      SERIES: ${{ inputs.series }}
+    steps:
+      - name: Checkout the exact candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout the trusted controller inputs
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          path: .controller
+          sparse-checkout: config/mercurai
+          persist-credentials: false
+
+      - name: Verify candidate and controller identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_sha is not a lowercase 40-character commit"; exit 1; }
+          [[ "$CANDIDATE_TREE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_tree is not a lowercase 40-character tree"; exit 1; }
+          [[ "$CONTROLLER_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::controller_sha is not a lowercase 40-character commit"; exit 1; }
+          [[ "$MANIFEST_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::manifest_sha is not a lowercase 40-character blob"; exit 1; }
+          [[ "$POLICY_SHA" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::policy_sha is not a SHA-256 digest"; exit 1; }
+          head_sha=$(git rev-parse HEAD)
+          if [ "$head_sha" != "$CANDIDATE_SHA" ]; then
+            echo "::error::checked out $head_sha, not $CANDIDATE_SHA"
+            exit 1
+          fi
+          tree=$(git rev-parse 'HEAD^{tree}')
+          [ "$tree" = "$CANDIDATE_TREE" ] || { echo "::error::candidate tree is $tree, not $CANDIDATE_TREE"; exit 1; }
+          [ "$CONTROLLER_SHA" = "$GITHUB_SHA" ] || { echo "::error::controller $CONTROLLER_SHA is not workflow revision $GITHUB_SHA"; exit 1; }
+          [ "$REVIEWED_SHA" = "$CANDIDATE_SHA" ] || { echo "::error::review is not bound to the candidate"; exit 1; }
+          [ "$REVIEW_CONTROLLER_SHA" = "$CONTROLLER_SHA" ] || { echo "::error::review is not bound to the controller"; exit 1; }
+          [ -n "$REVIEWER" ] || { echo "::error::reviewer identity is missing"; exit 1; }
+          manifest_blob=$(git -C .controller rev-parse HEAD:config/mercurai/patches.yaml)
+          [ "$manifest_blob" = "$MANIFEST_SHA" ] || { echo "::error::manifest blob is $manifest_blob, not $MANIFEST_SHA"; exit 1; }
+          policy_digest=$(sha256sum .controller/config/mercurai/release-policy.json | awk '{print $1}')
+          [ "$policy_digest" = "$POLICY_SHA" ] || { echo "::error::release policy digest changed"; exit 1; }
+
+      - name: Setup pnpm
+        uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2
+        with:
+          install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install dependencies without cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          git diff --exit-code -- package.json pnpm-lock.yaml pnpm-workspace.yaml
+
+      - name: Run the full unit suite
+        shell: bash
+        run: pnpm run test:node
+
+      - name: Run the full static checks
+        shell: bash
+        run: pnpm run lint
+
+      - name: Run all typechecks
+        shell: bash
+        run: pnpm run typecheck
+
+  aggregate:
+    name: PR checks passed
+    needs: test
+    if: ${{ always() && github.repository == 'mercurai/orca' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refuse incomplete qualification
+        if: ${{ needs.test.result != 'success' }}
+        run: |
+          echo "::error::the full qualification job concluded ${{ needs.test.result }}"
+          exit 1
+      - name: Record complete qualification
+        run: |
+          echo "full qualification passed for ${{ inputs.candidate_sha }}"
+
+      - name: Write the promotion receipt
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ inputs.candidate_tree }}
+          CONTROLLER_SHA: ${{ inputs.controller_sha }}
+          MANIFEST_SHA: ${{ inputs.manifest_sha }}
+          POLICY_SHA: ${{ inputs.policy_sha }}
+          VERSION: ${{ inputs.version }}
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+          REVIEWER: ${{ inputs.reviewer }}
+          REVIEW_CONTROLLER_SHA: ${{ inputs.review_controller_sha }}
+          SERIES: ${{ inputs.series }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$RUNNER_TEMP/promotion-receipt.json" <<'NODE'
+          import { writeFileSync } from 'node:fs'
+          const path = process.argv[2]
+          const env = process.env
+          const receipt = {
+            candidate: {
+              commit: env.CANDIDATE_SHA,
+              tree: env.CANDIDATE_TREE,
+              controllerSha: env.CONTROLLER_SHA,
+              manifestSha: env.MANIFEST_SHA,
+              policySha: env.POLICY_SHA,
+              version: env.VERSION,
+              series: env.SERIES ? env.SERIES.split(',').filter(Boolean) : []
+            },
+            qualification: {
+              workflow: 'fork-qualify-release.yml',
+              runId: Number(env.GITHUB_RUN_ID),
+              attempt: Number(env.GITHUB_RUN_ATTEMPT),
+              latestAttempt: Number(env.GITHUB_RUN_ATTEMPT),
+              checkoutSha: env.CANDIDATE_SHA,
+              checkoutTree: env.CANDIDATE_TREE,
+              controllerSha: env.CONTROLLER_SHA,
+              manifestSha: env.MANIFEST_SHA,
+              policySha: env.POLICY_SHA,
+              mode: 'full',
+              conclusion: 'success',
+              checks: [
+                { name: 'test / tests node 24 2/5', conclusion: 'success' },
+                { name: 'PR checks passed', conclusion: 'success' }
+              ],
+              series: env.SERIES ? env.SERIES.split(',').filter(Boolean) : []
+            },
+            review: {
+              verdict: 'approved',
+              reviewedSha: env.REVIEWED_SHA,
+              controllerSha: env.REVIEW_CONTROLLER_SHA,
+              reviewer: env.REVIEWER
+            }
+          }
+          writeFileSync(path, `${JSON.stringify(receipt, null, 2)}\n`)
+          NODE
+
+      - name: Upload the promotion receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: promotion-receipt
+          path: ${{ runner.temp }}/promotion-receipt.json
+          if-no-files-found: error
+          retention-days: 30

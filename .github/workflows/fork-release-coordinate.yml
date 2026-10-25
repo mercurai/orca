@@ -1,0 +1,115 @@
+# Detect upstream movement and persist one candidate queue. This workflow never builds candidate
+# code and never carries the channel publisher token. Local Orca automation consumes the durable
+# state through release-precheck.mjs and release-agent-dispatch.mjs, which invokes structured
+# `orca orchestration ... --json` arguments without a shell string.
+name: fork-release-coordinate
+
+on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: fork-release-coordinate
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    if: ${{ github.repository == 'mercurai/orca' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STATE_BRANCH: automation/release-state
+    steps:
+      - name: Checkout the trusted controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the current upstream target
+        id: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream_main_sha=$(gh api repos/stablyai/orca/branches/main --jq .commit.sha)
+          stable_tag=$(gh api repos/stablyai/orca/releases/latest --jq .tag_name)
+          patch_heads=$(yq -o=json -c '[.patches[] | select(.status == "upstream-open" or .status == "ours-only") | {branch, commit}]' config/mercurai/patches.yaml)
+          echo "upstream_main_sha=$upstream_main_sha" >> "$GITHUB_OUTPUT"
+          echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "patch_heads=$patch_heads" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch or initialize the durable state branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code origin "refs/heads/$STATE_BRANCH" >/dev/null 2>&1; then
+            git fetch --no-tags origin "refs/heads/$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH"
+            git worktree add --detach .state "refs/remotes/origin/$STATE_BRANCH"
+          else
+            git worktree add --detach .state "$GITHUB_SHA"
+            git -C .state switch --orphan "$STATE_BRANCH"
+            git -C .state read-tree --empty
+          fi
+
+      - name: Reconcile and run the admission precheck
+        env:
+          UPSTREAM_MAIN_SHA: ${{ steps.upstream.outputs.upstream_main_sha }}
+          STABLE_TAG: ${{ steps.upstream.outputs.stable_tag }}
+          PATCH_HEADS: ${{ steps.upstream.outputs.patch_heads }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - "$GITHUB_WORKSPACE/.state/release-state.json" <<'NODE'
+          import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+          import { activateQueuedTarget, createState, enqueueTarget } from './config/mercurai/scripts/release-state.mjs'
+          const path = process.argv[2]
+          const target = {
+            upstreamMainSha: process.env.UPSTREAM_MAIN_SHA,
+            stableTag: process.env.STABLE_TAG,
+            controllerSha: process.env.GITHUB_SHA,
+            patchHeads: JSON.parse(process.env.PATCH_HEADS)
+          }
+          let state = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : createState(target)
+          const patchHeadsChanged = JSON.stringify(state.candidate.patchHeads) !== JSON.stringify(target.patchHeads)
+          const targetChanged = state.candidate.upstreamMainSha !== target.upstreamMainSha ||
+            state.candidate.stableTag !== target.stableTag || patchHeadsChanged
+          if (targetChanged) {
+            state = enqueueTarget(state, target)
+          }
+          if (['published', 'blocked', 'failed'].includes(state.state) && state.queuedTarget) {
+            state = activateQueuedTarget(state, { expectedVersion: state.version })
+          }
+          writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`)
+          NODE
+          node config/mercurai/scripts/release-precheck.mjs .state/release-state.json || {
+            status=$?
+            [ "$status" -eq 1 ] || exit "$status"
+            echo 'no eligible candidate; durable state retained'
+          }
+
+      - name: Commit and CAS-push durable state
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C .state config user.name mercurai-release-coordinator
+          git -C .state config user.email release-coordinator@users.noreply.github.com
+          git -C .state add release-state.json
+          if git -C .state diff --cached --quiet; then
+            echo 'durable state unchanged'
+            exit 0
+          fi
+          git -C .state commit -m 'chore(release): reconcile upstream candidate state'
+          # The state worktree starts at the observed remote tip. A plain push is the CAS: a
+          # concurrent writer makes the push non-fast-forward and this run must reconcile again.
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
+          git -C .state push origin "HEAD:refs/heads/$STATE_BRANCH"

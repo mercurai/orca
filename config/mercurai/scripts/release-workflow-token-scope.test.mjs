@@ -96,18 +96,22 @@ test('the workflow grants its token read access only', () => {
     ['release', release],
     ['template', template]
   ]) {
-    assert.match(workflow, /^permissions:\n {2}contents: read\n(?! )/m, `${name} top-level permissions`)
+    const permissions = workflow.match(/^permissions:\n(?: {2}[^\n]+\n)+/m)?.[0] ?? ''
+    assert.match(permissions, /^permissions:\n/m, `${name} top-level permissions`)
+    assert.match(permissions, /^ {2}contents: read$/m, `${name} contents permission`)
+    if (name === 'release') assert.match(permissions, /^ {2}actions: read$/m, `${name} actions permission`)
+    assert.doesNotMatch(permissions, /:\s*write\b/, `${name} grants write`)
     assert.doesNotMatch(code(workflow), /^[ \t]+permissions:/m, `${name} has a job-level permissions block`)
-    assert.doesNotMatch(code(workflow), /:\s*write\b/, `${name} grants write`)
   }
 })
 
-test('the publish job is gated on the dispatch itself, exactly', () => {
-  // Exact: `always() ||`, `|| true` or a value a build step can write (env, needs, steps, vars)
-  // would each open it. The ref clause keeps a ref build, always a dry run, out of it.
+test('the publish job is gated on dispatch identity and promotion evidence, exactly', () => {
+  // Exact: `always() ||`, `|| true` or a value a build step can write (env, vars, or a build step)
+  // would each open it. The preflight qualification output is trusted only after its receipt check;
+  // the ref clause keeps a ref build, always a dry run, out of it.
   const gates = releaseJobs.get('publish').match(/^ {4}if: .*$/gm)
   assert.deepEqual(gates, [
-    "    if: ${{ github.repository == 'mercurai/orca' && !inputs.dry_run && inputs.ref == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}"
+    "    if: ${{ github.repository == 'mercurai/orca' && needs.preflight.outputs.qualified == 'true' && !inputs.dry_run && inputs.ref == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}"
   ])
 })
 
@@ -146,7 +150,7 @@ test('the publish job runs no repository code: its steps are exactly these', () 
   assert.doesNotMatch(publish, /base64\s+(-d|--decode)/)
 })
 
-test('preflight keeps both of its rules', () => {
+test('preflight keeps dispatch rules and verifies only trusted promotion evidence', () => {
   const preflight = releaseJobs.get('preflight')
   assert.ok(preflight.includes(String.raw`if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mercurai\.[0-9]+$ ]]; then`))
   assert.match(preflight, /if \[ "\$publish" = "true" \] && \[ -n "\$REF_INPUT" \]; then\n[^\n]*\n\s+exit 1\n/)
@@ -161,13 +165,22 @@ test('preflight keeps both of its rules', () => {
     preflight,
     /if \[ -n "\$REF_INPUT" \] && \[ "\$DISPATCH_REF" = "refs\/heads\/\$DEFAULT_BRANCH" \]; then\n[^\n]*\n\s+exit 1\n/
   )
-  assert.doesNotMatch(code(preflight), /continue-on-error|actions\/checkout|uses: \.\//)
+  assert.doesNotMatch(code(preflight), /continue-on-error|uses: \.\//)
+  assert.match(preflight, /uses: actions\/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333/)
+  assert.match(preflight, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/)
+  assert.match(preflight, /path: \.controller/)
+  assert.match(preflight, /sparse-checkout: config\/mercurai/)
+  assert.match(preflight, /node \.controller\/config\/mercurai\/scripts\/verify-promotion\.mjs/)
 })
 
 test('the channel repo is named only where the token is', () => {
   for (const [name, text] of releaseJobs) {
     if (name !== 'publish') {
-      assert.doesNotMatch(code(text), /CHANNEL_REPO|GH_TOKEN|gh release|gh api/, `${name} reaches for the channel`)
+      const nonPublish = code(text)
+      assert.doesNotMatch(nonPublish, /CHANNEL_REPO|gh release/, `${name} reaches for the channel`)
+      if (/\bGH_TOKEN\b/.test(nonPublish)) {
+        assert.match(nonPublish, /GH_TOKEN:\s*\$\{\{ github\.token \}\}/, `${name} must use the read-only Actions token`)
+      }
     }
   }
   assert.doesNotMatch(code(release.slice(0, release.indexOf('\njobs:\n'))), /CHANNEL_REPO|GH_TOKEN/)

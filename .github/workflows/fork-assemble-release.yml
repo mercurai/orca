@@ -30,6 +30,10 @@ on:
         description: Assemble and test, but push nothing
         type: boolean
         default: false
+      reviewer:
+        description: Independent reviewer identity from the fleet receipt; required for publication
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -49,6 +53,7 @@ env:
   TAG: ${{ inputs.tag }}
   # Empty assembles on the tag. The script refuses anything but a full sha that official main holds.
   UPSTREAM_MAIN_SHA: ${{ inputs.upstream_main_sha }}
+  REVIEWER: ${{ inputs.reviewer }}
 
 jobs:
   test:
@@ -58,7 +63,7 @@ jobs:
       release_tag: ${{ steps.assemble.outputs.release_tag }}
       tree: ${{ steps.assemble.outputs.tree }}
       upstream_main_sha: ${{ steps.assemble.outputs.upstream_main_sha }}
-      series: ${{ steps.assemble.outputs.series }}
+      series: ${{ steps.series.outputs.series }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -73,6 +78,18 @@ jobs:
           # Copied out first: the checkout moves to the tag, which has no config/mercurai/.
           cp config/mercurai/scripts/assemble-release.sh /tmp/assemble-release.sh
           bash /tmp/assemble-release.sh
+
+      - name: Freeze the ordered patch series
+        id: series
+        run: |
+          set -euo pipefail
+          series=''
+          while read -r patch; do
+            [ -z "$patch" ] && continue
+            pin=$(git rev-parse "origin/$patch^{commit}")
+            series="${series:+$series,}$patch:$pin"
+          done < /tmp/active
+          echo "series=$series" >> "$GITHUB_OUTPUT"
 
       - name: Tests named by the series
         id: tests
@@ -135,6 +152,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Record the trusted controller inputs
+        id: controller
+        run: |
+          set -euo pipefail
+          echo "manifest_sha=$(git rev-parse HEAD:config/mercurai/patches.yaml)" >> "$GITHUB_OUTPUT"
+          echo "policy_sha=$(sha256sum config/mercurai/release-policy.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
+
       # Assembled again here, from git alone: the test job ran the code under test, so its result
       # is compared, never pushed. The same dispatched commit gives it the same manifest and inputs.
       - name: Assemble the release branch again
@@ -153,7 +177,20 @@ jobs:
             echo "::error::assembled $branch at tree $tree, but the tests ran on $TESTED_BRANCH at $TESTED_TREE; a patch branch moved during the run. Dispatch again."
             exit 1
           fi
+          echo "candidate_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "tested tree $tree; release tag $TESTED_TAG"
+
+      - name: Freeze the ordered patch series again
+        id: series
+        run: |
+          set -euo pipefail
+          series=''
+          while read -r patch; do
+            [ -z "$patch" ] && continue
+            pin=$(git rev-parse "origin/$patch^{commit}")
+            series="${series:+$series,}$patch:$pin"
+          done < /tmp/active
+          echo "series=$series" >> "$GITHUB_OUTPUT"
 
       # The tree alone could match with other commits underneath: the base and the patch commits
       # this job assembled must be the ones the tests ran on.
@@ -162,7 +199,7 @@ jobs:
           TESTED_MAIN_SHA: ${{ needs.test.outputs.upstream_main_sha }}
           TESTED_SERIES: ${{ needs.test.outputs.series }}
           ASSEMBLED_MAIN_SHA: ${{ steps.assemble.outputs.upstream_main_sha }}
-          ASSEMBLED_SERIES: ${{ steps.assemble.outputs.series }}
+          ASSEMBLED_SERIES: ${{ steps.series.outputs.series }}
         run: |
           set -euo pipefail
           if [ "$ASSEMBLED_MAIN_SHA" != "$TESTED_MAIN_SHA" ] || [ "$ASSEMBLED_SERIES" != "$TESTED_SERIES" ]; then
@@ -170,13 +207,11 @@ jobs:
             exit 1
           fi
 
-      - name: Push the release branch and tag
+      - name: Push the assembled candidate branch
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           RELEASE_BRANCH: ${{ steps.assemble.outputs.release_branch }}
-          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
-          MAIN_SHA: ${{ steps.assemble.outputs.upstream_main_sha }}
-          SERIES: ${{ steps.assemble.outputs.series }}
+          CANDIDATE_SHA: ${{ steps.assemble.outputs.candidate_sha }}
         run: |
           set -euo pipefail
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
@@ -185,6 +220,63 @@ jobs:
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           # The release branch is assembled, never hand-edited, so replacing it is the contract.
           git push --force-with-lease origin "HEAD:refs/heads/$RELEASE_BRANCH"
+
+      - name: Qualify the assembled candidate
+        id: qualification
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+          CANDIDATE_SHA: ${{ steps.assemble.outputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ needs.test.outputs.tree }}
+          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
+          CONTROLLER_SHA: ${{ github.sha }}
+          MANIFEST_SHA: ${{ steps.controller.outputs.manifest_sha }}
+          POLICY_SHA: ${{ steps.controller.outputs.policy_sha }}
+          SERIES: ${{ steps.series.outputs.series }}
+          REVIEWER: ${{ env.REVIEWER }}
+          FORK_BRANCH: ${{ env.FORK_BRANCH }}
+        run: |
+          set -euo pipefail
+          [ -n "$REVIEWER" ] || { echo "::error::reviewer is required before qualification"; exit 1; }
+          started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run fork-qualify-release.yml --ref "$FORK_BRANCH" \
+            -f "candidate_sha=$CANDIDATE_SHA" \
+            -f "candidate_tree=$CANDIDATE_TREE" \
+            -f "controller_sha=$CONTROLLER_SHA" \
+            -f "manifest_sha=$MANIFEST_SHA" \
+            -f "policy_sha=$POLICY_SHA" \
+            -f "version=${RELEASE_TAG#v}" \
+            -f "reviewed_sha=$CANDIDATE_SHA" \
+            -f "reviewer=$REVIEWER" \
+            -f "review_controller_sha=$CONTROLLER_SHA" \
+            -f "series=$SERIES"
+          run_id=''
+          for attempt in $(seq 1 30); do
+            run_id=$(gh run list --workflow fork-qualify-release.yml --branch "$FORK_BRANCH" --limit 10 \
+              --json databaseId,headSha,createdAt \
+              --jq "([.[] | select(.headSha == \"$CONTROLLER_SHA\" and .createdAt >= \"$started_at\")] | sort_by(.createdAt) | last // {}) | .databaseId // empty")
+            if [ -n "$run_id" ]; then break; fi
+            sleep 10
+          done
+          [ -n "$run_id" ] || { echo "::error::qualification workflow run was not created"; exit 1; }
+          gh run watch "$run_id" --exit-status
+          echo "qualification_run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Tag the qualified candidate
+        env:
+          GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
+          RELEASE_BRANCH: ${{ steps.assemble.outputs.release_branch }}
+          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
+          CANDIDATE_SHA: ${{ steps.assemble.outputs.candidate_sha }}
+          MAIN_SHA: ${{ steps.assemble.outputs.upstream_main_sha }}
+          SERIES: ${{ steps.series.outputs.series }}
+        run: |
+          set -euo pipefail
+          remote=$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | awk '{print $1}')
+          [ "$remote" = "$CANDIDATE_SHA" ] || { echo "::error::candidate branch moved during qualification"; exit 1; }
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
           git tag -a "$RELEASE_TAG" -m "mercurai release on $TAG${MAIN_SHA:+ at upstream main $MAIN_SHA}: $(tr '\n' ' ' < /tmp/active)${SERIES:+pinned $SERIES}"
           git push origin "refs/tags/$RELEASE_TAG"
           echo "tagged $RELEASE_TAG on $RELEASE_BRANCH"
@@ -193,8 +285,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
+          QUALIFICATION_RUN_ID: ${{ steps.qualification.outputs.qualification_run_id }}
         run: |
-          gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" || {
+          gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" -f "qualification_run_id=$QUALIFICATION_RUN_ID" || {
             echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
             exit 1
           }

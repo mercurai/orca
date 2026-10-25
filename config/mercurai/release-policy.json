@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "workflow": "fork-qualify-release.yml",
+  "requiredJobs": [
+    {
+      "id": "tests-node-24-2-5",
+      "checks": ["test / tests node 24 2/5"]
+    },
+    {
+      "id": "qualification-aggregate",
+      "checks": ["PR checks passed"]
+    }
+  ],
+  "requiredChecks": ["test / tests node 24 2/5", "PR checks passed"],
+  "permittedSkips": []
+}

@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-23.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-24.
 
 ## Branches
 
@@ -125,8 +125,12 @@ series.
   once in a lane replays.
 - `fork-assemble-release`: manual. Checks every active patch is recorded on the tag and contains
   it, builds `release/mercurai` = tag + cherry-picked patches (a patch with no commits beyond the
-  tag is skipped with a warning), runs the series tests, tags `v<upstream>-mercurai.N` and pushes
-  both, then dispatches `fork-release-win-build` with the new tag.
+  tag is skipped with a warning), runs the series tests, and pushes the assembled candidate branch.
+  It then dispatches `fork-qualify-release` for the exact candidate commit, waits for its full
+  qualification receipt, tags only that immutable candidate, and dispatches `fork-release-win-build`
+  with the tag and qualification run ID. A missing reviewer receipt, moved candidate branch, failed
+  qualification, or stale run ID stops before tagging. `dry_run=true` never pushes or dispatches a
+  publishing build.
   **Main snapshot:** the optional `upstream_main_sha` input (`UPSTREAM_MAIN_SHA` to
   `scripts/assemble-release.sh`) assembles on a frozen commit of official `stablyai/orca` `main`
   instead of the tag, for a release that must carry upstream changes no tag has yet. The value is a
@@ -144,9 +148,21 @@ series.
   job pushes only when its tree, base and pinned patch commits equal the tested ones. Leave the input
   empty for the unchanged tag assembly. The owner registers the sha and pins in the manifest;
   recurring snapshots are not automated.
+- `fork-qualify-release`: manual, default-branch-only, read-only qualification of one exact
+  candidate SHA. It checks the candidate tree and trusted controller inputs, installs without a
+  cache, and runs `pnpm run test:node`, `pnpm run lint`, and `pnpm run typecheck`. The aggregate
+  check is named `PR checks passed`; selected-test or partial runs cannot create a promotion receipt.
 - `fork-release-win-build`: builds the Windows installer for a `v<upstream>-mercurai.N` tag and
-  publishes it to the release channel (below). Dispatchable by hand with `-f tag=...` to rebuild
-  or retry a tag.
+  publishes it to the release channel (below). A real build must receive the qualification run ID
+  and receipt; preflight verifies the receipt against the resolved tag commit, version, controller,
+  manifest, and policy. Direct/manual dispatch without that receipt is dry-run-only. Dispatch a
+  qualified tag with `-f tag=... -f qualification_run_id=...` to retry packaging.
+- `fork-release-coordinate`: hourly at minute 7 and manual. It resolves official `main`, the latest
+  stable tag, and active patch heads, then updates the durable `automation/release-state` branch.
+  It coalesces one newer target while an active candidate is in progress and never publishes, starts
+  an agent, or carries the channel token. See [`automation-contract.md`](automation-contract.md) for
+  the state machine, structured Orca dispatch adapter, recovery, and pause/resume rules. The local
+  Orca schedule remains disabled until the first qualified release and a nonpublishing rehearsal.
 - `fork-orcad-template`: builds the orcad deployment template for a ref. From upstream v1.4.224
   every SSH host runs a managed Orca server (orcad), which the desktop deploys from a template
   packaged inside the app; a build without it installs and then fails every SSH host. The fork
@@ -161,13 +177,13 @@ series.
   target: add its build lane to `fork-orcad-template` first, then widen the list; a host on a
   target outside the list gets no managed server and falls back to the legacy relay. A widened
   list ships only with a new app version: the desktop keys its unsupported-host record by version.
-- `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch; no secret,
-  no repository code), `orcad-template` and `build-win` (build and package the ref's code; no
+- `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch and verifies
+  the promotion receipt with trusted controller code; no secret), `orcad-template` and `build-win` (build and package the ref's code; no
   secret), `publish` (the only job given `FORK_BOT_TOKEN`; runs no repository code, only uploads
   the three files `build-win` made). The owner's app updates itself from the channel repo, so
   the code being built never shares a job with the token that publishes it. `publish` exists
-  only for a real build dispatched from the default branch; its condition reads the dispatch
-  inputs and ref, which no build step can change.
+  only for a real build dispatched from the default branch and a verified qualification receipt;
+  its condition reads the dispatch inputs and preflight output, which no build step can change.
   `config/mercurai/scripts/release-workflow-token-scope.test.mjs` pins all of this.
 Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
 CLI/hook native assets through `build:release`. After the script-free dependency install, the Windows
