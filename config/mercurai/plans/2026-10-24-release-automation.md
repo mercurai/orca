@@ -144,6 +144,19 @@ The deterministic conflict planner assigns the first and third paths to one boun
 path to one `renderer` task. The current manifest remains pinned to the reviewed `d58849a7d8` candidate until these
 three paths are reconciled semantically; no automatic ours/theirs resolution is authorized.
 
+Conflict task obligations:
+
+- `upstream-conflict-other-1`: reconcile the E2E type-error baseline and device-key wire test. Preserve the
+  upstream removal of obsolete baseline entries, retain only errors still present on the candidate after the new
+  async registry/API and keyed-support types are applied, and await every async registry/device-key operation.
+  Preserve Mercurai's cross-version pairing behavior and session-only fallback semantics.
+- `upstream-conflict-renderer-1`: combine upstream's `useEffectEvent` recovery-lifecycle change with Mercurai's
+  `CodexSpeedSelectionError` notice path. The recovery callback must not capture stale batches, and a refused speed
+  selection must remain actionable without sending or silently downgrading the message.
+
+Each task may modify only its listed paths, must add or update focused behavioral coverage, and must produce a new
+candidate generation before qualification. The release owner must review the combined tree after both tasks land.
+
 ## Requirements and acceptance criteria
 
 ### Release completeness
