@@ -7,7 +7,7 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-25.
 
 The next candidate freezes official `main` at
 `d58849a7d8d68929bd0e686571678d85e70740af` and uses `v1.4.239` as its stable
-version floor. The retained Mercurai tree is materialized as the linear patch
+version floor. The currently registered retained Mercurai tree is materialized as the linear patch
 `patch/current-main-release-d58849a7d8` at
 `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` with tree
 `73fbf286056a9106df8acd1a947dda7c8f59263a`. This branch is not yet published;
@@ -16,6 +16,12 @@ owner lands it. Source review accepted the candidate, but exact-source CI,
 review, and provenance remain required before tagging; package and digest
 verification are required before publication; installation and loaded-runtime
 evidence are collected afterward before rollout is accepted.
+
+Official `main` advanced to `695fc0081c373e3f83664e242b39490d71038b37` after
+this candidate was frozen. A read-only replay reports three conflicts in the
+E2E type-error baseline, native-chat send recovery, and cross-version device-key
+coverage. The manifest remains pinned to the reviewed candidate until those
+paths are reconciled and independently reviewed.
 
 ## Branches
 
