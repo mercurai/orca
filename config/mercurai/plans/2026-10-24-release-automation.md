@@ -102,6 +102,8 @@ to expose the full tree and is not a release candidate. The two modify/delete ca
 upstream removed the unreachable hook IPC and replaced the old conversation-stop test with provider-specific
 suites. The remaining 79 content conflicts still require bounded semantic reconciliation; no publication may
 use the scaffold until each skipped upstream hunk has a disposition and exact-candidate CI passes.
+The controller now records this evidence through `release-conflict-inventory.mjs`; its precheck refuses a
+candidate with unresolved paths rather than dispatching an agent against an unreviewed merge.
 
 ## Requirements and acceptance criteria
 
