@@ -125,8 +125,8 @@ verdict only. Exact-candidate CI, package qualification, installation/runtime ac
 remain open.
 The latest-main refresh is a separate candidate merge commit `3c7d22012cfae09aa32ed03c41a306b201922e74` whose
 upstream parent is `d58849a7d8`; it supersedes the three-commit `870038cfc6` candidate and needs fresh exact-SHA CI
-and review. Independent source review of that merge returned `accept`; exact-candidate CI, package qualification,
-installation/runtime acceptance, and protected publication remain open.
+and review. Independent source review of that merge returned `accept`; the branch remains local and unqualified.
+Exact-candidate CI, package qualification, installation/runtime acceptance, and protected publication remain open.
 
 ## Requirements and acceptance criteria
 
