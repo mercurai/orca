@@ -54,6 +54,11 @@ enabling that local schedule is a separate owner-controlled rollout step.
 Patch-head changes are part of target identity. When the current candidate is
 terminal, the reducer promotes the newest queued target to a new generation;
 while it is active, newer targets remain queued and cannot reset it.
+The coordinator also runs the trusted `release-conflict-inventory.mjs` probe
+against each pinned patch head. A conflict inventory is stored in state evidence
+and blocks admission with the exact paths; the coordinator does not attempt an
+ours/theirs resolution. A changed patch head creates a new candidate identity
+and therefore a fresh inventory.
 
 ## Promotion boundary
 

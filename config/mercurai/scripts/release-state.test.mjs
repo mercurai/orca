@@ -55,6 +55,23 @@ test('accepts a resolved stable tag commit and treats controller changes as a ne
   assert.equal(next.queuedTarget.stableTagSha, 'c'.repeat(40))
 })
 
+test('validates an optional patch base when candidate identity includes it', () => {
+  assert.doesNotThrow(() =>
+    createState(
+      target({ patchHeads: [{ branch: 'patch/current-main-release', commit: SHA, base: SHA }] })
+    )
+  )
+  assert.throws(
+    () =>
+      createState(
+        target({
+          patchHeads: [{ branch: 'patch/current-main-release', commit: SHA, base: 'not-a-sha' }]
+        })
+      ),
+    /base must be a lowercase 40-character sha/
+  )
+})
+
 test('accepts the ordered candidate lifecycle and records evidence at each boundary', () => {
   let state = createState(target())
   for (const [to, evidence] of [

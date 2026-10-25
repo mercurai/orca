@@ -42,6 +42,7 @@ function validateTarget(target) {
       throw new TypeError('patch branch is invalid')
     }
     requireSha(patch.commit, `patch ${patch.branch} commit`)
+    if (patch.base !== undefined) requireSha(patch.base, `patch ${patch.branch} base`)
   }
 }
 

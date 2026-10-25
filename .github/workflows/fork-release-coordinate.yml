@@ -50,7 +50,8 @@ jobs:
             echo "::error::latest stable tag $stable_tag did not resolve to a commit sha"
             exit 1
           }
-          patch_heads=$(yq -o=json -c '[.patches[] | select(.status == "upstream-open" or .status == "ours-only") | {branch, commit}]' config/mercurai/patches.yaml)
+          patch_base=$(yq -r '.base' config/mercurai/patches.yaml)
+          patch_heads=$(PATCH_BASE="$patch_base" yq -o=json -c '[.patches[] | select(.status == "upstream-open" or .status == "ours-only") | {branch, commit, base: (.base // strenv(PATCH_BASE))}]' config/mercurai/patches.yaml)
           echo "upstream_main_sha=$upstream_main_sha" >> "$GITHUB_OUTPUT"
           echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
           echo "stable_tag_sha=$stable_tag_sha" >> "$GITHUB_OUTPUT"
@@ -69,19 +70,67 @@ jobs:
             git -C .state read-tree --empty
           fi
 
+      - name: Record active patch conflict inventory
+        env:
+          UPSTREAM_MAIN_SHA: ${{ steps.upstream.outputs.upstream_main_sha }}
+          PATCH_HEADS: ${{ steps.upstream.outputs.patch_heads }}
+          CONFLICT_INVENTORY_FILE: ${{ runner.temp }}/mercurai-conflict-inventory.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags https://github.com/stablyai/orca.git "$UPSTREAM_MAIN_SHA"
+          while IFS=$'\t' read -r patch_branch patch_sha; do
+            [ -z "$patch_sha" ] && continue
+            git fetch --no-tags origin "refs/heads/$patch_branch:refs/remotes/origin/$patch_branch"
+            [ "$(git rev-parse "$patch_sha^{commit}")" = "$patch_sha" ] || {
+              echo "::error::patch $patch_branch did not resolve to pinned commit $patch_sha"
+              exit 1
+            }
+          done < <(jq -r '.[] | [.branch, .commit] | @tsv' <<<"$PATCH_HEADS")
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { runConflictInventory } from './config/mercurai/scripts/release-conflict-inventory.mjs'
+
+          const patches = JSON.parse(process.env.PATCH_HEADS)
+          const inventories = patches.map((patch) => ({
+            branch: patch.branch,
+            ...runConflictInventory({
+              baseSha: patch.base,
+              upstreamSha: process.env.UPSTREAM_MAIN_SHA,
+              candidateSha: patch.commit
+            })
+          }))
+          const conflicts = inventories.flatMap((entry) =>
+            entry.conflicts.map((conflict) => ({ branch: entry.branch, ...conflict }))
+          )
+          writeFileSync(
+            process.env.CONFLICT_INVENTORY_FILE,
+            `${JSON.stringify({
+              schemaVersion: 1,
+              upstreamSha: process.env.UPSTREAM_MAIN_SHA,
+              status: conflicts.length > 0 ? 'conflict' : 'clean',
+              conflictCount: conflicts.length,
+              conflicts,
+              patches: inventories
+            }, null, 2)}\n`
+          )
+          NODE
+
       - name: Reconcile and run the admission precheck
         env:
           UPSTREAM_MAIN_SHA: ${{ steps.upstream.outputs.upstream_main_sha }}
           STABLE_TAG: ${{ steps.upstream.outputs.stable_tag }}
           STABLE_TAG_SHA: ${{ steps.upstream.outputs.stable_tag_sha }}
           PATCH_HEADS: ${{ steps.upstream.outputs.patch_heads }}
+          CONFLICT_INVENTORY_FILE: ${{ runner.temp }}/mercurai-conflict-inventory.json
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module - "$GITHUB_WORKSPACE/.state/release-state.json" <<'NODE'
           import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-          import { activateQueuedTarget, createState, enqueueTarget } from './config/mercurai/scripts/release-state.mjs'
+          import { activateQueuedTarget, createState, enqueueTarget, transitionState } from './config/mercurai/scripts/release-state.mjs'
           const path = process.argv[2]
+          const conflictInventory = JSON.parse(readFileSync(process.env.CONFLICT_INVENTORY_FILE, 'utf8'))
           const target = {
             upstreamMainSha: process.env.UPSTREAM_MAIN_SHA,
             stableTag: process.env.STABLE_TAG,
@@ -101,6 +150,29 @@ jobs:
           }
           if (['published', 'blocked', 'failed'].includes(state.state) && state.queuedTarget) {
             state = activateQueuedTarget(state, { expectedVersion: state.version })
+          }
+          const previousInventory = state.evidence?.conflictInventory
+          const inventoryKey = (value) =>
+            JSON.stringify(value, (key, nested) => (key === 'generatedAt' ? undefined : nested))
+          if (inventoryKey(previousInventory) !== inventoryKey(conflictInventory)) {
+            if (conflictInventory.status === 'conflict' && state.state === 'detected' && !state.lease) {
+              state = transitionState(state, {
+                expectedVersion: state.version,
+                to: 'blocked',
+                owner: 'coordinator',
+                evidence: {
+                  reason: `upstream patch replay has ${conflictInventory.conflictCount} unresolved conflicts`,
+                  conflictInventory
+                }
+              })
+            } else {
+              state = {
+                ...state,
+                version: state.version + 1,
+                evidence: { ...state.evidence, conflictInventory },
+                updatedAt: new Date().toISOString()
+              }
+            }
           }
           writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`)
           NODE
