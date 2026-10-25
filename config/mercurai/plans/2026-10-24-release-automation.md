@@ -85,6 +85,19 @@ The published `.2` commit was `8dc0af619f622f719be8c16818693f662a92cadd`; its tr
 Tree equality is useful provenance but does not justify claiming CI ran at a different commit.
 The next pipeline must materialize, qualify, and tag one exact candidate commit.
 
+### Current integration probe (2026-10-25)
+
+The current upstream refs were revalidated in an isolated worktree: official `main` is
+`6017bc99b427b7c7e15095085844f24bfb81ed56`; stable `v1.4.239` peels to
+`47f77cf7018ebc0d046b82c6dde31cf704909162`; the fork controller remains
+`c5f11af2b2dae111070cc3938a9be20267e23e48`. The active patch branch has eight commits from base
+`54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40`; its first retention commit changes 665 files.
+Read-only `git merge-tree` probes reported 81 conflicts against current official `main` and 76 against
+the stable tag. Conflicts include Codex service-tier/session options and turn start, runtime/persistence,
+process/file async paths, package manifests, workflows, and renderer/session-wire code. No ours/theirs
+resolution was applied. This is an integration blocker requiring bounded semantic reconciliation; it is
+not evidence that the patch can be safely dropped or that upstream has replaced every enhancement.
+
 ## Requirements and acceptance criteria
 
 ### Release completeness
