@@ -40,9 +40,20 @@ jobs:
           set -euo pipefail
           upstream_main_sha=$(gh api repos/stablyai/orca/branches/main --jq .commit.sha)
           stable_tag=$(gh api repos/stablyai/orca/releases/latest --jq .tag_name)
+          stable_ref=$(gh api "repos/stablyai/orca/git/ref/tags/$stable_tag")
+          stable_tag_sha=$(jq -r '.object.sha' <<<"$stable_ref")
+          stable_tag_type=$(jq -r '.object.type' <<<"$stable_ref")
+          if [ "$stable_tag_type" = tag ]; then
+            stable_tag_sha=$(gh api "repos/stablyai/orca/git/tags/$stable_tag_sha" --jq .object.sha)
+          fi
+          [[ "$stable_tag_sha" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::latest stable tag $stable_tag did not resolve to a commit sha"
+            exit 1
+          }
           patch_heads=$(yq -o=json -c '[.patches[] | select(.status == "upstream-open" or .status == "ours-only") | {branch, commit}]' config/mercurai/patches.yaml)
           echo "upstream_main_sha=$upstream_main_sha" >> "$GITHUB_OUTPUT"
           echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+          echo "stable_tag_sha=$stable_tag_sha" >> "$GITHUB_OUTPUT"
           echo "patch_heads=$patch_heads" >> "$GITHUB_OUTPUT"
 
       - name: Fetch or initialize the durable state branch
@@ -62,6 +73,7 @@ jobs:
         env:
           UPSTREAM_MAIN_SHA: ${{ steps.upstream.outputs.upstream_main_sha }}
           STABLE_TAG: ${{ steps.upstream.outputs.stable_tag }}
+          STABLE_TAG_SHA: ${{ steps.upstream.outputs.stable_tag_sha }}
           PATCH_HEADS: ${{ steps.upstream.outputs.patch_heads }}
         shell: bash
         run: |
@@ -73,13 +85,17 @@ jobs:
           const target = {
             upstreamMainSha: process.env.UPSTREAM_MAIN_SHA,
             stableTag: process.env.STABLE_TAG,
+            stableTagSha: process.env.STABLE_TAG_SHA,
             controllerSha: process.env.GITHUB_SHA,
             patchHeads: JSON.parse(process.env.PATCH_HEADS)
           }
           let state = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : createState(target)
           const patchHeadsChanged = JSON.stringify(state.candidate.patchHeads) !== JSON.stringify(target.patchHeads)
           const targetChanged = state.candidate.upstreamMainSha !== target.upstreamMainSha ||
-            state.candidate.stableTag !== target.stableTag || patchHeadsChanged
+            state.candidate.stableTag !== target.stableTag ||
+            state.candidate.stableTagSha !== target.stableTagSha ||
+            state.candidate.controllerSha !== target.controllerSha ||
+            patchHeadsChanged
           if (targetChanged) {
             state = enqueueTarget(state, target)
           }

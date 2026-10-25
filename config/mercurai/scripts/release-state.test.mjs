@@ -16,6 +16,7 @@ function target(overrides = {}) {
   return {
     upstreamMainSha: SHA,
     stableTag: 'v1.4.239',
+    stableTagSha: SHA,
     controllerSha: SHA,
     patchHeads: [{ branch: 'patch/current-main-release', commit: SHA }],
     ...overrides
@@ -41,6 +42,17 @@ test('rejects stale compare-and-swap updates and retains the original state', ()
   )
   assert.equal(state.state, 'detected')
   assert.equal(state.version, 0)
+})
+
+test('accepts a resolved stable tag commit and treats controller changes as a new target', () => {
+  const state = createState(target())
+  const next = enqueueTarget(
+    state,
+    target({ controllerSha: 'b'.repeat(40), stableTagSha: 'c'.repeat(40) })
+  )
+
+  assert.equal(next.queuedTarget.controllerSha, 'b'.repeat(40))
+  assert.equal(next.queuedTarget.stableTagSha, 'c'.repeat(40))
 })
 
 test('accepts the ordered candidate lifecycle and records evidence at each boundary', () => {

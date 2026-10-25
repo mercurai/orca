@@ -32,6 +32,7 @@ function validateTarget(target) {
     ['upstreamMainSha', target.upstreamMainSha],
     ['controllerSha', target.controllerSha]
   ]) requireSha(value, key)
+  if (target.stableTagSha !== undefined) requireSha(target.stableTagSha, 'stableTagSha')
   if (typeof target.stableTag !== 'string' || !/^v\d+\.\d+\.\d+$/.test(target.stableTag)) {
     throw new TypeError('stableTag must be a stable upstream version')
   }

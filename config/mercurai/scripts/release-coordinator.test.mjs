@@ -20,6 +20,8 @@ test('coordinator uses controller code, state CAS, and bounded Orca dispatch wit
   assert.match(workflow, /release-precheck\.mjs/)
   assert.match(workflow, /release-agent-dispatch\.mjs/)
   assert.match(workflow, /patchHeadsChanged/)
+  assert.match(workflow, /stableTagSha/)
+  assert.match(workflow, /state\.candidate\.controllerSha !== target\.controllerSha/)
   assert.match(workflow, /activateQueuedTarget/)
   assert.match(workflow, /--json/)
   assert.match(workflow, /git -C \.state push origin "HEAD:refs\/heads\/\$STATE_BRANCH"/)
