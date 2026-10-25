@@ -110,6 +110,12 @@ The scaffold has since incorporated reviewed Codex turn-receipt handling (`305e9
 compatibility (`0d69ba4e3a`), and native catalog/session-wire allocation and intent fixes (`a066562e97`). A fresh
 merge-tree probe against the new scaffold head reports 78 remaining conflict records; these changes reduce the
 review surface but do not make the scaffold releasable.
+The bounded follow-up lanes then recorded workflow/dependency reconciliation (`c61cb34a88`), runtime pairing
+coverage (`96edfe2c5e`), SSH pairing and WSL journal fixes (`9319079fb6`), native mutation lifecycle and hook
+cleanup (`eb0ef241dd`), and managed-runtime async persistence/host-restart compatibility (`a14c625a9c`). Their
+combined diff was materialized as one candidate commit `3f330defd4410b4e51c31b66de02235113b29e6b` on the exact
+official-main parent `870038cfc646fd654a146f82d64f6019456319b6`; merge-tree against that parent is clean and
+the candidate is still local, unqualified, and unreleased.
 
 ## Requirements and acceptance criteria
 
