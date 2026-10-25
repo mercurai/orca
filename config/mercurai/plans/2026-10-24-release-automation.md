@@ -120,6 +120,9 @@ fixture omission; candidate commit `2ad742a69b57027b04c8bfac8e3808502a4b43df` ad
 review found structured-clone loss of `stderrBytes`; candidate commit `d3def6cf25c347d3629c97b462f238c31389181c`
 restores both byte fields and adds invalid-UTF8/WSL-marker coverage. The current candidate is the three-commit
 range from `870038cfc6` ending at `d3def6cf25`.
+Independent review of `d3def6cf25` returned `accept` for the scoped integration corrections; this is a source-review
+verdict only. Exact-candidate CI, package qualification, installation/runtime acceptance, and protected publication
+remain open.
 
 ## Requirements and acceptance criteria
 
