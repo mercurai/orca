@@ -167,6 +167,8 @@ series.
   an agent, or carries the channel token. See [`automation-contract.md`](automation-contract.md) for
   the state machine, structured Orca dispatch adapter, recovery, and pause/resume rules. The local
   Orca schedule remains disabled until the first qualified release and a nonpublishing rehearsal.
+  `scripts/release-automation-spec.mjs` prints the reviewed disabled registration argv; enabling it is
+  an explicit owner action after that rehearsal.
 - `fork-orcad-template`: builds the orcad deployment template for a ref. From upstream v1.4.224
   every SSH host runs a managed Orca server (orcad), which the desktop deploys from a template
   packaged inside the app; a build without it installs and then fails every SSH host. The fork

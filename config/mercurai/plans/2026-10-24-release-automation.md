@@ -362,7 +362,8 @@ Parallelism: independent reviewer checks security/recovery; owner alone register
   Verify dry-run cannot tag, publish, mutate the channel, enable an automation, or access production credentials.
 - [ ] P5.2 Register an Orca automation disabled through the owning runtime's CLI; inspect its provider, repository,
   schedule, precheck, and task contract. Do not edit runtime-owned config directly. Run an explicit nonpublishing
-  rehearsal whose controller guard executes even though manual runs omit the scheduler precheck.
+  rehearsal whose controller guard executes even though manual runs omit the scheduler precheck. Use the checked-in
+  `scripts/release-automation-spec.mjs` to produce the disabled registration argv; do not enable it in source.
 - [ ] P5.3 Enable the verified hourly schedule through the existing CLI and record its automation ID and controller
   revision. Verify no-op cycles launch no workers and restart recovery resumes one existing candidate only.
   If the desktop is unavailable, verify the GitHub queue retains work and recovery does not duplicate agents.

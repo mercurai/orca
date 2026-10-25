@@ -83,6 +83,21 @@ the schedule while preserving the state branch and receipts; do not delete the
 queue. Resume by reconciling the current state and upstream target, not by
 creating duplicate workers.
 
+## Local automation registration
+
+The checked-in `scripts/release-automation-spec.mjs` emits a disabled-by-default
+spec and structured argv for the local Orca runtime. From the release worktree,
+inspect it with:
+
+```bash
+node config/mercurai/scripts/release-automation-spec.mjs
+```
+
+An owner may pass the emitted argv to `orca` without a shell string, inspect
+`orca automations show <id> --json`, and run one nonpublishing rehearsal. The
+spec cannot enable itself; enabling the hourly schedule remains a separate owner
+action after a qualified release and rehearsal.
+
 ## Recovery and rollback
 
 - If a worker disappears, reconcile its dispatch IDs and lease before retrying.
