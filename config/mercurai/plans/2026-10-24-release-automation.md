@@ -28,9 +28,11 @@ Update those documents with behavior during implementation; avoid maintaining an
 ## Workspace, scope, and reuse
 
 Planning workspace: `C:/Users/svere/orca/worktrees/release-registration-20261023`.
-Branch: `codex/release-registration-20261023`, observed HEAD `6e85b3ea8725b77c743c5573eccd7b8ea032f90b`.
-Owner: this release session. Purpose: plan only. Related implementation PR: none; prior registration PR #72 merged.
-State: clean before this plan; no branch allocation, implementation, build, test, dispatch, or installation performed.
+Branch: `codex/release-registration-20261023`, implementation commit `5a5339097e`.
+Owner: this release session. Purpose: implementation and release handoff. Related implementation PR: none;
+prior registration PR #72 merged.
+State: promotion/coordinator implementation committed locally; no branch landing, CI dispatch, release tag,
+package publication, installation, or runtime verification performed.
 Use this existing isolated workspace for the plan. Do not resume implementation on its stale branch without a reuse
 and current-base check. Controller work follows live `mercurai`; product work follows the frozen main base.
 No worktree or branch deletion is authorized. Retirement must preserve open comparison PR heads and bases.
