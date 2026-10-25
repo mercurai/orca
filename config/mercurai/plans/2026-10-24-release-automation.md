@@ -115,7 +115,11 @@ coverage (`96edfe2c5e`), SSH pairing and WSL journal fixes (`9319079fb6`), nativ
 cleanup (`eb0ef241dd`), and managed-runtime async persistence/host-restart compatibility (`a14c625a9c`). Their
 combined diff was materialized as one candidate commit `3f330defd4410b4e51c31b66de02235113b29e6b` on the exact
 official-main parent `870038cfc646fd654a146f82d64f6019456319b6`; merge-tree against that parent is clean and
-the candidate is still local, unqualified, and unreleased.
+the candidate is still local, unqualified, and unreleased. Independent review then found the known async pairing
+fixture omission; candidate commit `2ad742a69b57027b04c8bfac8e3808502a4b43df` adds the required await. A second
+review found structured-clone loss of `stderrBytes`; candidate commit `d3def6cf25c347d3629c97b462f238c31389181c`
+restores both byte fields and adds invalid-UTF8/WSL-marker coverage. The current candidate is the three-commit
+range from `870038cfc6` ending at `d3def6cf25`.
 
 ## Requirements and acceptance criteria
 
