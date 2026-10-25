@@ -17,7 +17,7 @@ conflicts disappear, an agent reports completion, or a dropdown exists.
 
 This is the authoritative implementation plan for this effort and its implementation record. Phase 1's
 promotion gate and Phase 4's durable state, precheck, dispatch adapter, coordinator workflow, and contract
-documentation are implemented locally but remain unreviewed, uncommitted, and unreleased. Phase 2 product
+documentation are implemented and committed locally but remain independently reviewed, landed, and unreleased. Phase 2 product
 integration, protected CI, packaging, installation, and automation enablement are still pending.
 The qualification workflow binds the reviewer identity to the candidate and controller, but the independent
 fleet receipt is still owner-supplied input; P1.5 must validate that intake through the established review route
