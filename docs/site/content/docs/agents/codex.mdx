@@ -32,6 +32,7 @@ A discovery request started before that change cannot establish support for the 
 Saved Fast-off preferences become Standard. Saved Fast-on preferences stay pending until the
 current account/model catalog identifies Fast's exact request ID. A saved canonical tier takes
 precedence over the old boolean preference. Unknown support never silently becomes Standard.
+The same precedence applies when a captured message contains both values.
 
 A missing catalog tier does not establish that the account lacks subscription entitlement.
 The session keeps the requested next-turn selection separate from the tier acknowledged for a
@@ -54,6 +55,7 @@ Each message carries the selected speed with its model when the execution host s
 This includes a pick whose separate settings update is still pending. On an older host without
 send-option support, wait for the speed update before sending; a refusal keeps the text in the composer.
 Untouched legacy Fast controls do not override the provider's configured default.
+A rejected older start cannot replace a newer picker choice or the settings of a newer successful start.
 
 If a speed pick is refused while a chat starts, Orca retains the requested next-turn setting and
 unsent opening text. Choose a supported speed or cancel the launch; the refusal does not create a

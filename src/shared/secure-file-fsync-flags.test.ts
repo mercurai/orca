@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { removeTreeSync } from './windows-transient-lock-removal'
 import type * as NodeFs from 'node:fs'
 import type * as NodeFsPromises from 'node:fs/promises'
@@ -42,6 +42,11 @@ vi.mock('node:fs/promises', async () => {
 
 import { bestEffortFsyncDirectorySync, fsyncFileSync } from './secure-file'
 import { writeDurableSecureJsonFileAsync } from './secure-file-async-write'
+import {
+  resetWindowsSecurityLoadForTests,
+  setWindowsSecurityForTests
+} from './windows-security-addon'
+import { createFakeWindowsSecurity } from './windows-security-addon.test-fixture'
 
 const createdPaths: string[] = []
 
@@ -63,6 +68,23 @@ describe('secure file fsync flags', () => {
     fsyncFileSync(path)
 
     expect(openedPaths).toMatchObject([{ path, flags: 'r+' }])
+  })
+
+  windowsIt('durably publishes JSON through a writable asynchronous fsync handle', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'orca-async-file-fsync-'))
+    createdPaths.push(directory)
+    const path = join(directory, 'record.json')
+    setWindowsSecurityForTests(createFakeWindowsSecurity())
+
+    try {
+      await expect(writeDurableSecureJsonFileAsync(path, { ok: true })).resolves.toBe(true)
+
+      expect(openedPaths).toMatchObject([{ flags: 'r+' }])
+      expect(openedPaths[0]?.path).toMatch(/record\.json\.\d+\.\d+\.[0-9a-f]+\.tmp$/)
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ ok: true })
+    } finally {
+      resetWindowsSecurityLoadForTests()
+    }
   })
 
   const posixIt = process.platform === 'win32' ? it.skip : it

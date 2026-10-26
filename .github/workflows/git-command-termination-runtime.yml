@@ -113,6 +113,7 @@ jobs:
           src/shared/runtime-environment-wsl-host-store.test.ts
           src/main/managed-server/lifecycle/orcad-managed-pairing-repair-serialization.test.ts
           src/shared/runtime-environment-store.test.ts
+          src/shared/secure-file-fsync-flags.test.ts
           src/shared/runtime-environment-store-same-server.test.ts
           src/shared/runtime-environment-ssh-access-store.test.ts
           src/shared/runtime-environment-usage-detached.test.ts

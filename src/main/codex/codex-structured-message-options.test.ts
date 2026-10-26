@@ -61,21 +61,24 @@ describe('Codex captured message choices', () => {
     { knownCatalog: false, serviceTier: 'default' },
     { knownCatalog: true, serviceTier: 'priority' },
     { knownCatalog: false, serviceTier: 'priority' }
-  ])('canonical $serviceTier overrides legacy Fast with catalog=$knownCatalog', async ({ knownCatalog, serviceTier }) => {
-    const request = vi.fn(async () => ({}))
-    const session = optionSession(request)
-    if (knownCatalog) seedMessageDefaults(session)
-    session.reportedOptions.model = 'model-a'
+  ])(
+    'canonical $serviceTier overrides legacy Fast with catalog=$knownCatalog',
+    async ({ knownCatalog, serviceTier }) => {
+      const request = vi.fn(async () => ({}))
+      const session = optionSession(request)
+      if (knownCatalog) seedMessageDefaults(session)
+      session.reportedOptions.model = 'model-a'
 
-    const options = await resolvedCodexMessageOptions(session, {
-      serviceTier,
-      fastMode: 'true'
-    })
+      const options = await resolvedCodexMessageOptions(session, {
+        serviceTier,
+        fastMode: 'true'
+      })
 
-    expect(options.serviceTier).toBe(serviceTier)
-    expect(options).not.toHaveProperty('fastMode')
-    expect(request).not.toHaveBeenCalled()
-  })
+      expect(options).toMatchObject({ serviceTier })
+      expect(options).not.toHaveProperty('fastMode')
+      expect(request).not.toHaveBeenCalled()
+    }
+  )
 
   it('admits and acknowledges the captured tier rather than the newer session pick', async () => {
     const request = vi.fn(async () => ({ turn: { id: 'captured-turn' } }))

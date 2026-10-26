@@ -2,11 +2,14 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createMemoryNativeChatComposerDraftStorage } from './native-chat-composer-draft-storage'
 
-// Imperative image verification must not import or call the application store hook.
+// Imperative verification reads ownership state without calling the application store hook.
 vi.mock('@/store', () => ({
-  useAppStore: () => {
-    throw new Error('Draft verification must not call the application store hook')
-  }
+  useAppStore: Object.assign(
+    () => {
+      throw new Error('Draft verification must not call the application store hook')
+    },
+    { getState: () => ({ tabsByWorktree: {}, unifiedTabsByWorktree: {} }) }
+  )
 }))
 
 let storage: ReturnType<typeof createMemoryNativeChatComposerDraftStorage>

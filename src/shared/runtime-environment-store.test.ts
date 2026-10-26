@@ -22,6 +22,11 @@ import {
 import { markEnvironmentUsed } from './runtime-environment-usage'
 import { addManagedOrcadEnvironment } from './runtime-environment-managed-orcad-store'
 import { expectNoSyncSpawnOnWin32 } from './windows-spawn-test-harness'
+import {
+  resetWindowsSecurityLoadForTests,
+  setWindowsSecurityForTests
+} from './windows-security-addon'
+import { createFakeWindowsSecurity } from './windows-security-addon.test-fixture'
 
 vi.mock('@orca/process-host', () => ({ runProcess: vi.fn(), runProcessSync: vi.fn() }))
 
@@ -41,7 +46,6 @@ function pairingCode(
 
 describe('runtime environment store', () => {
   const tempDirs: string[] = []
-  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')
 
   it('backs up a NUL-filled store when a server is saved over it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -109,14 +113,12 @@ describe('runtime environment store', () => {
   })
 
   beforeEach(() => {
-    // Why: this suite tests store timestamps, while secure-file tests cover Windows ACLs.
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' })
+    // Fake ACLs, not the host platform: real Windows fsync needs a write-capable handle.
+    setWindowsSecurityForTests(createFakeWindowsSecurity())
   })
 
   afterEach(() => {
-    if (originalPlatform) {
-      Object.defineProperty(process, 'platform', originalPlatform)
-    }
+    resetWindowsSecurityLoadForTests()
     for (const dir of tempDirs.splice(0)) {
       rmSync(dir, { recursive: true, force: true })
     }

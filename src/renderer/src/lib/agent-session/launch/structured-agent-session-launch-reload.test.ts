@@ -354,7 +354,7 @@ describe('structured agent launch reload recovery', () => {
     }
     localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
     const actual = await vi.importActual<typeof LaunchIntentModule>(
-      './launch-structured-agent-session'
+      '../../launch-structured-agent-session'
     )
     mocks.restoreIntent.mockImplementation(actual.restoreStructuredAgentSessionLaunchIntent)
     storage.refuseWrites = true
@@ -506,7 +506,7 @@ describe('structured agent launch reload recovery', () => {
     }
     localStorage.setItem('orca:structuredAgentLaunches:v1', JSON.stringify([original]))
     const actual = await vi.importActual<typeof LaunchIntentModule>(
-      './launch-structured-agent-session'
+      '../../launch-structured-agent-session'
     )
     mocks.restoreIntent.mockImplementation(actual.restoreStructuredAgentSessionLaunchIntent)
     const updateStarted = Promise.withResolvers<void>()

@@ -1,7 +1,7 @@
 import { adapterWithIndependentCatalog as adapterFor } from './codex-structured-independent-catalog.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
-import { CodexAppServerRequestError } from './codex-app-server-connection'
+import { CodexAppServerRequestError } from './app-server/codex-app-server-request-error'
 import { startCodexTurn } from './codex-structured-turn-start'
 import {
   acquireReadyCodexForTest,

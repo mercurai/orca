@@ -224,10 +224,19 @@ export async function startCodexTurn(
       previousOptions &&
       (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error))
     ) {
-      host.appliedTurnOptions = previousApplied
-      host.options.clear()
-      for (const [key, value] of previousOptions) {
-        host.options.set(key, value)
+      if (host.appliedTurnOptions === requested) {
+        host.appliedTurnOptions = previousApplied
+      }
+      // An older rejection must not roll back a later picker change or request.
+      if (
+        host.speedDispatchSequence === sequence &&
+        host.options.size === Object.keys(requested).length &&
+        Object.entries(requested).every(([key, value]) => host.options.get(key) === value)
+      ) {
+        host.options.clear()
+        for (const [key, value] of previousOptions) {
+          host.options.set(key, value)
+        }
       }
     }
     throw error
