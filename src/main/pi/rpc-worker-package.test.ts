@@ -1,4 +1,6 @@
 import { join } from 'node:path'
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { JsonlRpcAgentConnectionOptions } from '../jsonl-rpc/agent-connection'
 import type { JsonlRpcRecord } from '../jsonl-rpc/peer'
@@ -44,9 +46,9 @@ function receipt(binding = workerPackage) {
   }
 }
 
-async function setup() {
+async function setup(packageBinding = workerPackage) {
   const rig = await openProviderTimelineRig({ agent: 'pi', sessionId })
-  let binding = workerPackage
+  let binding = packageBinding
   const order: string[] = []
   const commands: JsonlRpcRecord[] = [command]
   const promptResult = { disposition: 'handled' }
@@ -54,10 +56,10 @@ async function setup() {
   let acquisitionCount = 0
   const prepareWorkerPackage = vi.fn(async (_sessionId: string, acquisitionId: string) => {
     binding = {
-      ...workerPackage,
+      ...packageBinding,
       acquisitionId,
       readinessNonce: (++acquisitionCount).toString(16).padStart(64, '0'),
-      bindingPath: join(workerPackage.packageRoot, '..', 'launch', acquisitionId, 'launch-binding.json')
+      bindingPath: join(packageBinding.packageRoot, '..', 'launch', acquisitionId, 'launch-binding.json')
     }
     return binding
   })
@@ -105,8 +107,9 @@ async function setup() {
     }
     return connection
   })
+  const resolveLaunch = vi.fn(async () => ({ command: '/host/bin/pi', cwd: '/host/folder', fullAccess: true, previous: null }))
   const adapter = new PiRpcSessionAdapter({
-    resolveLaunch: async () => ({ command: '/host/bin/pi', cwd: '/host/folder', fullAccess: true, previous: null }),
+    resolveLaunch,
     ...{ prepareWorkerPackage },
     openConnection,
     readProcessStartTime: async () => 12345,
@@ -123,7 +126,7 @@ async function setup() {
     fence: 7, spawnToken: 'spawn-token', options: { model: `${model.provider}/${model.id}` },
     events: rig.eventSink
   }
-  return { adapter, input, prepareWorkerPackage, openConnection, commands, promptResult, transformReceipt, sent, requests, order }
+  return { adapter, input, prepareWorkerPackage, openConnection, resolveLaunch, commands, promptResult, transformReceipt, sent, requests, order }
 }
 
 describe('Pi admitted package readiness', () => {
@@ -207,5 +210,28 @@ describe('Pi admitted package readiness', () => {
     h.prepareWorkerPackage.mockRejectedValue(new Error('dispatch package is not current'))
     await expect(h.adapter.acquire(h.input)).rejects.toThrow()
     expect(h.openConnection).not.toHaveBeenCalled()
+  })
+
+  it('resumes the verified snapshot session even when ordinary workspace resolution classified it as a fork', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'orca-pi-snapshot-resume-'))
+    const snapshotPath = join(directory, 'snapshot')
+    const sessionDirectory = join(directory, 'sessions')
+    await mkdir(snapshotPath)
+    await mkdir(sessionDirectory)
+    const file = join(sessionDirectory, 'session.jsonl')
+    await writeFile(file, JSON.stringify({ type: 'session', cwd: snapshotPath }) + '\n')
+    const h = await setup({ ...workerPackage, snapshotPath, sessionDirectory })
+    cleanups.push(() => rm(directory, { recursive: true, force: true }))
+    h.resolveLaunch.mockImplementation(async () => ({
+      command: '/host/bin/pi', cwd: '/host/folder', fullAccess: true, previous: null,
+      forkFile: file
+    }))
+    await expect(h.adapter.acquire(h.input)).resolves.toMatchObject({ link: { origin: 'resumed' } })
+    expect(h.openConnection.mock.calls[0]?.[0]).toMatchObject({
+      cwd: snapshotPath, args: expect.arrayContaining(['--session', file])
+    })
+    expect(h.openConnection.mock.calls[0]?.[0]).not.toMatchObject({
+      args: expect.arrayContaining(['--fork'])
+    })
   })
 })
