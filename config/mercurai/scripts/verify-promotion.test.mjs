@@ -63,6 +63,19 @@ test('accepts complete full qualification at the exact candidate revision', () =
   assert.deepEqual(result, { ok: true, reasons: [] })
 })
 
+test('rejects reviewer text without authenticated owner acceptance of independent review', () => {
+  const result = verifyPromotion(evidence(), {
+    ...policy,
+    review: {
+      workflow: 'fork-accept-release-review.yml',
+      owners: ['synthetic-release-owner']
+    }
+  })
+
+  assert.equal(result.ok, false)
+  assert.match(result.reasons.join('\n'), /review.*acceptance|owner.*acceptance/i)
+})
+
 test('refuses promotion when policy has not explicitly admitted publication', () => {
   for (const promotionEnabled of [false, undefined]) {
     const result = verifyPromotion(evidence(), { ...policy, promotionEnabled })
