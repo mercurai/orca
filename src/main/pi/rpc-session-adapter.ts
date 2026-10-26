@@ -22,8 +22,13 @@ import { PiRpcPromptError, preparePiRpcPrompt } from './rpc-prompt'
 import { applyPiRpcSessionOption } from './rpc-options'
 import { supportsSupervisedProviderChildLocation } from '../provider-process/supervised-provider-child-location'
 import { ClaudeDispatchContentError } from '../claude/claude-structured-dispatch-content'
+import type { PiWorkerPackageBinding } from './worker-package-binding'
 
 export type PiRpcSessionAdapterDeps = PiRpcSessionDeps & {
+  prepareWorkerPackage?: (
+    sessionId: string,
+    acquisitionId: string
+  ) => Promise<PiWorkerPackageBinding | undefined>
   resolveLaunch: (input: {
     identity: StructuredAgentSessionAcquireInput['identity']
     spawnToken: string
@@ -79,9 +84,17 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
       if (attempt.signal.aborted) {
         throw new AgentSessionPreSpawnError(new Error('Pi closed while starting'))
       }
+      const generation = randomUUID()
+      const workerPackage = await waitForPromiseWithSignal(
+        this.deps.prepareWorkerPackage?.(id, generation) ?? Promise.resolve(undefined),
+        attempt.signal
+      )
+      if (attempt.signal.aborted) {
+        throw new AgentSessionPreSpawnError(new Error('Pi closed while preparing worker package'))
+      }
       const spec = buildPiRpcLaunch(launch)
       const fresh = !launch.sessionFile && !launch.forkFile
-      session = new PiRpcSession(input, randomUUID(), spec, this.deps, fresh)
+      session = new PiRpcSession(input, generation, spec, this.deps, fresh, workerPackage)
       this.sessions.set(id, session)
       this.starts.track(attempt, session.connection)
       const spawned = providerSpawnedProcessIdentity(

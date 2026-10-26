@@ -4,20 +4,18 @@ import type {
 } from '../../shared/agent-session-wire'
 import type {
   StructuredAgentSessionAcquireInput,
-  StructuredAgentSessionLifecycleEvent,
   AgentSessionDispatchOutcome
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
 import { providerTimelineSink } from '../native-chat/agent-session-timeline/provider-timeline-plan'
 import { JsonlRpcTimelineLane } from '../jsonl-rpc/timeline-lane'
-import {
-  JsonlRpcAgentConnection,
-  type JsonlRpcAgentConnectionOptions
-} from '../jsonl-rpc/agent-connection'
+import { JsonlRpcAgentConnection } from '../jsonl-rpc/agent-connection'
+import type { PiRpcConnection, PiRpcSessionDeps } from './rpc-session-types'
 import type { ProviderProcessLaunch } from '../provider-process/provider-process-launch'
 import { PiRpcTurns } from './rpc-turns'
 import { PiRpcDialogCallbacks } from './rpc-dialog-callbacks'
 import { piRpcStateSchema } from './rpc-protocol'
+import { PiRpcWorkerReadiness } from './rpc-worker-readiness'
+import type { PiWorkerPackageBinding } from './worker-package-binding'
 import {
   applyPiRpcSessionOption,
   confirmPiRpcModel,
@@ -30,35 +28,7 @@ import {
   type AgentModelCatalogLiveListing
 } from '../native-chat/agent-model-catalog/agent-model-catalog-entry'
 
-export type PiRpcConnection = Pick<
-  JsonlRpcAgentConnection,
-  | 'request'
-  | 'send'
-  | 'close'
-  | 'pauseReading'
-  | 'resumeReading'
-  | 'pid'
-  | 'closed'
-  | 'rootVerdict'
-  | 'processless'
-  | 'lastCloseResult'
-  | 'onExit'
->
-export type PiRpcSessionDeps = {
-  openConnection?: (
-    launch: ProviderProcessLaunch,
-    handlers: JsonlRpcAgentConnectionOptions
-  ) => PiRpcConnection
-  onLifecycle: (event: StructuredAgentSessionLifecycleEvent) => void
-  onSettled: (input: {
-    sessionId: string
-    clientMessageId: string
-    fence: number
-    outcome: AgentSessionDispatchOutcome
-  }) => void
-  onIdle: (input: { sessionId: string }) => void
-  logger: StructuredAgentSessionLogger
-}
+export type { PiRpcConnection, PiRpcSessionDeps } from './rpc-session-types'
 
 /** One child owns its transport, dialect, dialogs and timeline, including shutdown retries. */
 export class PiRpcSession {
@@ -76,6 +46,7 @@ export class PiRpcSession {
   private failedCause?: Error
   private exitDelivery: Promise<void> = Promise.resolve()
   private releaseAfterExit?: () => void
+  private readonly workerReadiness?: PiRpcWorkerReadiness
 
   constructor(
     readonly input: StructuredAgentSessionAcquireInput,
@@ -83,8 +54,10 @@ export class PiRpcSession {
     launch: ProviderProcessLaunch,
     private readonly deps: PiRpcSessionDeps,
     /** A new Pi session starts on its config's model; a resumed or forked one keeps its own. */
-    readonly resolvesConfig = false
+    readonly resolvesConfig = false,
+    workerPackage?: PiWorkerPackageBinding
   ) {
+    this.workerReadiness = workerPackage && new PiRpcWorkerReadiness(workerPackage)
     const sink = input.events && providerTimelineSink(input.events)
     if (!sink) {
       throw new Error('Pi structured chat requires the shared timeline sink')
@@ -138,10 +111,11 @@ export class PiRpcSession {
       deps.openConnection ?? ((spec, handlers) => new JsonlRpcAgentConnection(spec, handlers))
     )(launch, {
       ...(input.onOutput ? { onOutput: input.onOutput } : {}),
-      onRecord: (frame) =>
-        frame.type === 'extension_ui_request'
-          ? this.dialogs.receive(frame)
-          : this.turns.receive(frame),
+      onRecord: (frame) => {
+        if (this.workerReadiness?.receive(frame)) return
+        if (frame.type === 'extension_ui_request') this.dialogs.receive(frame)
+        else this.turns.receive(frame)
+      },
       onClose: (error) => this.fail(error),
       onDiagnostic: (message) =>
         deps.logger.warn(message, { scope: 'pi-rpc', sessionId: input.identity.sessionId }),
@@ -201,6 +175,7 @@ export class PiRpcSession {
         error
       })
     }
+    await this.workerReadiness?.verify(this.connection)
     return state.sessionFile
   }
 

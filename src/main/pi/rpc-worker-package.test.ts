@@ -55,6 +55,7 @@ async function setup() {
   const prepareWorkerPackage = vi.fn(async (_sessionId: string, acquisitionId: string) => {
     binding = {
       ...workerPackage,
+      acquisitionId,
       readinessNonce: (++acquisitionCount).toString(16).padStart(64, '0'),
       bindingPath: join(workerPackage.packageRoot, '..', 'launch', acquisitionId, 'launch-binding.json')
     }
