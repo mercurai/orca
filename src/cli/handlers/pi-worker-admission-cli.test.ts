@@ -28,7 +28,12 @@ describe('Pi admission CLI routing', () => {
   const call = vi.fn()
   beforeEach(() => {
     directory = mkdtempSync(join(tmpdir(), 'orca-pi-cli-'))
-    call.mockReset().mockResolvedValue({ result: { state: 'ready', configSha256: PROFILE } })
+    call.mockReset().mockResolvedValue({
+      result: {
+        state: 'ready', configSha256: PROFILE,
+        capabilities: ['orchestration_pi_worker_admission_v1']
+      }
+    })
   })
   afterEach(() => {
     rmSync(directory, { recursive: true, force: true })
@@ -75,5 +80,16 @@ describe('Pi admission CLI routing', () => {
     expect(call).toHaveBeenCalledWith('orchestration.workerStart', expect.objectContaining({
       task: 'task_implementation', agent: 'pi', piProfileSha256: PROFILE
     }))
+  })
+
+  it('refuses an older home runtime that would discard the Pi profile reference', async () => {
+    call.mockImplementation(async (method: string) => ({
+      result: method === 'status.get' ? { capabilities: [] } : { state: 'ready' }
+    }))
+    await expect(invoke([
+      'orchestration', 'worker-start', '--task', 'task_implementation', '--from', 'term_coord',
+      '--agent', 'pi', '--pi-profile-sha256', PROFILE
+    ])).rejects.toMatchObject({ code: 'capability_unsupported', message: expect.stringContaining('Pi admission') })
+    expect(call.mock.calls.some(([method]) => method === 'orchestration.workerStart')).toBe(false)
   })
 })

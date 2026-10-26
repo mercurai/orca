@@ -60,6 +60,7 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
       comment: getOptionalStringFlag(flags, 'comment'),
       setup: getOptionalStringFlag(flags, 'setup'),
       agent: getOptionalStringFlag(flags, 'agent'),
+      piProfileSha256: getOptionalStringFlag(flags, 'pi-profile-sha256'),
       model,
       effort,
       terminal: getOptionalStringFlag(flags, 'terminal'),

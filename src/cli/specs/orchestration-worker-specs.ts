@@ -23,6 +23,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
       'setup',
       'agent',
       'model',
+      'pi-profile-sha256',
       'effort',
       'terminal',
       'retry-of',
@@ -33,6 +34,7 @@ export const ORCHESTRATION_WORKER_COMMAND_SPECS: CommandSpec[] = [
     ],
     identityFlagRoles: { from: 'caller', terminal: 'target' },
     notes: [
+      'Supervised Pi requires --pi-profile-sha256 matching the admitted immutable template bytes and a structured route. Terminal and federated Pi routes are refused before launch.',
       'Current and existing worktrees never rerun setup; a fresh agent terminal is created unless --terminal is explicit.',
       'When reusing --terminal, pass --worktree for that terminal; current means the coordinator worktree.',
       '--agent takes an Orca agent id enabled on the worker server, such as claude, codex, cursor, antigravity, muse, zcode, opencode, or opencode2.',

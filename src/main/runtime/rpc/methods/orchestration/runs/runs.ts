@@ -6,6 +6,7 @@ import type { OrcaRuntimeService } from '../../../../orca-runtime'
 import type { OrchestrationCallerIdentity } from '../../../../orchestration/orchestration-caller-identity'
 import { currentDispatchAssigneeRun } from '../messaging/recipient-routing'
 import {
+  PiWorkerAdmissionConfigureParams,
   RunCreateParams,
   RunCurrentParams,
   RunListParams,
@@ -26,6 +27,25 @@ function cancelBoundDispatchWaiters(
 }
 
 export const ORCHESTRATION_RUN_METHODS = [
+  defineMethod({
+    name: 'orchestration.piWorkerAdmissionConfigure',
+    permission: 'workspace',
+    params: PiWorkerAdmissionConfigureParams,
+    handler: (params, { orchestrationCompatibilityEvidence, orchestrationCaller, runtime }) => {
+      const coordinator = resolveOrchestrationCaller(runtime, {
+        callerTerminalHandle: params.from,
+        callerEvidence: orchestrationCompatibilityEvidence,
+        callerSession: orchestrationCaller,
+        requireStablePane: true
+      })
+      return runtime.getOrchestrationDb().configurePiWorkerAdmission({
+        runId: params.run,
+        consumerGeneration: params.consumerGeneration,
+        coordinator,
+        config: params.config
+      })
+    }
+  }),
   defineMethod({
     name: 'orchestration.runCreate',
     permission: 'workspace',

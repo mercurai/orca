@@ -84,8 +84,18 @@ function validateQualification(db: OrchestrationDb, runId: string, config: PiWor
     const review = db.getTask(entry.reviewTaskId)
     const dispatch = db.getDispatchContext(entry.taskId)
     const worker = dispatch && db.getWorkerDispatch(dispatch.id)
-    return task?.status === 'completed' && review?.status === 'completed' &&
-      worker?.state === 'succeeded' && worker.stage === 'settled'
+    if (!dispatch || task?.status !== 'completed' || review?.status !== 'completed' ||
+      worker?.state !== 'succeeded' || worker.stage !== 'settled') return false
+    const launch: unknown = JSON.parse(worker.start_options)
+    if (!launch || typeof launch !== 'object' || !('agent' in launch) || launch.agent !== 'pi' ||
+      !('piAdmission' in launch) || !launch.piAdmission || typeof launch.piAdmission !== 'object') {
+      return false
+    }
+    const admission = launch.piAdmission
+    return 'runId' in admission && admission.runId === runId &&
+      'taskId' in admission && admission.taskId === entry.taskId &&
+      'dispatchId' in admission && admission.dispatchId === dispatch.id &&
+      'profileSha256' in admission && admission.profileSha256 === entry.profileSha256
   })
   if (acceptedPilots.length < 2) invalid('Pilot qualification requires two accepted Pi implementations and reviews.')
 }

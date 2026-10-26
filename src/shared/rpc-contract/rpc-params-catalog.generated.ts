@@ -415,6 +415,7 @@ import {
 } from './orchestration-params'
 import { RequestShowParams } from './orchestration-runs-mutation-request-show-params'
 import {
+  PiWorkerAdmissionConfigureParams,
   RunCreateParams,
   RunCurrentParams,
   RunListParams,
@@ -1095,6 +1096,7 @@ export const RPC_PARAMS_BY_METHOD = {
   'orchestration.gateResolve': GateResolveParams,
   'orchestration.inbox': InboxParams,
   'orchestration.partyLocation': PartyLocationParams,
+  'orchestration.piWorkerAdmissionConfigure': PiWorkerAdmissionConfigureParams,
   'orchestration.reply': ReplyParams,
   'orchestration.requestShow': RequestShowParams,
   'orchestration.reset': ResetParams,

@@ -19,6 +19,7 @@ export const ORCHESTRATION_LEGACY_RUN_ID = 'run_legacy_local'
 export const ORCHESTRATION_UNBOUND_RUN_ID = 'run_unbound'
 
 const ORCHESTRATION_MUTATION_METHODS = new Set([
+  'orchestration.piWorkerAdmissionConfigure',
   'orchestration.runCreate',
   'orchestration.runUse',
   'orchestration.send',

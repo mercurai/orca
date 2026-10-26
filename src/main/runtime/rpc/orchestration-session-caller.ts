@@ -48,6 +48,7 @@ type CallerParam = 'from' | 'terminal' | 'callerTerminalHandle'
  * validated, then they run exactly as they do for a terminal caller.
  */
 export const ORCHESTRATION_CALLER_PARAM: Readonly<Record<string, CallerParam>> = {
+  'orchestration.piWorkerAdmissionConfigure': 'from',
   'orchestration.runCreate': 'from',
   'orchestration.runUse': 'from',
   'orchestration.runCurrent': 'from',

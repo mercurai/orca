@@ -59,6 +59,7 @@ const NAMES_NO_RESOLVED_PARTY: Readonly<Record<string, string>> = {
 
 /** One request per identity-consulting method, valid enough to reach the dispatcher entry. */
 const MINIMAL_PARAMS: Readonly<Record<string, Record<string, unknown>>> = {
+  'orchestration.piWorkerAdmissionConfigure': { run: 'run_missing', consumerGeneration: 1, config: {} },
   'orchestration.runCreate': { objective: 'o' },
   'orchestration.runUse': { id: 'run_missing' },
   'orchestration.runCurrent': {},
