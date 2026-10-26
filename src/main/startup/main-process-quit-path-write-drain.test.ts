@@ -3,19 +3,19 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 // Modules the quit handlers import; each export is a stub that resolves, so teardown can run.
 const stubbed: [string, string[]][] = [
-  ['../ipc/filesystem-watcher', ['closeAllWatchers']],
+  ['../ipc/filesystem/watchers/filesystem-watcher-shutdown', ['closeAllWatchers']],
   ['../ipc/worktree-base-directory-watcher', ['disposeWorktreeBaseDirectoryWatchers']],
   ['../ipc/folder-repo-git-upgrade', ['stopFolderRepoGitUpgradeWatch']],
-  ['../ipc/pty', ['killAllPty']],
-  ['../daemon/daemon-init', ['disconnectDaemon', 'shutdownDaemon']],
-  ['../ipc/ssh-shutdown-drain', ['beginSshShutdown']],
+  ['../ipc/pty/kill-all', ['killAllPty']],
+  ['../daemon/daemon-provider-state', ['disconnectDaemon', 'shutdownDaemon']],
+  ['../ipc/ssh/ssh-shutdown-drain', ['beginSshShutdown']],
   ['../agent-hooks/managed-agent-hook-controls', ['removeManagedAgentHooksAsync']],
   ['../runtime/structured-agent-session-runtime', ['stopStructuredAgentSessionRuntime']],
   [
-    '../runtime/structured-agent-session-runtime-teardown',
+    '../runtime/agent-session/structured-agent-session-runtime-teardown',
     ['setStructuredAgentSessionTeardownTrigger']
   ],
-  ['../runtime/orca-runtime-files', ['awaitRuntimeFileWatcherUnsubscribes']],
+  ['../runtime/files/watch/file-watcher-leases', ['awaitRuntimeFileWatcherUnsubscribes']],
   ['../runtime/runtime-metadata', ['clearRuntimeMetadataIfOwned']],
   [
     '../browser/paired-runtime-browser-client-host-runtime',
@@ -25,6 +25,8 @@ const stubbed: [string, string[]][] = [
   ['../codex/codex-account-session-bridge', ['stopCodexAccountSessionBridges']],
   ['../git/local-repo-ref-maintenance', ['awaitPackedRefsLockRelease']],
   ['../worktree-background-removal', ['stopBackgroundWorktreeRemovals']],
+  ['../ipc/desktop-browser-bridge-wiring', ['disposeDesktopBrowserBridge']],
+  ['../orca-profiles/profile-cloud-session-owner', ['flushUnsavedCloudSessions']],
   ['../dock/unread-badge', ['setUnreadDockBadgeCount']],
   ['../tray/system-tray', ['destroySystemTray']],
   ['../telemetry/client', ['shutdownTelemetry']],
@@ -50,11 +52,13 @@ afterEach(() => {
     vi.doUnmock(moduleName)
   }
   vi.resetModules()
+  vi.useRealTimers()
 })
 
-// Real teardown deadline and real serializer: only the quit's other members are stubbed.
+// Real teardown and serializer on a fake clock; only the quit's other members are stubbed.
 it('holds app.quit until a secure write in flight at will-quit has published', async () => {
   vi.resetModules()
+  vi.useFakeTimers()
   let publishedAtQuit: boolean | null = null
   let published = false
   const app = Object.assign(new EventEmitter(), {
@@ -85,7 +89,7 @@ it('holds app.quit until a secure write in flight at will-quit has published', a
       Object.fromEntries(
         exports.map((name) => [
           name,
-          predicates.has(name) ? vi.fn(() => false) : vi.fn(() => Promise.resolve())
+          predicates.has(name) ? vi.fn(() => false) : vi.fn(async () => [])
         ])
       )
     )
@@ -106,7 +110,7 @@ it('holds app.quit until a secure write in flight at will-quit has published', a
   installMainProcessQuitHandlers()
 
   app.emit('will-quit', { defaultPrevented: false, preventDefault: vi.fn() })
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await vi.advanceTimersByTimeAsync(50)
   expect(app.quit).not.toHaveBeenCalled()
 
   publish()

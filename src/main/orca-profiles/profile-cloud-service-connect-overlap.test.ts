@@ -99,9 +99,11 @@ const capabilities: OrcaCloudCapabilities = {
 }
 
 const organizations: OrcaCloudOrgSummary[] = [{ orgId: 'org-1', name: 'Acme', role: 'Admin' }]
+const NOW = 1_800_000_000_000
 
 describe('Orca cloud overlapping connect', () => {
   beforeEach(() => {
+    vi.spyOn(Date, 'now').mockReturnValue(NOW)
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-cloud-connect-overlap-'))
     sessionWriteHook.once = null
     beginOrcaCloudPkceFlowMock.mockReset()
@@ -121,6 +123,7 @@ describe('Orca cloud overlapping connect', () => {
   afterEach(() => {
     rmSync(userDataPath, { recursive: true, force: true })
     vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
   it('does not let an earlier sign-in overwrite a later successful connect', async () => {
@@ -147,7 +150,7 @@ describe('Orca cloud overlapping connect', () => {
     exchangeOrcaCloudAuthCodeMock.mockImplementation(async (_config, args) => ({
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: NOW + 3_600_000,
       cloud: args.code === 'later-code' ? laterCloud : earlierCloud,
       organizations,
       capabilities
@@ -243,7 +246,7 @@ describe('Orca cloud overlapping connect', () => {
     finishLaterExchange({
       accessToken: 'later-access',
       refreshToken: 'later-refresh',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: NOW + 3_600_000,
       cloud: laterCloud,
       organizations,
       capabilities
@@ -254,7 +257,7 @@ describe('Orca cloud overlapping connect', () => {
     finishEarlierExchange({
       accessToken: 'earlier-access',
       refreshToken: 'earlier-refresh',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: NOW + 3_600_000,
       cloud: earlierCloud,
       organizations,
       capabilities
@@ -287,7 +290,7 @@ describe('Orca cloud overlapping connect', () => {
     exchangeOrcaCloudAuthCodeMock.mockImplementation(async (_config, args) => ({
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: NOW + 3_600_000,
       cloud: args.code === 'later-code' ? laterCloud : earlierCloud,
       organizations,
       capabilities
@@ -329,7 +332,7 @@ describe('Orca cloud overlapping connect', () => {
     exchangeOrcaCloudAuthCodeMock.mockResolvedValue({
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: NOW + 3_600_000,
       cloud: earlierCloud,
       organizations,
       capabilities
@@ -357,7 +360,7 @@ describe('Orca cloud overlapping connect', () => {
     const signingIn = signInCloudSession('local-default', userDataPath, {
       accessToken: 'access-token',
       refreshToken: 'refresh-token',
-      expiresAt: Date.now() + 3_600_000,
+      expiresAt: NOW + 3_600_000,
       cloud: earlierCloud,
       organizations,
       capabilities

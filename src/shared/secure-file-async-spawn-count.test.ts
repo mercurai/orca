@@ -54,8 +54,10 @@ it('writes a secure file with no spawn and creates the staged file already restr
 
   await writeSecureFileAsync(target, 'first')
   await drainPendingPathWrites()
-  // The directory's one-time harden settles on the thread pool, after the write returns.
-  await new Promise((resolve) => setTimeout(resolve, 50))
+  await vi.waitFor(() => {
+    expect(fake.dacls.get(directory)).toBe(hardenedDaclSddl(FAKE_USER_SID, true))
+    expect(fake.callsFor('get', directory)).toHaveLength(2)
+  })
   fake.calls.length = 0
 
   await writeSecureFileAsync(target, 'second')

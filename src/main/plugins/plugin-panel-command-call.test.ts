@@ -170,7 +170,7 @@ describe('sandboxed panel command invocation', () => {
   })
 
   it('rejects non-JSON worker results', async () => {
-    const harness = createHarness(new Date())
+    const harness = createHarness(new Date('2026-10-26T12:00:00.000Z'))
     const result = await executePluginHostCall({
       ...harness.input,
       params: { commandId: 'flow-kit-read' }

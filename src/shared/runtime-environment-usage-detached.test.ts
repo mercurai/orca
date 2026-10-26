@@ -12,6 +12,7 @@ import {
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
 import { markEnvironmentUsedDetached } from './runtime-environment-usage-detached'
+import { pendingPathWriteCountForTests } from './path-write-serializer'
 
 // Every call into the async lane, so a test can wait for the whole retry chain to finish.
 const writes = vi.hoisted((): Promise<unknown>[] => [])
@@ -39,14 +40,12 @@ afterEach(async () => {
 })
 
 async function idle(): Promise<void> {
-  for (;;) {
-    const seen = writes.length
+  await vi.waitFor(async () => {
     await Promise.allSettled(writes)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    if (writes.length === seen) {
-      return
-    }
-  }
+    // Let completed mutations enqueue their detached follow-up before checking the queue.
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(pendingPathWriteCountForTests()).toBe(0)
+  })
 }
 
 function pairingCode(endpoint = 'ws://127.0.0.1:6768', keyFill = 1): string {

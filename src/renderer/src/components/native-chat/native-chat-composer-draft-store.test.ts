@@ -134,9 +134,8 @@ describe('native-chat composer draft store', () => {
     void reloaded.store
       .nativeChatComposerDraftWriteSettled('agent-session:s1')
       .then((outcome) => (settled = outcome))
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await vi.waitFor(() => expect(pending).toHaveLength(2))
     expect(settled).toBeUndefined()
-    expect(pending).toHaveLength(2)
 
     pending.shift()?.()
     await new Promise((resolve) => setTimeout(resolve, 0))
@@ -156,6 +155,7 @@ describe('native-chat composer draft store', () => {
   it('reports an append made before the load landed settled only once its write completes', async () => {
     storage.drafts.set('agent-session:s1', { text: 'typed earlier', images: [], savedAt: 1 })
     let complete: () => void = () => {}
+    const writeStarted = Promise.withResolvers<void>()
     const slow = {
       ...storage,
       loadAll: () => new Promise<ReadonlyMap<string, unknown>>(() => {}),
@@ -164,6 +164,7 @@ describe('native-chat composer draft store', () => {
           complete = () => {
             void storage.update(scopeKey, apply).then(resolve)
           }
+          writeStarted.resolve()
         })
     }
     const reloaded = await reload({ using: slow, hydrate: false })
@@ -173,7 +174,7 @@ describe('native-chat composer draft store', () => {
     void reloaded.store
       .nativeChatComposerDraftWriteSettled('agent-session:s1')
       .then((outcome) => (settled = outcome))
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await writeStarted.promise
     expect(settled).toBeUndefined()
 
     complete()

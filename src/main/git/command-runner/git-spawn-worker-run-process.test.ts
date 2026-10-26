@@ -71,6 +71,7 @@ describe('runProcess on a real spawn worker thread', () => {
     delete process.env.ORCA_SPAWN_WORKER
   })
 
+  // Two real 30-process runs include OS scheduling and worker startup on slow Windows CI.
   it('keeps the main loop free while 30 stub-binary spawns run four wide', async () => {
     await runProcess({ program: process.execPath, args: ['--version'] })
     const worker = await measureLoopBlockDuringRunProcess()

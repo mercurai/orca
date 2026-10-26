@@ -1,7 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { readAgentProcess } from '../../../shared/agent-process-presence-probe'
 import { execFileCapture } from './exec-file-capture'
 import { gitExecFileAsync, gitExecFileAsyncBuffer } from './git-exec-file'
 import {
@@ -137,31 +135,46 @@ describe('git spawn worker on a real worker thread', () => {
   it('kills a running child when the worker is torn down', async () => {
     const client = getGitSpawnWorkerClient()
     expect(client).not.toBeNull()
-    // Why a heartbeat file: a killed child can linger as an unreaped zombie under some runtimes,
-    // so "pid is gone" is not a portable signal, but a dead child stops writing.
-    const directory = mkdtempSync(path.join(tmpdir(), 'orca-git-spawn-heartbeat-'))
-    const heartbeat = path.join(directory, 'beat')
+    let output = ''
     try {
       const handle = client?.stream(
         {
           command: process.execPath,
-          args: [
-            '-e',
-            `setInterval(() => require('fs').writeFileSync(${JSON.stringify(heartbeat)}, String(Date.now())), 50)`
-          ],
+          args: ['-e', 'process.stdout.write("ready"); setInterval(() => {}, 60000)'],
           cwd: process.cwd()
         },
-        { onChunk: () => {}, onError: () => {}, onClose: () => {} }
+        {
+          onChunk: (_channel, data) => {
+            output += data.toString()
+          },
+          onError: () => {},
+          onClose: () => {}
+        }
       )
-      await vi.waitFor(() => expect(existsSync(heartbeat)).toBe(true), { timeout: 10_000 })
-      expect(handle?.pid).toBeGreaterThan(0)
+      await vi.waitFor(() => expect(output).toBe('ready'), { timeout: 10_000 })
+      const pid = handle?.pid
+      if (!pid) {
+        throw new Error('Running child has no pid')
+      }
       client?.dispose()
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      const settled = readFileSync(heartbeat, 'utf8')
-      await new Promise((resolve) => setTimeout(resolve, 500))
-      expect(readFileSync(heartbeat, 'utf8')).toBe(settled)
+      await vi.waitFor(
+        async () => {
+          if (process.platform === 'win32') {
+            expect(() => process.kill(pid, 0)).toThrowError(
+              expect.objectContaining({ code: 'ESRCH' })
+            )
+            return
+          }
+          const observed = await readAgentProcess(pid)
+          // Unreaped POSIX zombies have exited even though their pid still exists.
+          expect(observed.verdict === 'exited' || ('zombie' in observed && observed.zombie)).toBe(
+            true
+          )
+        },
+        { timeout: 10_000 }
+      )
     } finally {
-      rmSync(directory, { recursive: true, force: true })
+      client?.dispose()
     }
   })
 
