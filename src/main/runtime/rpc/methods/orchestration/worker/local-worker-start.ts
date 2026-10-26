@@ -1,4 +1,7 @@
 import { probeWorkerOpenCodeModelLaunchSupport } from './worker-opencode-model-preflight'
+import { join } from 'node:path'
+import { getProfileUserDataPath } from '../../../../../orca-profiles/profile-storage-paths'
+import { preparePiWorkerPackage } from '../../../../orchestration/pi-worker-package'
 import { resolveWorkerConfiguredAgentParams } from './worker-configured-agent-preflight'
 import { waitForWorkerAgentReady } from '../../../../launched-agent-composer-readiness'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -184,6 +187,14 @@ export async function startLocalWorker(args: {
   let placed: Awaited<ReturnType<typeof placeWorkerAgent>> | undefined
   let failedStage = 'terminal_create'
   try {
+    if (agent === 'pi') {
+      failedStage = 'pi_package_prepare'
+      db.recordWorkerStage({ dispatchId: started.dispatch.id, stage: failedStage, effects })
+      await preparePiWorkerPackage({
+        db, dispatchId: started.dispatch.id,
+        privateRoot: join(getProfileUserDataPath(), 'pi-workers')
+      })
+    }
     placed = await placeWorkerAgent({
       runtime,
       db,

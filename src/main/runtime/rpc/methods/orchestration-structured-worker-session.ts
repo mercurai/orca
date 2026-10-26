@@ -38,6 +38,7 @@ import {
 } from '../../structured-worker-identity'
 import { createKeyedTrailingEdgeCoalescer } from '../../keyed-trailing-edge-coalescer'
 import { createStructuredAgentSessionForWorktree } from './structured-agent-session-create'
+import { bindPiWorkerPackageToSession } from '../../orchestration/pi-worker-package'
 
 type StructuredWorkerBinding = {
   sessionId: string
@@ -111,6 +112,11 @@ export async function createStructuredWorkerSession(args: {
   })
   let created: Awaited<ReturnType<typeof createStructuredAgentSessionForWorktree>> | undefined
   try {
+    // The provider acquires during attach. Persist its reserved Dispatch association first so
+    // initial launch and later acquisitions resolve the same host-owned grant without public options.
+    if (args.agent === 'pi') {
+      bindPiWorkerPackageToSession(args.runtime.getOrchestrationDb(), args.dispatchId, sessionId)
+    }
     created = await createStructuredAgentSessionForWorktree({
       runtime: args.runtime,
       ensureHost: async () => {

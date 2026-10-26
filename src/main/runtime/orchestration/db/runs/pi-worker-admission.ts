@@ -13,15 +13,21 @@ import type { DecisionGateRow, TaskRow } from '../../types'
 import type { OrchestrationDb } from '../orchestration-db'
 
 // Existing worker rows are the reservations. Abandonment and an unproven failure do not establish
-// exit; only exact accepted settlement or a confirmed process stop releases a slot.
+// exit. Terminal settlement also retains its slot until every owned resource is released.
 const ACTIVE_PI_WORKERS_SQL = `
   SELECT COUNT(*) AS count FROM worker_dispatches worker
   JOIN dispatch_contexts dispatch ON dispatch.id = worker.dispatch_id
   WHERE dispatch.run_id = ? AND json_extract(worker.start_options, '$.agent') = 'pi'
     AND NOT (
+      (
       (worker.state IN ('succeeded', 'failed') AND worker.stage = 'settled') OR
       (worker.state = 'failed' AND worker.stage = 'process_exited') OR
       (worker.state = 'stopped' AND worker.stage = 'process_stopped')
+      ) AND NOT EXISTS (
+        SELECT 1 FROM worker_terminal_resources resource
+        WHERE (resource.owner_dispatch_id = worker.dispatch_id OR resource.origin_dispatch_id = worker.dispatch_id)
+          AND (resource.ownership_state != 'released' OR resource.release_state != 'released')
+      )
     )`
 
 type StoredAdmission = {

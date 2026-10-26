@@ -1,6 +1,6 @@
-import { createHash, randomBytes } from 'node:crypto'
-import { mkdir, open, realpath } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { randomBytes } from 'node:crypto'
+import { mkdir } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import {
   PiTaskAdmissionSchema,
   PiWorkerArtifactsSchema
@@ -9,6 +9,8 @@ import type { PiWorkerPackage, PiWorkerPackageBinding } from '../../pi/worker-pa
 import { execFileCaptureToTermination } from '../../git/command-runner/exec-file-capture'
 import type { OrchestrationDb } from './db'
 import { OrchestrationError } from './orchestration-error'
+import { exactPath, fileHash, writeExclusive } from './pi-worker-artifacts'
+import { prepareModelCatalog } from './pi-worker-model-catalog'
 
 export type PiBrokerCommand = {
   executable: string
@@ -90,44 +92,6 @@ function currentAttempt(db: OrchestrationDb, dispatchId: string) {
   return { dispatch, worker, run, task, options, entry: entry.data, artifacts: artifacts.data }
 }
 
-/** Check the resolved path too, rejecting aliases/junctions before reading or using an artifact. */
-async function exactPath(path: string): Promise<string> {
-  if (!isAbsolute(path) || resolve(path) !== path) invalid('Pi artifacts require normalized absolute paths.')
-  const actual = await realpath(path)
-  const same = process.platform === 'win32'
-    ? actual.toLowerCase() === path.toLowerCase()
-    : actual === path
-  if (!same) invalid('Pi artifact aliases and reparse paths are not admitted.')
-  return actual
-}
-
-async function fileHash(path: string, maxBytes: number): Promise<string> {
-  try {
-    await exactPath(path)
-    const file = await open(path, 'r')
-    try {
-      const before = await file.stat()
-      if (!before.isFile() || before.nlink !== 1 || before.size > maxBytes) invalid()
-      const digest = createHash('sha256')
-      const buffer = Buffer.alloc(65536)
-      let total = 0
-      for (;;) {
-        const { bytesRead } = await file.read(buffer, 0, buffer.length, null)
-        if (bytesRead === 0) break
-        total += bytesRead
-        if (total > maxBytes) invalid()
-        digest.update(buffer.subarray(0, bytesRead))
-      }
-      const after = await file.stat()
-      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || total !== before.size) invalid()
-      return digest.digest('hex')
-    } finally {
-      await file.close()
-    }
-  } catch {
-    return invalid('Pi artifact bytes could not be verified.')
-  }
-}
 
 const defaultBrokerRunner: PiBrokerRunner = async (command) => {
   // Broker requests need Git and OS process plumbing, never inherited provider credentials.
@@ -257,7 +221,8 @@ export async function preparePiWorkerPackage(
     manifestBytesSha256: hash(result.manifest_bytes_sha256)
   })
   requireProvenance(result, pkg, 'staged_not_provisioned')
-  if (result.profile_path !== pkg.profilePath) invalid()
+  if (typeof result.profile_path !== 'string' ||
+    await exactPath(result.profile_path) !== await exactPath(pkg.profilePath)) invalid()
   const provisioned = await broker(context, attempt, ['provision', '--profile', pkg.profilePath], { owner }, pkg.snapshotPath)
   if (provisioned.readiness !== 'ready' || provisioned.profile_sha256 !== pkg.finalProfileSemanticSha256) invalid()
   await verify(context, attempt, pkg)
@@ -316,6 +281,7 @@ export async function preparePiWorkerAcquisition(
   await mkdir(dirname(acquisitionDirectory), { recursive: true, mode: 0o700 })
   await exactPath(dirname(acquisitionDirectory))
   await mkdir(acquisitionDirectory, { mode: 0o700 })
+  const modelCatalog = await prepareModelCatalog(pkg, attempt.entry, acquisitionDirectory)
   const bindingPath = join(acquisitionDirectory, 'launch-binding.json')
   const readinessNonce = randomBytes(32).toString('hex')
   const binding = {
@@ -323,15 +289,10 @@ export async function preparePiWorkerAcquisition(
     templateBytesSha256: pkg.templateBytesSha256, finalProfileSemanticSha256: pkg.finalProfileSemanticSha256,
     manifestBytesSha256: pkg.manifestBytesSha256, brokerBytesSha256: pkg.broker.sha256,
     canonicalSourceCommit: pkg.canonicalSourceCommit, expectedPiVersion: pkg.piVersion,
-    expectedModel: { harness: 'pi', gateway: pkg.provider, id: pkg.model }, readinessNonce
+    expectedModel: { harness: 'pi', gateway: pkg.provider, id: pkg.model, context_window: modelCatalog.contextWindow },
+    modelsJsonPath: modelCatalog.modelsJsonPath, modelsJsonSha256: modelCatalog.modelsJsonSha256, readinessNonce
   }
-  const file = await open(bindingPath, 'wx', 0o600)
-  try {
-    await file.writeFile(JSON.stringify(binding))
-    await file.sync()
-  } finally {
-    await file.close()
-  }
+  await writeExclusive(bindingPath, JSON.stringify(binding))
   currentAttempt(context.db, attempt.dispatch.id)
-  return { ...pkg, acquisitionId: context.acquisitionId, bindingPath, readinessNonce }
+  return { ...pkg, ...modelCatalog, acquisitionId: context.acquisitionId, bindingPath, readinessNonce }
 }

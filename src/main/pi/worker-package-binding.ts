@@ -23,6 +23,9 @@ export type PiWorkerPackage = {
 }
 
 export type PiWorkerPackageBinding = PiWorkerPackage & {
+  contextWindow: number
+  modelsJsonPath: string
+  modelsJsonSha256: string
   acquisitionId: string
   bindingPath: string
   readinessNonce: string

@@ -12,6 +12,7 @@
 
 import type { AgentSessionAccountKind } from '../../shared/agent-session-availability'
 import type { PiRpcSessionDeps } from '../pi/rpc-session'
+import type { PiWorkerPackageBinding } from '../pi/worker-package-binding'
 import type { PermissionMode } from '@anthropic-ai/claude-agent-sdk'
 import { existsSync } from 'node:fs'
 import type { AgentSessionRecord } from '../../shared/agent-session-record'
@@ -102,6 +103,11 @@ export type StructuredAgentSessionRuntimeDeps = {
   resolveCodexCommand?: (options?: { pathEnv?: string | null; homePath?: string }) => string
   resolveClaudeCommand?: () => string
   openPiConnection?: PiRpcSessionDeps['openConnection']
+  /** Trusted host-only package resolution at a real Pi provider acquisition, never catalog reads. */
+  preparePiWorkerAcquisition?: (
+    sessionId: string,
+    acquisitionId: string
+  ) => Promise<PiWorkerPackageBinding | undefined>
   /** Which version-gated flags a Claude CLI takes; absent never passes one. */
   claudeCliFlags?: ClaudeCliFlagSupport
   /** Gives each chat a visuals folder and the skill that teaches it, and sweeps folders whose chat

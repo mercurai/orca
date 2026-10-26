@@ -18,6 +18,7 @@ import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { executeAgentLaunch } from '../../../../../agent-launch/agent-launch-executor'
 import type { AgentLaunchSurfaceFactory } from '../../../../../agent-launch/agent-launch-surface-factories'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
+import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import type { OrchestrationDb } from '../../../../orchestration/db'
 import {
   WORKER_START_VOCABULARY,
@@ -202,6 +203,9 @@ function workerSurfaceFactory(
       }
     },
     createTerminalAgent: async ({ worktreeId }) => {
+      if (agent === 'pi') {
+        throw new OrchestrationError('pi_admission_invalid', 'Supervised Pi requires a qualified structured host; terminal fallback is unsupported.')
+      }
       recordSurfaceStage(worktreeId)
       const terminal = await createExistingWorktreeWorkerTerminal({
         runtime: args.runtime,
