@@ -40,6 +40,8 @@ describe('Pi worker reporting preamble', () => {
     expect(preamble).toContain('agent_settled')
     expect(preamble).toContain('final text')
     expect(preamble).toContain('worker_done')
+    expect(preamble).toContain('{"operation":"complete"}')
+    expect(preamble).not.toMatch(/\{"operation":"complete",/)
     expect(preamble).toContain('seal')
     expect(preamble).toContain('zero outstanding')
     expect(preamble).toContain('workerRelease')
