@@ -332,6 +332,32 @@ describe('coordinator-owned Pi admission configuration', () => {
     }
   })
 
+  it('does not qualify four Pi workers using successful implementations from another agent', () => {
+    const f = fixture()
+    f.configure()
+    for (const index of [0, 1]) {
+      const started = f.start(index, f.db, { agent: 'codex' })
+      f.db.markWorkerDispatchReady(started.dispatch.id)
+      expect(f.db.settleWorkerReport({
+        taskId: f.tasks[index].id,
+        dispatchId: started.dispatch.id,
+        outcome: 'succeeded',
+        result: 'non-Pi patch ready'
+      })).toMatchObject({ action: 'settled', duplicate: false })
+      f.db.updateTaskStatus(f.reviews[index].id, 'completed', 'review accepted')
+    }
+    const pilotTask = f.db.createTask({
+      runId: f.run.id,
+      spec: 'Evidence from a different agent',
+      deps: [f.reviews[0].id, f.reviews[1].id]
+    })
+    const pilotGate = f.db.createGate({ taskId: pilotTask.id, question: 'Qualify four Pi workers?' })
+    f.db.resolveGate(pilotGate.id, 'approved')
+    expect(() => f.configure({ maxWorkers: 4, pilotGateId: pilotGate.id })).toThrow(
+      expect.objectContaining({ code: 'pi_admission_invalid', message: expect.stringContaining('Pilot') })
+    )
+  })
+
   it.each([
     { maxTokens: 0 },
     { maxOutputTokens: 0 },

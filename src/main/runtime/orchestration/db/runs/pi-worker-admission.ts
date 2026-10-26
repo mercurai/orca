@@ -5,6 +5,7 @@ import {
 } from '../../../../../shared/pi-worker-admission'
 import {
   runBoundToCoordinator,
+  runCoordinatorKey,
   type OrchestrationCoordinatorKey
 } from '../../orchestration-caller-identity'
 import { OrchestrationError } from '../../orchestration-error'
@@ -37,6 +38,10 @@ function parseConfig(value: unknown): PiWorkerAdmissionConfig {
   const parsed = PiWorkerAdmissionConfigSchema.safeParse(value)
   if (!parsed.success) invalid('Invalid Pi admission configuration fields or priced budget.')
   return parsed.data
+}
+
+function configDigest(runId: string, consumerGeneration: number, config: PiWorkerAdmissionConfig): string {
+  return createHash('sha256').update(JSON.stringify({ runId, consumerGeneration, config })).digest('hex')
 }
 
 function activeReservations(db: OrchestrationDb, runId: string): number {
@@ -110,7 +115,7 @@ export function configurePiWorkerAdmission(
     validateQualification(this, run.id, config)
     config.tasks.sort((left, right) => left.taskId.localeCompare(right.taskId))
     const configJson = JSON.stringify(config)
-    const configSha256 = createHash('sha256').update(configJson).digest('hex')
+    const configSha256 = configDigest(run.id, run.consumer_generation, config)
     this.db.prepare(`
       INSERT INTO run_pi_worker_admission (run_id, consumer_generation, config_json, config_sha256)
       VALUES (?, ?, ?, ?)
@@ -142,7 +147,7 @@ export function bindPiWorkerAdmission(
     throw new OrchestrationError('pi_admission_required', 'Pi admission requires a current coordinator grant.')
   }
   const config = parseConfig(JSON.parse(stored.config_json))
-  if (createHash('sha256').update(stored.config_json).digest('hex') !== stored.config_sha256) {
+  if (configDigest(run.id, stored.consumer_generation, config) !== stored.config_sha256) {
     invalid('Pi admission configuration digest mismatch.')
   }
   validateQualification(db, run.id, config)
@@ -179,6 +184,7 @@ export function bindPiWorkerAdmission(
       taskId: task.id,
       dispatchId,
       consumerGeneration: run.consumer_generation,
+      coordinator: runCoordinatorKey(run),
       configSha256: stored.config_sha256,
       provider: 'openrouter',
       model: 'deepseek/deepseek-v4.1-flash-1017'
