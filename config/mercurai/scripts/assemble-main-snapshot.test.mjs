@@ -213,9 +213,17 @@ function assertRefused(fx, before, run, mentions) {
     )
   }
   assert.equal(run.raw, '', 'a refused run writes no outputs')
-  assert.equal(git(fx, fx.work, 'symbolic-ref', '--short', 'HEAD'), 'mercurai', 'nothing was checked out')
+  assert.equal(
+    git(fx, fx.work, 'symbolic-ref', '--short', 'HEAD'),
+    'mercurai',
+    'nothing was checked out'
+  )
   assert.equal(git(fx, fx.work, 'rev-parse', 'HEAD'), before.head)
-  assert.equal(git(fx, fx.work, 'for-each-ref', 'refs/heads/release'), '', 'no release branch was built')
+  assert.equal(
+    git(fx, fx.work, 'for-each-ref', 'refs/heads/release'),
+    '',
+    'no release branch was built'
+  )
   assert.equal(git(fx, fx.origin, 'for-each-ref'), before.origin, 'the fork was not changed')
   assert.equal(git(fx, fx.up, 'for-each-ref'), before.up, 'upstream was not changed')
 }
@@ -257,7 +265,10 @@ test('main mode builds the frozen main commit plus the pinned series in manifest
   git(fx, fx.seed, 'tag', `${TAG}-mercurai.3`, fx.tagSha)
   git(fx, fx.seed, 'push', '-q', fx.origin, `refs/tags/${TAG}-mercurai.3`)
   const patches = seriesOn(fx, fx.frozen)
-  writeManifest(fx, { base: fx.frozen, patches: [...patches, { branch: 'patch/parked', status: 'planned' }] })
+  writeManifest(fx, {
+    base: fx.frozen,
+    patches: [...patches, { branch: 'patch/parked', status: 'planned' }]
+  })
   const before = snapshot(fx)
 
   const run = assemble(fx, { mainSha: fx.frozen })
@@ -270,7 +281,11 @@ test('main mode builds the frozen main commit plus the pinned series in manifest
   assert.equal(subjects(fx, `${fx.frozen}..HEAD`), 'patch beta\npatch alpha')
   assert.equal(git(fx, fx.work, 'diff', '--name-only', fx.frozen, 'HEAD'), 'alpha.txt\nbeta.txt')
   assert.equal(git(fx, fx.work, 'show', 'HEAD:feature.txt'), 'feature')
-  assert.equal(git(fx, fx.work, 'ls-tree', '--name-only', 'HEAD', 'later.txt'), '', 'main past the freeze is excluded')
+  assert.equal(
+    git(fx, fx.work, 'ls-tree', '--name-only', 'HEAD', 'later.txt'),
+    '',
+    'main past the freeze is excluded'
+  )
   assert.equal(git(fx, fx.origin, 'for-each-ref'), before.origin, 'assembly publishes nothing')
 })
 
@@ -314,7 +329,10 @@ test('main mode outputs the frozen base and the ordered pins; tag mode outputs n
 
   assert.equal(run.status, 0, run.log)
   assert.equal(run.outputs.upstream_main_sha, fx.frozen)
-  assert.equal(run.outputs.series, patches.map((patch) => `${patch.branch}:${patch.commit}`).join(','))
+  assert.equal(
+    run.outputs.series,
+    patches.map((patch) => `${patch.branch}:${patch.commit}`).join(',')
+  )
 
   const tagFx = createFixture()
   addPatch(tagFx, 'gamma', tagFx.tagSha)
@@ -340,12 +358,23 @@ test('main mode skips a patch pinned at the frozen commit with a warning and sti
   assert.ok(run.outputs.series.startsWith(`patch/zero:${fx.frozen},`), run.outputs.series)
 })
 
-test('the workflow takes the frozen sha as an input and both jobs check out the dispatched commit', () => {
-  const file = resolve(import.meta.dirname, '..', '..', '..', '.github', 'workflows', 'fork-assemble-release.yml')
+test('the workflow takes the frozen sha as an input and every job checks out the dispatched commit', () => {
+  const file = resolve(
+    import.meta.dirname,
+    '..',
+    '..',
+    '..',
+    '.github',
+    'workflows',
+    'fork-assemble-release.yml'
+  )
   const workflow = readFileSync(file, 'utf8').replaceAll('\r\n', '\n')
   assert.match(workflow, /^ {6}upstream_main_sha:\n/m)
   assert.match(workflow, /^ {2}UPSTREAM_MAIN_SHA: \$\{\{ inputs\.upstream_main_sha \}\}$/m)
-  assert.deepEqual(workflow.match(/^ {10}ref: .*$/gm), Array(2).fill('          ref: ${{ github.sha }}'))
+  assert.deepEqual(
+    workflow.match(/^ {10}ref: .*$/gm),
+    Array(4).fill('          ref: ${{ github.sha }}')
+  )
   assert.doesNotMatch(workflow, /^\s+ref: \$\{\{ github\.ref_name \}\}/m)
 })
 
@@ -447,7 +476,10 @@ for (const [label, malformed] of [
   test(`an upstream-open patch pin that is ${String(label)} is refused by name`, () => {
     const fx = createFixture()
     const [beta, alpha] = seriesOn(fx, fx.frozen)
-    writeManifest(fx, { base: fx.frozen, patches: [beta, { ...alpha, commit: malformed(alpha.commit) }] })
+    writeManifest(fx, {
+      base: fx.frozen,
+      patches: [beta, { ...alpha, commit: malformed(alpha.commit) }]
+    })
     assertMainRefused(fx, fx.frozen, ['patch/alpha'])
   })
 }
@@ -481,7 +513,10 @@ test('an active patch whose branch the fork does not have is refused by name', (
 })
 
 for (const [label, move] of [
-  ['advanced', (fx, name, pinned) => addPatch(fx, name, pinned, { file: 'extra.txt', content: 'extra' })],
+  [
+    'advanced',
+    (fx, name, pinned) => addPatch(fx, name, pinned, { file: 'extra.txt', content: 'extra' })
+  ],
   ['rewritten', (fx, name) => addPatch(fx, name, fx.frozen, { content: 'rewritten' })]
 ]) {
   for (const { name, status, index } of ACTIVE_STATUSES) {

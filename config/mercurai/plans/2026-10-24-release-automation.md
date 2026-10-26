@@ -283,6 +283,23 @@ must verify external candidate/controller/manifest/policy/version/series and
 unique dispatch identity before tagging. The other three HIGH findings remain
 outside this focused repair.
 
+The reviewed correlation correction is committed as `277e5ac7b4`. Hosted run
+[40403060335](https://github.com/mercurai/orca/actions/runs/40403060335)
+passed 221 of 222 controller tests. The only failure was an older contract test
+expecting two trusted checkouts after the workflow split into four jobs; its
+assertion now requires all four jobs to check out the dispatched controller.
+The correction's own behavioral and security-contract cases passed. A fresh
+complete controller run is required after this fixture correction.
+
+Full source PR run
+[40402086128](https://github.com/mercurai/orca/actions/runs/40402086128)
+exposed eight type errors (stale imports, a missed async fixture, and an unused
+import) plus three file-size violations. The packaged Windows check also failed
+on those source type errors. Separate scoped workers corrected the imports and
+fixture; bounded extractions preserve the size-limited modules' behavior.
+This new evidence supersedes any suggestion that targeted success establishes
+full source correctness. Full CI and WSL acceptance remain open.
+
 Current upstream discovery found official `main` at
 `44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published
 2026-10-26. Queue those inputs after the frozen candidate's corrections; do not
