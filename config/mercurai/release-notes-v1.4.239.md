@@ -43,6 +43,14 @@ renderer, workflow and E2E files. This draft remains pinned to the earlier
 candidate; the newer SHA is queued until each conflict receives a semantic
 disposition and exact-candidate CI.
 
+The queued conflicts have a local reconciliation for review at
+`codex/upstream-986-reconcile`, commit
+`4a7d6bd2f993089ecb9ae5f9461ba3a534d0edc2`, tree
+`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`. The commit is a two-parent merge
+of the retained candidate and official `main`; it is not yet a release input.
+The release owner must review it, materialize the required linear candidate,
+then run exact-SHA CI before changing the manifest or allocating a tag.
+
 ## Retained Mercurai behavior
 
 - Catalog-backed Codex speed selection with exact advertised service-tier IDs,

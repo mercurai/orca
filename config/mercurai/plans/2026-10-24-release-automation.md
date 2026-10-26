@@ -1,6 +1,6 @@
 ---
 owner: Mercurai Orca release owner (Codex /root, delegated by the user)
-last-reviewed: 2026-10-25
+last-reviewed: 2026-10-26
 stability: draft
 status: implementation in progress; promotion/coordinator changes committed locally and not released
 ---
@@ -186,6 +186,15 @@ generation/revocation fences, exact Codex tier IDs, no-downgrade speed admission
 held-speed refusal, and actionable renderer notices. The manifest remains pinned to
 the reviewed candidate until the new conflict tasks are completed, independently
 reviewed, and qualified at one immutable candidate SHA.
+
+The first local reconciliation of this refresh is complete on
+`codex/upstream-986-reconcile` at merge commit
+`4a7d6bd2f993089ecb9ae5f9461ba3a534d0edc2` (tree
+`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`). Its parents are the retained
+candidate `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` and official `main`
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f`. This is a review artifact, not a
+registered release input: the assembler still requires a c3-owned linear
+materialization, exact-source CI, packaging, installation, and runtime evidence.
 
 ## Requirements and acceptance criteria
 
