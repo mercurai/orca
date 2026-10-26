@@ -191,10 +191,42 @@ The local reconciliation is complete as the linear branch
 `patch/current-main-release-98690`, head
 `5fb6766ff1576b6e5d58d76241e54f5246ae7669`, with tree
 `3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c` and official `main`
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f` as its parent. This is a review
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f` as its ancestor. This is a review
 artifact, not a registered release input: c3 still owns remote publication,
 manifest registration, exact-source CI, packaging, installation, and runtime
 evidence.
+
+### Completion audit (2026-10-26)
+
+The user requested a fresh audit and forward progress. The linear head `5fb6766ff1`
+has 14 commits after official `98690db2`; that upstream commit is an ancestor,
+not its direct parent. Static checks did not establish build or runtime correctness.
+Independent source and release-gate reviewers returned changes requested:
+
+- Renderer launch relocation left one production import and three test imports
+  pointing at missing files. Four registered test paths were stale too.
+- Captured message choices can validate legacy Fast before an explicit canonical
+  service tier. A late rejection can also roll back a newer picker/request snapshot.
+  Both require behavioral regression evidence before acceptance.
+- Qualification runs only Node tests, lint, and typecheck rather than the required
+  PR verification matrix. P1.3 is incomplete.
+- Reviewer text is converted to approval without an authenticated review record;
+  qualification-run selection can select another candidate's run before tagging.
+- Publishing can replace an existing release's assets and mark an older rerun
+  latest. P1.4 is incomplete until serialization, monotonicity, and immutable
+  retry checks have behavioral coverage.
+
+The source correction branch is now remote at `patch/current-main-release-98690`.
+Run [40393548246](https://github.com/mercurai/orca/actions/runs/40393548246)
+tests commit `12fe91cb8e323000fef6ee541ee64c679e05b0c5`; run
+[40394059772](https://github.com/mercurai/orca/actions/runs/40394059772) adds the
+late-rejection regression cases at `5435e43bf4`. These are targeted verification
+runs, not full qualification receipts. No publication is accepted by this audit.
+
+Current upstream discovery found official `main` at
+`44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published
+2026-10-26. Queue those inputs after the frozen candidate's corrections; do not
+describe the `98690db2`/`v1.4.239` snapshot as the current official release.
 
 ## Requirements and acceptance criteria
 
@@ -363,13 +395,13 @@ Parallelism: owner inventory and promotion worker may proceed independently; sha
   `config/mercurai/release-policy.json`. Add deterministic failure fixtures before implementing checks.
   Verify failed full CI with passing targeted checks, forged checks, stale review, latest-attempt failure, truncated
   API data, and wrong-SHA/same-tree cases all refuse promotion. Use the existing fork-scripts CI workflow.
-- [x] P1.3 Promotion worker: extend `assemble-release.sh` and `.github/workflows/fork-assemble-release.yml` to
+- [ ] P1.3 Promotion worker: extend `assemble-release.sh` and `.github/workflows/fork-assemble-release.yml` to
   materialize the candidate without tagging, qualify its exact commit, and independently verify recomposed inputs.
   Add `.github/workflows/fork-qualify-release.yml` as a trusted full-CI entry point reusing the PR test matrix.
   Extract a reusable workflow if needed; do not copy a divergent suite or rely on implicit PR event coverage.
   Pin required job/matrix identities and justified conditional skips in the reviewed release policy.
   Verify candidate ref movement, changed manifest/controller, and selected-unit mode cannot satisfy qualification.
-- [x] P1.4 Promotion worker: enforce the same receipt in `fork-release-win-build.yml` before publication, including
+- [ ] P1.4 Promotion worker: enforce the same receipt in `fork-release-win-build.yml` before publication, including
   manual dispatch. Extend `release-workflow-token-scope.test.mjs` and related existing workflow contract tests.
   Verify direct publish bypass, unexpected skips, changed tag, altered artifact, and stale version all fail closed.
 - [ ] P1.5 Owner: independently review and land the minimal gate through the established owner route, with full

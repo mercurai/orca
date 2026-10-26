@@ -11,6 +11,7 @@ const POLICY = 'e'.repeat(64)
 
 const policy = {
   schemaVersion: 1,
+  promotionEnabled: true,
   workflow: 'fork-qualify-release.yml',
   requiredChecks: ['test / tests node 24 2/5', 'PR checks passed'],
   permittedSkips: []
@@ -60,6 +61,15 @@ test('accepts complete full qualification at the exact candidate revision', () =
   const result = verifyPromotion(evidence(), policy)
 
   assert.deepEqual(result, { ok: true, reasons: [] })
+})
+
+test('refuses promotion when policy has not explicitly admitted publication', () => {
+  for (const promotionEnabled of [false, undefined]) {
+    const result = verifyPromotion(evidence(), { ...policy, promotionEnabled })
+
+    assert.equal(result.ok, false)
+    assert.match(result.reasons.join('\n'), /promotion.*disabled/i)
+  }
 })
 
 test('rejects a failed required shard even when targeted checks passed', () => {
