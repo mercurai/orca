@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
+import { workerPackage } from './rpc-worker-package-test-support'
 import { resolveProviderChildEnv } from '../provider-process/provider-process-launch'
 import { sealStructuredSessionChild } from '../runtime/structured-session-child-env'
 import {
@@ -122,5 +124,78 @@ describe('Pi RPC launch', () => {
       ORCA_AGENT_SESSION_SPAWN_TOKEN: 'this-token'
     })
     expect(childEnv).not.toHaveProperty('ORCA_TERMINAL_HANDLE')
+  })
+})
+
+describe('Pi admitted worker package launch', () => {
+  it('isolates the snapshot, home and session store and loads only pinned package resources', () => {
+    const launch = buildPiRpcLaunch({ ...options, ...{ workerPackage } })
+    expect(launch.cwd).toBe(workerPackage.snapshotPath)
+    expect(launch.env).toMatchObject({
+      HOME: workerPackage.agentHomeDirectory,
+      USERPROFILE: workerPackage.agentHomeDirectory,
+      PI_CODING_AGENT_DIR: workerPackage.agentHomeDirectory,
+      HARNESS_PI_PROFILE: workerPackage.profilePath,
+      HARNESS_PI_BROKER: workerPackage.broker.path,
+      HARNESS_PI_BINDING: workerPackage.bindingPath
+    })
+    for (const flag of [
+      '--no-builtin-tools', '--no-extensions', '--no-mcp', '--no-skills',
+      '--no-prompt-templates', '--no-themes', '--no-context-files'
+    ]) expect(launch.args).toContain(flag)
+    for (const [flag, path] of [
+      ['--extension', workerPackage.extensionPath],
+      ['--skill', workerPackage.skillsDirectory],
+      ['--append-system-prompt', workerPackage.agentsPath],
+      ['--session-dir', workerPackage.sessionDirectory]
+    ]) {
+      expect(launch.args.filter((arg) => arg === flag)).toHaveLength(1)
+      expect(launch.args[launch.args.indexOf(flag) + 1]).toBe(path)
+    }
+    expect(launch.args).not.toContain('--no-tools')
+  })
+
+  it('strips late inherited credentials and runtime injection while retaining inference credentials', () => {
+    const launch = buildPiRpcLaunch({ ...options, ...{ workerPackage } })
+    const env = resolveProviderChildEnv(launch, {
+      PATH: '/host/bin',
+      SystemRoot: 'C:\\Windows',
+      OPENROUTER_API_KEY: 'synthetic-inference-sentinel',
+      GH_TOKEN: 'synthetic-github-sentinel',
+      CUSTOM_SECRET: 'synthetic-unknown-sentinel',
+      ANTHROPIC_API_KEY: 'synthetic-unrelated-sentinel',
+      NODE_OPTIONS: '--require /untrusted/injection.js',
+      PI_CODING_AGENT_DIR: '/inherited/agent',
+      HOME: '/inherited/home'
+    })
+    expect(env).toMatchObject({
+      PATH: '/host/bin',
+      SystemRoot: 'C:\\Windows',
+      OPENROUTER_API_KEY: 'synthetic-inference-sentinel',
+      HOME: workerPackage.agentHomeDirectory,
+      PI_CODING_AGENT_DIR: workerPackage.agentHomeDirectory
+    })
+    for (const key of ['GH_TOKEN', 'CUSTOM_SECRET', 'ANTHROPIC_API_KEY', 'NODE_OPTIONS']) {
+      expect(env).not.toHaveProperty(key)
+    }
+  })
+
+  it.each([
+    ['--extension', '/outside/untrusted.mjs'],
+    ['--skill', '/outside/skills'],
+    ['--tools', 'bash,codemode'],
+    ['--append-system-prompt', '/outside/AGENTS.md'],
+    ['--session-dir', '/outside/sessions'],
+    ['--model', 'anthropic/other-model']
+  ])('refuses package launch overrides: %j', (...extraArgs) => {
+    expect(() => buildPiRpcLaunch({ ...options, extraArgs, ...{ workerPackage } })).toThrow()
+  })
+
+  it('refuses a resumed session outside the admitted package session directory', () => {
+    expect(() => buildPiRpcLaunch({
+      ...options,
+      sessionFile: join('/outside', 'session.jsonl'),
+      ...{ workerPackage }
+    })).toThrow()
   })
 })

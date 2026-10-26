@@ -8,6 +8,7 @@ export const SQLITE_RUNTIME_INCLUDE = [
   'src/main/pi/rpc-configured-default.test.ts',
   'src/main/pi/rpc-session-adapter.test.ts',
   'src/main/pi/rpc-capture-replay.test.ts',
+  'src/main/pi/rpc-worker-package.test.ts',
   'src/main/acp/acp-structured-omp-recordings.test.ts',
   'src/main/acp/acp-text-stream-identity.test.ts',
   'src/main/acp/acp-text-message-ownership.test.ts',
