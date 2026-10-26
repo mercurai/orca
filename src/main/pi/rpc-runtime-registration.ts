@@ -30,6 +30,9 @@ function createPiRpcAdapter(context: StructuredAgentAdapterContext): StructuredA
       piRpcLaunchPart({})
     ),
     ...(deps.openPiConnection ? { openConnection: deps.openPiConnection } : {}),
+    ...(deps.preparePiWorkerAcquisition
+      ? { prepareWorkerPackage: deps.preparePiWorkerAcquisition }
+      : {}),
     ...(deps.readProcessStartTime ? { readProcessStartTime: deps.readProcessStartTime } : {}),
     onLifecycle: context.deliverLifecycle,
     onSettled: ({ sessionId, clientMessageId, outcome }) => {

@@ -34,6 +34,8 @@ import { firstWorkRenameDeps } from '../agent-hooks/first-work-rename-runtime'
 import { createStructuredChatNamingHandler } from '../native-chat/structured-chat-naming'
 import { structuredChatNamingDeps } from './structured-chat-naming-runtime'
 import { getProfileUserDataPath } from '../orca-profiles/profile-storage-paths'
+import { join } from 'node:path'
+import { preparePiWorkerAcquisition } from './orchestration/pi-worker-package'
 import { LOCAL_EXECUTION_HOST_ID } from '../../shared/execution-host'
 import { buildWorktreeListingPage } from './worktree-listing-host-scope'
 import {
@@ -199,6 +201,10 @@ export class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithStartTuiIdleVis
     )
     await installStructuredAgentSessionHost({
       stateDirectory: getProfileUserDataPath(),
+      preparePiWorkerAcquisition: (sessionId, acquisitionId) => preparePiWorkerAcquisition({
+        db: this.getOrchestrationDb(), sessionId, acquisitionId,
+        privateRoot: join(getProfileUserDataPath(), 'pi-workers')
+      }),
       hostId: LOCAL_EXECUTION_HOST_ID,
       claimKeyId: this.agentSessionClaimSigner.keyId,
       // The host's local trace file (the desktop's or orcad's own), plus the console.

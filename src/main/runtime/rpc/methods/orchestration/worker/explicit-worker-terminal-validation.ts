@@ -28,6 +28,7 @@ export async function assertExplicitWorkerTerminalUsable(args: {
 }): Promise<void> {
   const { runtime, terminal, from, coordinator, resolvedWorktreeId } = args
   const explicitTerminal = await runtime.showTerminal(terminal)
+  if (explicitTerminal.agentIdentity === 'pi') refusePiReuse()
   const targetPane = runtime.getTerminalPaneKey(terminal)
   const callerPane = coordinator?.paneKey ?? runtime.getTerminalPaneKey(from)
   // A structured coordinator has no terminal to show, so its own identity is the raw handle plus
@@ -91,10 +92,18 @@ async function assertExplicitWorkerChatUsable(args: {
     remedy: 'Pass --terminal for a different agent, or omit it so worker-start creates one.'
   })
   const session = await admitChatAssignee(args.runtime, args.chat, args.db)
+  if (session.provider === 'pi') refusePiReuse()
   if (session.location.workspaceId !== args.resolvedWorktreeId) {
     throw new OrchestrationError(
       'terminal_worktree_mismatch',
       `${formatOrcaSessionAddress(args.chat)} does not belong to worktree ${args.resolvedWorktreeId}.`
     )
   }
+}
+
+function refusePiReuse(): never {
+  throw new OrchestrationError(
+    'pi_admission_required',
+    'Supervised Pi requires a fresh structured worker with a coordinator-approved profile; existing Pi terminals and chats cannot be adopted.'
+  )
 }

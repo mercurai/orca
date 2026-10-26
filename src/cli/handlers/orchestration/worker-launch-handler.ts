@@ -3,7 +3,7 @@ import { printResult } from '../../format'
 import { getOptionalStringFlag } from '../../flags'
 import { RuntimeClientError } from '../../runtime-client'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
-import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
+import { ORCHESTRATION_WORKER_LAUNCH_PREFERENCES_RUNTIME_CAPABILITY, ORCHESTRATION_PI_WORKER_ADMISSION_RUNTIME_CAPABILITY } from '../../../shared/protocol-version'
 import { callOrchestrationMutation } from './mutation-request'
 import { getOptionalPositiveIntegerValueFlag } from './numeric-flags'
 import { isDevCliInvocation } from './runtime-compatibility'
@@ -15,6 +15,14 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
   'orchestration worker-start': async ({ flags, client, cwd, json }) => {
     const model = getOptionalStringFlag(flags, 'model')
     const effort = getOptionalStringFlag(flags, 'effort')
+    const agent = getOptionalStringFlag(flags, 'agent')
+    const piProfileSha256 = getOptionalStringFlag(flags, 'pi-profile-sha256')
+    if (agent === 'pi' || piProfileSha256) {
+      const status = await client.call<RuntimeStatus>('status.get')
+      if (!status.result.capabilities?.includes(ORCHESTRATION_PI_WORKER_ADMISSION_RUNTIME_CAPABILITY)) {
+        throw new RuntimeClientError('capability_unsupported', 'The connected runtime does not support Pi admission. Update or restart Orca before starting this worker.')
+      }
+    }
     if (model || effort) {
       const status = await client.call<RuntimeStatus>('status.get')
       if (
@@ -59,8 +67,8 @@ export const ORCHESTRATION_WORKER_LAUNCH_HANDLER: Record<string, CommandHandler>
       displayName: getOptionalStringFlag(flags, 'display-name'),
       comment: getOptionalStringFlag(flags, 'comment'),
       setup: getOptionalStringFlag(flags, 'setup'),
-      agent: getOptionalStringFlag(flags, 'agent'),
-      piProfileSha256: getOptionalStringFlag(flags, 'pi-profile-sha256'),
+      agent,
+      piProfileSha256,
       model,
       effort,
       terminal: getOptionalStringFlag(flags, 'terminal'),

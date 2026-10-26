@@ -128,10 +128,21 @@ task/review links, profile identity, budgets, and deadline. Its digest includes 
 Worker flags cannot override those controls. Pass the approved template reference with
 `worker-start --agent pi --pi-profile-sha256 <hash>`; terminal and current federated routes cannot
 attest the required Pi model/profile/tool state and are refused before launch. Ordinary interactive
-Pi chats do not use this admission policy.
+Pi chats do not use this admission policy. Existing Pi terminals and chats cannot be adopted into
+supervised work; launch a fresh worker. The CLI requires the runtime's Pi admission capability
+before sending a profile reference, so an older runtime cannot silently discard it.
+
+Package launch additionally requires each task's absolute `templatePath` and the policy's
+`artifacts`: `sharedSource: { repo, commit }` and `broker: { path, sha256 }`. The coordinator pins
+the full source commit and exact broker bytes. After reserving a Dispatch, Orca binds the template
+to that owner, provisions and verifies the package, and binds it to the exact structured session.
+Each actual acquisition receives a fresh nonce and private Pi home. Its `models.json` derives
+context size, output cap and prices from the verified profile; the launch binding pins its bytes.
+The API key is an environment reference, never copied into the package or policy.
 
 The existing Dispatch transaction reserves capacity before launch. Uncertain starts, stops and
-abandonment retain their reservations until exact settlement or proven process exit. Two completed
+abandonment retain their reservations. Accepted settlement or proven process exit frees capacity
+only after every associated owned resource has completed release. Two completed
 implementations awaiting independent review block further admission. Replacing a policy is refused
 while any affected Pi attempt remains active or uncertain; rebinding the coordinator invalidates it.
 Four workers require `maxWorkers: 4` plus an approved `pilotGateId` whose task depends on the
