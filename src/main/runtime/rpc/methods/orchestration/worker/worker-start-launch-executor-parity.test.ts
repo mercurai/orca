@@ -75,7 +75,7 @@ function fakes() {
 
 function place(
   f: ReturnType<typeof fakes>,
-  args: { mode: AgentLaunchModeReceipt; existing?: boolean; terminal?: string }
+  args: { mode: AgentLaunchModeReceipt; existing?: boolean; terminal?: string; agent?: 'claude' | 'pi' }
 ) {
   return placeWorkerAgent({
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the placement calls only the methods faked here.
@@ -94,7 +94,7 @@ function place(
     creationWorktree: args.existing ? undefined : COORDINATOR,
     resolvedWorktree: args.existing ? EXISTING : undefined,
     mode: args.mode,
-    agent: args.terminal ? undefined : 'claude',
+    agent: args.terminal ? undefined : (args.agent ?? 'claude'),
     launchPreferences: undefined,
     effects: f.effects,
     onStage: (stage) => f.failedStages.push(stage)
@@ -218,6 +218,18 @@ describe('a fresh worker through the launch executor', () => {
       surface: 'background',
       warning: undefined
     })
+  })
+
+  it('refuses Pi before terminal creation when a new workspace cannot support the provisional structured mode', async () => {
+    const f = fakes()
+    f.runtime.getStructuredAgentSessionCreateSupport.mockResolvedValue({ supported: false, reason: 'agent' })
+    await expect(place(f, { mode: STRUCTURED, agent: 'pi' })).rejects.toMatchObject({
+      code: 'pi_admission_invalid'
+    })
+    expect(f.runtime.createManagedWorktree).toHaveBeenCalledWith(
+      expect.not.objectContaining({ startupAgent: expect.anything() })
+    )
+    expect(f.runtime.createTerminal).not.toHaveBeenCalled()
   })
 
   it('creates a terminal worker’s worktree agent-first: no host question and no surface stage', async () => {

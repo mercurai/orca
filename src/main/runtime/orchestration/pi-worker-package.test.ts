@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrchestrationDb } from './db'
-import {
-  bindPiWorkerPackageToSession,
-  preparePiWorkerAcquisition,
-  preparePiWorkerPackage
-} from './pi-worker-package'
+
+async function packageApi() {
+  // Resolve only inside the case: an absent first implementation must not abort suite collection.
+  return import('./pi-worker-package')
+}
 
 const sha = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex')
 const FINAL_SEMANTIC_HASH = 'b'.repeat(64)
@@ -45,7 +45,7 @@ function fixture() {
     workspace: join(directory, 'placeholder-snapshot'),
     state_dir: join(directory, 'placeholder-state'),
     claims: [{ path: 'task.ts', access: 'create' }],
-    model: { harness: 'pi', gateway: 'openrouter', id: 'deepseek/deepseek-v4.1-flash-1017' },
+    model: { harness: 'pi', gateway: 'openrouter', id: 'deepseek/deepseek-v4.1-flash-1017', context_window: 1048576 },
     pi_version: '1.4.0', reviewer: 'gpt-6.1-sol',
     limits: { max_tokens: 10000, max_output_tokens: 1000, max_cost_microusd: 2000000, deadline_unix_ms: Number.MAX_SAFE_INTEGER },
     endpoint: { id: 'qualified-endpoint', input_microusd_per_million: 1000, output_microusd_per_million: 2000 },
@@ -115,7 +115,9 @@ function fixture() {
       }
     return { exitCode: 0, stdout: JSON.stringify({ ok: true, result }), stderr: '' }
   })
-  const prepare = () => preparePiWorkerPackage({ db, dispatchId: started.dispatch.id, privateRoot, runBroker })
+  const prepare = async () => (await packageApi()).preparePiWorkerPackage({
+    db, dispatchId: started.dispatch.id, privateRoot, runBroker
+  })
   return { prepare, started, task, run, templatePath, brokerPath, templateBytesSha256, brokerBytesSha256, privateRoot, runBroker, owner }
 }
 
@@ -158,6 +160,7 @@ describe('Pi package composition at the reserved Dispatch', () => {
   it('mints a new immutable nonce binding for each real acquisition of the same exact session', async () => {
     const f = fixture()
     await f.prepare()
+    const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
     bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_fixture')
     const first = await preparePiWorkerAcquisition({
       db, sessionId: 'session_fixture', acquisitionId: 'acquisition_first', privateRoot: f.privateRoot, runBroker: f.runBroker
@@ -175,5 +178,38 @@ describe('Pi package composition at the reserved Dispatch', () => {
     await expect(preparePiWorkerAcquisition({
       db, sessionId: 'session_fixture', acquisitionId: 'acquisition_after_exit', privateRoot: f.privateRoot, runBroker: f.runBroker
     })).rejects.toMatchObject({ code: 'pi_package_inactive' })
+  })
+
+  it('pins the private model catalog generated from verified profile metadata and approved price ceilings', async () => {
+    const f = fixture()
+    await f.prepare()
+    const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
+    bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_catalog')
+    const binding = await preparePiWorkerAcquisition({
+      db, sessionId: 'session_catalog', acquisitionId: 'acquisition_catalog',
+      privateRoot: f.privateRoot, runBroker: f.runBroker
+    })
+    expect(binding).toMatchObject({
+      contextWindow: 1048576, modelsJsonPath: expect.any(String),
+      modelsJsonSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+    })
+    const bytes = readFileSync(binding!.modelsJsonPath)
+    expect(binding!.modelsJsonSha256).toBe(sha(bytes))
+    expect(binding!.modelsJsonPath).toBe(join(binding!.agentHomeDirectory, 'models.json'))
+    expect(JSON.parse(bytes.toString('utf8'))).toEqual({
+      providers: { openrouter: {
+        api: 'openai-completions', baseUrl: 'https://openrouter.ai/api/v1',
+        apiKey: '$OPENROUTER_API_KEY',
+        models: [{
+          id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek implementation worker',
+          reasoning: false, input: ['text'], contextWindow: 1048576, maxTokens: 1000,
+          cost: { input: 0.001, output: 0.002, cacheRead: 0.001, cacheWrite: 0.001 }
+        }]
+      } }
+    })
+    expect(JSON.parse(readFileSync(binding!.bindingPath, 'utf8'))).toMatchObject({
+      modelsJsonPath: binding!.modelsJsonPath, modelsJsonSha256: binding!.modelsJsonSha256,
+      expectedModel: { context_window: 1048576 }
+    })
   })
 })

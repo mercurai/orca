@@ -195,6 +195,7 @@ export function bindPiWorkerAdmission(
       dispatchId,
       consumerGeneration: run.consumer_generation,
       coordinator: runCoordinatorKey(run),
+      artifacts: config.artifacts,
       configSha256: stored.config_sha256,
       provider: 'openrouter',
       model: 'deepseek/deepseek-v4.1-flash-1017'

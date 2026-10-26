@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-support'
+import * as chatAdmission from '../chat-assignee-admission'
+import { ADDRESS_X, SESSION_X, sessionRecord } from '../../../orchestration-session-caller-test-fixture'
 
 describe('Pi admission through the registered orchestration RPC methods', () => {
   const harness = createOrchestrationWorkerReleaseHarness()
@@ -91,5 +93,80 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
     expect(harness.db.getDispatchContext(f.task.id)).toBeUndefined()
     expect(harness.runtime.createTerminal).not.toHaveBeenCalled()
     expect(harness.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
+  })
+
+  it('refuses adopting a Pi PTY without creating a Dispatch or sending its task', async () => {
+    const task = harness.db.createTask({ runId: harness.activeRunId, spec: 'Attempt Pi terminal adoption' })
+    vi.spyOn(harness.runtime, 'showTerminal').mockImplementation(async (handle) => ({
+      handle, worktreeId: 'repo::worktree', status: 'running',
+      agentIdentity: handle === 'term_worker' ? 'pi' : 'codex'
+    }) as never)
+    await expect(harness.call('orchestration.workerStart', {
+      task: task.id, from: 'term_coord', terminal: 'term_worker'
+    })).rejects.toMatchObject({ code: 'pi_admission_required' })
+    expect(harness.db.getDispatchContext(task.id)).toBeUndefined()
+    expect(harness.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
+  })
+
+  it('refuses adopting an existing Pi chat without creating a Dispatch or sending its task', async () => {
+    const task = harness.db.createTask({ runId: harness.activeRunId, spec: 'Attempt Pi chat adoption' })
+    vi.spyOn(chatAdmission, 'admitChatAssignee').mockResolvedValue({
+      ...sessionRecord(SESSION_X, { location: { workspaceId: 'repo::worktree' } }),
+      provider: 'pi'
+    })
+    await expect(harness.call('orchestration.workerStart', {
+      task: task.id, from: 'term_coord', terminal: ADDRESS_X
+    })).rejects.toMatchObject({ code: 'pi_admission_required' })
+    expect(harness.db.getDispatchContext(task.id)).toBeUndefined()
+    expect(harness.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
+  })
+
+  it('preserves reuse of an existing Codex terminal without Pi admission', async () => {
+    vi.spyOn(harness.runtime, 'showTerminal').mockImplementation(async (handle) => ({
+      handle, worktreeId: 'repo::worktree', status: 'running', agentIdentity: 'codex'
+    }) as never)
+    const started = await harness.startWorker({ terminal: 'term_worker' })
+    expect(harness.db.getWorkerDispatch(started.dispatchId)?.state).toBe('ready')
+    expect(harness.runtime.sendTerminalAgentPrompt).toHaveBeenCalled()
+  })
+
+  it('retains a settled Pi slot until workerRelease proves the exact owned resource closed', async () => {
+    const f = policy()
+    for (const suffix of ['2', '3']) {
+      const task = harness.db.createTask({ runId: harness.activeRunId, spec: `Pi task ${suffix}` })
+      const review = harness.db.createTask({ runId: harness.activeRunId, spec: `Review ${suffix}`, deps: [task.id] })
+      f.params.config.tasks.push({
+        ...f.params.config.tasks[0], taskId: task.id, reviewTaskId: review.id, profileSha256: suffix.repeat(64)
+      })
+    }
+    await harness.call('orchestration.piWorkerAdmissionConfigure', f.params)
+    const start = (index: number) => harness.db.createStartingWorkerDispatch({
+      taskId: f.params.config.tasks[index].taskId, creator: { kind: 'system' }, maxDepth: 3,
+      startOptions: {
+        agent: 'pi', piProfileSha256: f.params.config.tasks[index].profileSha256,
+        mode: { mode: 'structured', preferred: 'structured', reason: 'user_default', detail: 'Host selected.' }
+      }
+    })
+    const first = start(0)
+    start(1)
+    harness.db.prepareStartingWorkerAuthority({
+      dispatchId: first.dispatch.id, handle: 'term_worker', paneKey: harness.workerPaneKey,
+      processIncarnation: 'runtime_test:term_worker:1', worktreeId: 'repo::worktree',
+      effects: [], setupState: 'not_applicable', terminalOwnership: 'created'
+    })
+    harness.db.markWorkerDispatchReady(first.dispatch.id)
+    expect(harness.db.settleWorkerReport({
+      taskId: first.task.id, dispatchId: first.dispatch.id, outcome: 'succeeded', result: 'implementation ready'
+    })).toMatchObject({ action: 'settled' })
+    expect(() => start(2)).toThrow(expect.objectContaining({ code: 'pi_admission_capacity' }))
+    expect(harness.db.getWorkerTerminalResourceByOwner(first.dispatch.id)?.release_state).toBe('not_requested')
+    await expect(harness.call('orchestration.workerRelease', { dispatch: first.dispatch.id })).resolves.toMatchObject({
+      state: 'released', processAction: 'closed_agent_terminal'
+    })
+    expect(harness.runtime.closeTerminal).toHaveBeenCalledWith('term_worker')
+    expect(harness.db.getWorkerTerminalResourceByOwner(first.dispatch.id)).toMatchObject({
+      ownership_state: 'released', release_state: 'released'
+    })
+    expect(start(2).worker.state).toBe('starting')
   })
 })
