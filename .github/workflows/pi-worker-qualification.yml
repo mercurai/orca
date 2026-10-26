@@ -34,7 +34,9 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
         with:
           bun-version-file: config/.bun-version
-      - name: Pi launch and observed model regressions
+      - name: Pi composed implementation regressions
+        id: contracts
+        continue-on-error: true
         shell: bash
         run: >-
           pnpm test
@@ -48,8 +50,31 @@ jobs:
           src/main/pi/rpc-turn-races.test.ts
           src/main/pi/rpc-capture-replay.test.ts
           src/shared/agent-session-option-catalog-removers.test.ts
+          src/main/runtime/orchestration/db/pi-worker-admission.test.ts
+          src/main/runtime/rpc/methods/orchestration/worker/pi-worker-admission-rpc.test.ts
+          src/cli/handlers/pi-worker-admission-cli.test.ts
+          src/main/runtime/orchestration/pi-worker-package.test.ts
+          src/main/runtime/rpc/orchestration-session-caller.test.ts
+          src/shared/orchestration-rpc-contract.test.ts
+          src/main/runtime/rpc/methods/orchestration/worker/worker-start-launch-executor-parity.test.ts
+          src/main/pi/worker-report-bridge.test.ts
+          src/main/runtime/orchestration/preamble-pi.test.ts
           --maxWorkers=2
       - name: Typecheck Node and CLI integration
+        id: types
+        continue-on-error: true
+        shell: bash
         run: pnpm tc:node && pnpm tc:cli
       - name: Build CLI
+        id: build
+        continue-on-error: true
+        shell: bash
         run: pnpm build:cli
+      - name: Require every composed qualification gate
+        if: always() && !cancelled()
+        shell: bash
+        env:
+          CONTRACTS: ${{ steps.contracts.outcome }}
+          TYPES: ${{ steps.types.outcome }}
+          BUILD: ${{ steps.build.outcome }}
+        run: test "$CONTRACTS" = success && test "$TYPES" = success && test "$BUILD" = success
