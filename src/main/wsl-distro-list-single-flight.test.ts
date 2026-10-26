@@ -20,6 +20,7 @@ const FAILED = exited('', 1)
 import {
   _resetWslCachesForTests,
   getCachedWslDistros,
+  isWslAvailableAsync,
   listWslDistros,
   listWslDistrosAsync
 } from './wsl'
@@ -27,7 +28,10 @@ import {
 describe('WSL distro list single-flight', () => {
   const originalPlatform = process.platform
   beforeEach(() => {
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: 'win32'
+    })
   })
 
   afterEach(() => {
@@ -211,5 +215,22 @@ describe('WSL distro list single-flight', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  // The freeze this whole file guards: the probes a renderer capability read reaches over IPC
+  // must never touch the synchronous spawn API, and a repeat read must cost no second spawn.
+  it('answers repeat IPC-path probes without a synchronous spawn', async () => {
+    runProcessMock.mockResolvedValue(exited('Ubuntu\n'))
+
+    await expect(listWslDistrosAsync()).resolves.toEqual(['Ubuntu'])
+    await expect(listWslDistrosAsync()).resolves.toEqual(['Ubuntu'])
+    await expect(isWslAvailableAsync()).resolves.toBe(true)
+    await expect(isWslAvailableAsync()).resolves.toBe(true)
+
+    expect(runProcessMock.mock.calls.map(([spec]) => spec.args)).toEqual([
+      ['--list', '--quiet'],
+      ['--status']
+    ])
+    expect(runProcessSyncMock).not.toHaveBeenCalled()
   })
 })

@@ -24,10 +24,10 @@ const refusalFor = (target: Repo, canDispatch = true) =>
   describeScheduledRefusal({ target: { ok: true, cwd: target.path, repo: target }, canDispatch })
 
 let userDataPath: string
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-automation-'))
   loadWslMoveFence(userDataPath)
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
 })
 afterEach(() => {
   resetWslMoveFenceForTests()
@@ -43,8 +43,8 @@ describe('describeScheduledRefusal under a WSL move', () => {
     )
   })
 
-  it('says the WSL host runs it once the host owns the project', () => {
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+  it('says the WSL host runs it once the host owns the project', async () => {
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     expect(refusalFor(repo('repo-1'))).toBe(WSL_MOVE_OWNED_BY_HOST)
     expect(WSL_MOVE_OWNED_BY_HOST).toBe(
       "This automation's project now runs on its WSL host, which runs this automation there. Orca no longer runs this local copy."
