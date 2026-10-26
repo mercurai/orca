@@ -14,6 +14,60 @@ Codex is OpenAI's agentic CLI. Orca's Codex integration is one of the deepest in
 
 Pick **Codex** from the agent combobox. Orca launches `codex` with the worktree as `cwd` and routes auth through the currently selected account.
 
+## Native chat speed
+
+Choose Standard or a speed advertised for the selected model and the account running the chat.
+A known catalog with no additional tiers still offers an explicit Standard-only Speed selector.
+Orca preserves the catalog's exact request ID. A speed change applies to the next new turn;
+steering a message into a running turn keeps that turn's settings.
+
+Orca keeps an explicit selection when the model or catalog changes. Before starting a new turn,
+a non-Standard selection requires fresh support from that execution account's catalog. If support
+is unknown or unavailable, refresh the model catalog or explicitly choose Standard and send again.
+Orca does not silently replace the selection with a different speed.
+
+Changing or reauthenticating an account invalidates its catalog, including a saved successful listing.
+A discovery request started before that change cannot establish support for the new account.
+
+Saved Fast-off preferences become Standard. Saved Fast-on preferences stay pending until the
+current account/model catalog identifies Fast's exact request ID. A saved canonical tier takes
+precedence over the old boolean preference. Unknown support never silently becomes Standard.
+
+A missing catalog tier does not establish that the account lacks subscription entitlement.
+The session keeps the requested next-turn selection separate from the tier acknowledged for a
+submitted turn. Failed starts do not count as applied settings. These acknowledgements are local
+to the current session acquisition and are not persisted as conversation preferences.
+A requested or acknowledged speed does not prove the server's actual processing tier; actual
+processing remains unknown without an explicit server report.
+
+The Speed control shows next-turn intent, support status, the last host-applied speed when known,
+and actual processing separately. Loading means a catalog request is pending; unknown means the
+host cannot establish support. An unavailable selection remains saved until you explicitly change it.
+A fresh valid catalog remains usable while its background refresh runs.
+
+You can change speed while the provider is stopped without launching a child process. A new
+explicit Fast toggle replaces an older saved tier; a new explicit tier replaces an older toggle.
+This differs from restoring a record containing both values, where the canonical tier takes precedence.
+Standard remains safe to request when catalog support is unknown; that does not make support known.
+
+Each message carries the selected speed with its model when the execution host supports send options.
+This includes a pick whose separate settings update is still pending. On an older host without
+send-option support, wait for the speed update before sending; a refusal keeps the text in the composer.
+Untouched legacy Fast controls do not override the provider's configured default.
+
+If a speed pick is refused while a chat starts, Orca retains the requested next-turn setting and
+unsent opening text. Choose a supported speed or cancel the launch; the refusal does not create a
+replacement conversation. An opening message already accepted by the host keeps its original settings.
+
+After a renderer reload, retained unsent text returns to the composer for explicit sending. Recovery
+waits for draft storage to commit before releasing its saved copy. If storage refuses the write,
+free storage and use Retry; Orca retains the recovery copy and does not send the text automatically.
+Message receipts prevent a retained recovery copy from duplicating text after later composer edits.
+
+Seeing the chat in a host snapshot only confirms that the conversation exists. Orca checks its
+opening receipt without replaying create or applying held settings. If that receipt is missing,
+use Retry to reconcile the original request; observing the tab does not send a message.
+
 ## Account hot-swap
 
 Many Codex users run multiple accounts to stretch rate limits. Orca's account switcher swaps the active account without re-login or config edits. See [Hot-swap Codex accounts](/docs/agents/codex-hot-swap).
@@ -41,3 +95,10 @@ Orca reads local Codex usage state for the active account and surfaces it in the
 ## Codex on Windows (WSL)
 
 On Windows, Orca can run Codex either from your host install or from a WSL distro. Add a WSL-hosted Codex account from the account switcher — Orca creates an isolated account home inside the distro (under `~/.local/share/orca/codex-accounts/<id>/home`), maps it back to the host as a `\\wsl.localhost\<distro>\...` path for auth reads, and routes launches, hot-swap, and rate-limit fetches through the selected distro. If Codex isn't installed in the target distro, the **Add account** dialog fails with an actionable message telling you which distro is missing the binary.
+
+Older execution hosts retain their supported Fast controls. Orca translates Standard to Fast off;
+it translates a paid tier to Fast on only when a fresh catalog for the selected account and model
+identifies that exact ID as Fast. An unsupported or unknown selection requires refreshing the
+catalog, updating the execution host, or choosing Standard. An uncertain request keeps its original
+payload on retry, including after a host upgrade. Failed speed updates stop the message before
+provider dispatch instead of sending with previous settings.
