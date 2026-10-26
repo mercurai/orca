@@ -27,15 +27,18 @@ If it times out or disconnects, retain the returned messageId and do not ask aga
 Read your own inbox at natural checkpoints and immediately before completion:
 {"operation":"inbox"}
 
-Report the outcome explicitly. Use real content, never these example placeholders.
-The body is a three-sentence summary of what you did, found and left unfinished.
-Use outcome failed if the assigned work is incomplete; never hide failure in prose:
-{"operation":"complete","subject":"Implementation submitted","body":"What you did. What you found. What remains.","outcome":"succeeded"}
+Before completion, send status with a three-sentence summary of what you did,
+found and left unfinished. Use real content, never the example placeholders.
+Only complete when the assigned implementation is ready for export. If blocked
+or incomplete, report that through status and ask the coordinator for disposition;
+do not claim successful completion for unfinished work.
+{"operation":"complete"}
 
 The completion tool must seal the broker with zero outstanding budget reservations
 before sending worker_done through Orca's settlement path. If completion is
-uncertain, retry the same content: the bridge preserves the same mutation identity.
-Do not create a new completion or change its payload after an uncertain response.
+uncertain, repeat complete: the bridge preserves the same mutation identity and
+fixed owner/seal-derived payload. Do not supply a completion body or outcome,
+create a new completion identity, or change its payload after an uncertain response.
 An agent_settled event or ordinary final text is never worker_done.
 
 === AFTER COMPLETION ===
