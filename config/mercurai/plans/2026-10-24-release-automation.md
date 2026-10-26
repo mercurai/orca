@@ -187,14 +187,14 @@ held-speed refusal, and actionable renderer notices. The manifest remains pinned
 the reviewed candidate until the new conflict tasks are completed, independently
 reviewed, and qualified at one immutable candidate SHA.
 
-The first local reconciliation of this refresh is complete on
-`codex/upstream-986-reconcile` at merge commit
-`4a7d6bd2f993089ecb9ae5f9461ba3a534d0edc2` (tree
-`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`). Its parents are the retained
-candidate `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` and official `main`
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f`. This is a review artifact, not a
-registered release input: the assembler still requires a c3-owned linear
-materialization, exact-source CI, packaging, installation, and runtime evidence.
+The local reconciliation is complete as the linear branch
+`patch/current-main-release-98690`, head
+`5fb6766ff1576b6e5d58d76241e54f5246ae7669`, with tree
+`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c` and official `main`
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f` as its parent. This is a review
+artifact, not a registered release input: c3 still owns remote publication,
+manifest registration, exact-source CI, packaging, installation, and runtime
+evidence.
 
 ## Requirements and acceptance criteria
 

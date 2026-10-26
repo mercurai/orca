@@ -34,15 +34,14 @@ behavior while carrying upstream's current lifecycle, WSL, connector and launch 
 The 108-path inventory is queued; the registered candidate remains unchanged until the
 semantic tasks are completed and reviewed.
 
-The first local reconciliation of that queue is now available for review at
-`codex/upstream-986-reconcile`, commit
-`4a7d6bd2f993089ecb9ae5f9461ba3a534d0edc2`, tree
-`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`. It has the retained candidate
-`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` and official `main`
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f` as parents. This merge commit is
-not registered in `patches.yaml`: the release assembler consumes linear patch
-branches, so c3 must review it and materialize a release-compatible linear
-candidate before exact-SHA CI or publication.
+The local reconciliation is available for review as the linear branch
+`patch/current-main-release-98690`, commit
+`5fb6766ff1576b6e5d58d76241e54f5246ae7669`, tree
+`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`. It is based directly on official
+`main` `98690db2ab1d53d7e67eae296dc061c000c2ea2f` and reproduces the reviewed
+merge tree. This branch is not registered in `patches.yaml` or published to
+the remote fork; c3 must review it and update the manifest before exact-SHA CI
+or publication.
 
 ## Branches
 
