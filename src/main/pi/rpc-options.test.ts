@@ -60,7 +60,16 @@ describe('Pi RPC session options', () => {
   })
 
   it('sends both provider and model ID and stores only successful explicit selections', async () => {
-    const rpc = requester({ set_model: {}, set_thinking_level: undefined })
+    const rpc = requester({
+      set_model: {},
+      set_thinking_level: undefined,
+      get_state: {
+        model: { provider: 'openai-codex', id: 'gpt-6.1-sol' },
+        sessionFile: '/sessions/current.jsonl',
+        isStreaming: false,
+        isCompacting: false
+      }
+    })
     const selected = new Map<string, string>()
     await expect(
       applyPiRpcSessionOption(rpc, selected, 'model', 'openai-codex/gpt-6.1-sol')
@@ -71,6 +80,7 @@ describe('Pi RPC session options', () => {
     })
     expect(rpc.request.mock.calls).toEqual([
       ['set_model', { provider: 'openai-codex', modelId: 'gpt-6.1-sol' }],
+      ['get_state'],
       ['set_thinking_level', { level: 'high' }]
     ])
     expect(() => parsePiModelOptionId('openai-codex')).toThrow()
@@ -82,6 +92,33 @@ describe('Pi RPC session options', () => {
       applyPiRpcSessionOption(rejected, selected, 'model', 'other/new-model')
     ).rejects.toThrow('provider refused model')
     expect(selected.get('model')).toBe('openai-codex/gpt-6.1-sol')
+  })
+
+  it.each([
+    { provider: 'openrouter', id: 'deepseek/deepseek-flash' },
+    { provider: 'other', id: 'deepseek/deepseek-v4.1-flash-1017' },
+    null
+  ])('does not commit an acknowledged model selection unless get_state confirms it: %j', async (model) => {
+    const rpc = requester({
+      set_model: {},
+      get_state: {
+        model,
+        sessionFile: '/sessions/current.jsonl',
+        isStreaming: false,
+        isCompacting: false
+      }
+    })
+    const selected = new Map([['model', 'anthropic/previous-model']])
+    await expect(
+      applyPiRpcSessionOption(
+        rpc,
+        selected,
+        'model',
+        'openrouter/deepseek/deepseek-v4.1-flash-1017'
+      )
+    ).rejects.toThrow(/model/i)
+    expect(selected.get('model')).toBe('anthropic/previous-model')
+    expect(rpc.request.mock.calls.map((call) => call[0])).toEqual(['set_model', 'get_state'])
   })
 
   it('rejects malformed provider data and reports only Pi-listed commands', async () => {

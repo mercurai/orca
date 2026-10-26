@@ -1,0 +1,42 @@
+name: Pi worker qualification
+
+on:
+  push:
+    branches: [feat/pi-supervised-workers-20261026]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-worker-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORCA_BACKGROUND_LAUNCH: '1'
+
+jobs:
+  qualification:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: node
+          node-version: '24'
+      - name: Pi launch and observed model regressions
+        shell: bash
+        run: >-
+          pnpm test
+          src/shared/agent-session-option-catalog.test.ts
+          src/main/runtime/rpc/methods/orchestration/worker/worker-launch-preferences.test.ts
+          src/main/pi/rpc-options.test.ts
+          src/main/pi/rpc-session-adapter.test.ts
+          --maxWorkers=2

@@ -12,6 +12,36 @@ import {
 import { WorkerStartParams } from './worker-start-schema'
 
 describe('orchestration worker launch preferences', () => {
+  it('admits an exact Pi selector through supervised launch without claiming runtime observation', () => {
+    const model = 'openrouter/deepseek/deepseek-v4.1-flash-1017'
+    const launch = resolveWorkerLaunchPreferences({ agent: 'pi', model })
+    expect(launch.preferences).toEqual({ model })
+    expect(launch.receipt.requested).toEqual({ agent: 'pi', model, effort: null })
+    expect(resolveAgentSessionOptionLaunch('pi', launch.preferences, [], false)).toEqual({
+      args: ['--model', model],
+      appliedValues: { model }
+    })
+  })
+
+  it.each(['flash', '/deepseek-flash', 'openrouter/', 'openrouter/deepseek/*'])(
+    'refuses the non-exact Pi worker selector %s',
+    (model) => {
+      expect(() => resolveWorkerLaunchPreferences({ agent: 'pi', model })).toThrow(
+        /exact|provider-qualified/i
+      )
+    }
+  )
+
+  it('refuses Pi effort without observed model capability instead of silently dropping it', () => {
+    expect(() =>
+      resolveWorkerLaunchPreferences({
+        agent: 'pi',
+        model: 'openrouter/deepseek/deepseek-v4.1-flash-1017',
+        effort: 'high'
+      })
+    ).toThrow(/does not support effort|not verified/i)
+  })
+
   it('passes a discovered OMP model through the existing launch arguments and receipt', () => {
     const model = 'google-vertex/claude-haiku-4-5@20251001'
     const launch = resolveWorkerLaunchPreferences({ agent: 'omp', model })

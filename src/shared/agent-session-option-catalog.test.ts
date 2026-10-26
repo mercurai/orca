@@ -7,6 +7,17 @@ import {
 } from './native-chat-session-option-defaults'
 
 describe('agent session option catalog', () => {
+  it('launches Pi with one exact provider-qualified model and no invented seed models', () => {
+    const model = 'openrouter/deepseek/deepseek-v4.1-flash-1017'
+    const catalog = getAgentSessionOptionCatalog('pi')
+    expect(catalog?.supportsWorkerLaunchPreferences).toBe(true)
+    expect(catalog?.models).toEqual([])
+    expect(resolveAgentSessionOptionLaunch('pi', { model }, [], false)).toEqual({
+      args: ['--model', model],
+      appliedValues: { model }
+    })
+  })
+
   it('returns no catalog for unknown agents', () => {
     expect(getAgentSessionOptionCatalog('future-agent')).toBeNull()
   })

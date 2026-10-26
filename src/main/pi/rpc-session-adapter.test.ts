@@ -598,3 +598,124 @@ describe('Pi RPC start without a model', () => {
     expect(h.adapter.startUnavailable(sessionId)).toBeUndefined()
   })
 })
+
+describe('Pi requested model admission', () => {
+  const model = 'openrouter/deepseek/deepseek-v4.1-flash-1017'
+  const activeModel = { provider: 'openrouter', id: 'deepseek/deepseek-v4.1-flash-1017' }
+
+  it.each([false, true])('refuses an acknowledged but mismatched model before delivery (resume=%s)', async (resume) => {
+    const h = await setup()
+    await h.adapter.closeSession(sessionId)
+    if (resume) {
+      h.resolveLaunch.mockImplementationOnce(async () => ({
+        command: '/host/bin/pi',
+        cwd: '/host/folder',
+        fullAccess: true,
+        previous: null,
+        sessionFile: file
+      }))
+    }
+    h.openConnection.mockImplementationOnce((_launch, handlers) => {
+      const connection = new FakeConnection(handlers)
+      connection.requestOverride = (command) =>
+        command === 'get_available_models' ? Promise.resolve({ models: [activeModel] }) : undefined
+      h.connections.push(connection)
+      return connection
+    })
+    await expect(
+      h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
+    ).rejects.toThrow(/model/i)
+    const child = h.connections.at(-1)!
+    expect(child.requests).toContain('set_model')
+    expect(child.sent).toEqual([])
+    expect(child.closed).toBe(true)
+  })
+
+  it('fails acquisition when Pi refuses the requested model instead of falling back', async () => {
+    const h = await setup()
+    await h.adapter.closeSession(sessionId)
+    h.openConnection.mockImplementationOnce((_launch, handlers) => {
+      const connection = new FakeConnection(handlers)
+      connection.requestOverride = (command) =>
+        command === 'set_model' ? Promise.reject(new Error('requested model unavailable')) : undefined
+      h.connections.push(connection)
+      return connection
+    })
+    await expect(
+      h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
+    ).rejects.toThrow('requested model unavailable')
+    expect(h.connections.at(-1)?.sent).toEqual([])
+    expect(h.connections.at(-1)?.closed).toBe(true)
+  })
+
+  it('waits for observed model confirmation before admitting the first task prompt', async () => {
+    const h = await setup()
+    await h.adapter.closeSession(sessionId)
+    const requested = Promise.withResolvers<void>()
+    const confirmed = Promise.withResolvers<typeof state>()
+    h.openConnection.mockImplementationOnce((_launch, handlers) => {
+      const connection = new FakeConnection(handlers)
+      let selected = false
+      connection.requestOverride = (command) => {
+        if (command === 'set_model') {
+          selected = true
+          return Promise.resolve({})
+        }
+        if (command === 'get_available_models') {
+          return Promise.resolve({ models: [activeModel] })
+        }
+        if (command === 'get_state' && selected) {
+          requested.resolve()
+          return confirmed.promise
+        }
+        return undefined
+      }
+      h.connections.push(connection)
+      return connection
+    })
+    const acquiring = h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
+    await requested.promise
+    expect(h.connections.at(-1)?.sent).toEqual([])
+    confirmed.resolve({ ...state, model: activeModel })
+    await acquiring
+    await expect(
+      h.adapter.dispatch({
+        sessionId,
+        fence: 8,
+        clientMessageId: 'confirmed-task',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'implement issue' }] }
+      })
+    ).resolves.toEqual({ state: 'admitted' })
+    expect(h.connections.at(-1)?.sent).toEqual([
+      expect.objectContaining({ type: 'prompt', message: 'implement issue' })
+    ])
+  })
+
+  it('refuses task delivery after the observed model drifts from the requested selection', async () => {
+    const h = await setup()
+    await h.adapter.closeSession(sessionId)
+    h.openConnection.mockImplementationOnce((_launch, handlers) => {
+      const connection = new FakeConnection(handlers)
+      connection.requestOverride = (command) => {
+        if (command === 'get_state') return Promise.resolve({ ...state, model: activeModel })
+        if (command === 'get_available_models') return Promise.resolve({ models: [activeModel] })
+        return undefined
+      }
+      h.connections.push(connection)
+      return connection
+    })
+    await h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
+    const child = h.connections.at(-1)!
+    child.requestOverride = (command) =>
+      command === 'get_state' ? Promise.resolve(state) : undefined
+    await expect(
+      h.adapter.dispatch({
+        sessionId,
+        fence: 8,
+        clientMessageId: 'drifted-task',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'implement issue' }] }
+      })
+    ).rejects.toThrow(/model/i)
+    expect(child.sent).toEqual([])
+  })
+})
