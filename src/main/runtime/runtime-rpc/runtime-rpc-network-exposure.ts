@@ -69,7 +69,7 @@ export class RuntimeRpcNetworkExposure extends RuntimeRpcLifecycle {
       if (this.wsPort !== 0 && widened.transport.resolvedPort !== this.wsPort) {
         writeWsFallbackPort(this.userDataPath, widened.transport.resolvedPort)
       }
-      this.writeMetadata()
+      await this.writeMetadata()
     } catch (persistError) {
       // Persistence failure cannot undo an already-live tracked listener; in-memory endpoint is valid.
       console.error(
@@ -104,7 +104,7 @@ export class RuntimeRpcNetworkExposure extends RuntimeRpcLifecycle {
       }
       this.wsBoundHost = null
       try {
-        this.writeMetadata()
+        await this.writeMetadata()
       } catch {
         // Metadata already describes the removed listener; no further recovery needed.
       }
@@ -117,7 +117,7 @@ export class RuntimeRpcNetworkExposure extends RuntimeRpcLifecycle {
       this.transports[metaIndex] = { kind: 'websocket', endpoint: restored.endpoint }
     }
     try {
-      this.writeMetadata()
+      await this.writeMetadata()
     } catch (persistError) {
       // Keep serving through persistence failure; loopback is already live and tracked.
       console.error(

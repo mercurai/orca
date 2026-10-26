@@ -1,4 +1,7 @@
-// Push authenticates with host keys, independent of cloud sign-in; retain gateway registrations and durable cleanup for accountless hosts too.
+// Why: owns the desktop half of background push — the gateway session, the
+// registration each paired phone asked for, and the durable delete queue. Built
+// alongside DesktopRelayService but deliberately not gated on cloud sign-in: the
+// gateway authenticates with the host keypair, so accountless hosts push too.
 import { randomUUID } from 'node:crypto'
 import type {
   MobilePushTestResult,
@@ -23,11 +26,11 @@ type DesktopPushServiceOptions = {
   runtime: OrcaRuntimeService
   runtimeRpc: OrcaRuntimeRpcServer
   gatewayUrl: string
-  /** Inject a gateway client for tests. */
+  /** Test seam: lets a suite drive the service without a live gateway. */
   client?: PushGatewayClient
-  /** Inject outbox backoff scheduling for tests. */
+  /** Test seam: lets a suite drive the outbox backoff without real timers. */
   scheduleRetry?: (run: () => void, delayMs: number) => void
-  /** Inject the per-device registration bucket for tests. */
+  /** Test seam: lets a suite drive the per-device register bucket on its own clock. */
   registerThrottle?: PushRegisterThrottle
 }
 
@@ -155,7 +158,8 @@ export class DesktopPushService {
     if (this.registry.getDevice(input.deviceId)?.scope !== 'mobile') {
       return { registered: false, reason: 'not_mobile' }
     }
-    // Only registration needs a bucket; unregister is a lookup or one delete per successful register.
+    // Unregister needs no bucket: with nothing registered it is a lookup, and
+    // with something registered it can only run once per successful register.
     if (!this.registerThrottle.allow(input.deviceId)) {
       return { registered: false, reason: 'throttled' }
     }
@@ -190,10 +194,14 @@ export class DesktopPushService {
         reason: result.reason === 'unreachable' ? 'gateway_unreachable' : 'gateway_rejected'
       }
     }
-    const failure = this.storeRegistration(input, result.registrationId)
+    const failure = await this.storeRegistration(input, result.registrationId)
     if (failure) {
-      // Gateway accepted an unstorable token; durably queue deletion rather than leak it.
-      this.outbox.enqueue({ registrationId: result.registrationId, deviceId: input.deviceId })
+      // Why: the gateway now holds a token this host will never push to. Queue its
+      // delete instead of leaking it until the phone happens to register again.
+      await this.outbox.enqueue({
+        registrationId: result.registrationId,
+        deviceId: input.deviceId
+      })
     }
     void this.flushUnregisterOutbox()
     return failure
@@ -207,15 +215,15 @@ export class DesktopPushService {
     )
   }
 
-  private unregisterCurrent(deviceId: string): { unregistered: boolean } {
+  private async unregisterCurrent(deviceId: string): Promise<{ unregistered: boolean }> {
     const registrationId = this.registry.getDevice(deviceId)?.pushRegistration?.registrationId
     if (!registrationId) {
       return { unregistered: false }
     }
     // Persist cleanup before forgetting its ID; neither write waits on the gateway.
-    this.outbox.enqueue({ registrationId, deviceId })
+    await this.outbox.enqueue({ registrationId, deviceId })
     try {
-      this.registry.setPushRegistration(deviceId, null)
+      await this.registry.setPushRegistration(deviceId, null)
     } finally {
       void this.flushUnregisterOutbox()
     }
@@ -250,12 +258,12 @@ export class DesktopPushService {
   }
 
   /** Returns the refusal reason when a gateway-accepted registration cannot be stored. */
-  private storeRegistration(
+  private async storeRegistration(
     input: MobilePushRegisterInput,
     registrationId: string
-  ): RegisterStorageFailure | null {
+  ): Promise<RegisterStorageFailure | null> {
     try {
-      const stored = this.registry.setPushRegistration(input.deviceId, {
+      const stored = await this.registry.setPushRegistration(input.deviceId, {
         registrationId,
         filter: input.filter,
         expiresAt: Date.now() + 7 * 24 * 60 * 60_000
@@ -309,7 +317,7 @@ export class DesktopPushService {
     if (!deleted) {
       return false
     }
-    this.outbox.remove(reqId)
+    await this.outbox.remove(reqId)
     return true
   }
 

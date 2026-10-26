@@ -39,10 +39,10 @@ describe('RelayDemandLedger', () => {
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(false)
   })
 
-  it('holds pending QR demand only through invite expiry', () => {
+  it('holds pending QR demand only through invite expiry', async () => {
     const { userDataPath, deviceRegistry, ledger } = fixture(1_000)
-    const pending = deviceRegistry.addDevice('Pending phone')
-    deviceRegistry.setRelayBinding(pending.deviceId, binding(pending.deviceId, 2_000))
+    const pending = await deviceRegistry.addDevice('Pending phone')
+    await deviceRegistry.setRelayBinding(pending.deviceId, binding(pending.deviceId, 2_000))
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(true)
     expect(ledger.nextPendingExpiry()).toBe(2_000)
     const restarted = new RelayDemandLedger({
@@ -54,39 +54,39 @@ describe('RelayDemandLedger', () => {
     expect(restarted.hasDemand(ownerIdentityKey)).toBe(true)
 
     const expiredFixture = fixture(3_000)
-    const expired = expiredFixture.deviceRegistry.addDevice('Expired phone')
-    expiredFixture.deviceRegistry.setRelayBinding(
+    const expired = await expiredFixture.deviceRegistry.addDevice('Expired phone')
+    await expiredFixture.deviceRegistry.setRelayBinding(
       expired.deviceId,
       binding(expired.deviceId, 2_000)
     )
     expect(expiredFixture.ledger.hasDemand(ownerIdentityKey)).toBe(false)
   })
 
-  it('does not promote a scanned invite to provisioned demand before install', () => {
+  it('does not promote a scanned invite to provisioned demand before install', async () => {
     const { deviceRegistry, ledger } = fixture(3_000)
-    const scanned = deviceRegistry.addDevice('Scanned phone')
-    deviceRegistry.setRelayBinding(scanned.deviceId, binding(scanned.deviceId, 2_000))
-    deviceRegistry.updateLastSeen(scanned.deviceId)
+    const scanned = await deviceRegistry.addDevice('Scanned phone')
+    await deviceRegistry.setRelayBinding(scanned.deviceId, binding(scanned.deviceId, 2_000))
+    await deviceRegistry.updateLastSeen(scanned.deviceId)
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(false)
   })
 
-  it('keeps provisioned devices and revoke outbox work authoritative', () => {
+  it('keeps provisioned devices and revoke outbox work authoritative', async () => {
     const { deviceRegistry, revokeOutbox, ledger } = fixture(5_000)
-    const paired = deviceRegistry.addDevice('Paired phone')
-    deviceRegistry.setRelayBinding(paired.deviceId, binding(paired.deviceId))
-    deviceRegistry.updateLastSeen(paired.deviceId)
+    const paired = await deviceRegistry.addDevice('Paired phone')
+    await deviceRegistry.setRelayBinding(paired.deviceId, binding(paired.deviceId))
+    await deviceRegistry.updateLastSeen(paired.deviceId)
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(true)
 
-    deviceRegistry.removeDevice(paired.deviceId)
+    await deviceRegistry.removeDevice(paired.deviceId)
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(false)
-    revokeOutbox.enqueue(binding(paired.deviceId))
+    await revokeOutbox.enqueue(binding(paired.deviceId))
     expect(ledger.hasDemand(ownerIdentityKey)).toBe(true)
   })
 
-  it('does not activate another signed-in identity or relay host', () => {
+  it('does not activate another signed-in identity or relay host', async () => {
     const { deviceRegistry, ledger } = fixture(1_000)
-    const pending = deviceRegistry.addDevice('Other phone')
-    deviceRegistry.setRelayBinding(pending.deviceId, {
+    const pending = await deviceRegistry.addDevice('Other phone')
+    await deviceRegistry.setRelayBinding(pending.deviceId, {
       ...binding(pending.deviceId, 2_000),
       ownerIdentityKey: 'other-user\0profile\0org'
     })

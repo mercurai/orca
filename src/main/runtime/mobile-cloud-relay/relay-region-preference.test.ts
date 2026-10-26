@@ -1,10 +1,21 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { runProcess, runProcessSync } from '@orca/process-host'
+import {
+  resetWindowsSecurityLoadForTests,
+  setWindowsSecurityForTests
+} from '../../../shared/windows-security-addon'
+import { createFakeWindowsSecurity } from '../../../shared/windows-security-addon.test-fixture'
 import { cancelTrackingResponse } from '../../lib/unread-response-body.test-fixtures'
 import { RelayRegionPreferenceResolver } from './relay-region-preference'
 import { probeRelayOrigin } from './relay-region-probe'
+
+vi.mock('@orca/process-host', () => ({
+  runProcess: vi.fn(),
+  runProcessSync: vi.fn()
+}))
 
 const DIRECTOR = 'https://relay.example.test'
 const US = 'https://us-c1.relay.example.test'
@@ -17,7 +28,17 @@ const BOTH_REGIONS = [
 ]
 const tempPaths: string[] = []
 
+beforeEach(() => {
+  // Why: no test here may spawn a process, whatever platform it runs on; the ACL addon is faked.
+  vi.mocked(runProcess).mockClear()
+  vi.mocked(runProcessSync).mockClear()
+  resetWindowsSecurityLoadForTests()
+  setWindowsSecurityForTests(createFakeWindowsSecurity())
+})
+
 afterEach(() => {
+  setWindowsSecurityForTests(null)
+  resetWindowsSecurityLoadForTests()
   vi.unstubAllEnvs()
   for (const path of tempPaths.splice(0)) {
     rmSync(path, { recursive: true, force: true })
@@ -63,6 +84,28 @@ function writeCache(path: string, region: string, expiresAt = 999): void {
 }
 
 describe('Relay region preference', () => {
+  it('writes its cache on win32 without a synchronous spawn', async () => {
+    const original = Object.getOwnPropertyDescriptor(process, 'platform')
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    try {
+      const path = userDataPath()
+      const { probe } = sampledProbe({ [US]: [400, 160, 170, 150], [ASIA]: [90, 35, 40, 30] })
+      await new RelayRegionPreferenceResolver({
+        directorUrl: DIRECTOR,
+        userDataPath: path,
+        fetch: catalogFetch(BOTH_REGIONS),
+        probe
+      }).resolve()
+
+      expect(existsSync(cachePath(path))).toBe(true)
+      expect(runProcessSync).not.toHaveBeenCalled()
+    } finally {
+      if (original) {
+        Object.defineProperty(process, 'platform', original)
+      }
+    }
+  })
+
   it('measures a warm-up plus three rounds across one- and two-origin catalogs', async () => {
     const path = userDataPath()
     const fetch = catalogFetch([

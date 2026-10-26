@@ -12,7 +12,7 @@ describe('a server-targeted phone call on a legacy (non-E2EE) socket', () => {
     const { runtime, mocks } = createMobileRpcSurfaceRuntime()
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('phone', 'mobile')
+    const device = await server['deviceRegistry']!.addDevice('phone', 'mobile')
     const replies: Record<string, unknown>[] = []
     await server['handleWebSocketMessage'](
       JSON.stringify({
