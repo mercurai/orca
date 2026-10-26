@@ -68,6 +68,7 @@ describe('Codex captured message choices', () => {
       const session = optionSession(request)
       if (knownCatalog) seedMessageDefaults(session)
       session.reportedOptions.model = 'model-a'
+      session.nativeDefaults = { serviceTier: 'default' }
 
       const options = await resolvedCodexMessageOptions(session, {
         serviceTier,
