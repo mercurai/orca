@@ -45,10 +45,13 @@ afterEach(() => {
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }))
 })
 
-function serverProfileWith(env: Partial<Record<(typeof SELECTORS)[number], string>>): string {
+/** This server's profile, with another server paired in it; the CLI starts with `env`. */
+async function serverProfileWith(
+  env: Partial<Record<(typeof SELECTORS)[number], string>>
+): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), 'cli-owner-'))
   roots.push(root)
-  addEnvironmentFromPairingCode(root, { name: 'other-server', pairingCode })
+  await addEnvironmentFromPairingCode(root, { name: 'other-server', pairingCode })
   const metadata: RuntimeMetadata = {
     runtimeId: 'runtime-local',
     pid: 123,
@@ -69,8 +72,8 @@ async function requestServer(client: RuntimeClient): Promise<string> {
 }
 
 it("stays on its own server with an agent's empty selectors, and explicit flags still route", async () => {
-  // Empty selectors prevent profile exports from routing the agent to another server.
-  const root = serverProfileWith({
+  // The agent environment sets all three empty so a profile's export cannot win.
+  const root = await serverProfileWith({
     ORCA_ENVIRONMENT: '',
     ORCA_PAIRING_CODE: '',
     ORCA_REMOTE_PAIRING: ''
@@ -92,7 +95,7 @@ it("stays on its own server with an agent's empty selectors, and explicit flags 
 })
 
 it.each(SELECTORS)("routes requests through a person's own %s", async (key) => {
-  serverProfileWith({ [key]: selection[key] })
+  await serverProfileWith({ [key]: selection[key] })
   expect(await requestServer(new RuntimeClient())).toBe('remote')
   expect(transport.local).not.toHaveBeenCalled()
   expect(transport.remote).toHaveBeenCalledWith(
