@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PiRpcPromptDelivery } from './rpc-prompt-delivery'
+import { confirmPiRpcModel } from './rpc-options'
 
 const deliveries: PiRpcPromptDelivery[] = []
 afterEach(() => {
@@ -121,6 +122,73 @@ describe('Pi pending prompt delivery bounds and ownership', () => {
       expect.objectContaining({ state: 'unknown' })
     )
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps initial delivery unknown when the process exits during model confirmation', async () => {
+    const h = rig()
+    const pending = Promise.withResolvers<unknown>()
+    const requested = Promise.withResolvers<void>()
+    const writePrompt = vi.fn()
+    h.send.mockImplementationOnce(async () => {
+      await confirmPiRpcModel(
+        {
+          request: async () => {
+            requested.resolve()
+            return pending.promise
+          }
+        },
+        'openrouter/deepseek/deepseek-v4.1-flash-1017'
+      )
+      writePrompt()
+    })
+    const dispatch = h.delivery.submit('initial-check', 1, { type: 'prompt', message: 'first' })
+    await requested.promise
+    pending.reject(new Error('Pi RPC peer closed'))
+    h.delivery.end()
+    await expect(dispatch).resolves.toMatchObject({ state: 'unknown' })
+    expect(h.settled).toHaveBeenCalledExactlyOnceWith(
+      'initial-check',
+      expect.objectContaining({ state: 'unknown' })
+    )
+    expect(writePrompt).not.toHaveBeenCalled()
+  })
+
+  it('settles an auth retry only once when the process exits during model confirmation', async () => {
+    vi.useFakeTimers()
+    const h = rig()
+    await h.delivery.submit('retry-check', 1, { type: 'prompt', message: 'first' })
+    const pending = Promise.withResolvers<unknown>()
+    const requested = Promise.withResolvers<void>()
+    const writePrompt = vi.fn()
+    h.send.mockImplementationOnce(async () => {
+      await confirmPiRpcModel(
+        {
+          request: async () => {
+            requested.resolve()
+            return pending.promise
+          }
+        },
+        'openrouter/deepseek/deepseek-v4.1-flash-1017'
+      )
+      writePrompt()
+    })
+    h.delivery.reply({
+      type: 'response',
+      command: 'prompt',
+      success: false,
+      error: 'No API key found for openrouter'
+    })
+    await vi.advanceTimersByTimeAsync(250)
+    await requested.promise
+    pending.reject(new Error('Pi RPC peer closed'))
+    h.delivery.end()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(h.settled).toHaveBeenCalledExactlyOnceWith(
+      'retry-check',
+      expect.objectContaining({ state: 'unknown' })
+    )
+    expect(writePrompt).not.toHaveBeenCalled()
+    expect(h.delivery.holdsDispatch).toBe(false)
   })
 })
 
