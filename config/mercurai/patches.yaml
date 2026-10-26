@@ -3,6 +3,10 @@
 # Jobs act only on upstream-open and ours-only patches; planned entries document the series.
 # PREPARATION ONLY: the active entry below is provisional and must not be merged or used
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
+# 2026-10-26 queue: official stablyai/orca main is
+# 98690db2ab1d53d7e67eae296dc061c000c2ea2f. Replaying it against this frozen candidate
+# produces 108 conflicts (merge-tree eb5ae36c13e6380321af21493b9c0ef212b70bb7). Keep
+# this manifest pinned until the bounded semantic conflict tasks produce a reviewed head.
 version: 1
 upstream: stablyai/orca
 base: d58849a7d8d68929bd0e686571678d85e70740af

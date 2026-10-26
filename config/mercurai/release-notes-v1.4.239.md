@@ -1,6 +1,6 @@
 ---
 owner: Mercurai release owner
-last-reviewed: 2026-10-25
+last-reviewed: 2026-10-26
 stability: draft
 ---
 
@@ -35,6 +35,13 @@ separate candidate generation; this draft does not silently claim those newer
 commits are included. A read-only replay found three conflicts in the E2E
 type-error baseline, native-chat send recovery, and cross-version device-key
 coverage.
+
+On 2026-10-26, official `main` advanced again to
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f`. A fresh replay against the frozen
+candidate reports 108 conflicts across runtime, persistence, WSL/SSH, Codex,
+renderer, workflow and E2E files. This draft remains pinned to the earlier
+candidate; the newer SHA is queued until each conflict receives a semantic
+disposition and exact-candidate CI.
 
 ## Retained Mercurai behavior
 

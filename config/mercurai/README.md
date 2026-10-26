@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-25.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
 
 ## Current candidate registration
 
@@ -22,6 +22,17 @@ this candidate was frozen. A read-only replay reports three conflicts in the
 E2E type-error baseline, native-chat send recovery, and cross-version device-key
 coverage. The manifest remains pinned to the reviewed candidate until those
 paths are reconciled and independently reviewed.
+
+On 2026-10-26, official `stablyai/orca` `main` advanced to
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f` (416 commits beyond the frozen
+`d58849a7d8` base). The exact merge-tree replay against the registered candidate
+has 108 conflicts and merge-tree result `eb5ae36c13e6380321af21493b9c0ef212b70bb7`.
+The conflict planner derives 13 bounded tasks across Codex catalog, workflow/package,
+process/Git, runtime, renderer, and remaining paths. No ours/theirs shortcut is allowed:
+the next candidate must preserve Mercurai async, persistence, remote-host and Codex speed
+behavior while carrying upstream's current lifecycle, WSL, connector and launch changes.
+The 108-path inventory is queued; the registered candidate remains unchanged until the
+semantic tasks are completed and reviewed.
 
 ## Branches
 

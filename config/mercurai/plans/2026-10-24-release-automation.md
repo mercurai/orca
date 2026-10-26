@@ -158,6 +158,35 @@ Conflict task obligations:
 Each task may modify only its listed paths, must add or update focused behavioral coverage, and must produce a new
 candidate generation before qualification. The release owner must review the combined tree after both tasks land.
 
+### Upstream refresh probe (2026-10-26)
+
+Official `stablyai/orca` `main` advanced to
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f`; stable `v1.4.239` still peels to
+`47f77cf7018ebc0d046b82c6dde31cf704909162`. The target is 416 commits beyond
+the frozen `d58849a7d8d68929bd0e686571678d85e70740af` base. Replaying the
+registered candidate `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` produces merge-tree
+`eb5ae36c13e6380321af21493b9c0ef212b70bb7`, exit `1`, and 108 conflict records:
+106 content conflicts and two modify/delete conflicts.
+
+The deterministic planner creates 13 bounded tasks (maximum 12 paths each): one
+Codex-catalog task, one workflow/package task, three process/Git tasks, three runtime
+tasks, two renderer tasks, and three remaining-path tasks. Fixed-reference review
+classifies 51 paths as candidate-code-only changes, 50 as genuine two-sided code
+changes, two as upstream deletions requiring replacement coverage, four as launch
+relocations/additions, and the E2E baseline as text-only. The safe disposition is
+candidate retention for the candidate-only set, semantic union for both-sided code,
+explicit replacement review for deletions/relocations, and upstream's header-only
+E2E baseline after the async pairing fixture is present.
+
+Required upstream behavior to preserve during reconciliation includes WSL pairing-key
+binding and save-only blank-store recovery, desktop chat creation-history retirement,
+structured-session shutdown and pane-grid flush ordering, connector fencing, and
+launch-module relocations. Required Mercurai behavior includes async durable writes,
+generation/revocation fences, exact Codex tier IDs, no-downgrade speed admission,
+held-speed refusal, and actionable renderer notices. The manifest remains pinned to
+the reviewed candidate until the new conflict tasks are completed, independently
+reviewed, and qualified at one immutable candidate SHA.
+
 ## Requirements and acceptance criteria
 
 ### Release completeness
