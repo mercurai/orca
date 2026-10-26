@@ -83,7 +83,9 @@ the read-only job compares the downloaded receipt against external candidate,
 tree, controller, manifest, policy, version, ordered series, and dispatch IDs.
 The tag job rechecks refs and the successful run attempt, then explicitly tags
 the verified candidate commit. Neither credentialed job executes Node or
-candidate code. This correction requires independent review and hosted CI.
+candidate code. Independent review accepted this correction; controller run
+40404591475 passed 222 Node tests and nine modern-template integration tests.
+A hosted end-to-end assembly rehearsal remains pending, and admission is false.
 
 The receipt's reviewer text remains unauthenticated; authenticated review intake
 is pending. The qualification checks also omit required PR verification lanes.

@@ -8,21 +8,25 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
 The preparation manifest freezes official `main` at
 `98690db2ab1d53d7e67eae296dc061c000c2ea2f`, retaining `v1.4.239` as its
 historical stable floor. The remote patch `patch/current-main-release-98690`
-is pinned to `423176798d119980771fcfddd8a60797c99040b4`, tree
-`0bb47c54f78a7abdeafc179e7a49e352c977b6a8`. This is 22 linear commits after
+is pinned to `b31ced0216480a4f1dceeb11d21a918865234164`, tree
+`75384be34c9b9d7695c621eeee4b75e4e962a9fc`. This is 23 linear commits after
 that official ancestor, including completion-audit corrections.
 
 The source audit found broken relocation imports, speed-precedence and
 late-rejection defects, and outdated Windows fixtures. The corrected candidate
-passed targeted CI: 1,232 tests passed and 16 skipped across 93 Windows files;
-deterministic cost checks passed on Linux and Windows. Full PR verification is
-running in [#79](https://github.com/mercurai/orca/pull/79); no full qualification
-receipt exists. Both-rejected overlapping starts now preserve subsequent picker
-intent, including same-value picks, with independent delta review.
-Independent release-gate review also found incomplete PR verification coverage,
-unauthenticated reviewer text, ambiguous qualification-run matching, and unsafe
-publication retries. The release policy remains disabled until those gates are
-corrected and reviewed. See the [authoritative plan](plans/2026-10-24-release-automation.md).
+passed 1,232 targeted tests at predecessor `423176798d`, with 16 skipped;
+deterministic cost checks passed on Linux and Windows. Full PR verification then
+found eight type errors and three size violations. The current pin corrects
+those findings and is under fresh CI in [#79](https://github.com/mercurai/orca/pull/79).
+No full qualification receipt exists. Both-rejected overlapping starts preserve
+subsequent picker intent, including same-value picks, with independent delta review.
+
+Independent release-gate review found four HIGH issues. Exact qualification-run
+matching and pre-tag receipt validation are corrected and independently reviewed;
+controller CI passed 222 Node and nine template tests. Incomplete qualification
+coverage, unauthenticated reviewer text, and unsafe publication retries remain
+open. The release policy stays disabled. See the
+[authoritative plan](plans/2026-10-24-release-automation.md).
 
 The latest observed official target is `main`
 `44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`.

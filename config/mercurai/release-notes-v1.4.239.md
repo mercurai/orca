@@ -17,16 +17,18 @@ qualification.
 - Stable floor: `v1.4.239`, peeled commit
   `47f77cf7018ebc0d046b82c6dde31cf704909162`.
 - Candidate patch branch: `patch/current-main-release-98690`.
-- Candidate head: `423176798d119980771fcfddd8a60797c99040b4`, with 22 commits
+- Candidate head: `b31ced0216480a4f1dceeb11d21a918865234164`, with 23 commits
   after the frozen official ancestor.
-- Candidate tree: `0bb47c54f78a7abdeafc179e7a49e352c977b6a8`.
+- Candidate tree: `75384be34c9b9d7695c621eeee4b75e4e962a9fc`.
 
 The branch is published to the source fork for CI. Completion-audit corrections
 repair relocated renderer imports, canonical-tier precedence, rejected-start
 rollback over newer picks, and stale Windows/renderer test fixtures.
 Targeted CI run [40401238493](https://github.com/mercurai/orca/actions/runs/40401238493)
-passed at this head: 1,232 targeted tests, 16 skipped, plus passing Linux and
-Windows deterministic cost checks. Full PR verification is running. Full
+passed at predecessor `423176798d`: 1,232 targeted tests, 16 skipped, plus
+passing Linux and Windows deterministic cost checks. The current pin fixes
+eight type errors and three size violations found by full CI. Fresh full
+and targeted CI are pending. Full
 qualification and release-gate corrections remain pending;
 no release receipt or published application is claimed.
 

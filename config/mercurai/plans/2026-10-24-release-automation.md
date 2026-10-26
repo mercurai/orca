@@ -300,6 +300,23 @@ fixture; bounded extractions preserve the size-limited modules' behavior.
 This new evidence supersedes any suggestion that targeted success establishes
 full source correctness. Full CI and WSL acceptance remain open.
 
+Controller follow-up `23a667dfe4` passed hosted
+[40404591475](https://github.com/mercurai/orca/actions/runs/40404591475):
+222 Node tests, nine modern-template integration tests, lint, and series-script
+checks. Independent security review accepted the exact-run/pre-tag correction.
+Its live workflow rehearsal remains pending. The original qualification-matrix,
+review-authentication, and immutable-publication HIGH findings remain open.
+
+Current source is `b31ced0216480a4f1dceeb11d21a918865234164`, tree
+`75384be34c9b9d7695c621eeee4b75e4e962a9fc`, with 23 commits after the frozen
+official ancestor. Static lint passed for all 13 changed files. Independent
+refactor review accepted preserved async routing, SSH sidecar state, public
+exports, catalog freshness, and bounded Maps after restoring an omitted import.
+Fresh full run 40405108355 and targeted run 40405108314 are pending.
+The WSL build failure was traced to the same two missing SSH exports, now
+corrected; it still requires fresh hosted acceptance. The manifest tracks this
+remote pin provisionally and does not claim it has passed its predecessor's CI.
+
 Current upstream discovery found official `main` at
 `44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published
 2026-10-26. Queue those inputs after the frozen candidate's corrections; do not
