@@ -261,8 +261,27 @@ Controller containment commit `ba18ca1c2c6ebaa6769c01ca2f89d25656e47259`
 passed [40398674155](https://github.com/mercurai/orca/actions/runs/40398674155):
 lint, series-script checks, 171 Node tests, and nine modern-template integration
 tests. Independent review accepted only the containment delta. The four HIGH
-release findings remain open. A separate four-case regression delta at source
-`cccf3efc8b` is under CI for the remaining both-rejected ordering gap.
+release findings remain open. The both-rejected ordering regression delta at
+source `cccf3efc8b` failed three cases in CI; the six-case expansion at
+`4bdb3f6fb6` failed four. The ownership-based fix at
+`423176798d119980771fcfddd8a60797c99040b4`, tree
+`0bb47c54f78a7abdeafc179e7a49e352c977b6a8`, passed targeted run
+[40401238493](https://github.com/mercurai/orca/actions/runs/40401238493):
+1,232 tests passed and 16 skipped across 93 Windows files. Both platform cost
+jobs passed. Independent delta review accepted it; 22 linear commits follow
+official `98690db2`. The provisional manifest matches this proven source pin.
+Source PR #79 is now open for full PR verification; controller PR #80 remains
+draft. Source landing and all release/runtime gates remain pending.
+
+The exact-run repair has a hosted RED baseline in
+[40400287474](https://github.com/mercurai/orca/actions/runs/40400287474):
+176 passed and 31 new cases failed. That synthetic baseline reproduces the
+existing shell lookup/admission semantics; it is not wired into a publisher.
+The correction separates trusted read-only selection/receipt verification from
+credential-bearing push and tag jobs, preserving their interpreter bans. It
+must verify external candidate/controller/manifest/policy/version/series and
+unique dispatch identity before tagging. The other three HIGH findings remain
+outside this focused repair.
 
 Current upstream discovery found official `main` at
 `44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published

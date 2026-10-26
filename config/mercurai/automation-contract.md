@@ -1,6 +1,6 @@
 # Mercurai release automation contract
 
-Owner: Mercurai release owner. Last reviewed: 2026-10-25.
+Owner: Mercurai release owner. Last reviewed: 2026-10-26.
 
 This contract describes the durable handoff between GitHub and a local Orca
 runtime. It is an interface contract, not permission to publish a release.
@@ -75,12 +75,18 @@ qualification correlation, or immutable monotonic publication requirements.
 Those gates need implementation, independent review, and CI before admission
 can be enabled. Older controller revisions are outside this proposed guard.
 
-When admission is enabled, `fork-assemble-release.yml` pushes a candidate branch
-and dispatches `fork-qualify-release.yml`. The current run lookup can select
-another candidate's run; exact correlation must be repaired before tagging.
-The receipt records commit/tree/controller/manifest/policy identities, checks,
-and reviewer text. That text is unauthenticated; authenticated review intake
-remains pending. The current checks also omit required PR verification lanes.
+The proposed exact-run correction separates assembly into test, credentialed
+push/dispatch, read-only qualification verification, and credentialed tagging.
+An assembly-specific dispatch ID identifies the qualification run. Complete
+paginated discovery refuses ambiguous or incomplete results. Before tagging,
+the read-only job compares the downloaded receipt against external candidate,
+tree, controller, manifest, policy, version, ordered series, and dispatch IDs.
+The tag job rechecks refs and the successful run attempt, then explicitly tags
+the verified candidate commit. Neither credentialed job executes Node or
+candidate code. This correction requires independent review and hosted CI.
+
+The receipt's reviewer text remains unauthenticated; authenticated review intake
+is pending. The qualification checks also omit required PR verification lanes.
 `fork-release-win-build.yml` verifies a receipt with the trusted controller
 before packaging or publication. Direct build dispatch without a receipt is
 dry-run-only. These mechanisms do not yet satisfy the promotion boundary.

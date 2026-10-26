@@ -27,16 +27,34 @@ test('published builds require a qualification run and trusted promotion receipt
 })
 
 test('assembly hands the exact candidate to qualification before packaging', () => {
-  assert.match(assemble, /name: Qualify the assembled candidate/)
+  assert.match(assemble, /name: Dispatch qualification for the assembled candidate/)
   assert.match(assemble, /fork-qualify-release\.yml/)
   assert.match(assemble, /candidate_sha/)
   assert.match(assemble, /Freeze the ordered patch series/)
   assert.match(assemble, /-f "series=\$SERIES"/)
-  assert.match(assemble, /createdAt/)
+  assert.match(assemble, /-f "dispatch_id=\$dispatch_id"/)
+  assert.match(assemble, /gh api --method GET --paginate --slurp/)
+  assert.match(assemble, /qualification-run\.mjs select/)
+  assert.doesNotMatch(assemble, /gh run list|--limit 10/)
   assert.match(assemble, /started_at=/)
   assert.match(assemble, /gh run watch/)
   assert.match(assemble, /qualification_run_id=/)
   assert.match(assemble, /qualification_run_id.*fork-release-win-build\.yml/s)
+})
+
+test('a separate read-only job verifies receipt identity before the guarded tag job', () => {
+  const qualification = assemble.slice(
+    assemble.indexOf('\n  qualification:'),
+    assemble.indexOf('\n  tag:')
+  )
+  const tag = assemble.slice(assemble.indexOf('\n  tag:'))
+  assert.match(qualification, /name: Verify the exact qualification receipt/)
+  assert.match(qualification, /gh run download "\$QUALIFICATION_RUN_ID" --name promotion-receipt/)
+  assert.match(qualification, /qualification-run\.mjs verify/)
+  assert.match(qualification, /verified=true/)
+  assert.match(tag, /needs\.qualification\.outputs\.verified == 'true'/)
+  assert.match(tag, /QUALIFICATION_RUN_ID: \$\{\{ needs\.qualification\.outputs\.run_id \}\}/)
+  assert.doesNotMatch(qualification, /secrets\./)
 })
 
 test('disabled release policy refuses assembly before any release ref can be pushed', () => {

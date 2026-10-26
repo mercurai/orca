@@ -8,10 +8,10 @@
 #
 # FORK_BOT_TOKEN can push this repo's workflows and publish to the channel the owner's app updates
 # from, so it never shares a job with the code under test (claude-code-config#1125, SEC-201). The
-# test job assembles and tests with no secret and no cache. The push job runs no repository code:
-# it assembles the branch again with git alone, pushes only if its tree and its base and patch
-# commits are the ones tested, and hands the token to its push and dispatch steps only. Both jobs
-# check out the dispatched commit, so a branch that moves mid-run cannot give them different inputs.
+# test job assembles and tests with no secret and no cache. The push job reassembles with git
+# alone and dispatches one correlated qualification. A separate read-only job verifies its receipt
+# using the trusted controller, then the tag job rechecks the run and refs before tagging. Jobs
+# holding the bot credential execute no candidate code or JavaScript interpreter.
 name: fork-assemble-release
 
 on:
@@ -36,6 +36,7 @@ on:
         default: ''
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -136,6 +137,18 @@ jobs:
     # Read from the dispatch alone: nothing the test job ran can open it.
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
     runs-on: ubuntu-latest
+    outputs:
+      release_branch: ${{ steps.assemble.outputs.release_branch }}
+      release_tag: ${{ steps.assemble.outputs.release_tag }}
+      candidate_sha: ${{ steps.assemble.outputs.candidate_sha }}
+      tree: ${{ steps.assemble.outputs.tree }}
+      upstream_main_sha: ${{ steps.assemble.outputs.upstream_main_sha }}
+      series: ${{ steps.series.outputs.series }}
+      manifest_sha: ${{ steps.controller.outputs.manifest_sha }}
+      policy_sha: ${{ steps.controller.outputs.policy_sha }}
+      dispatch_id: ${{ steps.dispatch.outputs.dispatch_id }}
+      workflow_id: ${{ steps.dispatch.outputs.workflow_id }}
+      started_at: ${{ steps.dispatch.outputs.started_at }}
     steps:
       - name: Require the bot token
         env:
@@ -225,8 +238,8 @@ jobs:
           # The release branch is assembled, never hand-edited, so replacing it is the contract.
           git push --force-with-lease origin "HEAD:refs/heads/$RELEASE_BRANCH"
 
-      - name: Qualify the assembled candidate
-        id: qualification
+      - name: Dispatch qualification for the assembled candidate
+        id: dispatch
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           CANDIDATE_SHA: ${{ steps.assemble.outputs.candidate_sha }}
@@ -242,7 +255,11 @@ jobs:
           set -euo pipefail
           [ -n "$REVIEWER" ] || { echo "::error::reviewer is required before qualification"; exit 1; }
           started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          dispatch_id="assembly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CANDIDATE_SHA}"
+          workflow_id=$(gh api "repos/$GH_REPO/actions/workflows/fork-qualify-release.yml" --jq .id)
+          [[ "$workflow_id" =~ ^[1-9][0-9]*$ ]] || { echo "::error::qualification workflow id is invalid"; exit 1; }
           gh workflow run fork-qualify-release.yml --ref "$FORK_BRANCH" \
+            -f "dispatch_id=$dispatch_id" \
             -f "candidate_sha=$CANDIDATE_SHA" \
             -f "candidate_tree=$CANDIDATE_TREE" \
             -f "controller_sha=$CONTROLLER_SHA" \
@@ -253,43 +270,163 @@ jobs:
             -f "reviewer=$REVIEWER" \
             -f "review_controller_sha=$CONTROLLER_SHA" \
             -f "series=$SERIES"
+          {
+            echo "dispatch_id=$dispatch_id"
+            echo "workflow_id=$workflow_id"
+            echo "started_at=$started_at"
+          } >> "$GITHUB_OUTPUT"
+
+  qualification:
+    needs: push
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    outputs:
+      verified: ${{ steps.verify.outputs.verified }}
+      run_id: ${{ steps.run.outputs.qualification_run_id }}
+      attempt: ${{ steps.verify.outputs.attempt }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_SHA: ${{ needs.push.outputs.candidate_sha }}
+      CANDIDATE_TREE: ${{ needs.push.outputs.tree }}
+      CONTROLLER_SHA: ${{ github.sha }}
+      MANIFEST_SHA: ${{ needs.push.outputs.manifest_sha }}
+      POLICY_SHA: ${{ needs.push.outputs.policy_sha }}
+      RELEASE_TAG: ${{ needs.push.outputs.release_tag }}
+      SERIES: ${{ needs.push.outputs.series }}
+      DISPATCH_ID: ${{ needs.push.outputs.dispatch_id }}
+      WORKFLOW_ID: ${{ needs.push.outputs.workflow_id }}
+      STARTED_AT: ${{ needs.push.outputs.started_at }}
+    steps:
+      - name: Checkout the trusted qualification verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: config/mercurai
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Freeze the external qualification expectation
+        run: |
+          set -euo pipefail
+          export EXPECTATION="$RUNNER_TEMP/qualification-expected.json"
+          echo "EXPECTATION=$EXPECTATION" >> "$GITHUB_ENV"
+          [ "$(git rev-parse HEAD)" = "$CONTROLLER_SHA" ] || { echo "::error::verifier controller changed"; exit 1; }
+          [ "$(git rev-parse HEAD:config/mercurai/patches.yaml)" = "$MANIFEST_SHA" ] || { echo "::error::verifier manifest changed"; exit 1; }
+          [ "$(sha256sum config/mercurai/release-policy.json | awk '{print $1}')" = "$POLICY_SHA" ] || { echo "::error::verifier policy changed"; exit 1; }
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from 'node:fs'
+          const env = process.env
+          const expected = {
+            repository: env.GITHUB_REPOSITORY,
+            workflowId: Number(env.WORKFLOW_ID),
+            workflowPath: '.github/workflows/fork-qualify-release.yml',
+            branch: env.FORK_BRANCH,
+            dispatchId: env.DISPATCH_ID,
+            startedAt: env.STARTED_AT,
+            candidate: {
+              commit: env.CANDIDATE_SHA,
+              tree: env.CANDIDATE_TREE,
+              controllerSha: env.CONTROLLER_SHA,
+              manifestSha: env.MANIFEST_SHA,
+              policySha: env.POLICY_SHA,
+              version: env.RELEASE_TAG.slice(1),
+              series: env.SERIES ? env.SERIES.split(',').filter(Boolean) : []
+            }
+          }
+          writeFileSync(env.EXPECTATION, `${JSON.stringify(expected)}\n`)
+          NODE
+
+      - name: Select and watch the exact qualification run
+        id: run
+        run: |
+          set -euo pipefail
           run_id=''
           for attempt in $(seq 1 30); do
-            run_id=$(gh run list --workflow fork-qualify-release.yml --branch "$FORK_BRANCH" --limit 10 \
-              --json databaseId,headSha,createdAt \
-              --jq "([.[] | select(.headSha == \"$CONTROLLER_SHA\" and .createdAt >= \"$started_at\")] | sort_by(.createdAt) | last // {}) | .databaseId // empty")
+            gh api --method GET --paginate --slurp "repos/$GH_REPO/actions/workflows/$WORKFLOW_ID/runs" \
+              -f branch="$FORK_BRANCH" -f event=workflow_dispatch -f head_sha="$CONTROLLER_SHA" \
+              -f created=">=$STARTED_AT" -F per_page=100 > "$RUNNER_TEMP/qualification-runs.json"
+            run_id=$(node config/mercurai/scripts/qualification-run.mjs select "$RUNNER_TEMP/qualification-runs.json" "$EXPECTATION")
             if [ -n "$run_id" ]; then break; fi
             sleep 10
           done
-          [ -n "$run_id" ] || { echo "::error::qualification workflow run was not created"; exit 1; }
+          [ -n "$run_id" ] || { echo "::error::correlated qualification run was not created"; exit 1; }
           gh run watch "$run_id" --exit-status
           echo "qualification_run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the exact qualification receipt
+        id: verify
+        env:
+          QUALIFICATION_RUN_ID: ${{ steps.run.outputs.qualification_run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$QUALIFICATION_RUN_ID" --name promotion-receipt --dir "$RUNNER_TEMP/promotion-receipt"
+          gh api "repos/$GH_REPO/actions/runs/$QUALIFICATION_RUN_ID" > "$RUNNER_TEMP/qualification-run.json"
+          node config/mercurai/scripts/qualification-run.mjs verify \
+            "$RUNNER_TEMP/promotion-receipt/promotion-receipt.json" config/mercurai/release-policy.json \
+            "$EXPECTATION" "$RUNNER_TEMP/qualification-run.json" "$QUALIFICATION_RUN_ID"
+          echo 'verified=true' >> "$GITHUB_OUTPUT"
+          echo "attempt=$(jq -r '.run_attempt' "$RUNNER_TEMP/qualification-run.json")" >> "$GITHUB_OUTPUT"
+
+  tag:
+    needs: [push, qualification]
+    if: ${{ needs.qualification.outputs.verified == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Tag the qualified candidate
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
-          RELEASE_BRANCH: ${{ steps.assemble.outputs.release_branch }}
-          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
-          CANDIDATE_SHA: ${{ steps.assemble.outputs.candidate_sha }}
-          MAIN_SHA: ${{ steps.assemble.outputs.upstream_main_sha }}
-          SERIES: ${{ steps.series.outputs.series }}
+          RELEASE_BRANCH: ${{ needs.push.outputs.release_branch }}
+          RELEASE_TAG: ${{ needs.push.outputs.release_tag }}
+          CANDIDATE_SHA: ${{ needs.push.outputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ needs.push.outputs.tree }}
+          MAIN_SHA: ${{ needs.push.outputs.upstream_main_sha }}
+          SERIES: ${{ needs.push.outputs.series }}
+          QUALIFICATION_RUN_ID: ${{ needs.qualification.outputs.run_id }}
+          QUALIFICATION_ATTEMPT: ${{ needs.qualification.outputs.attempt }}
+          DISPATCH_ID: ${{ needs.push.outputs.dispatch_id }}
+          WORKFLOW_ID: ${{ needs.push.outputs.workflow_id }}
         run: |
           set -euo pipefail
           remote=$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | awk '{print $1}')
           [ "$remote" = "$CANDIDATE_SHA" ] || { echo "::error::candidate branch moved during qualification"; exit 1; }
+          controller=$(git ls-remote origin "refs/heads/$FORK_BRANCH" | awk '{print $1}')
+          [ "$controller" = "$GITHUB_SHA" ] || { echo "::error::controller branch moved during qualification"; exit 1; }
+          [ "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE" ] || { echo "::error::candidate tree changed"; exit 1; }
+          gh api "repos/$GH_REPO/actions/runs/$QUALIFICATION_RUN_ID" | jq -e \
+            --argjson run "$QUALIFICATION_RUN_ID" --argjson attempt "$QUALIFICATION_ATTEMPT" \
+            --argjson workflow "$WORKFLOW_ID" --arg controller "$GITHUB_SHA" \
+            --arg repository "$GH_REPO" --arg branch "$FORK_BRANCH" --arg title "qualify $DISPATCH_ID" \
+            '.id == $run and .run_attempt == $attempt and .workflow_id == $workflow and
+             .head_sha == $controller and .repository.full_name == $repository and .head_branch == $branch and
+             .event == "workflow_dispatch" and .display_title == $title and
+             .status == "completed" and .conclusion == "success"' >/dev/null
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
           export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth"
-          git tag -a "$RELEASE_TAG" -m "mercurai release on $TAG${MAIN_SHA:+ at upstream main $MAIN_SHA}: $(tr '\n' ' ' < /tmp/active)${SERIES:+pinned $SERIES}"
+          git config user.name mercurai-fork-bot
+          git config user.email fork-bot@users.noreply.github.com
+          git tag -a "$RELEASE_TAG" "$CANDIDATE_SHA" -m "mercurai release on $TAG${MAIN_SHA:+ at upstream main $MAIN_SHA}${SERIES:+: pinned $SERIES}"
           git push origin "refs/tags/$RELEASE_TAG"
           echo "tagged $RELEASE_TAG on $RELEASE_BRANCH"
 
       - name: Hand the new tag to fork-release-win-build
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
-          RELEASE_TAG: ${{ steps.assemble.outputs.release_tag }}
-          QUALIFICATION_RUN_ID: ${{ steps.qualification.outputs.qualification_run_id }}
+          RELEASE_TAG: ${{ needs.push.outputs.release_tag }}
+          QUALIFICATION_RUN_ID: ${{ needs.qualification.outputs.run_id }}
         run: |
           gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" -f "qualification_run_id=$QUALIFICATION_RUN_ID" || {
             echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"

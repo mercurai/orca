@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { selectQualificationRun, verifyQualificationRun } from './qualification-run.mjs'
@@ -140,6 +144,20 @@ test('refuses a malformed page rather than treating it as an empty result', () =
   )
 })
 
+for (const invalid of [
+  null,
+  'invalid',
+  {},
+  { id: 0 },
+  { id: '81' },
+  { id: 81 },
+  run({ created_at: 'invalid' })
+]) {
+  test(`refuses a malformed run row ${JSON.stringify(invalid)}`, () => {
+    assert.throws(() => selectQualificationRun(pages(invalid), expected), /invalid|malformed/i)
+  })
+}
+
 test('refuses a filtered API result beyond the documented search limit', () => {
   assert.throws(
     () => selectQualificationRun([{ total_count: 1001, workflow_runs: [run()] }], expected),
@@ -240,4 +258,75 @@ test('preserves the disabled production promotion policy', () => {
   )
 
   assertRefused(result)
+})
+
+function cliFixture(t) {
+  const root = mkdtempSync(join(tmpdir(), 'orca-qualification-run-'))
+  t.after(() => rmSync(root, { recursive: true, force: true }))
+  const paths = {}
+  for (const [name, value] of Object.entries({
+    receipt: receipt(),
+    policy,
+    expected,
+    run: run(),
+    pages: pages(run())
+  })) {
+    paths[name] = join(root, `${name}.json`)
+    writeFileSync(paths[name], JSON.stringify(value))
+  }
+  const invoke = (command, files) =>
+    spawnSync(
+      process.execPath,
+      [join(import.meta.dirname, 'qualification-run.mjs'), command, ...files],
+      { cwd: root, encoding: 'utf8', windowsHide: true }
+    )
+  return { paths, invoke }
+}
+
+test('selector CLI returns the exact run id', (t) => {
+  const { paths, invoke } = cliFixture(t)
+  const result = invoke('select', [paths.pages, paths.expected])
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout.trim(), String(expected.runId))
+})
+
+test('selector CLI leaves stdout empty while this dispatch has no visible run', (t) => {
+  const { paths, invoke } = cliFixture(t)
+  writeFileSync(paths.pages, JSON.stringify(pages(run({ display_title: 'qualify another' }))))
+  const result = invoke('select', [paths.pages, paths.expected])
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout, '')
+})
+
+test('verification CLI accepts the matching expected candidate', (t) => {
+  const { paths, invoke } = cliFixture(t)
+  const result = invoke('verify', [
+    paths.receipt,
+    paths.policy,
+    paths.expected,
+    paths.run,
+    String(expected.runId)
+  ])
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { ok: true, reasons: [] })
+})
+
+test('verification CLI exits nonzero for a receipt from another dispatch', (t) => {
+  const { paths, invoke } = cliFixture(t)
+  const changed = receipt()
+  changed.qualification.dispatchId = 'assembly-another'
+  writeFileSync(paths.receipt, JSON.stringify(changed))
+  const result = invoke('verify', [
+    paths.receipt,
+    paths.policy,
+    paths.expected,
+    paths.run,
+    String(expected.runId)
+  ])
+
+  assert.equal(result.status, 1)
+  assertRefused(JSON.parse(result.stdout))
 })

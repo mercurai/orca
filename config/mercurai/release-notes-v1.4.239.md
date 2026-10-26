@@ -17,15 +17,17 @@ qualification.
 - Stable floor: `v1.4.239`, peeled commit
   `47f77cf7018ebc0d046b82c6dde31cf704909162`.
 - Candidate patch branch: `patch/current-main-release-98690`.
-- Candidate head: `ffb802f98ef5dc3d239aad898eeb05bff22cce08`, with 19 commits
+- Candidate head: `423176798d119980771fcfddd8a60797c99040b4`, with 22 commits
   after the frozen official ancestor.
-- Candidate tree: `83aa6d0f4de7ec0e19f04651baca074b3d9a344d`.
+- Candidate tree: `0bb47c54f78a7abdeafc179e7a49e352c977b6a8`.
 
 The branch is published to the source fork for CI. Completion-audit corrections
 repair relocated renderer imports, canonical-tier precedence, rejected-start
 rollback over newer picks, and stale Windows/renderer test fixtures.
-Targeted CI run [40397677548](https://github.com/mercurai/orca/actions/runs/40397677548)
-checks this head. Full qualification and release-gate corrections remain pending;
+Targeted CI run [40401238493](https://github.com/mercurai/orca/actions/runs/40401238493)
+passed at this head: 1,232 targeted tests, 16 skipped, plus passing Linux and
+Windows deterministic cost checks. Full PR verification is running. Full
+qualification and release-gate corrections remain pending;
 no release receipt or published application is claimed.
 
 Official `main` has since reached

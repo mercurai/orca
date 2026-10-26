@@ -2,10 +2,15 @@
 # from the default controller branch, checks out the candidate by full SHA, and runs without a
 # publisher credential or cache. Its check names are listed in config/mercurai/release-policy.json.
 name: fork-qualify-release
+run-name: qualify ${{ inputs.dispatch_id }}
 
 on:
   workflow_dispatch:
     inputs:
+      dispatch_id:
+        description: Unique identity of the assembly run and attempt requesting qualification
+        type: string
+        required: true
       candidate_sha:
         description: Exact candidate commit to qualify
         type: string
@@ -74,6 +79,7 @@ jobs:
       REVIEWER: ${{ inputs.reviewer }}
       REVIEW_CONTROLLER_SHA: ${{ inputs.review_controller_sha }}
       SERIES: ${{ inputs.series }}
+      DISPATCH_ID: ${{ inputs.dispatch_id }}
     steps:
       - name: Checkout the exact candidate
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -94,6 +100,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          [[ "$DISPATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]] || { echo "::error::dispatch_id is invalid"; exit 1; }
           [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_sha is not a lowercase 40-character commit"; exit 1; }
           [[ "$CANDIDATE_TREE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate_tree is not a lowercase 40-character tree"; exit 1; }
           [[ "$CONTROLLER_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::controller_sha is not a lowercase 40-character commit"; exit 1; }
@@ -176,6 +183,7 @@ jobs:
           REVIEWER: ${{ inputs.reviewer }}
           REVIEW_CONTROLLER_SHA: ${{ inputs.review_controller_sha }}
           SERIES: ${{ inputs.series }}
+          DISPATCH_ID: ${{ inputs.dispatch_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -195,6 +203,7 @@ jobs:
             },
             qualification: {
               workflow: 'fork-qualify-release.yml',
+              dispatchId: env.DISPATCH_ID,
               runId: Number(env.GITHUB_RUN_ID),
               attempt: Number(env.GITHUB_RUN_ATTEMPT),
               latestAttempt: Number(env.GITHUB_RUN_ATTEMPT),

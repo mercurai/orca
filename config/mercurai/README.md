@@ -8,13 +8,17 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
 The preparation manifest freezes official `main` at
 `98690db2ab1d53d7e67eae296dc061c000c2ea2f`, retaining `v1.4.239` as its
 historical stable floor. The remote patch `patch/current-main-release-98690`
-is pinned to `ffb802f98ef5dc3d239aad898eeb05bff22cce08`, tree
-`83aa6d0f4de7ec0e19f04651baca074b3d9a344d`. This is 19 linear commits after
+is pinned to `423176798d119980771fcfddd8a60797c99040b4`, tree
+`0bb47c54f78a7abdeafc179e7a49e352c977b6a8`. This is 22 linear commits after
 that official ancestor, including completion-audit corrections.
 
 The source audit found broken relocation imports, speed-precedence and
 late-rejection defects, and outdated Windows fixtures. The corrected candidate
-is being checked by targeted CI; it has no full qualification receipt.
+passed targeted CI: 1,232 tests passed and 16 skipped across 93 Windows files;
+deterministic cost checks passed on Linux and Windows. Full PR verification is
+running in [#79](https://github.com/mercurai/orca/pull/79); no full qualification
+receipt exists. Both-rejected overlapping starts now preserve subsequent picker
+intent, including same-value picks, with independent delta review.
 Independent release-gate review also found incomplete PR verification coverage,
 unauthenticated reviewer text, ambiguous qualification-run matching, and unsafe
 publication retries. The release policy remains disabled until those gates are

@@ -15,7 +15,7 @@ patches:
     branch: patch/current-main-release-98690
     status: ours-only
     base: 98690db2ab1d53d7e67eae296dc061c000c2ea2f
-    commit: ffb802f98ef5dc3d239aad898eeb05bff22cce08
+    commit: 423176798d119980771fcfddd8a60797c99040b4
     owner: harness
     added: 2026-10-25
     tests:
@@ -245,14 +245,15 @@ patches:
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
     notes: >-
-      Candidate ffb802f98ef5dc3d239aad898eeb05bff22cce08 is a 19-commit linear
+      Candidate 423176798d119980771fcfddd8a60797c99040b4 is a 22-commit linear
       series on official main 98690db2ab1d53d7e67eae296dc061c000c2ea2f, tree
-      83aa6d0f4de7ec0e19f04651baca074b3d9a344d. It corrects renderer relocation,
+      0bb47c54f78a7abdeafc179e7a49e352c977b6a8. It corrects renderer relocation,
       canonical speed precedence, stale-request rollback and Windows test fixtures
       found by the completion audit. The source branch is visible on the fork.
       The frozen stable version floor is v1.4.239 (peeled commit
       47f77cf7018ebc0d046b82c6dde31cf704909162). The later v1.4.241/main44d2 target
-      is queued. Targeted CI40397677548 tests this corrected source; full CI,
+      is queued. Targeted CI40401238493 passed (1232 tests, 16 skipped);
+      both deterministic cost jobs passed. PR79 full verification is running; full CI,
       assembly/tree equality, packaging and final review remain required.
       No prior release receipt approves this pin; the controller gate audit is changes-requested.
       Registered tests retain the predecessor union and new per-message speed,

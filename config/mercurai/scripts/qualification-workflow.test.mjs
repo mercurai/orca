@@ -4,14 +4,23 @@ import { resolve } from 'node:path'
 import { test } from 'node:test'
 
 const root = resolve(import.meta.dirname, '..', '..', '..')
-const workflow = readFileSync(resolve(root, '.github', 'workflows', 'fork-qualify-release.yml'), 'utf8').replaceAll('\r\n', '\n')
+const workflow = readFileSync(
+  resolve(root, '.github', 'workflows', 'fork-qualify-release.yml'),
+  'utf8'
+).replaceAll('\r\n', '\n')
 
 test('qualification is manual, default-branch controlled, and read-only', () => {
   assert.match(workflow, /^name: fork-qualify-release$/m)
   assert.match(workflow, /^  workflow_dispatch:\n/m)
   assert.doesNotMatch(workflow, /^  (push|pull_request|schedule):/m)
-  assert.match(workflow, /^permissions:\n(?: {2}actions: read\n)? {2}checks: read\n {2}contents: read\n/m)
-  assert.match(workflow, /github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch \|\| 'mercurai'\)/)
+  assert.match(
+    workflow,
+    /^permissions:\n(?: {2}actions: read\n)? {2}checks: read\n {2}contents: read\n/m
+  )
+  assert.match(
+    workflow,
+    /github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch \|\| 'mercurai'\)/
+  )
   assert.doesNotMatch(workflow, /\bsecrets\b|GH_TOKEN|actions\/cache|cache:\s*true/)
 })
 
@@ -35,4 +44,12 @@ test('aggregate qualification cannot pass after the test job fails or is skipped
   assert.match(workflow, /needs: test/)
   assert.match(workflow, /needs\.test\.result != 'success'/)
   assert.match(workflow, /exit 1/)
+})
+
+test('qualification exposes its dispatch identity in the run title and trusted receipt', () => {
+  assert.match(workflow, /^run-name: qualify \$\{\{ inputs\.dispatch_id \}\}$/m)
+  assert.match(workflow, /^      dispatch_id:\n(?: {8}.+\n)*? {8}required: true$/m)
+  assert.match(workflow, /DISPATCH_ID: \$\{\{ inputs\.dispatch_id \}\}/)
+  assert.match(workflow, /dispatch_id is invalid/)
+  assert.match(workflow, /dispatchId: env\.DISPATCH_ID/)
 })
