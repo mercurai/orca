@@ -80,7 +80,7 @@ function isHiddenRetainedSourceTarget(
 }
 
 /** `getUserDataPath` is read only once a host is fenced, so unfenced lists never touch the journal. */
-function hiddenRetainedSourceTargetIds(
+export function hiddenRetainedSourceTargetIds(
   getUserDataPath: () => string,
   targets: readonly SshTarget[]
 ): string[] {

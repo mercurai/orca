@@ -1,5 +1,7 @@
+import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
+import { independentAgentModelCatalog } from '../../../shared/agent-model-catalog-ownership'
 import type { AgentSessionAccountHome } from '../../../shared/agent-session-account-home'
-import type { AgentModelCatalogSuccess } from './agent-model-catalog-entry'
+import type { AgentModelCatalogSuccess, AgentModelCatalogEntry } from './agent-model-catalog-entry'
 
 export type AgentModelCatalogResolvedProbe = {
   identity: unknown
@@ -34,3 +36,21 @@ export type AgentModelCatalogDiscovery =
       listsInChatFolder?: true
     }
   | { kind: 'unavailable'; reason: string }
+
+export function isAgentModelCatalogStale(
+  entry: AgentModelCatalogEntry,
+  source: 'discovery' | 'latest',
+  due: boolean,
+  now: () => number
+): boolean {
+  const at = source === 'latest' ? entry.fetchedAt : entry.discovered?.at
+  return (
+    due ||
+    at === undefined ||
+    (source === 'discovery' &&
+      independentAgentModelCatalog(entry.agent) &&
+      entry.discovered?.complete !== true) ||
+    now() - at >=
+      (independentAgentModelCatalog(entry.agent) ? 2 * 60_000 : AGENT_MODEL_CATALOG_FRESH_MS)
+  )
+}

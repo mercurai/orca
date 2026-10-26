@@ -50,10 +50,12 @@ import {
   deleteStructuredAgentLaunchRecord,
   readStructuredAgentLaunchRecord,
   resetStructuredAgentLaunchPersistenceForTests,
-  writeStructuredAgentLaunchRecord,
-  type StructuredAgentLaunchPersistedRecord
+  writeStructuredAgentLaunchRecord
 } from './agent-session/launch/structured-agent-session-launch-persistence'
-import { validRecord } from './agent-session/launch/structured-agent-session-launch-record'
+import {
+  validRecord,
+  type StructuredAgentLaunchPersistedRecord
+} from './agent-session/launch/structured-agent-session-launch-record'
 import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 
 const SESSION = 'session-1'

@@ -1,4 +1,4 @@
-import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
+import { isAgentModelCatalogStale } from './agent-model-catalog-discovery'
 import { independentAgentModelCatalog } from './agent-model-catalog-discovery'
 export type { AgentModelCatalogProbe } from './agent-model-catalog-discovery'
 import type { AgentModelCatalogPersistence } from './agent-model-catalog-persistence'
@@ -107,16 +107,7 @@ export class AgentModelCatalogStore {
 
   /** Refresh ages discovery; turn admission can check the latest live or discovered capabilities. */
   isStale(entry: AgentModelCatalogEntry, source: 'discovery' | 'latest' = 'discovery'): boolean {
-    const at = source === 'latest' ? entry.fetchedAt : entry.discovered?.at
-    return (
-      this.dueEntries.has(entry.fingerprint) ||
-      at === undefined ||
-      (source === 'discovery' &&
-        independentAgentModelCatalog(entry.agent) &&
-        entry.discovered?.complete !== true) ||
-      this.now() - at >=
-        (independentAgentModelCatalog(entry.agent) ? 2 * 60_000 : AGENT_MODEL_CATALOG_FRESH_MS)
-    )
+    return isAgentModelCatalogStale(entry, source, this.dueEntries.has(entry.fingerprint), this.now)
   }
 
   failureDetail(fingerprint: string): string | null {

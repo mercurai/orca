@@ -5,10 +5,7 @@
  */
 import { getAppEnvironment } from '../../shared/app-environment'
 import { assertRuntimeEnvironmentNotReconciling } from '../../shared/runtime-environment-reconciliation-record'
-import {
-  redactRuntimeEnvironment,
-  type KnownRuntimeEnvironment
-} from '../../shared/runtime-environments'
+import { redactRuntimeEnvironment } from '../../shared/runtime-environments'
 import type {
   OrcadManagedDeployResult,
   OrcadManagedRecoveryResult,

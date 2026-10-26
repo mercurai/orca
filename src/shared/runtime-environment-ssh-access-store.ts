@@ -1,3 +1,7 @@
+import {
+  readRuntimeEnvironmentSshAccessContext as readAccessContext,
+  commitRuntimeEnvironmentSshAccessContext as commit
+} from './runtime-environment-ssh-access-context'
 import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import type { PairedRuntimeConnection } from './paired-runtime-connection'
 import { randomUUID } from 'node:crypto'
@@ -12,29 +16,13 @@ import {
   getPreferredPairingOffer,
   RuntimeSshAccessOperationSchema,
   type KnownRuntimeEnvironment,
-  type PersistedRuntimeEnvironment,
   type RuntimeSshTunnelLink
 } from './runtime-environments'
 import {
   readEnvironmentStore,
   readPersistedEnvironmentStore
 } from './runtime-environment-store-file'
-import {
-  overlayRuntimeEnvironmentSidecar,
-  readCurrentRuntimeEnvironmentSidecarEntry,
-  runtimeEnvironmentSidecarBinding,
-  writeRuntimeEnvironmentSidecarEntryWithinMutation,
-  type RuntimeEnvironmentSidecarEntry
-} from './runtime-environment-sidecar'
-
-type SidecarState = Omit<RuntimeEnvironmentSidecarEntry, 'binding'>
-
-type AccessContext = {
-  environments: PersistedRuntimeEnvironment[]
-  persisted: PersistedRuntimeEnvironment
-  entry: SidecarState
-  view: KnownRuntimeEnvironment
-}
+import { readCurrentRuntimeEnvironmentSidecarEntry } from './runtime-environment-sidecar'
 
 export const prepareRuntimeEnvironmentSshAccessLink = (
   ...args: Parameters<typeof prepareRuntimeEnvironmentSshAccessLinkWithinMutation>
@@ -284,44 +272,4 @@ function linkedRuntimeId(
     (entry) => entry.id === completed.id
   )
   return persisted && readCurrentRuntimeEnvironmentSidecarEntry(userDataPath, persisted)?.runtimeId
-}
-
-function readAccessContext(
-  userDataPath: string,
-  expected: KnownRuntimeEnvironment,
-  ignoreIntent = false
-): AccessContext {
-  const { environments } = readPersistedEnvironmentStore(userDataPath)
-  const views = readEnvironmentStore(userDataPath).environments
-  const view = requireUnchangedEnvironment(views, expected, ignoreIntent)
-  const persisted = environments.find((entry) => entry.id === view.id)!
-  const current = readCurrentRuntimeEnvironmentSidecarEntry(userDataPath, persisted)
-  const { binding: _binding, ...entry } = current ?? { binding: undefined }
-  return { environments, persisted, entry, view }
-}
-
-/** Writes only after the overlay proves every requested field survives validation. */
-async function commit(
-  userDataPath: string,
-  context: AccessContext,
-  next: SidecarState
-): Promise<KnownRuntimeEnvironment> {
-  const view = overlayRuntimeEnvironmentSidecar(context.persisted, {
-    ...next,
-    binding: runtimeEnvironmentSidecarBinding(context.persisted)
-  })
-  if (
-    (next.sshAccess !== undefined) !== (view.sshAccess !== undefined) ||
-    (next.pendingSshAccessOperation !== undefined) !==
-      (view.pendingSshAccessOperation !== undefined)
-  ) {
-    throw invalid('The SSH access state is inconsistent with this paired server.')
-  }
-  await writeRuntimeEnvironmentSidecarEntryWithinMutation(
-    userDataPath,
-    context.environments,
-    context.persisted,
-    next
-  )
-  return view
 }

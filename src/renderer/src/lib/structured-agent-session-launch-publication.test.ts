@@ -27,9 +27,9 @@ import { restorePersistedStructuredLaunchState } from './agent-session/launch/st
 import {
   readStructuredAgentLaunchRecord,
   resetStructuredAgentLaunchPersistenceForTests,
-  writeStructuredAgentLaunchRecord,
-  type StructuredAgentLaunchPersistedRecord
+  writeStructuredAgentLaunchRecord
 } from './agent-session/launch/structured-agent-session-launch-persistence'
+import type { StructuredAgentLaunchPersistedRecord } from './agent-session/launch/structured-agent-session-launch-record'
 import {
   getStructuredLaunchStateBySessionId,
   resetStructuredAgentLaunchRegistryForTests
