@@ -1,3 +1,4 @@
+import { requireStructuredLaunchDraftRecovery } from './structured-agent-session-launch-draft-recovery'
 import { useAppStore } from '@/store'
 import { reserveStructuredLaunchSlot } from './structured-agent-session-launch-surface'
 import type { TuiAgent } from '../../../shared/tui-agent'
@@ -19,6 +20,7 @@ import {
 import type { StructuredPromptDeliveryResult } from '@/lib/structured-agent-session-launch-prompt'
 import {
   addStructuredLaunchCaller,
+  joinLaunchDelivery,
   createStructuredLaunchCallerGroup,
   releaseStructuredLaunchCallerAfterUnknownOutcome,
   type StructuredAgentLaunchOptions,
@@ -90,22 +92,12 @@ function launchPromptText(options: StructuredAgentLaunchOptions): string {
   return options.promptDelivery === 'draft' ? '' : (options.prompt?.trim() ?? '')
 }
 
-function joinLaunchDelivery(
-  options: StructuredAgentLaunchOptions,
-  established: StructuredAgentLaunchOptions['promptDelivery']
-): StructuredAgentLaunchOptions {
-  // First caller fixes mode; without one, default submit would send a joiner’s draft without consent.
-  const mode = established ?? options.promptDelivery
-  const { promptDelivery: _joinerMode, ...rest } = options
-  return mode ? { ...rest, promptDelivery: mode } : rest
-}
-
 /** Every sender waits on the launch promise, so picks held during launch reach the host first. */
 function publishWithHeldOptions(
   state: StructuredLaunchState,
   created: Promise<StructuredAgentLaunchReceipt>
 ): Promise<StructuredAgentLaunchReceipt> {
-  state.intent.prepareCreate = () => prepareStructuredLaunchCreateMessage(state)
+  state.intent.prepareCreate = (supported) => prepareStructuredLaunchCreateMessage(state, supported)
   return created.then((receipt) => publishStructuredLaunchCreateOptions(state, receipt))
 }
 
@@ -133,12 +125,8 @@ function resetStructuredLaunchCallers(state: StructuredLaunchState): void {
 }
 
 function restartStructuredLaunchState(state: StructuredLaunchState): void {
-  const wasVisibilityUnknown = state.visibilityUnknown
-  if (!wasVisibilityUnknown) {
-    const surfaceAddress = state.intent.surfaceAddress
-    state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
-    state.intent.surfaceAddress = surfaceAddress
-  }
+  const wasVisibilityUnknown = state.visibilityUnknown || Boolean(state.heldPromptDrafts?.length)
+  const recovery = requireStructuredLaunchDraftRecovery(state)
   resetStructuredLaunchCallers(state)
   delete state.failure
   state.callers.outcome = 'pending'
@@ -148,10 +136,18 @@ function restartStructuredLaunchState(state: StructuredLaunchState): void {
     held: state.selection.held
   }
   state.onHostSeed = (seedOptions) => adoptPairedHostSeed(state, seedOptions)
-  state.promise = publishWithHeldOptions(
-    state,
-    wasVisibilityUnknown ? reconcileUnknownLaunch(state) : launchAndReconcile(state)
-  )
+  state.promise = recovery.then(() => {
+    if (!wasVisibilityUnknown) {
+      const surfaceAddress = state.intent.surfaceAddress
+      state.intent = retryStructuredAgentSessionLaunchIntent(state.intent)
+      state.intent.surfaceAddress = surfaceAddress
+      state.selection = { ...state.selection, seed: state.intent.seedOptions }
+    }
+    return publishWithHeldOptions(
+      state,
+      wasVisibilityUnknown ? reconcileUnknownLaunch(state) : launchAndReconcile(state)
+    )
+  })
   trackLaunchSettlement(state, state.promise)
   trackStructuredLaunchConfirmationDeadline(state, state.promise)
   notifyStructuredLaunchListeners()
