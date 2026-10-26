@@ -106,6 +106,61 @@ describe('registerMiniMaxCredentialsHandlers', () => {
     vi.restoreAllMocks()
   })
 
+  it.each([
+    ['saveCookie', saveMiniMaxSessionCookieMock],
+    ['saveApiKey', saveMiniMaxApiKeyMock]
+  ] as const)(
+    'waits for durable %s before status, refresh and acknowledgement',
+    async (name, save) => {
+      const { service, refresh, invalidateMiniMaxCredentialState } = makeRefreshMock()
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: credential commands use only the supplied refresh and invalidation methods.
+      registerMiniMaxCredentialsHandlers(service as RateLimitService)
+      let release!: () => void
+      save.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve
+          })
+      )
+      let acknowledged = false
+      const pending = invoke(`minimaxCredentials:${name}`, 'synthetic-value').then((value) => {
+        acknowledged = true
+        return value
+      })
+      await Promise.resolve()
+      expect(save).toHaveBeenCalledWith('synthetic-value')
+      expect(refresh).not.toHaveBeenCalled()
+      expect(invalidateMiniMaxCredentialState).not.toHaveBeenCalled()
+      expect(hasMiniMaxSessionCookieMock).not.toHaveBeenCalled()
+      expect(hasMiniMaxApiKeyMock).not.toHaveBeenCalled()
+      expect(acknowledged).toBe(false)
+      release()
+      await pending
+      expect(refresh).toHaveBeenCalledTimes(1)
+      expect(acknowledged).toBe(true)
+    }
+  )
+
+  it.each([
+    ['saveCookie', saveMiniMaxSessionCookieMock],
+    ['saveApiKey', saveMiniMaxApiKeyMock]
+  ] as const)(
+    'propagates durable %s failure without refreshing or returning status',
+    async (name, save) => {
+      const { service, refresh, invalidateMiniMaxCredentialState } = makeRefreshMock()
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: credential commands use only the supplied refresh and invalidation methods.
+      registerMiniMaxCredentialsHandlers(service as RateLimitService)
+      save.mockRejectedValueOnce(new Error('synthetic persistence failure'))
+      await expect(invoke(`minimaxCredentials:${name}`, 'synthetic-value')).rejects.toThrow(
+        'synthetic persistence failure'
+      )
+      expect(refresh).not.toHaveBeenCalled()
+      expect(invalidateMiniMaxCredentialState).not.toHaveBeenCalled()
+      expect(hasMiniMaxSessionCookieMock).not.toHaveBeenCalled()
+      expect(hasMiniMaxApiKeyMock).not.toHaveBeenCalled()
+    }
+  )
+
   it('registers all five MiniMax credential channels', () => {
     registerMiniMaxCredentialsHandlers(null)
     expect(ipcState.handleHandlers.has('minimaxCredentials:getStatus')).toBe(true)
