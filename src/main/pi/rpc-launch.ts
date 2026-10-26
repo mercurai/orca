@@ -2,6 +2,8 @@ import { ORCA_AGENT_SESSION_SPAWN_TOKEN_ENV } from '../../shared/agent-session-c
 import { ORCA_AGENT_SESSION_CALLER_ENV_KEYS } from '../ipc/pty/host-env/spawn-env-keys'
 import type { ProviderProcessLaunch } from '../provider-process/provider-process-launch'
 import { STRUCTURED_CHILD_ENV_TO_DELETE } from '../runtime/structured-session-child-env'
+import { isAbsolute, relative, sep } from 'node:path'
+import type { PiWorkerPackageBinding } from './worker-package-binding'
 
 export type PiRpcLaunchOptions = {
   /** Binary and paths are resolved by the execution host before building the launch. */
@@ -13,6 +15,8 @@ export type PiRpcLaunchOptions = {
   envToDelete?: readonly string[]
   sessionFile?: string
   forkFile?: string
+  /** Supplied only by the runtime's current Dispatch admission resolver. */
+  workerPackage?: PiWorkerPackageBinding
 }
 
 const CALLER_ENV_TO_DELETE = [
@@ -97,9 +101,33 @@ export function buildPiRpcLaunch(options: PiRpcLaunchOptions): ProviderProcessLa
   if (provider && !model) {
     throw new Error('Pi --provider requires --model')
   }
+  const worker = options.workerPackage
+  if (worker) {
+    if (args.length > 0) {
+      throw new Error('Pi worker package does not permit launch argument overrides')
+    }
+    for (const file of [options.sessionFile, options.forkFile]) {
+      if (!file) continue
+      const location = relative(worker.sessionDirectory, file)
+      if (!isAbsolute(file) || !location || isAbsolute(location) || location === '..' ||
+        location.startsWith(`..${sep}`)) {
+        throw new Error('Pi worker session is outside its admitted package session directory')
+      }
+    }
+    args.push(
+      '--no-builtin-tools', '--no-extensions', '--no-mcp', '--no-skills',
+      '--no-prompt-templates', '--no-themes', '--no-context-files',
+      '--extension', worker.extensionPath,
+      '--skill', worker.skillsDirectory,
+      '--system-prompt', '',
+      '--append-system-prompt', worker.agentsPath,
+      '--session-dir', worker.sessionDirectory,
+      '--model', `${worker.provider}/${worker.model}`
+    )
+  }
   return {
     command: options.command,
-    cwd: options.cwd,
+    cwd: worker?.snapshotPath ?? options.cwd,
     args: [
       '--mode',
       'rpc',
@@ -107,7 +135,18 @@ export function buildPiRpcLaunch(options: PiRpcLaunchOptions): ProviderProcessLa
       ...(options.sessionFile ? ['--session', options.sessionFile] : []),
       ...(options.forkFile ? ['--fork', options.forkFile] : [])
     ],
-    env: { ...options.env },
+    env: {
+      ...options.env,
+      ...(worker ? {
+        HOME: worker.agentHomeDirectory,
+        USERPROFILE: worker.agentHomeDirectory,
+        PI_CODING_AGENT_DIR: worker.agentHomeDirectory,
+        HARNESS_PI_PROFILE: worker.profilePath,
+        HARNESS_PI_BROKER: worker.broker.path,
+        HARNESS_PI_BINDING: worker.bindingPath
+      } : {})
+    },
+    ...(worker ? { environmentPolicy: 'pi-worker' as const } : {}),
     envToDelete: [...(options.envToDelete ?? [])]
   }
 }

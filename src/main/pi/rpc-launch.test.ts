@@ -146,6 +146,7 @@ describe('Pi admitted worker package launch', () => {
     for (const [flag, path] of [
       ['--extension', workerPackage.extensionPath],
       ['--skill', workerPackage.skillsDirectory],
+      ['--system-prompt', ''],
       ['--append-system-prompt', workerPackage.agentsPath],
       ['--session-dir', workerPackage.sessionDirectory]
     ]) {

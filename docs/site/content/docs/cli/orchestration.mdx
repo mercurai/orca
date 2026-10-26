@@ -56,6 +56,14 @@ Structured model selection preserves exact model IDs containing literal suffixes
 A start receipt's `launch.effective` records configured arguments,
 not this runtime observation. Terminal Pi launches do not provide the structured RPC confirmation.
 
+An admitted Pi worker uses its verified package snapshot, private Pi home, and session directory.
+Orca disables automatic tool, extension, MCP, skill, theme, prompt-template, and context discovery,
+then loads the package's pinned extension, skills, and harness instructions explicitly. The child
+environment keeps required operating-system values, OpenRouter inference credentials, and this
+session's sealed Orca identity; unrelated credentials and runtime injection variables are removed
+at spawn. Package paths come from the current Dispatch admission, never public session options.
+Task delivery waits for the pinned extension's readiness command and a matching live receipt.
+
 Wait for completions (process every message in a Delivery, then ack):
 
 ```bash
