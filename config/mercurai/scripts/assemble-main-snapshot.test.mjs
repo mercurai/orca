@@ -22,7 +22,14 @@ const TAG = 'v1.4.224'
 const OFFICIAL_URL = 'https://github.com/stablyai/orca'
 const SHA_VAR = 'UPSTREAM_MAIN_SHA'
 // Inherited settings that change what the script or its git calls do: assembler inputs and shell startup files.
-const INHERITED_ENV = new Set(['TAG', SHA_VAR, 'BASH_ENV', 'ENV'])
+const INHERITED_ENV = new Set([
+  'TAG',
+  SHA_VAR,
+  'PREPARED_CANDIDATE_SHA',
+  'PREPARED_RELEASE_TAG',
+  'BASH_ENV',
+  'ENV'
+])
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'fixture',
   GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
@@ -155,7 +162,10 @@ function writeManifest(fx, { base, patches, release = 'release/mercurai' }) {
 }
 
 /** Runs assemble-release.sh in the fork checkout; `mainSha` undefined leaves UPSTREAM_MAIN_SHA unset. */
-function assemble(fx, { tag = TAG, mainSha } = {}) {
+function assemble(
+  fx,
+  { tag = TAG, mainSha, preparedCandidateSha, preparedReleaseTag, committerDate } = {}
+) {
   writeFileSync(fx.out, '')
   const insteadOf = `url.${posix(fx.up)}.insteadOf`
   const env = {
@@ -176,6 +186,15 @@ function assemble(fx, { tag = TAG, mainSha } = {}) {
   }
   if (mainSha !== undefined) {
     env[SHA_VAR] = mainSha
+  }
+  if (preparedCandidateSha !== undefined) {
+    env.PREPARED_CANDIDATE_SHA = preparedCandidateSha
+  }
+  if (preparedReleaseTag !== undefined) {
+    env.PREPARED_RELEASE_TAG = preparedReleaseTag
+  }
+  if (committerDate !== undefined) {
+    env.GIT_COMMITTER_DATE = committerDate
   }
   const result = spawnSync('bash', [posix(script)], { cwd: fx.work, env, encoding: 'utf8' })
   const raw = readFileSync(fx.out, 'utf8')
@@ -301,6 +320,44 @@ test('main mode reports the base commit and every patch commit it assembled', ()
   for (const sha of [fx.frozen, ...patches.map((patch) => patch.commit)]) {
     assert.ok(report.includes(sha), `the log or outputs must report ${sha}:\n${report}`)
   }
+})
+
+test('promotion keeps the reviewed candidate SHA and reserved release tag across Git commit dates', () => {
+  const fx = createFixture()
+  const patches = seriesOn(fx, fx.frozen)
+  writeManifest(fx, { base: fx.frozen, patches })
+  const preparation = assemble(fx, {
+    mainSha: fx.frozen,
+    committerDate: '2001-01-01T00:00:00Z'
+  })
+  assert.equal(preparation.status, 0, preparation.log)
+  const preparedCandidateSha = git(fx, fx.work, 'rev-parse', 'HEAD')
+  git(fx, fx.work, 'push', '-q', 'origin', `${preparedCandidateSha}:refs/heads/patch/reviewed-candidate`)
+  const preparedReleaseTag = `${TAG}-mercurai.7`
+  const before = snapshot(fx)
+
+  const promotion = assemble(fx, {
+    mainSha: fx.frozen,
+    preparedCandidateSha,
+    preparedReleaseTag,
+    committerDate: '2001-01-02T00:00:00Z'
+  })
+
+  assert.equal(promotion.status, 0, promotion.log)
+  assert.deepEqual(
+    {
+      candidateSha: git(fx, fx.work, 'rev-parse', 'HEAD'),
+      releaseTag: promotion.outputs.release_tag
+    },
+    { candidateSha: preparedCandidateSha, releaseTag: preparedReleaseTag },
+    'promotion must reuse the reviewed commit and reserved version, not recreate either identity'
+  )
+  assert.equal(promotion.outputs.tree, preparation.outputs.tree)
+  assert.equal(
+    promotion.outputs.series,
+    patches.map((patch) => `${patch.branch}:${patch.commit}`).join(',')
+  )
+  assert.equal(git(fx, fx.origin, 'for-each-ref'), before.origin, 'assembly publishes nothing')
 })
 
 test('a second assembly of the same tuple is identical after upstream and the fork mirror moved on', () => {
