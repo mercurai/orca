@@ -80,12 +80,14 @@ function repo(id: string, path: string, connectionId: string | null = TARGET.id)
 }
 
 let userDataPath: string
+// This desktop's profile, which still holds the host's relay-era projects.
 let store: Store
+// The host's managed server, which another desktop on the same login already uses.
 let server: Store
 let targetStore: SshConnectionStore
 let destination: OrcadMigrationDestinationCatalog & { stage: ReturnType<typeof vi.fn> }
 
-/** Use the real server import behind migration calls. */
+/** The real server-side import behind the T6-9 calls, as orcad runs it. */
 function serverDestination(): typeof destination {
   return {
     readState: async (manifest: OrcadMigrationManifest) =>
@@ -127,7 +129,7 @@ beforeEach(() => {
         throw new Error('deploy without a fence')
       }
       if (!listEnvironments(path).some((entry) => entry.id === owner)) {
-        addManagedOrcadEnvironment(path, {
+        await addManagedOrcadEnvironment(path, {
           id: owner,
           name: args.name,
           pairingCode: encodePairingOffer({
@@ -209,7 +211,7 @@ describe('moving onto a server another desktop already added the same project to
     expect(journal?.manifest.payload.repositories.map((entry) => entry.id)).toEqual([
       'desktop-only'
     ])
-    // Retain desktop rows for downgraded builds while managed clients show server rows.
+    // Both rows stay for a downgraded build; this build shows the server's projects instead.
     expect(
       store
         .getRepos()
@@ -255,6 +257,7 @@ describe('moving onto a server another desktop already added the same project to
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getWorktreeMeta('desktop-only::/root/tool')?.comment).toBe('moves')
     expect(server.getWorktreeMeta('desktop-repo::/root/migrepo')).toBeUndefined()
+    // Kept in this desktop's retained rows for a downgraded build.
     expect(store.getWorktreeMeta('desktop-repo::/root/migrepo')?.comment).toBe('from this desktop')
   })
 
@@ -308,7 +311,7 @@ describe('moving onto a server another desktop already added the same project to
   it('stays managed across a restart: the linked rows are not an older build’s change', async () => {
     otherDesktopAddsSameCheckout()
     await convert()
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
   })
 
@@ -316,7 +319,7 @@ describe('moving onto a server another desktop already added the same project to
     otherDesktopAddsSameCheckout()
     await convert()
     store.addRepo(repo('added-later', '/root/later'))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const target = store.getSshTarget(TARGET.id)!
     expect(target.orcadFence?.sourceChangedAt).toBeDefined()
     const plan = planOrcadDeltaMove(userDataPath, store, target)
@@ -357,14 +360,14 @@ describe('moving onto a server another desktop already added the same project to
 // #29560: `orca environment stop` unlinks the server but leaves its profile on the host.
 describe('moving the host again after its server was stopped', () => {
   // The local half of stop (unlinkEnvironmentLocally); the server keeps its profile.
-  function stopServer(): void {
+  async function stopServer(): Promise<void> {
     const owner = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))
     if (!owner) {
       throw new Error('no managed server to stop')
     }
-    removeManagedOrcadEnvironment(userDataPath, owner)
+    await removeManagedOrcadEnvironment(userDataPath, owner)
     targetStore.getOrcadRuntimeClaims().release(TARGET.id, owner)
-    removeOrcadMigrationJournalsForDestination(userDataPath, TARGET.id, owner)
+    await removeOrcadMigrationJournalsForDestination(userDataPath, TARGET.id, owner)
   }
 
   it('links the projects the server kept from the first move instead of conflicting', async () => {
@@ -372,10 +375,11 @@ describe('moving the host again after its server was stopped', () => {
       comment: 'before the first move'
     })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
+    // Used on the server while it was managed.
     server.setWorktreeMeta(onServer('desktop-repo::/root/migrepo'), {
       comment: 'edited on the server'
     })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({
       outcome: 'converted',
@@ -414,8 +418,8 @@ describe('moving the host again after its server was stopped', () => {
   const groupName = (owner: Store, id: string) =>
     owner.getProjectGroups().find((entry) => entry.id === id)?.name
   // The delta move an older build's later edit asks for, against the real server store.
-  const runDelta = () => {
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+  const runDelta = async () => {
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     return runOrcadDeltaMove({
       userDataPath,
       store,
@@ -428,16 +432,17 @@ describe('moving the host again after its server was stopped', () => {
     })
   }
 
-  // Retained groups must not overwrite server-side renames on relink.
+  // Review repro: the linked project's retained group was imported over the server's renamed one.
   it('keeps the server’s project group when it changed while managed', async () => {
     const groupId = groupDesktopRepo()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, groupId)).toBe('Renamed on the server')
     expect(server.getRepo('desktop-repo')?.projectGroupId).toBe(groupId)
+    // This desktop's retained copy stays as it was, for a downgraded build.
     expect(groupName(store, groupId)).toBe('Before')
   })
 
@@ -445,7 +450,7 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     store.addRepo(repo('added-after-stop', '/root/later'))
     store.moveProjectToGroup(store.getRepo('added-after-stop')!, groupId)
 
@@ -458,16 +463,16 @@ describe('moving the host again after its server was stopped', () => {
     const groupId = groupDesktopRepo()
     await convert()
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     await convert()
     store.addRepo(repo('added-later', '/root/later'))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const target = store.getSshTarget(TARGET.id)!
     const plan = planOrcadDeltaMove(userDataPath, store, target)
     expect(plan.added.map((row) => row.id)).toEqual(['added-later'])
   })
 
-  // Delta exports must not resend a moved parent group through a new nested row.
+  // Codex repro: a nested group's moved parent was re-exported in a later delta.
   it('keeps the server’s nested groups out of the relink and later deltas', async () => {
     const parent = store.createProjectGroup({
       name: 'Parent',
@@ -485,7 +490,7 @@ describe('moving the host again after its server was stopped', () => {
     store.moveProjectToGroup(store.getRepo('desktop-repo')!, child.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
-    stopServer()
+    await stopServer()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
 
@@ -495,11 +500,11 @@ describe('moving the host again after its server was stopped', () => {
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
   })
 
-  // Hiding server-owned groups must preserve inherited host ownership for later folders.
+  // Codex repro: hiding the group from the source also hid the host a folder takes from it.
   it('still moves a later folder workspace that takes its host from the server’s group', async () => {
     const groupId = groupDesktopRepo()
     await convert()
-    stopServer()
+    await stopServer()
     await convert()
     const folder = store.createFolderWorkspace({
       projectGroupId: groupId,
@@ -509,7 +514,7 @@ describe('moving the host again after its server was stopped', () => {
     expect(server.getFolderWorkspace(folder.id)?.projectGroupId).toBe(groupId)
   })
 
-  // Groups absent from the server still move, even when only a linked project used them.
+  // Codex repro: a group only a linked project used never reached the server, so it still moves.
   it('moves a linked project’s group the server does not hold, so later rows can use it', async () => {
     otherDesktopAddsSameCheckout()
     const groupId = groupDesktopRepo()
@@ -521,7 +526,7 @@ describe('moving the host again after its server was stopped', () => {
     expect(server.getRepo('added-later')?.projectGroupId).toBe(groupId)
   })
 
-  // Relink folders edited on the server while managed.
+  // Review repro: a folder the server edited while managed must link on reconnect.
   it('links a folder workspace the server edited while managed', async () => {
     const group = targetGroup('Notes')
     const folder = store.createFolderWorkspace({
@@ -530,24 +535,24 @@ describe('moving the host again after its server was stopped', () => {
     })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateFolderWorkspace(folder.id, { comment: 'edited on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(server.getFolderWorkspace(folder.id)?.comment).toBe('edited on the server')
   })
 
-  // Retained empty groups must not overwrite server-side renames.
+  // Review repro: an empty group no server row sits in was re-imported over the server's.
   it('keeps the server’s empty project group when it was renamed while managed', async () => {
     const group = targetGroup('Empty')
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, group.id)).toBe('Renamed on the server')
     expect(groupName(store, group.id)).toBe('Empty')
     store.addRepo(repo('added-later', '/root/later'))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const plan = planOrcadDeltaMove(userDataPath, store, store.getSshTarget(TARGET.id)!)
     expect(plan.added.map((row) => row.id)).toEqual(['added-later'])
   })
@@ -557,7 +562,7 @@ describe('moving the host again after its server was stopped', () => {
     const child = targetGroup('Child', parent.id)
     await convert()
     server.updateProjectGroup(parent.id, { name: 'Parent renamed on the server' })
-    stopServer()
+    await stopServer()
 
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(groupName(server, parent.id)).toBe('Parent renamed on the server')
@@ -568,7 +573,7 @@ describe('moving the host again after its server was stopped', () => {
     const group = targetGroup('Empty')
     await convert()
     server.updateProjectGroup(group.id, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     const remoteCopy = server.getProjectGroups().find((entry) => entry.id === group.id)!
     // The server's row sits on one of its own SSH hosts, so it is not this desktop's group.
     const serverCatalog = async () => ({
@@ -587,12 +592,12 @@ describe('moving the host again after its server was stopped', () => {
     ).rejects.toThrow(`orcad_migration_project_group_id_conflict:${group.id}`)
   })
 
-  // New folders reference server-owned groups without re-exporting stale copies.
+  // Review repro: a later folder in the relinked group re-exported this desktop's old group.
   it('moves a later folder into the server’s renamed group without re-exporting it', async () => {
     const groupId = groupDesktopRepo()
     await convert()
     server.updateProjectGroup(groupId, { name: 'Renamed on the server' })
-    stopServer()
+    await stopServer()
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     const folder = store.createFolderWorkspace({
       projectGroupId: groupId,
@@ -603,7 +608,7 @@ describe('moving the host again after its server was stopped', () => {
     expect(groupName(server, groupId)).toBe('Renamed on the server')
   })
 
-  // Groups imported by the first move become server-owned too.
+  // Opus repro: a group the first move imported, changed on the server, was re-exported too.
   it('moves a later row into a group the first move imported and the server changed', async () => {
     const groupId = groupDesktopRepo()
     await convert()
@@ -625,7 +630,7 @@ describe('moving the host again after its server was stopped', () => {
       const groupId = groupDesktopRepo()
       await convert()
       if (relink) {
-        stopServer()
+        await stopServer()
         await convert()
       }
       server.moveProjectToGroup(server.getRepo('desktop-repo')!, null)
@@ -677,6 +682,7 @@ describe('moving the host again after its SSH target was deleted and re-created'
     })
     const recreated = recreateTarget()
     expect(store.getRepo('desktop-repo')?.connectionId).toBe(recreated)
+    // Used on this desktop under the new target before it was moved again.
     store.setWorktreeMeta(onSsh('desktop-repo::/root/migrepo', recreated), {
       comment: 'edited after re-creating'
     })
@@ -725,10 +731,11 @@ describe('moving the host again after its SSH target was deleted and re-created'
     )
     expect(journal?.linkedFolderWorkspaceIds).toEqual([folderId])
     expect(journal?.manifest.payload.folderWorkspaces).toEqual([])
+    // This desktop's copy stays in its retained rows for a downgraded build.
     expect(store.getFolderWorkspace(folderId)?.comment).toBe('edited after re-creating')
   })
 
-  // Folder relay leases use folder:<id> keys, not worktree ids.
+  // Codex repro: a folder lease key is `folder:<id>`, not a worktree id.
   describe('with relay terminals the bridge still serves', () => {
     const lease = (targetId: string, folderId: string) => ({
       targetId,
@@ -777,7 +784,7 @@ describe('moving the host again after its SSH target was deleted and re-created'
     store.updateFolderWorkspace(folderId, { comment: 'edited after re-creating' })
     await convert(true, 'exited', recreated)
     store.addRepo(repo('added-later', '/root/later', recreated))
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     const target = store.getSshTarget(recreated)!
     expect(target.orcadFence?.sourceChangedAt).toBeDefined()
     const plan = planOrcadDeltaMove(userDataPath, store, target)
@@ -786,7 +793,7 @@ describe('moving the host again after its SSH target was deleted and re-created'
 })
 
 describe('what a linked project leaves behind', () => {
-  it('counts this desktop’s automations on each linked project only', () => {
+  it('counts this desktop’s automations on each linked project only', async () => {
     const runIn = (repoId: string) => ({
       kind: 'workspace-run' as const,
       projectId: repoId,
@@ -822,18 +829,18 @@ describe('which projects are the same checkout', () => {
   const incoming = [{ id: 'mine', path: '/root/app' }]
   const NONE = { otherId: [], sameId: [] }
 
-  it('links the same absolute path on the host, spelled with a trailing slash', () => {
+  it('links the same absolute path on the host, spelled with a trailing slash', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/app/' }])).toEqual({
       otherId: ['mine'],
       sameId: []
     })
   })
 
-  it('keeps a POSIX path that differs only in case apart', () => {
+  it('keeps a POSIX path that differs only in case apart', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/App' }])).toEqual(NONE)
   })
 
-  it('folds case on a Windows host', () => {
+  it('folds case on a Windows host', async () => {
     expect(
       repositoriesHeldByServer(
         [{ id: 'mine', path: 'C:\\src\\app' }],
@@ -842,14 +849,14 @@ describe('which projects are the same checkout', () => {
     ).toEqual({ otherId: ['mine'], sameId: [] })
   })
 
-  it('tells apart a project the server holds under the same id', () => {
+  it('tells apart a project the server holds under the same id', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'mine', path: '/root/app' }])).toEqual({
       otherId: [],
       sameId: ['mine']
     })
   })
 
-  it('does not link a different path', () => {
+  it('does not link a different path', async () => {
     expect(repositoriesHeldByServer(incoming, [{ id: 'theirs', path: '/root/app2' }])).toEqual(NONE)
   })
 })
@@ -872,26 +879,26 @@ describe('which folder workspaces the server already holds', () => {
       serverRepos
     )
 
-  it('links the same id at the same folder', () => {
+  it('links the same id at the same folder', async () => {
     expect(held({})).toEqual(['notes'])
   })
 
-  it('keeps a same-id row at another folder apart, so the server refuses it', () => {
+  it('keeps a same-id row at another folder apart, so the server refuses it', async () => {
     expect(held({ folderPath: '/root/other' })).toEqual([])
   })
 
-  it('keeps a same-path row under another id apart', () => {
+  it('keeps a same-path row under another id apart', async () => {
     expect(held({ id: 'other' })).toEqual([])
   })
 
-  it('keeps a row whose files are on another host apart', () => {
+  it('keeps a row whose files are on another host apart', async () => {
     expect(held({ connectionId: 'nested-target' })).toEqual([])
     expect(held({ executionHostId: 'ssh:nested-target' })).toEqual([])
     expect(held({}, [], { connectionId: 'nested-target' })).toEqual([])
   })
 
-  // Group-inherited host ownership must distinguish otherwise bare rows.
-  it('keeps a bare row apart when its group puts it on another host', () => {
+  // Codex repro: a bare row its group's nested SSH project places on another host.
+  it('keeps a bare row apart when its group puts it on another host', async () => {
     const nested = { id: 'r', path: '/srv/app', projectGroupId: 'group', connectionId: 'nested' }
     expect(held({}, [nested])).toEqual([])
     expect(held({}, [{ ...nested, connectionId: null }])).toEqual(['notes'])

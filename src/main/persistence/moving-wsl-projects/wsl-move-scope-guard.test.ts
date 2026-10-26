@@ -62,33 +62,33 @@ describe('wslMoveProjectRefForWorkspace', () => {
 })
 
 describe('WSL move scope guard', () => {
-  it('fences nothing before startup loads the journal', () => {
+  it('fences nothing before startup loads the journal', async () => {
     resetWslMoveFenceForTests()
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
     expect(isWslMoveFenceLoaded()).toBe(false)
     expect(writable('repo-1::/x')).not.toThrow()
   })
 
-  it('follows a write under another spelling of the same profile folder', () => {
+  it('follows a write under another spelling of the same profile folder', async () => {
     loadWslMoveFence(`${userDataPath}/./`)
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
     expect(writable('repo-1::/x')).toThrow(WslMoveProjectFencedError)
   })
 
-  it('lifts the fence when the finished move is removed', () => {
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'retained'))
+  it('lifts the fence when the finished move is removed', async () => {
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'retained'))
     expect(writable('repo-1::/x')).toThrow(WslMoveProjectFencedError)
-    removeWslMoveCutover(userDataPath, 'move-1')
+    await removeWslMoveCutover(userDataPath, 'move-1')
     expect(writable('repo-1::/x')).not.toThrow()
   })
 
-  it('never matches a project on another host', () => {
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+  it('never matches a project on another host', async () => {
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
     expect(writable('ssh:target-1|repo-1::/x')).not.toThrow()
   })
 
-  it('follows journal writes without rereading on every check', () => {
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+  it('follows journal writes without rereading on every check', async () => {
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
     expect(writable('repo-1::/x')).toThrow(WslMoveProjectFencedError)
     rmSync(wslMoveJournalDirectory(userDataPath), { recursive: true, force: true })
     expect(writable('repo-1::/x')).toThrow(WslMoveProjectFencedError)
@@ -99,13 +99,13 @@ describe('WSL move scope guard', () => {
     expect(withoutWslMovedRepos([{ id: 'repo-1' }])).toHaveLength(1)
   })
 
-  it('leaves a prepared move untouched', () => {
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'prepared'))
+  it('leaves a prepared move untouched', async () => {
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'prepared'))
     expect(writable('repo-1::/x')).not.toThrow()
   })
 
-  it('refuses work in a fenced project and keeps it listed', () => {
-    seedWslMoveCutover(
+  it('refuses work in a fenced project and keeps it listed', async () => {
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-1', 'source-fenced', {}, { repoIds: ['repo-1'], folderWorkspaceIds: ['notes'] })
     )
@@ -116,8 +116,8 @@ describe('WSL move scope guard', () => {
     expect(withoutWslMovedRepos(rows)).toEqual(rows)
   })
 
-  it('hides and refuses a project the WSL host owns', () => {
-    seedWslMoveCutover(
+  it('hides and refuses a project the WSL host owns', async () => {
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-1', 'destination-committed', {}, { folderWorkspaceIds: ['notes'] })
     )
@@ -127,8 +127,8 @@ describe('WSL move scope guard', () => {
     ])
   })
 
-  it("keeps the host's own row, which carries the moved project's id", () => {
-    seedWslMoveCutover(
+  it("keeps the host's own row, which carries the moved project's id", async () => {
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-1', 'destination-committed', {}, { repoIds: ['repo-1'] })
     )
@@ -169,8 +169,8 @@ describe('WSL move edit guard', () => {
     expect(isPassiveWorkspaceUpdate(updates)).toBe(passive)
   })
 
-  it('drops passive updates to a blocked project and refuses user edits', () => {
-    fenceRepo1AndNotes()
+  it('drops passive updates to a blocked project and refuses user edits', async () => {
+    await fenceRepo1AndNotes()
     const notes = { folderWorkspaceId: 'notes' }
     expect(shouldDropWslMoveProjectUpdate(undefined, notes, { isUnread: false })).toBe(true)
     expect(() => shouldDropWslMoveProjectUpdate(undefined, notes, { isUnread: true })).toThrow(
@@ -184,8 +184,8 @@ describe('WSL move edit guard', () => {
     )
   })
 
-  it('refuses a blocked project, and a catalog project when any source repo is blocked', () => {
-    fenceRepo1AndNotes()
+  it('refuses a blocked project, and a catalog project when any source repo is blocked', async () => {
+    await fenceRepo1AndNotes()
     expect(() => assertWslMoveProjectWritable(undefined, { repoId: 'repo-1' })).toThrow(
       WslMoveProjectFencedError
     )
@@ -196,8 +196,8 @@ describe('WSL move edit guard', () => {
     expect(() => assertWslMoveReposWritable(undefined, ['repo-2'])).not.toThrow()
   })
 
-  it('freezes catalog settings only while a source repo is mid-move', () => {
-    seedWslMoveCutover(
+  it('freezes catalog settings only while a source repo is mid-move', async () => {
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-1', 'destination-committed', {}, { repoIds: ['repo-1'] })
     )
@@ -206,8 +206,8 @@ describe('WSL move edit guard', () => {
     expect(() => assertWslMoveReposWritable(undefined, ['repo-1', 'repo-2'])).not.toThrow()
   })
 
-  it('only fences a repo row that runs on this machine', () => {
-    fenceRepo1AndNotes()
+  it('only fences a repo row that runs on this machine', async () => {
+    await fenceRepo1AndNotes()
     expect(isWslMoveSourceHost(undefined)).toBe(true)
     expect(isWslMoveSourceHost('local')).toBe(true)
     expect(isWslMoveSourceHost('ssh:box')).toBe(false)

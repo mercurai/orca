@@ -7,7 +7,9 @@ import {
   artifactContentByteLength,
   artifactWriteRequestByteLength
 } from '../../shared/artifacts'
-import { bestEffortFsyncDirectorySync, writeSecureFile } from '../../shared/secure-file'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import { bestEffortFsyncDirectorySync } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import { getOrcaProfileDirectory } from '../orca-profiles/profile-storage-paths'
 import type { ArtifactWriteBody } from './artifact-cloud-request'
 import type { ArtifactShareScope } from './artifact-share-record-store'
@@ -158,7 +160,22 @@ export function getOrCreateArtifactCreateIntent(
   scope: ArtifactShareScope,
   idempotencyKey: string,
   body: ArtifactWriteBody
-): ArtifactCreateIntent {
+): Promise<ArtifactCreateIntent> {
+  // Why: the write awaits between the existence check and the publish; serialize them.
+  return serializePathWrite(
+    `${intentPath(profileId, userDataPath, sourceKey, scope)}#read-modify-write`,
+    () => createIntentUnserialized(profileId, userDataPath, sourceKey, scope, idempotencyKey, body)
+  )
+}
+
+async function createIntentUnserialized(
+  profileId: string,
+  userDataPath: string,
+  sourceKey: string,
+  scope: ArtifactShareScope,
+  idempotencyKey: string,
+  body: ArtifactWriteBody
+): Promise<ArtifactCreateIntent> {
   if (artifactContentByteLength(body.content) > ARTIFACT_MAX_CONTENT_BYTES) {
     throw new Error('Artifact content exceeds the 10 MiB limit.')
   }
@@ -186,9 +203,8 @@ export function getOrCreateArtifactCreateIntent(
   if (Buffer.byteLength(serializedIntent, 'utf8') > MAX_ARTIFACT_CREATE_INTENT_BYTES) {
     throw new Error('Artifact create recovery record exceeds the supported size.')
   }
-  writeSecureFile(intentPath(profileId, userDataPath, sourceKey, scope), serializedIntent, {
-    durable: true
-  })
+  const path = intentPath(profileId, userDataPath, sourceKey, scope)
+  await writeSecureFileAsync(path, serializedIntent, { durable: true })
   return intent
 }
 

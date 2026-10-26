@@ -20,7 +20,7 @@ export async function refreshCurrentOrcaProfileAuth(
     return { status: 'local', auth: auth() }
   }
   if (isOrcaCloudDevAuthEnabled()) {
-    const result = refreshDevOrcaCloudProfile(active, userDataPath)
+    const result = await refreshDevOrcaCloudProfile(active, userDataPath)
     if (result.status !== 'updated') {
       return { status: 'reconnect-required', auth: auth() }
     }
@@ -59,7 +59,12 @@ export async function refreshCurrentOrcaProfileAuth(
     ) {
       throw new Error('orca_cloud_identity_changed_during_capability_refresh')
     }
-    const list = commitCloudSessionCapabilities(active.profile.id, userDataPath, ticket, refresh)
+    const list = await commitCloudSessionCapabilities(
+      active.profile.id,
+      userDataPath,
+      ticket,
+      refresh
+    )
     if (!list) {
       return { status: 'reconnect-required', auth: auth() }
     }

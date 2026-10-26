@@ -172,7 +172,7 @@ export async function fenceOrcadMigrationSource(args: {
     // Capture before commit; this journaled export is the evidence of what the destination receives.
     manifest
   }
-  writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
+  await writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
   args.claims.fenceForMigration(target.id, args.destinationEnvironmentId, generation)
   await args.claims.flush(args.signal)
   // Recheck under fence for terminals started after the original proof.
@@ -207,7 +207,7 @@ export async function releaseOrcadMigrationFence(
 ): Promise<void> {
   args.claims.release(cutover.sshTargetId, cutover.destinationEnvironmentId)
   await args.claims.flush(args.signal)
-  removeOrcadMigrationSourceCutover(args.userDataPath, cutover.migrationId)
+  await removeOrcadMigrationSourceCutover(args.userDataPath, cutover.migrationId)
 }
 
 /** Unregistered destinations could stage nothing; registered destinations must prove durable abort instead. */

@@ -289,7 +289,7 @@ describe('migration cutover coordinator', () => {
       expect(() => assertOrcadMigrationRequestFits({ manifest })).toThrow(
         /orcad_migration_manifest_too_large/
       )
-      writeOrcadMigrationSourceCutover(h.context.userDataPath, {
+      await writeOrcadMigrationSourceCutover(h.context.userDataPath, {
         ...cutover,
         manifestSha256: manifest.manifestSha256,
         manifest

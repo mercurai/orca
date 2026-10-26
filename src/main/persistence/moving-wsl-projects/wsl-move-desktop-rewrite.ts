@@ -1,4 +1,8 @@
-// Persist each store before its ledger entry; restart retries only unrecorded rewrites.
+/**
+ * The desktop rewrite stage of a committed WSL move: `destination-committed` → `client-rewritten`.
+ * Each registered store is rewritten, made durable, then recorded in the journal's ledger; a
+ * crash or failure redoes only the stores not recorded yet, on the next pass.
+ */
 import { toRuntimeExecutionHostId } from '../../../shared/execution-host'
 import type { WslMoveCutover } from '../../../shared/wsl-move/wsl-move-cutover'
 import type {
@@ -7,7 +11,7 @@ import type {
   WslMoveRecordStoreRewrittenResult
 } from '../../../shared/wsl-move/wsl-move-renderer-rewrite-types'
 import { wslHostsGateOpen } from '../../wsl/wsl-host-gate'
-import { listWslMoveCutovers, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import { listWslMoveCutovers, updateWslMoveCutover } from './wsl-move-cutover-journal'
 import {
   isWslMoveDesktopRewriteRegistryComplete,
   listWslMoveDesktopRewriteStores,
@@ -16,12 +20,12 @@ import {
 } from './wsl-move-desktop-rewrite-stores'
 import { createUncToLinuxPathRewriter } from './wsl-move-path-rewriter'
 
-// One hung store would stall every serialized pass.
+// Passes are serialized, so one hung store would otherwise stall every later pass in the process.
 export const WSL_MOVE_REWRITE_STORE_TIMEOUT_MS = 30_000
 
 export type WslMoveDesktopRewritePassOptions = {
   userDataPath: string
-  /** Applied separately to run and flush; defaults to WSL_MOVE_REWRITE_STORE_TIMEOUT_MS. */
+  /** Per `run` and per `flush`; defaults to WSL_MOVE_REWRITE_STORE_TIMEOUT_MS. */
   storeTimeoutMs?: number
   warn?: (message: string) => void
 }
@@ -34,7 +38,7 @@ function rewriteContext(cutover: Readonly<WslMoveCutover>): WslMoveDesktopRewrit
   }
 }
 
-/** Read the current ledger so concurrent acknowledgements cannot be overwritten. */
+/** Fresh from disk: the ledger write must extend what is there now, not what a pass started with. */
 function readCommittedCutover(userDataPath: string, migrationId: string): WslMoveCutover | null {
   const cutover = listWslMoveCutovers(userDataPath).find(
     (entry) => entry.migrationId === migrationId
@@ -42,31 +46,44 @@ function readCommittedCutover(userDataPath: string, migrationId: string): WslMov
   return cutover?.phase === 'destination-committed' ? cutover : null
 }
 
-function appendLedgerEntry(userDataPath: string, cutover: WslMoveCutover, storeId: string): void {
-  writeWslMoveCutover(userDataPath, {
-    ...cutover,
-    rewrittenStores: [...cutover.rewrittenStores, storeId],
-    updatedAt: new Date().toISOString()
+function appendLedgerEntry(
+  userDataPath: string,
+  migrationId: string,
+  storeId: string
+): Promise<boolean> {
+  return updateWslMoveCutover(userDataPath, migrationId, (current) => {
+    if (current?.phase !== 'destination-committed' || current.rewrittenStores.includes(storeId)) {
+      return { result: false }
+    }
+    return {
+      cutover: {
+        ...current,
+        rewrittenStores: [...current.rewrittenStores, storeId],
+        updatedAt: new Date().toISOString()
+      },
+      result: true
+    }
   })
 }
 
-function advanceWhenRewritten(userDataPath: string, migrationId: string): void {
-  // Advancing early would permanently skip stores not yet registered.
-  if (!isWslMoveDesktopRewriteRegistryComplete()) {
-    return
-  }
-  const cutover = readCommittedCutover(userDataPath, migrationId)
-  if (!cutover || pendingWslMoveDesktopRewriteStores(cutover.rewrittenStores).length > 0) {
-    return
-  }
-  writeWslMoveCutover(userDataPath, {
-    ...cutover,
-    phase: 'client-rewritten',
-    updatedAt: new Date().toISOString()
+/** Advances once every registered store, main and renderer, is in the durable ledger. */
+function advanceWhenRewritten(userDataPath: string, migrationId: string): Promise<void> {
+  return updateWslMoveCutover(userDataPath, migrationId, (current) => {
+    if (
+      !isWslMoveDesktopRewriteRegistryComplete() ||
+      current?.phase !== 'destination-committed' ||
+      pendingWslMoveDesktopRewriteStores(current.rewrittenStores).length > 0
+    ) {
+      return { result: undefined }
+    }
+    return {
+      cutover: { ...current, phase: 'client-rewritten', updatedAt: new Date().toISOString() },
+      result: undefined
+    }
   })
 }
 
-/** Ignore late results after timeout; never record them. */
+/** A timed-out step fails like a thrown one; its late result is ignored, never recorded. */
 async function withStoreTimeout(
   step: () => Promise<void> | void,
   timeoutMs: number,
@@ -108,10 +125,10 @@ async function rewriteMainStores(
       throw new Error('wsl_move_record_missing')
     }
     if (!current.rewrittenStores.includes(store.id)) {
-      appendLedgerEntry(userDataPath, current, store.id)
+      await appendLedgerEntry(userDataPath, migrationId, store.id)
     }
   }
-  advanceWhenRewritten(userDataPath, migrationId)
+  await advanceWhenRewritten(userDataPath, migrationId)
 }
 
 async function runPass(options: WslMoveDesktopRewritePassOptions): Promise<void> {
@@ -129,7 +146,7 @@ async function runPass(options: WslMoveDesktopRewritePassOptions): Promise<void>
     try {
       await rewriteMainStores(options, migrationId)
     } catch (error) {
-      // Missing ledger entries make failed stores retry next pass.
+      // No ledger entry for the failed store: the next pass retries it, and nothing else changes.
       warn(`[wsl-move] Desktop rewrite of move ${migrationId} paused: ${describe(error)}`)
     }
   }
@@ -137,7 +154,7 @@ async function runPass(options: WslMoveDesktopRewritePassOptions): Promise<void>
 
 let passQueue: Promise<void> = Promise.resolve()
 
-/** Serialize passes to prevent concurrent rewrites; failures are logged rather than thrown. */
+/** Never throws; passes are serialized so two cannot rewrite the same store at once. */
 export function runWslMoveDesktopRewritePass(
   options: WslMoveDesktopRewritePassOptions
 ): Promise<void> {
@@ -146,12 +163,14 @@ export function runWslMoveDesktopRewritePass(
   return next
 }
 
+/** Startup, and after a move commits: a no-op unless the internal WSL hosts gate is open. */
 export function runGatedWslMoveDesktopRewritePass(
   options: WslMoveDesktopRewritePassOptions
 ): Promise<void> {
   return wslHostsGateOpen() ? runWslMoveDesktopRewritePass(options) : Promise.resolve()
 }
 
+/** Committed moves still waiting on renderer-side stores; empty with the gate closed. */
 export function listPendingWslMoveRendererRewrites(
   userDataPath: string
 ): WslMovePendingRendererRewrite[] {
@@ -188,11 +207,14 @@ export function listPendingWslMoveRendererRewrites(
   }
 }
 
-/** Record a durable renderer rewrite independently of main-store order. */
-export function recordWslMoveRendererStoreRewritten(
+/**
+ * The renderer finished (and persisted) one of its stores for a committed move. Independent of
+ * main-store order: it may land before, between or after the main pass's entries.
+ */
+export async function recordWslMoveRendererStoreRewritten(
   userDataPath: string,
   request: WslMoveRecordStoreRewrittenRequest
-): WslMoveRecordStoreRewrittenResult {
+): Promise<WslMoveRecordStoreRewrittenResult> {
   if (!wslHostsGateOpen()) {
     return { recorded: false, reason: 'gated-off' }
   }
@@ -204,17 +226,15 @@ export function recordWslMoveRendererStoreRewritten(
     return { recorded: false, reason: 'not-renderer-store' }
   }
   try {
-    const cutover = readCommittedCutover(userDataPath, request.migrationId)
-    if (!cutover || cutover.rewrittenStores.includes(store.id)) {
+    if (!(await appendLedgerEntry(userDataPath, request.migrationId, store.id))) {
       return { recorded: false, reason: 'not-pending' }
     }
-    appendLedgerEntry(userDataPath, cutover, store.id)
   } catch (error) {
     console.warn(`[wsl-move] Could not record a renderer rewrite: ${describe(error)}`)
     return { recorded: false, reason: 'failed' }
   }
   try {
-    advanceWhenRewritten(userDataPath, request.migrationId)
+    await advanceWhenRewritten(userDataPath, request.migrationId)
   } catch (error) {
     // The entry is durable; the next pass retries the advance.
     console.warn(`[wsl-move] Could not finish the desktop rewrite: ${describe(error)}`)
