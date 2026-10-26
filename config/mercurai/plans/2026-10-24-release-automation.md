@@ -381,9 +381,11 @@ Parallelism: owner inventory and promotion worker may proceed independently; sha
 Dependencies: P1.1; product work can overlap P1.2-P1.4. Promotion requires all of Phase 1.
 Parallelism: assign non-overlapping product paths only after inspecting the pinned upstream/fork diff.
 
-- [ ] P2.1 Integrator: port the registered patch onto the frozen official main in an owned isolated branch.
+- [x] P2.1 Integrator: port the registered patch onto the frozen official main in an owned isolated branch.
   Reuse `rebase-series.sh` and existing patch conventions. Resolve conflicts by required behavior, not ours/theirs.
   Record upstream-equivalence evidence before dropping any hunk; leave proposed-but-unshipped features clearly marked.
+  Completed locally as `patch/current-main-release-98690` at
+  `5fb6766ff1576b6e5d58d76241e54f5246ae7669`; publication, registration, and qualification remain owner gates.
 - [ ] P2.2 Integrator: first reproduce the missed-await failure in CI, then correct
   `tests/e2e/paired-cli-agent-launch.unit.test.ts` and audit relevant `createPairingOffer` callers for awaited cleanup.
   Verify all 12 previous failing cases pass and no background async operation survives fixture teardown.
