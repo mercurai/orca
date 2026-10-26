@@ -2,11 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { claimLease, createState } from './release-state.mjs'
-import {
-  buildDispatchPlan,
-  executeDispatch,
-  executionVerdict
-} from './release-agent-dispatch.mjs'
+import { buildDispatchPlan, executeDispatch, executionVerdict } from './release-agent-dispatch.mjs'
 
 const SHA = 'a'.repeat(40)
 const target = {
@@ -17,7 +13,11 @@ const target = {
 }
 
 test('builds structured Orca commands bound to the active generation', () => {
-  const leased = claimLease(createState(target), { expectedVersion: 0, owner: 'coordinator', now: 1000 })
+  const leased = claimLease(createState(target), {
+    expectedVersion: 0,
+    owner: 'coordinator',
+    now: 1000
+  })
   const plan = buildDispatchPlan(leased, {
     owner: 'coordinator',
     objective: 'Reconcile the frozen candidate',
@@ -27,11 +27,18 @@ test('builds structured Orca commands bound to the active generation', () => {
   assert.equal(plan.generation, 1)
   assert.deepEqual(plan.runArgs.slice(0, 3), ['orchestration', 'run-create', '--objective'])
   assert.deepEqual(plan.taskArgs.slice(0, 3), ['orchestration', 'task-create', '--run'])
-  assert.equal(plan.runArgs.some((value) => value.includes('&&') || value.includes('|')), false)
+  assert.equal(
+    plan.runArgs.some((value) => value.includes('&&') || value.includes('|')),
+    false
+  )
 })
 
 test('executes bounded run/task/worker commands and persists returned IDs', async () => {
-  const leased = claimLease(createState(target), { expectedVersion: 0, owner: 'coordinator', now: 1000 })
+  const leased = claimLease(createState(target), {
+    expectedVersion: 0,
+    owner: 'coordinator',
+    now: 1000
+  })
   const calls = []
   const checkpoints = []
   const result = await executeDispatch({
@@ -43,8 +50,12 @@ test('executes bounded run/task/worker commands and persists returned IDs', asyn
     persist: async (next) => checkpoints.push(next),
     run: async (argv) => {
       calls.push(argv)
-      if (argv[1] === 'run-create') return { runId: 'run-1' }
-      if (argv[1] === 'task-create') return { taskId: 'task-1' }
+      if (argv[1] === 'run-create') {
+        return { runId: 'run-1' }
+      }
+      if (argv[1] === 'task-create') {
+        return { taskId: 'task-1' }
+      }
       return { dispatchId: 'dispatch-1' }
     }
   })
@@ -58,19 +69,44 @@ test('executes bounded run/task/worker commands and persists returned IDs', asyn
     dispatchId: 'dispatch-1'
   })
   assert.equal(result.state.version, leased.version + 3)
-  assert.deepEqual(checkpoints.map(({ dispatch }) => dispatch), [
-    { generation: 1, owner: 'coordinator', runId: 'run-1' },
-    { generation: 1, owner: 'coordinator', runId: 'run-1', taskId: 'task-1' },
-    { generation: 1, owner: 'coordinator', runId: 'run-1', taskId: 'task-1', dispatchId: 'dispatch-1' }
-  ])
+  assert.deepEqual(
+    checkpoints.map(({ dispatch }) => dispatch),
+    [
+      { generation: 1, owner: 'coordinator', runId: 'run-1' },
+      { generation: 1, owner: 'coordinator', runId: 'run-1', taskId: 'task-1' },
+      {
+        generation: 1,
+        owner: 'coordinator',
+        runId: 'run-1',
+        taskId: 'task-1',
+        dispatchId: 'dispatch-1'
+      }
+    ]
+  )
 })
 
 test('resumes a partial dispatch without recreating the run or task', async () => {
-  const leased = claimLease(createState(target), { expectedVersion: 0, owner: 'coordinator', now: 1000 })
+  const leased = claimLease(createState(target), {
+    expectedVersion: 0,
+    owner: 'coordinator',
+    now: 1000
+  })
   const partial = {
     ...leased,
-    dispatch: { generation: 1, owner: 'coordinator', runId: 'run-existing', taskId: 'task-existing' },
-    evidence: { dispatch: { generation: 1, owner: 'coordinator', runId: 'run-existing', taskId: 'task-existing' } }
+    dispatch: {
+      generation: 1,
+      owner: 'coordinator',
+      runId: 'run-existing',
+      taskId: 'task-existing'
+    },
+    evidence: {
+      dispatch: {
+        generation: 1,
+        owner: 'coordinator',
+        runId: 'run-existing',
+        taskId: 'task-existing'
+      }
+    }
   }
   const calls = []
   const checkpoints = []
@@ -87,7 +123,10 @@ test('resumes a partial dispatch without recreating the run or task', async () =
     }
   })
 
-  assert.deepEqual(calls.map((argv) => argv[1]), ['worker-start'])
+  assert.deepEqual(
+    calls.map((argv) => argv[1]),
+    ['worker-start']
+  )
   assert.deepEqual(result.dispatch, {
     generation: 1,
     owner: 'coordinator',
@@ -99,7 +138,11 @@ test('resumes a partial dispatch without recreating the run or task', async () =
 })
 
 test('does not spawn a duplicate worker when dispatch receipt is complete', async () => {
-  const leased = claimLease(createState(target), { expectedVersion: 0, owner: 'coordinator', now: 1000 })
+  const leased = claimLease(createState(target), {
+    expectedVersion: 0,
+    owner: 'coordinator',
+    now: 1000
+  })
   const complete = {
     ...leased,
     dispatch: {

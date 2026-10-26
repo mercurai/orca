@@ -5,23 +5,39 @@ import { StateConflictError } from './release-state.mjs'
 const copy = (value) => structuredClone(value)
 
 function checkLease(state, owner) {
-  if (!state.lease || state.lease.owner !== owner) throw new StateConflictError('the coordinator does not own the active lease')
+  if (!state.lease || state.lease.owner !== owner) {
+    throw new StateConflictError('the coordinator does not own the active lease')
+  }
 }
 
 function checkVersion(state, expectedVersion) {
   if (state.version !== expectedVersion) {
-    throw new StateConflictError(`state version ${state.version} does not match expected ${expectedVersion}`)
+    throw new StateConflictError(
+      `state version ${state.version} does not match expected ${expectedVersion}`
+    )
   }
 }
 
 export function buildDispatchPlan(state, { owner, objective, taskTitle } = {}) {
   checkLease(state, owner)
-  if (typeof objective !== 'string' || objective.length === 0) throw new TypeError('objective is required')
-  if (typeof taskTitle !== 'string' || taskTitle.length === 0) throw new TypeError('taskTitle is required')
+  if (typeof objective !== 'string' || objective.length === 0) {
+    throw new TypeError('objective is required')
+  }
+  if (typeof taskTitle !== 'string' || taskTitle.length === 0) {
+    throw new TypeError('taskTitle is required')
+  }
   return {
     generation: state.generation,
     runArgs: ['orchestration', 'run-create', '--objective', objective, '--json'],
-    taskArgs: ['orchestration', 'task-create', '--run', '<runId>', '--task-title', taskTitle, '--json'],
+    taskArgs: [
+      'orchestration',
+      'task-create',
+      '--run',
+      '<runId>',
+      '--task-title',
+      taskTitle,
+      '--json'
+    ],
     workerArgs: [
       'orchestration',
       'worker-start',
@@ -42,19 +58,34 @@ export function buildDispatchPlan(state, { owner, objective, taskTitle } = {}) {
 
 function resultObject(value, label) {
   const result = typeof value === 'string' ? JSON.parse(value) : value
-  if (!result || typeof result !== 'object') throw new Error(`${label} returned no JSON object`)
+  if (!result || typeof result !== 'object') {
+    throw new Error(`${label} returned no JSON object`)
+  }
   return result
 }
 
-export async function executeDispatch({ state, expectedVersion, owner, objective, taskTitle, run, persist } = {}) {
+export async function executeDispatch({
+  state,
+  expectedVersion,
+  owner,
+  objective,
+  taskTitle,
+  run,
+  persist
+} = {}) {
   checkVersion(state, expectedVersion)
   const plan = buildDispatchPlan(state, { owner, objective, taskTitle })
-  if (typeof run !== 'function') throw new TypeError('run callback is required')
-  if (persist !== undefined && typeof persist !== 'function') throw new TypeError('persist must be a callback')
+  if (typeof run !== 'function') {
+    throw new TypeError('run callback is required')
+  }
+  if (persist !== undefined && typeof persist !== 'function') {
+    throw new TypeError('persist must be a callback')
+  }
 
-  const existing = state.dispatch?.generation === state.generation && state.dispatch?.owner === owner
-    ? state.dispatch
-    : null
+  const existing =
+    state.dispatch?.generation === state.generation && state.dispatch?.owner === owner
+      ? state.dispatch
+      : null
   if (existing?.dispatchId) {
     return { state: copy(state), dispatch: copy(existing), resumed: true }
   }
@@ -62,25 +93,39 @@ export async function executeDispatch({ state, expectedVersion, owner, objective
   const createdRun = existing?.runId
     ? { runId: existing.runId }
     : resultObject(await run(plan.runArgs), 'run-create')
-  if (typeof createdRun.runId !== 'string' || createdRun.runId.length === 0) throw new Error('run-create returned no runId')
+  if (typeof createdRun.runId !== 'string' || createdRun.runId.length === 0) {
+    throw new Error('run-create returned no runId')
+  }
   let next = {
     ...copy(state),
     version: state.version + 1,
     dispatch: { generation: state.generation, owner, runId: createdRun.runId },
-    evidence: { ...copy(state.evidence), dispatch: { generation: state.generation, owner, runId: createdRun.runId } }
+    evidence: {
+      ...copy(state.evidence),
+      dispatch: { generation: state.generation, owner, runId: createdRun.runId }
+    }
   }
-  if (!existing?.runId && persist) await persist(next)
+  if (!existing?.runId && persist) {
+    await persist(next)
+  }
   const createdTask = existing?.taskId
     ? { taskId: existing.taskId }
-    : resultObject(await run(plan.taskArgs.map((value) => (value === '<runId>' ? createdRun.runId : value))), 'task-create')
-  if (typeof createdTask.taskId !== 'string' || createdTask.taskId.length === 0) throw new Error('task-create returned no taskId')
+    : resultObject(
+        await run(plan.taskArgs.map((value) => (value === '<runId>' ? createdRun.runId : value))),
+        'task-create'
+      )
+  if (typeof createdTask.taskId !== 'string' || createdTask.taskId.length === 0) {
+    throw new Error('task-create returned no taskId')
+  }
   next = {
     ...next,
     version: next.version + 1,
     dispatch: { ...next.dispatch, taskId: createdTask.taskId },
     evidence: { ...copy(next.evidence), dispatch: { ...next.dispatch, taskId: createdTask.taskId } }
   }
-  if (!existing?.taskId && persist) await persist(next)
+  if (!existing?.taskId && persist) {
+    await persist(next)
+  }
   const startedWorker = resultObject(
     await run(plan.workerArgs.map((value) => (value === '<taskId>' ? createdTask.taskId : value))),
     'worker-start'
@@ -96,7 +141,9 @@ export async function executeDispatch({ state, expectedVersion, owner, objective
     dispatch,
     evidence: { ...copy(next.evidence), dispatch }
   }
-  if (persist) await persist(next)
+  if (persist) {
+    await persist(next)
+  }
   return {
     state: next,
     dispatch
@@ -104,15 +151,21 @@ export async function executeDispatch({ state, expectedVersion, owner, objective
 }
 
 export function executionVerdict({ connected, process } = {}) {
-  if (process === 'exited') return 'exited'
-  if (connected && process === 'known') return 'live'
+  if (process === 'exited') {
+    return 'exited'
+  }
+  if (connected && process === 'known') {
+    return 'live'
+  }
   return 'unverifiable'
 }
 
 function flags(argv) {
   const values = new Map()
   for (let index = 0; index < argv.length; index += 1) {
-    if (!argv[index].startsWith('--')) continue
+    if (!argv[index].startsWith('--')) {
+      continue
+    }
     values.set(argv[index].slice(2), argv[index + 1])
     index += 1
   }

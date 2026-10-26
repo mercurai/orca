@@ -13,7 +13,9 @@ export const RELEASE_AUTOMATION_PROMPT = [
 ].join(' ')
 
 export function buildReleaseAutomationSpec({ statePath = STATE_PATH, repo } = {}) {
-  if (typeof statePath !== 'string' || statePath.length === 0) throw new TypeError('statePath is required')
+  if (typeof statePath !== 'string' || statePath.length === 0) {
+    throw new TypeError('statePath is required')
+  }
   return {
     name: RELEASE_AUTOMATION_NAME,
     trigger: 'hourly',
@@ -49,5 +51,14 @@ export function buildReleaseAutomationArgs(options = {}) {
 
 if (process.argv[1]?.endsWith('release-automation-spec.mjs')) {
   const statePath = process.argv[2] || STATE_PATH
-  console.log(JSON.stringify({ spec: buildReleaseAutomationSpec({ statePath }), argv: buildReleaseAutomationArgs({ statePath }) }, null, 2))
+  console.log(
+    JSON.stringify(
+      {
+        spec: buildReleaseAutomationSpec({ statePath }),
+        argv: buildReleaseAutomationArgs({ statePath })
+      },
+      null,
+      2
+    )
+  )
 }
