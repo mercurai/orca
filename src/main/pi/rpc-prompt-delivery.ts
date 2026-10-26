@@ -3,6 +3,7 @@ import { agentSessionFailureWords } from '../../shared/agent-session-failure-wor
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { JsonlRpcRecord } from '../jsonl-rpc/peer'
 import { piRpcPromptReplySchema } from './rpc-protocol'
+import { PiRpcModelConfirmationError } from './rpc-options'
 
 type Submission = {
   id: string
@@ -29,6 +30,16 @@ export function piRpcFailureFact(error: string) {
     error.startsWith('No API key found for ') ? 'notSignedIn' : 'providerRejected',
     { detail: providerDiagnostic(error, 'person') }
   )
+}
+
+function modelRefusal(): AgentSessionDispatchOutcome {
+  return {
+    state: 'rejected',
+    ...agentSessionFailureWords(agentSessionFailureFact('providerRejected'), {
+      agentName: 'Pi',
+      surface: 'rejection'
+    })
+  }
 }
 
 export class PiRpcPromptDelivery {
@@ -75,9 +86,10 @@ export class PiRpcPromptDelivery {
       this.waiting.push(submission)
       await this.deps.send(frame)
       return { state: 'admitted' }
-    } catch {
+    } catch (error) {
       this.remove(submission)
       this.deps.refused?.()
+      if (error instanceof PiRpcModelConfirmationError) return modelRefusal()
       return { state: 'unknown', reason: 'Pi prompt write did not settle' }
     }
   }
@@ -113,11 +125,15 @@ export class PiRpcPromptDelivery {
           }
           this.acknowledgements.push(submission)
           this.waiting.push(submission)
-          void this.deps
-            .send(frame)
-            .catch((error: unknown) =>
-              this.deps.failed(error instanceof Error ? error : new Error(String(error)))
-            )
+          void this.deps.send(frame).catch((error: unknown) => {
+            if (error instanceof PiRpcModelConfirmationError) {
+              this.remove(submission)
+              this.deps.settled(submission.id, modelRefusal())
+              this.deps.refused?.()
+              return
+            }
+            this.deps.failed(error instanceof Error ? error : new Error(String(error)))
+          })
         }, 250)
         timer.unref()
         this.retries.add(timer)

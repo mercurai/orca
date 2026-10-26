@@ -6,7 +6,7 @@ export function parsePiModelOptionId(value: string): { provider: string; modelId
   if (
     slash < 1 ||
     slash === value.length - 1 ||
-    /[\s*?:]/.test(value) ||
+    /[\s*?]/.test(value) ||
     value.startsWith('-') ||
     value[slash + 1] === '-'
   ) {
@@ -22,6 +22,9 @@ export const PI_SESSION_OPTION_CATALOG: AgentSessionOptionCatalog = {
     launchArgs: (value) => {
       const selector = String(value)
       parsePiModelOptionId(selector)
+      if (selector.includes(':')) {
+        throw new Error('Pi worker launch model must not include a thinking suffix')
+      }
       return ['--model', selector]
     },
     removeAgentArgs: (tokens) => removeAgentArgOption('pi', tokens, ['--model', '-m']),

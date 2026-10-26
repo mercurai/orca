@@ -48,12 +48,23 @@ export function piModelOptionId(provider: string, modelId: string): string {
   return `${provider}/${modelId}`
 }
 
-export async function confirmPiRpcModel(rpc: PiRpcRequester, value: string): Promise<void> {
-  const requested = parsePiModelOptionId(value)
-  const state = stateSchema.parse(await rpc.request('get_state'))
-  if (state.model?.provider !== requested.provider || state.model.id !== requested.modelId) {
-    throw new Error('Pi did not confirm the requested model')
+export class PiRpcModelConfirmationError extends Error {
+  constructor() {
+    super('Pi did not confirm the requested model')
   }
+}
+
+export async function confirmPiRpcModel(rpc: PiRpcRequester, value: string): Promise<void> {
+  try {
+    const requested = parsePiModelOptionId(value)
+    const state = stateSchema.parse(await rpc.request('get_state'))
+    if (state.model?.provider === requested.provider && state.model.id === requested.modelId) {
+      return
+    }
+  } catch {
+    throw new PiRpcModelConfirmationError()
+  }
+  throw new PiRpcModelConfirmationError()
 }
 
 export async function readPiRpcSessionOptions(

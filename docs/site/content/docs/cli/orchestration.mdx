@@ -50,8 +50,10 @@ Pi accepts an exact provider-qualified selector, such as
 `--agent pi --model openrouter/deepseek/deepseek-v4.1-flash-1017`, without a thinking suffix or
 wildcards. Pi launch-time `--effort` is unsupported until its model capability is verified.
 Structured Pi sessions confirm the requested provider and model with RPC `get_state` after selection
-and before prompt delivery; a refusal, missing model, or mismatch prevents delivery. This also applies
-to an explicit selection on resume. A start receipt's `launch.effective` records configured arguments,
+and before every prompt write, including authentication retries. A refusal, missing model, or mismatch
+rejects delivery before writing the prompt. This also applies to an explicit selection on resume.
+Structured model selection preserves exact model IDs containing literal suffixes such as `:free`.
+A start receipt's `launch.effective` records configured arguments,
 not this runtime observation. Terminal Pi launches do not provide the structured RPC confirmation.
 
 Wait for completions (process every message in a Delivery, then ack):

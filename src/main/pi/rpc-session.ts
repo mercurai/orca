@@ -18,7 +18,12 @@ import type { ProviderProcessLaunch } from '../provider-process/provider-process
 import { PiRpcTurns } from './rpc-turns'
 import { PiRpcDialogCallbacks } from './rpc-dialog-callbacks'
 import { piRpcStateSchema } from './rpc-protocol'
-import { applyPiRpcSessionOption, readPiRpcCommands, readPiRpcSessionOptions } from './rpc-options'
+import {
+  applyPiRpcSessionOption,
+  confirmPiRpcModel,
+  readPiRpcCommands,
+  readPiRpcSessionOptions
+} from './rpc-options'
 import {
   unpickedSessionConfiguredChoice,
   withLiveCatalogListing,
@@ -102,7 +107,11 @@ export class PiRpcSession {
     this.turns = new PiRpcTurns({
       lane: this.lane,
       generation,
-      send: (frame) => this.connection.send(frame),
+      send: async (frame) => {
+        const selectedModel = this.selected.get('model')
+        if (selectedModel) await confirmPiRpcModel(this.connection, selectedModel)
+        return this.connection.send(frame)
+      },
       request: (command, params, options) => this.connection.request(command, params, options),
       settled: (id, outcome) => this.settle(id, outcome),
       idle: () => {
