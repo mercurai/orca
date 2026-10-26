@@ -2,7 +2,7 @@
 owner: Mercurai Orca release owner (Codex /root, delegated by the user)
 last-reviewed: 2026-10-26
 stability: draft
-status: implementation in progress; promotion/coordinator changes committed locally and not released
+status: completion audit in progress; source and controller branches published for CI, release held
 ---
 
 # Mercurai upstream integration and release automation
@@ -15,13 +15,12 @@ publication gate. Then extend the existing GitHub workflows and Orca schedules w
 Persist candidate identity and evidence outside agent chats. Never publish solely because selected tests pass,
 conflicts disappear, an agent reports completion, or a dropdown exists.
 
-This is the authoritative implementation plan for this effort and its implementation record. Phase 1's
-promotion gate and Phase 4's durable state, precheck, dispatch adapter, coordinator workflow, and contract
-documentation are implemented and committed locally but remain independently reviewed, landed, and unreleased. Phase 2 product
-integration, protected CI, packaging, installation, and automation enablement are still pending.
-The qualification workflow binds the reviewer identity to the candidate and controller, but the independent
-fleet receipt is still owner-supplied input; P1.5 must validate that intake through the established review route
-before any real publication.
+This is the authoritative implementation plan and implementation record. The completion audit reopened
+Phase 1's qualification and publication gates: verification coverage, review authentication, run correlation,
+and immutable monotonic publication remain incomplete. Admission is disabled in the proposed controller.
+Phase 4's durable-state and coordinator code is proposed and CI-tested, without operational acceptance or
+schedule enablement. Phase 2 has a corrected source candidate on a frozen upstream base; newer upstream
+changes, full CI, packaging, installation, and runtime acceptance remain pending.
 The coordinator now resolves and persists the stable tag's peeled commit SHA and queues a new target when the
 trusted controller revision changes, preventing stale candidate evidence from being reused after workflow changes.
 The operational source of truth remains [the release README](../README.md) and [patch manifest](../patches.yaml).
@@ -30,14 +29,13 @@ Update those documents with behavior during implementation; avoid maintaining an
 ## Workspace, scope, and reuse
 
 Planning workspace: `C:/Users/svere/orca/worktrees/release-registration-20261023`.
-Branch: `codex/release-registration-20261023`, implementation commit `f81c19fbb5`.
-Owner: this release session. Purpose: implementation and release handoff. Related implementation PR: none;
-prior registration PR #72 merged.
-State: promotion/coordinator implementation committed locally; no branch landing, CI dispatch, release tag,
-package publication, installation, or runtime verification performed.
-Use this existing isolated workspace for the plan. Do not resume implementation on its stale branch without a reuse
-and current-base check. Controller work follows live `mercurai`; product work follows the frozen main base.
-No worktree or branch deletion is authorized. Retirement must preserve open comparison PR heads and bases.
+Branch: `codex/release-registration-20261023`, containment implementation commit `ba18ca1c2c`.
+Owner: this release session, designated release owner by the user. Purpose: implementation and release handoff.
+Product draft PR: [#79](https://github.com/mercurai/orca/pull/79); prior registration PR #72 merged.
+State: controller and product branches pushed for hosted CI; no source landing, release tag, package publication,
+installation, or runtime verification performed during this audit. Controller work follows `mercurai`;
+product work follows the frozen main base. Preserve all current unlanded worktrees and comparison PRs.
+Completed-work cleanup requires exact landing and ownership evidence under the user's standing instructions.
 
 `docs/plans/` is ignored in this checkout. This plan lives beside tracked fork tooling instead.
 The parent orca-config session routing points to `harness/orca/sessions` in the vault; it governs session records,
@@ -253,8 +251,18 @@ and behavior-preserving extraction are published in draft PR
 `ffb802f98ef5dc3d239aad898eeb05bff22cce08`, with 19 commits after upstream and
 tree `83aa6d0f4de7ec0e19f04651baca074b3d9a344d`. The provisional manifest now
 matches that remote pin. CI run
-[40397677548](https://github.com/mercurai/orca/actions/runs/40397677548) checks
-the final correction/refactor; full PR verification and all original release gates remain open.
+[40397677548](https://github.com/mercurai/orca/actions/runs/40397677548) passed
+at that exact head: 93 Windows test files, 1,226 tests passed and 16 skipped.
+The deterministic cost jobs passed on Linux (206 tests) and Windows
+(201 passed, five skipped). These do not establish installed-app performance.
+Full PR verification and all original release gates remain open.
+
+Controller containment commit `ba18ca1c2c6ebaa6769c01ca2f89d25656e47259`
+passed [40398674155](https://github.com/mercurai/orca/actions/runs/40398674155):
+lint, series-script checks, 171 Node tests, and nine modern-template integration
+tests. Independent review accepted only the containment delta. The four HIGH
+release findings remain open. A separate four-case regression delta at source
+`cccf3efc8b` is under CI for the remaining both-rejected ordering gap.
 
 Current upstream discovery found official `main` at
 `44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published
