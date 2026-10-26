@@ -81,6 +81,14 @@ function fixture() {
       creator: { kind: 'system' },
       maxDepth: 3,
       taskId: tasks[index].id,
+      ...(extras.on ? {
+        federation: {
+          environmentId: 'env_fixture',
+          environmentName: 'Qualified server',
+          peerFingerprint: 'peer_fixture',
+          protocolVersion: 1
+        }
+      } : {}),
       startOptions: {
         agent: 'pi',
         mode: {
@@ -149,6 +157,29 @@ describe('Pi admission at the durable worker-start boundary', () => {
     const reopened = open()
     expect(() => f.start(2, reopened)).toThrow(/capacity/i)
     expect(reopened.getWorkerDispatch(first.dispatch.id)?.state).toBe('start_unknown')
+  })
+
+  it('releases only the exact settled attempt and ignores duplicate exit evidence', () => {
+    const f = fixture()
+    f.configure()
+    const first = f.start(0)
+    const second = f.start(1)
+    expect(() => f.db.failDispatch(first.dispatch.id, 'cancel requested')).toThrow(/active|stop|settle/i)
+    expect(() => f.start(2)).toThrow(/capacity/i)
+    f.db.failDispatch(first.dispatch.id, 'exit observed', { workerProcessExited: true })
+    const replacement = f.start(2)
+    f.db.failDispatch(first.dispatch.id, 'duplicate exit', { workerProcessExited: true })
+    expect(() => f.start(3)).toThrow(/capacity/i)
+    expect(f.db.getWorkerDispatch(second.dispatch.id)?.state).toBe('starting')
+    expect(f.db.getWorkerDispatch(replacement.dispatch.id)?.state).toBe('starting')
+  })
+
+  it('refuses a task whose configured deadline expires before reservation', () => {
+    const f = fixture()
+    f.configure()
+    vi.setSystemTime(NOW + 60001)
+    expect(() => f.start(0)).toThrow(/deadline|expired/i)
+    expect(f.db.getDispatchContext(f.tasks[0].id)).toBeUndefined()
   })
 
   it('checks capacity after taking the writer lock when another connection wins', () => {
