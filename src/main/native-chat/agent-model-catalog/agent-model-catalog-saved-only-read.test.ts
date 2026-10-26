@@ -80,7 +80,8 @@ describe('a saved-only catalog read', () => {
     expect(
       await service.read({ agent: 'grok', sessionId: record.sessionId, waitForListing: true })
     ).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     expect(probe).not.toHaveBeenCalled()
 
@@ -111,7 +112,10 @@ describe('a saved-only catalog read', () => {
 
   it('answers unknown with nothing saved, and starts no listing for it', async () => {
     const { store, probe, service } = rig()
-    expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({ origin: 'unknown' })
+    expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(store.pendingListing(FINGERPRINT)).toBeNull()
     expect(probe).not.toHaveBeenCalled()
   })
@@ -126,6 +130,7 @@ describe('a saved-only catalog read', () => {
     advance(AGENT_MODEL_CATALOG_FAILURE_TTL_MS)
     expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({
       origin: 'unknown',
+      catalogState: 'unknown',
       unavailable: SIGNED_OUT
     })
     expect(probe).not.toHaveBeenCalled()

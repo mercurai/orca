@@ -10,9 +10,9 @@ const ACCOUNT_SETTINGS = {
   activeCodexManagedAccountIdsByRuntime: 'codex'
 } satisfies Partial<Record<keyof GlobalSettings, string>>
 
-/** Account changes invalidate probe answers even when the account path stays the same. */
-export function expireAgentModelCatalogFailuresForSettings(
-  store: Pick<AgentModelCatalogStore, 'expireFailures'>,
+/** Account changes invalidate successes and failures even when the account path stays the same. */
+export function expireAgentModelCatalogsForSettings(
+  store: Pick<AgentModelCatalogStore, 'expireAgent'>,
   updates: Partial<GlobalSettings>
 ): void {
   const agents = new Set(
@@ -21,7 +21,7 @@ export function expireAgentModelCatalogFailuresForSettings(
       .map(([, agent]) => agent)
   )
   for (const agent of agents) {
-    store.expireFailures(agent)
+    store.expireAgent(agent)
   }
 }
 
@@ -53,9 +53,9 @@ export function agentsWithChangedLaunchSettings(
   )
 }
 
-/** Account changes expire failures; command/environment changes also expire saved listings. */
+/** Account, command and environment changes expire saved listings and held failures. */
 export function createAgentModelCatalogSettingsExpiry(
-  store: Pick<AgentModelCatalogStore, 'expireFailures' | 'expireAgent'>,
+  store: Pick<AgentModelCatalogStore, 'expireAgent'>,
   initial: AgentLaunchSettings
 ): (updates: Partial<GlobalSettings>, settings: AgentLaunchSettings) => void {
   let launch: AgentLaunchSettings = {
@@ -63,7 +63,7 @@ export function createAgentModelCatalogSettingsExpiry(
     agentDefaultEnv: initial.agentDefaultEnv
   }
   return (updates, settings) => {
-    expireAgentModelCatalogFailuresForSettings(store, updates)
+    expireAgentModelCatalogsForSettings(store, updates)
     if (!('agentCmdOverrides' in updates) && !('agentDefaultEnv' in updates)) {
       return
     }

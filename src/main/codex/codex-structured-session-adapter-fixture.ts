@@ -208,3 +208,8 @@ export async function acquired(
   })
   return adapter
 }
+
+/** Recorded provider calls, without observing or advancing the scripted connection. */
+export function codexCalls(codex: ReturnType<typeof fakeCodex>, method: string) {
+  return codex.connections[0].calls.filter((call) => call.method === method)
+}

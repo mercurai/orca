@@ -1,3 +1,4 @@
+import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 import { independentAgentModelCatalog } from './agent-model-catalog-discovery'
 export type { AgentModelCatalogProbe } from './agent-model-catalog-discovery'
 import type { AgentModelCatalogPersistence } from './agent-model-catalog-persistence'
@@ -18,6 +19,7 @@ export type {
   AgentModelCatalogSource,
   AgentModelCatalogSuccess
 } from './agent-model-catalog-entry'
+export type { AgentModelCatalogLister } from './agent-model-catalog-lister'
 export { withLiveCatalogListing } from './agent-model-catalog-entry'
 import {
   AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
@@ -35,7 +37,7 @@ export type { AgentModelCatalogFailure }
 // Persist successful catalogs only; failures/unavailability are held separately.
 // Saved display data may be stale, while launch proof requires fresh discovery in this process.
 
-export const AGENT_MODEL_CATALOG_FRESH_MS = 10 * 60_000
+export { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
 export const AGENT_MODEL_CATALOG_MAX_ENTRIES = 256
 
 import {
@@ -103,13 +105,16 @@ export class AgentModelCatalogStore {
     return false
   }
 
-  /** Live saves must not delay account-level discovery. */
-  isStale(entry: AgentModelCatalogEntry): boolean {
+  /** Refresh ages discovery; turn admission can check the latest live or discovered capabilities. */
+  isStale(entry: AgentModelCatalogEntry, source: 'discovery' | 'latest' = 'discovery'): boolean {
+    const at = source === 'latest' ? entry.fetchedAt : entry.discovered?.at
     return (
       this.dueEntries.has(entry.fingerprint) ||
-      !entry.discovered ||
-      (independentAgentModelCatalog(entry.agent) && entry.discovered.complete !== true) ||
-      this.now() - entry.discovered.at >=
+      at === undefined ||
+      (source === 'discovery' &&
+        independentAgentModelCatalog(entry.agent) &&
+        entry.discovered?.complete !== true) ||
+      this.now() - at >=
         (independentAgentModelCatalog(entry.agent) ? 2 * 60_000 : AGENT_MODEL_CATALOG_FRESH_MS)
     )
   }
@@ -136,10 +141,20 @@ export class AgentModelCatalogStore {
     this.failures.expire(fingerprint)
   }
 
+  /** Account identity, command or environment changed; old work cannot certify the new account. */
   expireAgent(agent: string): void {
     for (const entry of this.entries.values()) {
       if (entry.agent === agent) {
         this.dueEntries.add(entry.fingerprint)
+        // A pre-change background listing holds the previous entry identity.
+        this.entries.set(entry.fingerprint, { ...entry })
+      }
+    }
+    for (const [fingerprint, refresh] of this.refreshes) {
+      if (refresh.agent === agent) {
+        this.refreshes.delete(fingerprint)
+        this.latestWrittenOrder.delete(fingerprint)
+        this.listingWaiters.notify(fingerprint)
       }
     }
     this.failures.expireAgent(agent)
@@ -310,10 +325,7 @@ export class AgentModelCatalogStore {
 
   /** Only probes can refresh expired unavailability, even beside a fresh live catalog. */
   heldReasonDue(fingerprint: string): boolean {
-    return (
-      this.failures.get(fingerprint)?.unavailable !== undefined &&
-      !this.hasActiveFailure(fingerprint)
-    )
+    return this.failures.heldReasonDue(fingerprint)
   }
 
   probeDue(fingerprint: string): boolean {
