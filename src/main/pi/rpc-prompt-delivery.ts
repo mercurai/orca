@@ -87,6 +87,9 @@ export class PiRpcPromptDelivery {
       await this.deps.send(frame)
       return { state: 'admitted' }
     } catch (error) {
+      if (this.ended) {
+        return { state: 'unknown', reason: 'Pi ended before confirming delivery' }
+      }
       this.remove(submission)
       this.deps.refused?.()
       if (error instanceof PiRpcModelConfirmationError) return modelRefusal()
@@ -126,6 +129,7 @@ export class PiRpcPromptDelivery {
           this.acknowledgements.push(submission)
           this.waiting.push(submission)
           void this.deps.send(frame).catch((error: unknown) => {
+            if (this.ended || !this.pending.has(submission)) return
             if (error instanceof PiRpcModelConfirmationError) {
               this.remove(submission)
               this.deps.settled(submission.id, modelRefusal())

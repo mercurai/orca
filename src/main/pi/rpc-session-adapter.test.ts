@@ -779,4 +779,40 @@ describe('Pi requested model admission', () => {
       vi.useRealTimers()
     }
   })
+
+  it.each([false, true])('does not write after exit when model confirmation succeeds late (retry=%s)', async (retry) => {
+    const h = await selectedSession()
+    vi.useFakeTimers()
+    try {
+      const input = {
+        sessionId, fence: 8, clientMessageId: 'exit-during-check',
+        body: { kind: 'message' as const, role: 'user' as const, blocks: [{ type: 'text' as const, text: 'implement issue' }] }
+      }
+      if (retry) await h.adapter.dispatch(input)
+      const confirmed = Promise.withResolvers<typeof state>()
+      const requested = Promise.withResolvers<void>()
+      h.child.requestOverride = (command) => {
+        if (command !== 'get_state') return undefined
+        requested.resolve()
+        return confirmed.promise
+      }
+      const dispatch = retry ? undefined : h.adapter.dispatch(input)
+      if (retry) {
+        h.child.receive({ type: 'response', command: 'prompt', success: false, error: 'No API key found for openrouter' })
+        await vi.advanceTimersByTimeAsync(250)
+      }
+      await requested.promise
+      h.child.exit()
+      confirmed.resolve({ ...state, model: activeModel })
+      if (dispatch) await expect(dispatch).resolves.toMatchObject({ state: 'unknown' })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.child.sent).toHaveLength(retry ? 1 : 0)
+      expect(h.settled).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        clientMessageId: input.clientMessageId,
+        outcome: expect.objectContaining({ state: 'unknown' })
+      }))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

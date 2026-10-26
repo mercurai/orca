@@ -110,6 +110,9 @@ export class PiRpcSession {
       send: async (frame) => {
         const selectedModel = this.selected.get('model')
         if (selectedModel) await confirmPiRpcModel(this.connection, selectedModel)
+        if (this.connection.closed || this.connection.rootVerdict === 'exited') {
+          throw new Error('Pi exited before writing the prompt')
+        }
         return this.connection.send(frame)
       },
       request: (command, params, options) => this.connection.request(command, params, options),
