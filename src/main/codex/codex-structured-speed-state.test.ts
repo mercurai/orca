@@ -339,4 +339,76 @@ describe('Codex requested speed and acknowledged host settings', () => {
       await fixture.close()
     }
   })
+
+  it.each([
+    { rejectOlderFirst: true, pickAfterStarts: false },
+    { rejectOlderFirst: false, pickAfterStarts: false },
+    { rejectOlderFirst: true, pickAfterStarts: true },
+    { rejectOlderFirst: false, pickAfterStarts: true }
+  ])(
+    'keeps accepted settings after both overlapping starts reject (older first=$rejectOlderFirst, later pick=$pickAfterStarts)',
+    async ({ rejectOlderFirst, pickAfterStarts }) => {
+      const fixture = await setup({ serviceTier: 'default' })
+      const first = Promise.withResolvers<unknown>()
+      const second = Promise.withResolvers<unknown>()
+      const session = fixture.adapter['sessions'].get(IDENTITY.sessionId)
+      if (!session) {
+        throw new Error('Expected acquired synthetic Codex session')
+      }
+      try {
+        fixture.codex.routes['turn/start'] = () => ({ turn: { id: 'accepted-baseline' } })
+        await startCodexTurn(session, {
+          clientMessageId: 'accepted-baseline-message',
+          body: USER_MESSAGE,
+          turnOptions: { model: MODEL, serviceTier: 'default' }
+        })
+        let started = 0
+        fixture.codex.routes['turn/start'] = () => (++started === 1 ? first.promise : second.promise)
+        const older = startCodexTurn(session, {
+          clientMessageId: 'rejected-overlap-older',
+          body: USER_MESSAGE,
+          turnOptions: { model: MODEL, serviceTier: FIRST }
+        })
+        const olderRejected = expect(older).rejects.toThrow('older start rejected')
+        await waitForStarts(fixture.codex, 2)
+        const newer = startCodexTurn(session, {
+          clientMessageId: 'rejected-overlap-newer',
+          body: USER_MESSAGE,
+          turnOptions: { model: MODEL, serviceTier: SECOND }
+        })
+        const newerRejected = expect(newer).rejects.toThrow('newer start rejected')
+        await waitForStarts(fixture.codex, 3)
+        if (pickAfterStarts) {
+          await fixture.adapter.setOption({ ...IDENTITY, key: 'serviceTier', value: FIRST })
+        }
+        const rejectOlder = async () => {
+          first.reject(new CodexAppServerRequestError('turn/start', -32602, 'older start rejected'))
+          await olderRejected
+        }
+        const rejectNewer = async () => {
+          second.reject(new CodexAppServerRequestError('turn/start', -32602, 'newer start rejected'))
+          await newerRejected
+        }
+        await (rejectOlderFirst ? rejectOlder() : rejectNewer())
+        await (rejectOlderFirst ? rejectNewer() : rejectOlder())
+
+        expect(Object.fromEntries(session.options)).toEqual({
+          model: MODEL,
+          serviceTier: pickAfterStarts ? FIRST : 'default'
+        })
+        expect(session.appliedTurnOptions).toEqual({ model: MODEL, serviceTier: 'default' })
+        expect(await fixture.read()).toMatchObject({
+          speed: {
+            requested: { tierId: pickAfterStarts ? FIRST : 'default' },
+            applied: { tierId: 'default', turnId: 'accepted-baseline' },
+            processing: { status: 'unknown' }
+          }
+        })
+      } finally {
+        first.resolve({})
+        second.resolve({})
+        await fixture.close()
+      }
+    }
+  )
 })
