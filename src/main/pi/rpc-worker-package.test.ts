@@ -21,6 +21,7 @@ const model = {
 }
 const tools = ['harness_create', 'harness_read', 'harness_search', 'harness_write']
 const command = {
+  type: 'command',
   name: 'harness-ready',
   source: 'extension',
   sourceInfo: { path: workerPackage.extensionPath, source: 'cli', scope: 'temporary', origin: 'top-level' }

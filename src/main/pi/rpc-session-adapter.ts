@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isAbsolute, relative, sep } from 'node:path'
 import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import type { AgentSessionUnavailable } from '../../shared/agent-session-availability'
 import { agentSessionFailureFact } from '../../shared/agent-session-failure'
@@ -92,8 +93,17 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
       if (attempt.signal.aborted) {
         throw new AgentSessionPreSpawnError(new Error('Pi closed while preparing worker package'))
       }
-      const spec = buildPiRpcLaunch({ ...launch, ...(workerPackage ? { workerPackage } : {}) })
-      const fresh = !launch.sessionFile && !launch.forkFile
+      const normalizedLaunch = workerPackage && launch.forkFile && this.isPackageSessionFile(
+        launch.forkFile,
+        workerPackage.sessionDirectory
+      )
+        ? { ...launch, sessionFile: launch.forkFile, forkFile: undefined }
+        : launch
+      const spec = buildPiRpcLaunch({
+        ...normalizedLaunch,
+        ...(workerPackage ? { workerPackage } : {})
+      })
+      const fresh = !normalizedLaunch.sessionFile && !normalizedLaunch.forkFile
       session = new PiRpcSession(input, generation, spec, this.deps, fresh, workerPackage)
       this.sessions.set(id, session)
       this.starts.track(attempt, session.connection)
@@ -113,7 +123,7 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
       return {
         process,
         acquisitionGeneration: session.generation,
-        link: piRpcProviderLink(launch, file, input.fence, randomUUID(), Date.now()),
+        link: piRpcProviderLink(normalizedLaunch, file, input.fence, randomUUID(), Date.now()),
         ...(session.startListing ? { catalogListing: session.startListing } : {})
       }
     } catch (error) {
@@ -308,5 +318,11 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
       throw new Error('Pi session is not live under this fence')
     }
     return session
+  }
+
+  private isPackageSessionFile(file: string, sessionDirectory: string): boolean {
+    const location = relative(sessionDirectory, file)
+    return isAbsolute(file) && !!location && !isAbsolute(location) && location !== '..' &&
+      !location.startsWith(`..${sep}`)
   }
 }

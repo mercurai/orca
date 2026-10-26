@@ -78,8 +78,14 @@ export class PiRpcWorkerReadiness {
       manifest_bytes_sha256: z.literal(binding.manifestBytesSha256),
       broker_sha256: z.literal(binding.broker.sha256),
       shared_source_commit: z.literal(binding.canonicalSourceCommit),
+      models_json_sha256: z.literal(binding.modelsJsonSha256),
       pi_version: z.literal(binding.piVersion),
-      model: z.object({ harness: z.literal('pi'), gateway: z.literal(binding.provider), id: z.literal(binding.model) }),
+      model: z.object({
+        harness: z.literal('pi'),
+        gateway: z.literal(binding.provider),
+        id: z.literal(binding.model),
+        context_window: z.literal(binding.contextWindow)
+      }),
       tools: z.array(z.string()).refine((names) => names.length === readyTools.length &&
         new Set(names).size === readyTools.length && readyTools.every((name) => names.includes(name))),
       tool_exposure: z.literal('model-only'),
