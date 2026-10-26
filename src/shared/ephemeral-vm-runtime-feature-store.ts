@@ -6,7 +6,7 @@ import {
   JsonStringifyByteLimitError,
   stringifyJsonWithinByteLimit
 } from './node-bounded-json-stringify'
-import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from './bounded-secure-json-file'
 import { hardenExistingSecureFile } from './secure-file'
 import {
   EphemeralVmRuntimeRecordSchema,
@@ -106,15 +106,15 @@ export function readEphemeralVmRuntimeFeatureStore(
   }
 }
 
-export function writeEphemeralVmRuntimeFeatureStore(
+export async function writeEphemeralVmRuntimeFeatureStore(
   userDataPath: string,
   snapshot: EphemeralVmRuntimeFeatureStoreSnapshot,
   features: EphemeralVmRuntimeFeatureEntry[]
-): void {
+): Promise<void> {
   if (!snapshot.writable) {
     throw new Error('The ephemeral VM runtime feature store is not writable.')
   }
-  writeSecureJsonFileWithinLimit(
+  await writeSecureJsonFileWithinLimitAsync(
     getEphemeralVmRuntimeFeatureStorePath(userDataPath),
     runtimeFeatureStoreValue(snapshot, features),
     MAX_EPHEMERAL_VM_RUNTIME_FEATURE_STORE_FILE_BYTES,
