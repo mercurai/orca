@@ -2,6 +2,7 @@ import { join } from 'node:path'
 
 const privateRoot = join('/host', 'private', 'pi-workers', 'dispatch-1')
 const packageRoot = join(privateRoot, 'package')
+const agentHomeDirectory = join(privateRoot, 'launch', 'acquisition-1', 'pi-home')
 export const workerPackage = {
   owner: { runId: 'run-1', taskId: 'task-1', dispatchId: 'dispatch-1' },
   templateBytesSha256: '1'.repeat(64),
@@ -11,6 +12,9 @@ export const workerPackage = {
   piVersion: '1.4.0' as const,
   provider: 'openrouter' as const,
   model: 'deepseek/deepseek-v4.1-flash-1017' as const,
+  contextWindow: 1_048_576,
+  modelsJsonPath: join(agentHomeDirectory, 'models.json'),
+  modelsJsonSha256: '7'.repeat(64),
   acquisitionId: 'acquisition-1',
   packageRoot,
   profilePath: join(packageRoot, 'profile.json'),
@@ -19,7 +23,7 @@ export const workerPackage = {
   bindingPath: join(privateRoot, 'launch', 'acquisition-1', 'launch-binding.json'),
   snapshotPath: join(packageRoot, 'snapshot'),
   stateDirectory: join(packageRoot, 'state'),
-  agentHomeDirectory: join(privateRoot, 'pi-home'),
+  agentHomeDirectory,
   sessionDirectory: join(privateRoot, 'sessions'),
   extensionPath: join(packageRoot, 'extensions', 'extension.mjs'),
   agentsPath: join(packageRoot, 'AGENTS.md'),

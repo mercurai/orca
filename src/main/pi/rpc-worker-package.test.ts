@@ -14,7 +14,11 @@ import { PiRpcSessionAdapter } from './rpc-session-adapter'
 import { workerPackage } from './rpc-worker-package-test-support'
 
 const sessionId = 'pi-package-session'
-const model = { provider: workerPackage.provider, id: workerPackage.model }
+const model = {
+  provider: workerPackage.provider,
+  id: workerPackage.model,
+  contextWindow: workerPackage.contextWindow
+}
 const tools = ['harness_create', 'harness_read', 'harness_search', 'harness_write']
 const command = {
   name: 'harness-ready',
@@ -38,8 +42,12 @@ function receipt(binding = workerPackage) {
     manifest_bytes_sha256: binding.manifestBytesSha256,
     broker_sha256: binding.broker.sha256,
     shared_source_commit: binding.canonicalSourceCommit,
+    models_json_sha256: binding.modelsJsonSha256,
     pi_version: binding.piVersion,
-    model: { harness: 'pi', gateway: binding.provider, id: binding.model },
+    model: {
+      harness: 'pi', gateway: binding.provider, id: binding.model,
+      context_window: binding.contextWindow
+    },
     tools,
     tool_exposure: 'model-only',
     mcp_servers: 0
@@ -55,9 +63,12 @@ async function setup(packageBinding = workerPackage) {
   const transformReceipt = vi.fn((value: ReturnType<typeof receipt>): unknown => value)
   let acquisitionCount = 0
   const prepareWorkerPackage = vi.fn(async (_sessionId: string, acquisitionId: string) => {
+    const agentHomeDirectory = join(packageBinding.packageRoot, '..', 'launch', acquisitionId, 'pi-home')
     binding = {
       ...packageBinding,
       acquisitionId,
+      agentHomeDirectory,
+      modelsJsonPath: join(agentHomeDirectory, 'models.json'),
       readinessNonce: (++acquisitionCount).toString(16).padStart(64, '0'),
       bindingPath: join(packageBinding.packageRoot, '..', 'launch', acquisitionId, 'launch-binding.json')
     }
@@ -162,8 +173,12 @@ describe('Pi admitted package readiness', () => {
     { template_bytes_sha256: 'f'.repeat(64) },
     { broker_sha256: 'f'.repeat(64) },
     { shared_source_commit: 'f'.repeat(40) },
+    { models_json_sha256: 'f'.repeat(64) },
+    { models_json_sha256: undefined },
     { pi_version: '1.3.0' },
     { model: { harness: 'pi', gateway: 'openrouter', id: 'other-model' } },
+    { model: { ...receipt().model, context_window: 131_072 } },
+    { model: { ...receipt().model, context_window: undefined } },
     { tools: [...tools, 'bash'] },
     { tools: tools.slice(1) },
     { tools: [...tools, tools[0]] },
