@@ -2,6 +2,7 @@ import type { OrchestrationCliCommand } from './cli-command'
 import type { RuntimeAgentPromptWriteOptions } from '../runtime-terminal-contracts'
 import { ORCA_DISPATCH_PROMPT_LEAD_LINE } from '../../../shared/orca-dispatch-status-prompt'
 import { ORCA_SESSION_ADDRESS_PREFIX } from '../../../shared/orca-session-address-prefix'
+import { buildPiWorkerPreamble } from './preamble-pi'
 
 export type PreambleParams = {
   taskId: string
@@ -36,6 +37,8 @@ export type PreambleParams = {
   workerKind?: 'prompt-returning-agent' | 'bare-shell'
   // Why gated: advertising a verb the depth cap will reject just burns a turn.
   canDispatchSubWorkers?: boolean
+  /** Restricted Pi workers report through a typed tool, not an unavailable shell. */
+  reportingMode?: 'pi-tool'
 }
 
 // Why: 5 minutes is frequent enough that the coordinator's stale-heartbeat
@@ -68,6 +71,13 @@ function dispatchIdentityLines(params: PreambleParams): string {
 // not as a separate prose block — LLM readers anchor on examples and skim
 // trailing prose, so rules must land at the point of use.
 export function buildDispatchPreamble(params: PreambleParams): string {
+  if (params.reportingMode === 'pi-tool') {
+    const drift =
+      params.baseDrift && params.baseDrift.behind > 0
+        ? buildDriftSection(params.baseDrift, false)
+        : ''
+    return buildPiWorkerPreamble(params, drift)
+  }
   // Why: in dev mode, agents must use orca-dev to connect to the dev runtime's
   // socket. Without this, agents inside the dev Electron app would call the
   // production CLI and talk to the wrong Orca instance (Section 6.4).
@@ -255,8 +265,15 @@ able to dispatch further.
 ---`
 }
 
-function buildDriftSection(drift: NonNullable<PreambleParams['baseDrift']>): string {
+function buildDriftSection(
+  drift: NonNullable<PreambleParams['baseDrift']>,
+  hasShell = true
+): string {
   const subjects = drift.recentSubjects.map((s) => `  - ${s}`).join('\n')
+  const action = hasShell
+    ? `If any look relevant to your task, either pull them in (\`git pull --rebase
+${drift.base}\` or equivalent) or escalate to the coordinator before starting.`
+    : 'If any look relevant, ask the coordinator to refresh the worktree before starting.'
   return `
 
 --- BASE DRIFT ---
@@ -264,8 +281,7 @@ Your worktree HEAD is ${drift.behind} commits behind ${drift.base}. The 5 most r
 subjects on ${drift.base} NOT in your worktree:
 ${subjects}
 
-If any look relevant to your task, either pull them in (\`git pull --rebase
-${drift.base}\` or equivalent) or escalate to the coordinator before starting.
+${action}
 
 ---`
 }
