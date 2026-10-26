@@ -3,7 +3,7 @@ import {
   StructuredAgentSessionInputNotAdmitted,
   type StructuredAgentSessionAdmitFreshInput
 } from '../native-chat/agent-session-wire/structured-agent-session-input-admission'
-import { turnInputFor } from './codex-structured-message-options'
+import { isCodexTurnOptionKey, turnInputFor } from './codex-structured-message-options'
 import { reportedCodexPermissionMode } from './codex-structured-thread-open'
 import { admitCodexTurnPermission } from './codex-structured-turn-permission'
 import type { CodexSkillReport } from './codex-structured-skill-report'
@@ -15,7 +15,6 @@ import type {
 } from '../../shared/agent-session-journal-types'
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { isCodexAppServerRequestError } from './app-server/codex-app-server-request-error'
-import type { CodexAppServerConnection } from './app-server/codex-app-server-connection-types'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
 import {
   assertCodexSpeedAdmitted,
@@ -23,6 +22,7 @@ import {
 } from './codex-structured-speed-admission'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
+import { restoreRejectedCodexTurnOptions } from './codex-structured-turn-option-rollback'
 import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
@@ -34,12 +34,7 @@ import {
   codexTurnEndRejection
 } from './codex-structured-turn-end-settlement'
 
-/** Allowlist turn overrides so saved options cannot replace the thread's permission policy. */
-const CODEX_TURN_OPTION_KEYS = new Set(['model', 'effort', 'personality', 'serviceTier'])
-
-export function isCodexTurnOptionKey(key: string): boolean {
-  return CODEX_TURN_OPTION_KEYS.has(key)
-}
+export { isCodexTurnOptionKey } from './codex-structured-message-options'
 
 function checkDispatchAuthority(
   host: CodexTurnHost,
@@ -69,7 +64,7 @@ function checkDispatchAuthority(
 export type CodexTurnHost = CodexSpeedRequestState & {
   account?: AgentSessionAccountKind
   skillReport?: Pick<CodexSkillReport, 'hasSkillPath'>
-  connection: Pick<CodexAppServerConnection, 'request'>
+  connection: Pick<CodexSession['connection'], 'request'>
   threadId: string
   permissions?: CodexSession['permissions']
   options: Map<string, string>
@@ -219,24 +214,8 @@ export async function startCodexTurn(
     }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       discardSettingsAttempt?.()
-    }
-    if (
-      previousOptions &&
-      (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error))
-    ) {
-      if (host.appliedTurnOptions === requested) {
-        host.appliedTurnOptions = previousApplied
-      }
-      // An older rejection must not roll back a later picker change or request.
-      if (
-        host.speedDispatchSequence === sequence &&
-        host.options.size === Object.keys(requested).length &&
-        Object.entries(requested).every(([key, value]) => host.options.get(key) === value)
-      ) {
-        host.options.clear()
-        for (const [key, value] of previousOptions) {
-          host.options.set(key, value)
-        }
+      if (previousOptions) {
+        restoreRejectedCodexTurnOptions(host, requested, previousOptions, previousApplied, sequence)
       }
     }
     throw error

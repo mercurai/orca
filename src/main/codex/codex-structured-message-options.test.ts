@@ -66,7 +66,9 @@ describe('Codex captured message choices', () => {
     async ({ knownCatalog, serviceTier }) => {
       const request = vi.fn(async () => ({}))
       const session = optionSession(request)
-      if (knownCatalog) seedMessageDefaults(session)
+      if (knownCatalog) {
+        seedMessageDefaults(session)
+      }
       session.reportedOptions.model = 'model-a'
       session.nativeDefaults = { serviceTier: 'default' }
 
@@ -170,15 +172,13 @@ describe('Codex captured message choices', () => {
       })
       const rejected = expect(older).rejects.toThrow('older tier rejected')
       await started.promise
-      if (newer === 'picker') {
-        await applyCodexStructuredSessionOption(session, 'serviceTier', 'flex')
-      } else {
-        await startCodexTurn(session, {
-          clientMessageId: 'accepted-newer',
-          body: USER_MESSAGE,
-          turnOptions: { model: 'model-a', serviceTier: 'flex' }
-        })
-      }
+      await (newer === 'picker'
+        ? applyCodexStructuredSessionOption(session, 'serviceTier', 'flex')
+        : startCodexTurn(session, {
+            clientMessageId: 'accepted-newer',
+            body: USER_MESSAGE,
+            turnOptions: { model: 'model-a', serviceTier: 'flex' }
+          }))
       firstReply.reject(new CodexAppServerRequestError('turn/start', -32602, 'older tier rejected'))
       await rejected
 
