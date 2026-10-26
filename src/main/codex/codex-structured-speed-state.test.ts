@@ -341,13 +341,15 @@ describe('Codex requested speed and acknowledged host settings', () => {
   })
 
   it.each([
-    { rejectOlderFirst: true, pickAfterStarts: false },
-    { rejectOlderFirst: false, pickAfterStarts: false },
-    { rejectOlderFirst: true, pickAfterStarts: true },
-    { rejectOlderFirst: false, pickAfterStarts: true }
+    { rejectOlderFirst: true, pick: 'none' },
+    { rejectOlderFirst: false, pick: 'none' },
+    { rejectOlderFirst: true, pick: 'before' },
+    { rejectOlderFirst: false, pick: 'before' },
+    { rejectOlderFirst: true, pick: 'between' },
+    { rejectOlderFirst: false, pick: 'between' }
   ])(
-    'keeps accepted settings after both overlapping starts reject (older first=$rejectOlderFirst, later pick=$pickAfterStarts)',
-    async ({ rejectOlderFirst, pickAfterStarts }) => {
+    'keeps accepted settings after both overlapping starts reject (older first=$rejectOlderFirst, later pick=$pick)',
+    async ({ rejectOlderFirst, pick }) => {
       const fixture = await setup({ serviceTier: 'default' })
       const first = Promise.withResolvers<unknown>()
       const second = Promise.withResolvers<unknown>()
@@ -378,7 +380,8 @@ describe('Codex requested speed and acknowledged host settings', () => {
         })
         const newerRejected = expect(newer).rejects.toThrow('newer start rejected')
         await waitForStarts(fixture.codex, 3)
-        if (pickAfterStarts) {
+        const pickedTier = pick === 'between' && rejectOlderFirst ? SECOND : FIRST
+        if (pick === 'before') {
           await fixture.adapter.setOption({ ...IDENTITY, key: 'serviceTier', value: FIRST })
         }
         const rejectOlder = async () => {
@@ -390,16 +393,19 @@ describe('Codex requested speed and acknowledged host settings', () => {
           await newerRejected
         }
         await (rejectOlderFirst ? rejectOlder() : rejectNewer())
+        if (pick === 'between') {
+          await fixture.adapter.setOption({ ...IDENTITY, key: 'serviceTier', value: pickedTier })
+        }
         await (rejectOlderFirst ? rejectNewer() : rejectOlder())
 
         expect(Object.fromEntries(session.options)).toEqual({
           model: MODEL,
-          serviceTier: pickAfterStarts ? FIRST : 'default'
+          serviceTier: pick === 'none' ? 'default' : pickedTier
         })
         expect(session.appliedTurnOptions).toEqual({ model: MODEL, serviceTier: 'default' })
         expect(await fixture.read()).toMatchObject({
           speed: {
-            requested: { tierId: pickAfterStarts ? FIRST : 'default' },
+            requested: { tierId: pick === 'none' ? 'default' : pickedTier },
             applied: { tierId: 'default', turnId: 'accepted-baseline' },
             processing: { status: 'unknown' }
           }
