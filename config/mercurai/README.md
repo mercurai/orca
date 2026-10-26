@@ -5,43 +5,26 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
 
 ## Current candidate registration
 
-The next candidate freezes official `main` at
-`d58849a7d8d68929bd0e686571678d85e70740af` and uses `v1.4.239` as its stable
-version floor. The currently registered retained Mercurai tree is materialized as the linear patch
-`patch/current-main-release-d58849a7d8` at
-`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` with tree
-`73fbf286056a9106df8acd1a947dda7c8f59263a`. This branch is not yet published;
-assembly and qualification must use the exact remote head after the release
-owner lands it. Source review accepted the candidate, but exact-source CI,
-review, and provenance remain required before tagging; package and digest
-verification are required before publication; installation and loaded-runtime
-evidence are collected afterward before rollout is accepted.
+The preparation manifest freezes official `main` at
+`98690db2ab1d53d7e67eae296dc061c000c2ea2f`, retaining `v1.4.239` as its
+historical stable floor. The remote patch `patch/current-main-release-98690`
+is pinned to `ffb802f98ef5dc3d239aad898eeb05bff22cce08`, tree
+`83aa6d0f4de7ec0e19f04651baca074b3d9a344d`. This is 19 linear commits after
+that official ancestor, including completion-audit corrections.
 
-Official `main` advanced again to `f07673123107caafbfb3aa28763c72d77433b308` after
-this candidate was frozen. A read-only replay reports three conflicts in the
-E2E type-error baseline, native-chat send recovery, and cross-version device-key
-coverage. The manifest remains pinned to the reviewed candidate until those
-paths are reconciled and independently reviewed.
+The source audit found broken relocation imports, speed-precedence and
+late-rejection defects, and outdated Windows fixtures. The corrected candidate
+is being checked by targeted CI; it has no full qualification receipt.
+Independent release-gate review also found incomplete PR verification coverage,
+unauthenticated reviewer text, ambiguous qualification-run matching, and unsafe
+publication retries. The release policy remains disabled until those gates are
+corrected and reviewed. See the [authoritative plan](plans/2026-10-24-release-automation.md).
 
-On 2026-10-26, official `stablyai/orca` `main` advanced to
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f` (416 commits beyond the frozen
-`d58849a7d8` base). The exact merge-tree replay against the registered candidate
-has 108 conflicts and merge-tree result `eb5ae36c13e6380321af21493b9c0ef212b70bb7`.
-The conflict planner derives 13 bounded tasks across Codex catalog, workflow/package,
-process/Git, runtime, renderer, and remaining paths. No ours/theirs shortcut is allowed:
-the next candidate must preserve Mercurai async, persistence, remote-host and Codex speed
-behavior while carrying upstream's current lifecycle, WSL, connector and launch changes.
-The 108-path inventory is queued; the registered candidate remains unchanged until the
-semantic tasks are completed and reviewed.
-
-The local reconciliation is available for review as the linear branch
-`patch/current-main-release-98690`, commit
-`5fb6766ff1576b6e5d58d76241e54f5246ae7669`, tree
-`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`. It is based directly on official
-`main` `98690db2ab1d53d7e67eae296dc061c000c2ea2f` and reproduces the reviewed
-merge tree. This branch is not registered in `patches.yaml` or published to
-the remote fork; c3 must review it and update the manifest before exact-SHA CI
-or publication.
+The latest observed official target is `main`
+`44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`.
+Those newer inputs remain queued; this frozen preparation candidate does not
+claim to include them. Full CI, independent review, protected packaging,
+publication, installation, and loaded-runtime acceptance remain separate gates.
 
 ## Branches
 

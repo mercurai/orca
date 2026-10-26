@@ -19,7 +19,10 @@ test('published builds require a qualification run and trusted promotion receipt
   assert.match(release, /build controller changed after qualification/)
   assert.match(release, /qualified=true/)
   assert.match(release, /publish=true.*qualified|qualified.*publish=true/s)
-  const preflight = release.slice(release.indexOf('\n  preflight:'), release.indexOf('\n  orcad-template:'))
+  const preflight = release.slice(
+    release.indexOf('\n  preflight:'),
+    release.indexOf('\n  orcad-template:')
+  )
   assert.doesNotMatch(preflight, /\bsecrets\b/)
 })
 
@@ -34,4 +37,13 @@ test('assembly hands the exact candidate to qualification before packaging', () 
   assert.match(assemble, /gh run watch/)
   assert.match(assemble, /qualification_run_id=/)
   assert.match(assemble, /qualification_run_id.*fork-release-win-build\.yml/s)
+})
+
+test('disabled release policy refuses assembly before any release ref can be pushed', () => {
+  const admission = assemble.indexOf("jq -e '.promotionEnabled == true'")
+  const releasePush = assemble.indexOf('git push --force-with-lease origin')
+
+  assert.notEqual(admission, -1)
+  assert.ok(releasePush > admission)
+  assert.match(assemble.slice(admission, releasePush), /promotion is disabled[\s\S]*exit 1/)
 })

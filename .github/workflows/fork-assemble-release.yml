@@ -156,6 +156,10 @@ jobs:
         id: controller
         run: |
           set -euo pipefail
+          if ! jq -e '.promotionEnabled == true' config/mercurai/release-policy.json >/dev/null; then
+            echo "::error::release promotion is disabled pending the completion-audit gate corrections"
+            exit 1
+          fi
           echo "manifest_sha=$(git rev-parse HEAD:config/mercurai/patches.yaml)" >> "$GITHUB_OUTPUT"
           echo "policy_sha=$(sha256sum config/mercurai/release-policy.json | awk '{print $1}')" >> "$GITHUB_OUTPUT"
 

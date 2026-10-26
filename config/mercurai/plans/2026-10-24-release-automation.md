@@ -192,9 +192,8 @@ The local reconciliation is complete as the linear branch
 `5fb6766ff1576b6e5d58d76241e54f5246ae7669`, with tree
 `3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c` and official `main`
 `98690db2ab1d53d7e67eae296dc061c000c2ea2f` as its ancestor. This is a review
-artifact, not a registered release input: c3 still owns remote publication,
-manifest registration, exact-source CI, packaging, installation, and runtime
-evidence.
+artifact at the time it was recorded. The subsequent completion audit below
+supersedes that status and records the corrected preparation candidate.
 
 ### Completion audit (2026-10-26)
 
@@ -222,6 +221,40 @@ tests commit `12fe91cb8e323000fef6ee541ee64c679e05b0c5`; run
 [40394059772](https://github.com/mercurai/orca/actions/runs/40394059772) adds the
 late-rejection regression cases at `5435e43bf4`. These are targeted verification
 runs, not full qualification receipts. No publication is accepted by this audit.
+
+The first run finished with 1,193 passed, 29 failed, and 13 skipped tests;
+the second added the two rollback regressions and finished with 31 failed.
+The corrected head `81745a9e88dfb953ef0aa01b83a6da6b07e7e527` is now published
+and provisionally registered for CI, with 225 existing test paths and tree
+`ea4ece923003b19b1bbf59cead59b09d1b913da3`. Run
+[40395898889](https://github.com/mercurai/orca/actions/runs/40395898889) verifies
+the corrections. Both earlier runs passed the separate Linux and Windows
+deterministic cost jobs. Those jobs do not establish installed-app performance.
+
+Two concurrently pending starts that both reject remain an identified rollback
+ordering gap; no current result claims that ordering is covered. Release-gate
+findings remain open. Controller CI also exposed 70 lint errors before reaching
+its tests; the brace/style corrections are under CI at
+[40395992018](https://github.com/mercurai/orca/actions/runs/40395992018).
+
+That controller run reached the tests after lint correction: 169 passed and the
+new disabled-promotion test failed as expected. The subsequent implementation
+requires a strict boolean `promotionEnabled: true` at assembly, qualification,
+and receipt verification; the preparation policy stays false. This is containment,
+not completion of the four release-gate repairs. The GitHub coordinator schedule
+also stays inactive unless `MERCURAI_RELEASE_COORDINATOR_ENABLED=true`; explicit
+manual reconciliation is separate from scheduled activation.
+
+Source run 40395898889 then reduced the earlier failures to four assertions in
+the new precedence fixture (1,222 passed, 16 skipped). The fixture now supplies
+known native defaults, avoiding an unrelated config read. The corrected source
+and behavior-preserving extraction are published in draft PR
+[#79](https://github.com/mercurai/orca/pull/79), head
+`ffb802f98ef5dc3d239aad898eeb05bff22cce08`, with 19 commits after upstream and
+tree `83aa6d0f4de7ec0e19f04651baca074b3d9a344d`. The provisional manifest now
+matches that remote pin. CI run
+[40397677548](https://github.com/mercurai/orca/actions/runs/40397677548) checks
+the final correction/refactor; full PR verification and all original release gates remain open.
 
 Current upstream discovery found official `main` at
 `44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published

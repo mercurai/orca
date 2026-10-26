@@ -35,6 +35,10 @@ export function verifyPromotion(input, policy) {
     return { ok: false, reasons }
   }
 
+  if (policy.promotionEnabled !== true) {
+    return { ok: false, reasons: ['release promotion is disabled by policy'] }
+  }
+
   if (!SHA40.test(candidate.commit)) {
     reasons.push('candidate commit is not a lowercase 40-character sha')
   }

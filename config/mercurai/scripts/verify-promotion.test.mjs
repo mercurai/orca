@@ -111,7 +111,12 @@ test('rejects stale reviews and a pending latest rerun', () => {
       latestAttempt: 2,
       conclusion: 'pending'
     },
-    review: { verdict: 'approved', reviewedSha: 'f'.repeat(40), controllerSha: CONTROLLER, reviewer: 'reviewer' }
+    review: {
+      verdict: 'approved',
+      reviewedSha: 'f'.repeat(40),
+      controllerSha: CONTROLLER,
+      reviewer: 'reviewer'
+    }
   })
 
   const result = verifyPromotion(input, policy)

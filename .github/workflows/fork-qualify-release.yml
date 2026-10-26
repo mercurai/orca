@@ -114,6 +114,10 @@ jobs:
           [ "$manifest_blob" = "$MANIFEST_SHA" ] || { echo "::error::manifest blob is $manifest_blob, not $MANIFEST_SHA"; exit 1; }
           policy_digest=$(sha256sum .controller/config/mercurai/release-policy.json | awk '{print $1}')
           [ "$policy_digest" = "$POLICY_SHA" ] || { echo "::error::release policy digest changed"; exit 1; }
+          if ! jq -e '.promotionEnabled == true' .controller/config/mercurai/release-policy.json >/dev/null; then
+            echo "::error::release promotion is disabled pending the completion-audit gate corrections"
+            exit 1
+          fi
 
       - name: Setup pnpm
         uses: pnpm/setup@84cb39b217b10273981911c288cd62326dc7c6d2 # v2

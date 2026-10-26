@@ -13,43 +13,25 @@ qualification.
 
 ## Source boundary
 
-- Official `main`: `d58849a7d8d68929bd0e686571678d85e70740af`.
+- Frozen official `main`: `98690db2ab1d53d7e67eae296dc061c000c2ea2f`.
 - Stable floor: `v1.4.239`, peeled commit
   `47f77cf7018ebc0d046b82c6dde31cf704909162`.
-- Candidate patch branch: `patch/current-main-release-d58849a7d8`.
-- Candidate patch commits: `5ce0aead4533980294b8c26989a173501361ee27`, then
-  `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b`.
-- Candidate tree: `73fbf286056a9106df8acd1a947dda7c8f59263a`.
+- Candidate patch branch: `patch/current-main-release-98690`.
+- Candidate head: `ffb802f98ef5dc3d239aad898eeb05bff22cce08`, with 19 commits
+  after the frozen official ancestor.
+- Candidate tree: `83aa6d0f4de7ec0e19f04651baca074b3d9a344d`.
 
-The initial linear materialization of reviewed merge candidate
-`3c7d22012cfae09aa32ed03c41a306b201922e74` is `5ce0aead4533980294b8c26989a173501361ee27`,
-with official `main` as its parent. The workflow-only stop-coverage correction
-`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` follows it; the two-commit branch
-starts from official `main`, and its final head has `5ce0aead` as its parent.
-The patch branch must be visible at the
-exact pinned head before assembly.
+The branch is published to the source fork for CI. Completion-audit corrections
+repair relocated renderer imports, canonical-tier precedence, rejected-start
+rollback over newer picks, and stale Windows/renderer test fixtures.
+Targeted CI run [40397677548](https://github.com/mercurai/orca/actions/runs/40397677548)
+checks this head. Full qualification and release-gate corrections remain pending;
+no release receipt or published application is claimed.
 
-Official `main` later advanced to
-`f07673123107caafbfb3aa28763c72d77433b308`. That movement is queued for a
-separate candidate generation; this draft does not silently claim those newer
-commits are included. A read-only replay found three conflicts in the E2E
-type-error baseline, native-chat send recovery, and cross-version device-key
-coverage.
-
-On 2026-10-26, official `main` advanced again to
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f`. A fresh replay against the frozen
-candidate reports 108 conflicts across runtime, persistence, WSL/SSH, Codex,
-renderer, workflow and E2E files. This draft remains pinned to the earlier
-candidate; the newer SHA is queued until each conflict receives a semantic
-disposition and exact-candidate CI.
-
-The queued conflicts now have a linear reconciliation for review at
-`patch/current-main-release-98690`, commit
-`5fb6766ff1576b6e5d58d76241e54f5246ae7669`, tree
-`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c`. The branch is based on official
-`main` `98690db2ab1d53d7e67eae296dc061c000c2ea2f`; it is not yet a release
-input. The release owner must review, publish/register it, and run exact-SHA CI
-before allocating a tag.
+Official `main` has since reached
+`44d2fcb637f7736f66a9d3e7fee26516bf31daa8`, and the latest observed stable
+release is `v1.4.241`. That target is queued for a subsequent integration step.
+This draft's `v1.4.239` floor does not imply it contains the later release.
 
 ## Retained Mercurai behavior
 

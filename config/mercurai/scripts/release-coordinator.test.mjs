@@ -4,7 +4,10 @@ import { resolve } from 'node:path'
 import { test } from 'node:test'
 
 const root = resolve(import.meta.dirname, '..', '..', '..')
-const workflow = readFileSync(resolve(root, '.github', 'workflows', 'fork-release-coordinate.yml'), 'utf8').replaceAll('\r\n', '\n')
+const workflow = readFileSync(
+  resolve(root, '.github', 'workflows', 'fork-release-coordinate.yml'),
+  'utf8'
+).replaceAll('\r\n', '\n')
 
 test('coordinator runs on a durable schedule and has a manual reconciliation path', () => {
   assert.match(workflow, /^name: fork-release-coordinate$/m)
@@ -34,6 +37,10 @@ test('coordinator uses controller code, state CAS, and bounded Orca dispatch wit
   assert.doesNotMatch(workflow, /git push --force-with-lease/)
   assert.match(workflow, /actions: read/)
   assert.match(workflow, /contents: write/)
+  assert.match(
+    workflow,
+    /github\.event_name == 'workflow_dispatch' \|\| vars\.MERCURAI_RELEASE_COORDINATOR_ENABLED == 'true'/
+  )
   assert.doesNotMatch(workflow, /FORK_BOT_TOKEN|secrets\./)
   assert.doesNotMatch(workflow, /worker-start[^\n]*--agent\s+claude/)
 })

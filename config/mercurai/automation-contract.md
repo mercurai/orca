@@ -66,22 +66,33 @@ and an attempt limit, so a resumed agent cannot silently expand its scope.
 
 ## Promotion boundary
 
-`fork-assemble-release.yml` pushes an assembled candidate branch, dispatches
-`fork-qualify-release.yml`, waits for the matching run created after dispatch,
-and tags only after the exact candidate is qualified. The qualification
-receipt records commit/tree/controller/manifest/policy identities, full-mode
-checks, and the review binding. `fork-release-win-build.yml` downloads that
-receipt and verifies it with the trusted controller before packaging or
-publication. The receipt's reviewer fields are an owner-controlled handoff
-from the independent fleet review; the workflow does not self-authenticate a
-free-form reviewer string. Direct build dispatch without a receipt is
-dry-run-only.
+The proposed controller's `release-policy.json` sets `promotionEnabled: false`.
+Assembly checks the boolean before release-ref mutation, qualification refuses
+to issue a receipt, and the trusted publisher verifier rejects promotion while
+that policy remains disabled. This contains the current audit findings; it does
+not resolve the incomplete verification matrix, review authentication,
+qualification correlation, or immutable monotonic publication requirements.
+Those gates need implementation, independent review, and CI before admission
+can be enabled. Older controller revisions are outside this proposed guard.
+
+When admission is enabled, `fork-assemble-release.yml` pushes a candidate branch
+and dispatches `fork-qualify-release.yml`. The current run lookup can select
+another candidate's run; exact correlation must be repaired before tagging.
+The receipt records commit/tree/controller/manifest/policy identities, checks,
+and reviewer text. That text is unauthenticated; authenticated review intake
+remains pending. The current checks also omit required PR verification lanes.
+`fork-release-win-build.yml` verifies a receipt with the trusted controller
+before packaging or publication. Direct build dispatch without a receipt is
+dry-run-only. These mechanisms do not yet satisfy the promotion boundary.
 
 The recurring coordinator is intentionally disabled until the first qualified
 release and a nonpublishing rehearsal have been reviewed. To pause it, disable
 the schedule while preserving the state branch and receipts; do not delete the
 queue. Resume by reconciling the current state and upstream target, not by
 creating duplicate workers.
+Scheduled GitHub reconciliation additionally requires the repository variable
+`MERCURAI_RELEASE_COORDINATOR_ENABLED=true`; an unset variable keeps it off.
+Manual reconciliation still requires an explicit dispatch from the default branch.
 
 ## Local automation registration
 
