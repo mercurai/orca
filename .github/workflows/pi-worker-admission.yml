@@ -36,4 +36,10 @@ jobs:
           bun-version-file: config/.bun-version
       - name: Pi durable admission regressions
         shell: bash
-        run: pnpm test src/main/runtime/orchestration/db/pi-worker-admission.test.ts --maxWorkers=2
+        run: pnpm test src/main/runtime/orchestration/db/pi-worker-admission.test.ts src/main/runtime/rpc/methods/orchestration/worker/pi-worker-admission-rpc.test.ts src/cli/handlers/pi-worker-admission-cli.test.ts --maxWorkers=2
+      - name: Typecheck Node and CLI integration
+        shell: bash
+        run: pnpm tc:node && pnpm tc:cli
+      - name: Build CLI
+        shell: bash
+        run: pnpm build:cli

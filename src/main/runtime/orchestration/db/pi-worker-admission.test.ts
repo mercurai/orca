@@ -346,6 +346,6 @@ describe('coordinator-owned Pi admission configuration', () => {
     const f = fixture()
     expect(() => f.configure({
       tasks: [{ ...f.config.tasks[0], ...invalid }]
-    })).toThrow()
+    })).toThrow(expect.objectContaining({ code: 'pi_admission_invalid' }))
   })
 })
