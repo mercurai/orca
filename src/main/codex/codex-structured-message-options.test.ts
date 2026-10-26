@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { AgentModelCatalogStore } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { optionSession } from './codex-structured-option-session.test-fixture'
 import { resolvedCodexMessageOptions } from './codex-structured-message-options'
+import { applyCodexStructuredSessionOption } from './codex-structured-session-options'
 import { dispatchCodexTurn, startCodexTurn } from './codex-structured-turn-start'
 import { CodexAppServerRequestError } from './app-server/codex-app-server-request-error'
 import type { CodexSession } from './codex-structured-session-state'
@@ -140,6 +141,53 @@ describe('Codex captured message choices', () => {
     expect(session.appliedTurnOptions).toEqual({ serviceTier: 'default' })
     expect(Object.fromEntries(session.options)).toEqual({ serviceTier: 'default' })
   })
+
+  it.each(['picker', 'turn'] as const)(
+    'keeps a newer %s selection when an older captured request is rejected',
+    async (newer) => {
+      const started = Promise.withResolvers<void>()
+      const firstReply = Promise.withResolvers<unknown>()
+      const request = vi.fn(async () => {
+        if (request.mock.calls.length === 1) {
+          started.resolve()
+          return firstReply.promise
+        }
+        return { turn: { id: 'newer-turn' } }
+      })
+      const session = optionSession(request)
+      seedMessageDefaults(session)
+      session.options.set('model', 'model-a')
+      session.options.set('serviceTier', 'default')
+      session.appliedTurnOptions = { model: 'model-a', serviceTier: 'default' }
+      const older = startCodexTurn(session, {
+        clientMessageId: 'rejected-older',
+        body: USER_MESSAGE,
+        turnOptions: { model: 'model-a', serviceTier: 'priority' }
+      })
+      const rejected = expect(older).rejects.toThrow('older tier rejected')
+      await started.promise
+      if (newer === 'picker') {
+        await applyCodexStructuredSessionOption(session, 'serviceTier', 'flex')
+      } else {
+        await startCodexTurn(session, {
+          clientMessageId: 'accepted-newer',
+          body: USER_MESSAGE,
+          turnOptions: { model: 'model-a', serviceTier: 'flex' }
+        })
+      }
+      firstReply.reject(new CodexAppServerRequestError('turn/start', -32602, 'older tier rejected'))
+      await rejected
+
+      expect(Object.fromEntries(session.options)).toEqual({ model: 'model-a', serviceTier: 'flex' })
+      expect(session.appliedTurnOptions).toEqual({
+        model: 'model-a',
+        serviceTier: newer === 'picker' ? 'default' : 'flex'
+      })
+      if (newer === 'turn') {
+        expect(session.speedApplied).toMatchObject({ tierId: 'flex', turnId: 'newer-turn' })
+      }
+    }
+  )
 
   it('uses each message’s choices on turn/start and tracks the native attempted choice', async () => {
     const request = vi.fn(async (_method: string, _params?: Record<string, unknown>) => ({
