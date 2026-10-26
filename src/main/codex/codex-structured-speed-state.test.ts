@@ -365,7 +365,8 @@ describe('Codex requested speed and acknowledged host settings', () => {
           turnOptions: { model: MODEL, serviceTier: 'default' }
         })
         let started = 0
-        fixture.codex.routes['turn/start'] = () => (++started === 1 ? first.promise : second.promise)
+        fixture.codex.routes['turn/start'] = () =>
+          ++started === 1 ? first.promise : second.promise
         const older = startCodexTurn(session, {
           clientMessageId: 'rejected-overlap-older',
           body: USER_MESSAGE,
@@ -389,7 +390,9 @@ describe('Codex requested speed and acknowledged host settings', () => {
           await olderRejected
         }
         const rejectNewer = async () => {
-          second.reject(new CodexAppServerRequestError('turn/start', -32602, 'newer start rejected'))
+          second.reject(
+            new CodexAppServerRequestError('turn/start', -32602, 'newer start rejected')
+          )
           await newerRejected
         }
         await (rejectOlderFirst ? rejectOlder() : rejectNewer())

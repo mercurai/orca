@@ -1,4 +1,5 @@
 import { readCodexSessionSpeed } from './codex-structured-speed-state'
+import { recordCodexOptionIntent } from './codex-structured-turn-option-rollback'
 import type { StructuredAgentSessionLiveOptions } from '../native-chat/agent-session-wire/structured-agent-session-option-models'
 import { agentSessionEffortLevels } from '../../shared/agent-session-effort-levels'
 import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
@@ -138,7 +139,9 @@ export async function applyCodexStructuredSessionOption(
   value: string
 ): Promise<Readonly<Record<string, string>>> {
   try {
-    return applyValidatedCodexStructuredSessionOption(session, key, value)
+    const options = applyValidatedCodexStructuredSessionOption(session, key, value)
+    recordCodexOptionIntent(session)
+    return options
   } catch (error) {
     throw new AgentSessionOptionRejectedError(error)
   }

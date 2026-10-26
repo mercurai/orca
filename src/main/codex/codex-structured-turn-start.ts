@@ -22,7 +22,7 @@ import {
 } from './codex-structured-speed-admission'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
-import { restoreRejectedCodexTurnOptions } from './codex-structured-turn-option-rollback'
+import { beginCodexTurnOptions } from './codex-structured-turn-option-rollback'
 import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
@@ -152,10 +152,9 @@ export async function startCodexTurn(
   if (steered) {
     return steered
   }
-  const previousApplied = host.appliedTurnOptions
-  const previousOptions = input.turnOptions ? new Map(host.options) : null
   let enqueued = false
   let discardSettingsAttempt: (() => void) | undefined
+  let optionAttempt: ReturnType<typeof beginCodexTurnOptions> | undefined
   let sequence = 0
   let requested: Record<string, string> = {}
   const enqueue = (
@@ -168,11 +167,7 @@ export async function startCodexTurn(
     const selected = new Map(Object.entries(input.turnOptions ?? Object.fromEntries(host.options)))
     assertCodexSpeedAdmitted({ ...host, options: selected })
     requested = Object.fromEntries([...selected].filter(([key]) => isCodexTurnOptionKey(key)))
-    host.options.clear()
-    for (const [key, value] of Object.entries(requested)) {
-      host.options.set(key, value)
-    }
-    host.appliedTurnOptions = requested
+    optionAttempt = beginCodexTurnOptions(host, requested)
     discardSettingsAttempt = host.appliedSettings?.attempt(requested)
     sequence = (host.speedDispatchSequence ?? 0) + 1
     host.speedDispatchSequence = sequence
@@ -214,12 +209,17 @@ export async function startCodexTurn(
     }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       discardSettingsAttempt?.()
-      if (previousOptions) {
-        restoreRejectedCodexTurnOptions(host, requested, previousOptions, previousApplied, sequence)
+      if (input.turnOptions) {
+        optionAttempt?.reject()
+      } else {
+        optionAttempt?.retain()
       }
+    } else {
+      optionAttempt?.retain()
     }
     throw error
   }
+  optionAttempt?.retain()
   const turnId = readCodexTurnId(answer)
   acknowledgeCodexSpeed(host, sequence, requested.serviceTier, turnId)
   return { turnId, via: 'start' }
