@@ -603,6 +603,23 @@ describe('Pi requested model admission', () => {
   const model = 'openrouter/deepseek/deepseek-v4.1-flash-1017'
   const activeModel = { provider: 'openrouter', id: 'deepseek/deepseek-v4.1-flash-1017' }
 
+  async function selectedSession() {
+    const h = await setup()
+    await h.adapter.closeSession(sessionId)
+    h.openConnection.mockImplementationOnce((_launch, handlers) => {
+      const connection = new FakeConnection(handlers)
+      connection.requestOverride = (command) => {
+        if (command === 'get_state') return Promise.resolve({ ...state, model: activeModel })
+        if (command === 'get_available_models') return Promise.resolve({ models: [activeModel] })
+        return undefined
+      }
+      h.connections.push(connection)
+      return connection
+    })
+    await h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
+    return { ...h, child: h.connections.at(-1)! }
+  }
+
   it.each([false, true])('refuses an acknowledged but mismatched model before delivery (resume=%s)', async (resume) => {
     const h = await setup()
     await h.adapter.closeSession(sessionId)
@@ -695,20 +712,8 @@ describe('Pi requested model admission', () => {
     { label: 'drifted', observed: state },
     { label: 'unsupported', observed: { ...state, model: 'not-a-model-object' } }
   ])('refuses task delivery with a $label model observation', async ({ observed }) => {
-    const h = await setup()
-    await h.adapter.closeSession(sessionId)
-    h.openConnection.mockImplementationOnce((_launch, handlers) => {
-      const connection = new FakeConnection(handlers)
-      connection.requestOverride = (command) => {
-        if (command === 'get_state') return Promise.resolve({ ...state, model: activeModel })
-        if (command === 'get_available_models') return Promise.resolve({ models: [activeModel] })
-        return undefined
-      }
-      h.connections.push(connection)
-      return connection
-    })
-    await h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
-    const child = h.connections.at(-1)!
+    const h = await selectedSession()
+    const { child } = h
     child.requestOverride = (command) =>
       command === 'get_state' ? Promise.resolve(observed) : undefined
     await expect(
@@ -718,7 +723,60 @@ describe('Pi requested model admission', () => {
         clientMessageId: 'drifted-task',
         body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'implement issue' }] }
       })
-    ).rejects.toThrow(/model/i)
+    ).resolves.toMatchObject({ state: 'rejected', rejection: { kind: 'providerRejected' } })
     expect(child.sent).toEqual([])
+  })
+
+  it('checks the model after the final pre-dispatch callback', async () => {
+    const h = await selectedSession()
+    await expect(
+      h.adapter.dispatch({
+        sessionId,
+        fence: 8,
+        clientMessageId: 'changed-during-admission',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'implement issue' }] },
+        beforeDispatch: async () => {
+          h.child.requestOverride = (command) =>
+            command === 'get_state' ? Promise.resolve(state) : undefined
+        }
+      })
+    ).resolves.toMatchObject({ state: 'rejected', rejection: { kind: 'providerRejected' } })
+    expect(h.child.sent).toEqual([])
+  })
+
+  it('rechecks the model before an authentication retry and settles a mismatch as rejected', async () => {
+    const h = await selectedSession()
+    vi.useFakeTimers()
+    try {
+      await expect(
+        h.adapter.dispatch({
+          sessionId,
+          fence: 8,
+          clientMessageId: 'retry-task',
+          body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'implement issue' }] }
+        })
+      ).resolves.toEqual({ state: 'admitted' })
+      h.child.receive({
+        type: 'response',
+        command: 'prompt',
+        success: false,
+        error: 'No API key found for openrouter'
+      })
+      h.child.requestOverride = (command) =>
+        command === 'get_state' ? Promise.resolve(state) : undefined
+      await vi.advanceTimersByTimeAsync(250)
+      expect(h.child.sent).toHaveLength(1)
+      expect(h.settled).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({
+          clientMessageId: 'retry-task',
+          outcome: expect.objectContaining({
+            state: 'rejected',
+            rejection: { kind: 'providerRejected' }
+          })
+        })
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

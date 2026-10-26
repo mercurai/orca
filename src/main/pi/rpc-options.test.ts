@@ -14,6 +14,29 @@ function requester(
 }
 
 describe('Pi RPC session options', () => {
+  it.each(['qwen/qwen3-coder:exacto', 'qwen/qwen3-coder:free'])(
+    'preserves a literal colon in the exact RPC model ID %s',
+    async (id) => {
+      const rpc = requester({
+        set_model: {},
+        get_state: {
+          model: { provider: 'openrouter', id },
+          sessionFile: '/sessions/current.jsonl',
+          isStreaming: false,
+          isCompacting: false
+        }
+      })
+      const selected = new Map<string, string>()
+      await expect(
+        applyPiRpcSessionOption(rpc, selected, 'model', `openrouter/${id}`)
+      ).resolves.toEqual({ model: `openrouter/${id}` })
+      expect(rpc.request.mock.calls).toEqual([
+        ['set_model', { provider: 'openrouter', modelId: id }],
+        ['get_state']
+      ])
+    }
+  )
+
   it('reads provider-qualified models and the reported thinking level', async () => {
     const rpc = requester({
       get_available_models: {
