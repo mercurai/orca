@@ -18,14 +18,14 @@ export async function releaseEphemeralVmRuntimeEnvironments(
   )
   for (const environment of environments) {
     if (!environment.orcadDeployment) {
-      removeEnvironment(userDataPath, environment.id)
+      await removeEnvironment(userDataPath, environment.id)
       void desktopChatCreationHistory(userDataPath).removeEnvironment(environment.id)
       continue
     }
     const { closeOrcadManagedTunnel } =
       await import('../managed-server/lifecycle/orcad-managed-tunnel')
     await closeOrcadManagedTunnel(environment.id).catch(() => undefined)
-    removeManagedOrcadEnvironment(userDataPath, environment.id)
+    await removeManagedOrcadEnvironment(userDataPath, environment.id)
     void desktopChatCreationHistory(userDataPath).removeEnvironment(environment.id)
   }
 }

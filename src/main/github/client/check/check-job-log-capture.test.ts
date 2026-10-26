@@ -14,7 +14,8 @@ const { spawnMock, signalMock, forceMock, captureCap } = vi.hoisted(() => ({
   captureCap: { bytes: 64 }
 }))
 vi.mock('node:child_process', async (original) => ({ ...(await original()), spawn: spawnMock }))
-vi.mock('@orca/process-host/process-tree-termination', () => ({
+vi.mock('@orca/process-host/process-tree-termination', async (original) => ({
+  ...(await original()),
   signalProcessTree: signalMock,
   forceTerminateProcessTree: forceMock
 }))

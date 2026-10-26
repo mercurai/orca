@@ -34,6 +34,7 @@ import { mainProcessState as state } from './main-process-state'
 import { isDevParentShutdownRequested } from './configure-process'
 import { getCanonicalUserDataPath } from '../persistence'
 import { flushUnsavedCloudSessions } from '../orca-profiles/profile-cloud-session-owner'
+import { drainPathWritesForQuit } from './path-write-quit-drain'
 
 // First will-quit pass awaits teardown; the re-fired pass must exit without starting writes again.
 let daemonDisconnectDone = false
@@ -227,7 +228,9 @@ function installWillQuitHandler(): void {
     disposeDesktopBrowserBridge()
     const browserClientHostShutdown = shutdownPairedRuntimeBrowserClientHosts()
     const skillUploadShutdown = state.runtime?.disposeSkillUploadSessions() ?? Promise.resolve()
-    // Capture ownership before awaits let other teardown paths clear runtime state.
+    // Why: flush the coalesced dismissal write now; the close below waits behind session and RPC teardown.
+    const dismissalFlush = state.runtime?.flushNotificationDismissals?.() ?? Promise.resolve()
+    // Why: capture pid/runtimeId synchronously (before any await) so a later teardown path can't null them out mid-chain.
     const ownedPid = process.pid
     const ownedRuntimeId = state.runtime?.getRuntimeId()
     const rpcStopAndClear = state.runtimeRpc
@@ -247,7 +250,19 @@ function installWillQuitHandler(): void {
       structuredAgentSessionShutdown,
       rpcStopAndClear
     ]).then(() => state.runtime?.closeNotificationDismissals())
-    // Normal quits preserve the detached daemon for warm reattach; dev-parent death leaves its temporary profile ownerless.
+    // Why: the store writes went async; the sync baseline never lost one to a quit, so wait (bounded).
+    // Why after these members: plugin dispose, session and RPC teardown, and the state flush can queue
+    // secure writes. Reported as `state`: a hung flush is the one that holds this up.
+    const statePersistence = Promise.allSettled([
+      pluginHostShutdown,
+      dismissalFlush,
+      structuredAgentSessionShutdown,
+      rpcStopAndClear,
+      storeFlush
+    ]).then(() => drainPathWritesForQuit())
+    // Why: allSettled (not all) keeps fail-open — a daemon-disconnect rejection still quits instead of hanging.
+    // Why: telemetry flush folds in before app.quit() (bounded 2s); catch defensively so a flush failure can't cancel the quit chain.
+    // Why: normal quits keep the detached daemon for warm reattach, but a dead dev parent leaves the temp/dev profile ownerless.
     const daemonTeardown = isDevParentShutdownRequested() ? shutdownDaemon() : disconnectDaemon()
     // Bound unsettled transports and final writes so quit cannot hang (#9447). Failures still exit; atomic swaps preserve old files if the final debounce is lost.
     settleTeardownWithinDeadline([
@@ -261,6 +276,7 @@ function installWillQuitHandler(): void {
       { name: 'ssh', promise: sshShutdown },
       { name: 'plugin-hosts', promise: pluginHostShutdown },
       { name: 'skill-uploads', promise: skillUploadShutdown },
+      { name: 'mobile-dismissals', promise: dismissalFlush },
       { name: 'grok-hooks', promise: grokHookCleanup },
       { name: 'ref-maintenance', promise: refMaintenanceShutdown },
       { name: 'codex-backfill-recovery', promise: codexBackfillRecoveryShutdown },
@@ -268,7 +284,7 @@ function installWillQuitHandler(): void {
       { name: 'usage-cache', promise: usageCacheFlush },
       { name: 'notification-dismissals', promise: notificationDismissalClose },
       { name: 'stats', promise: statsFlush },
-      { name: 'state', promise: storeFlush }
+      { name: 'state', promise: statePersistence }
     ])
       .then((pendingTeardowns) => {
         if (pendingTeardowns.length > 0) {
