@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OptionalFiniteNumber, OptionalString, requiredString } from './rpc-param-primitives'
+import { PiProfileSha256 } from '../pi-worker-admission'
 
 export const OptionalWorkerLaunchPreference = z
   .string()
@@ -28,6 +29,7 @@ export const WorkerStartParams = z
     terminal: OptionalString,
     agent: OptionalString,
     model: OptionalWorkerLaunchPreference,
+    piProfileSha256: PiProfileSha256.optional(),
     effort: OptionalWorkerLaunchPreference,
     retryOf: OptionalString,
     timeoutMs: OptionalFiniteNumber,

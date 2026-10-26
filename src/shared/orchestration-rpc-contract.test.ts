@@ -7,6 +7,7 @@ import {
 
 describe('orchestration RPC contract', () => {
   it.each([
+    ['orchestration.piWorkerAdmissionConfigure', {}],
     ['orchestration.runCreate', {}],
     ['orchestration.runUse', {}],
     ['orchestration.send', {}],

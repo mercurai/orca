@@ -1,6 +1,14 @@
 import { z } from 'zod'
 import { OptionalBoolean, OptionalString, requiredString } from './rpc-param-primitives'
 import { ORCHESTRATION_RUN_PAGE_LIMIT } from '../orchestration-run-pagination'
+import { PiWorkerAdmissionConfigSchema } from '../pi-worker-admission'
+
+export const PiWorkerAdmissionConfigureParams = z.object({
+  run: requiredString('Missing --run'),
+  from: requiredString('Missing coordinator terminal'),
+  consumerGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  config: PiWorkerAdmissionConfigSchema
+}).strict()
 
 export const RunCreateParams = z.object({
   objective: requiredString('Missing --objective'),

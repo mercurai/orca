@@ -38,6 +38,7 @@ import type { LifecycleTransitionMethods } from './lifecycle-transition'
 import type { QuestionThreadsMethods } from './questions/question-threads'
 import type { OrchestrationResetMethods } from './reset/orchestration-reset'
 import type { RunBindingMethods } from './runs/run-binding'
+import type { PiWorkerAdmissionMethods } from './runs/pi-worker-admission'
 import type { RunCoordinatorMailRoutingMethods } from './runs/run-coordinator-mail-routing'
 import type { RunCreateMethods } from './runs/run-create'
 import type { RunDeliveryMethods } from './runs/run-delivery'
@@ -87,6 +88,7 @@ export type OrchestrationDbMethods = AttemptObservationStoreMethods &
   LegacyReplyOperationMethods &
   RunCreateMethods &
   RunBindingMethods &
+  PiWorkerAdmissionMethods &
   RunLookupMethods &
   RunCoordinatorMailRoutingMethods &
   LegacyCoordinatorMailTakeoverMethods &

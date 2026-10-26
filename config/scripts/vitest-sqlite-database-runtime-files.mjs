@@ -1,5 +1,8 @@
 // Database opening and lifecycle fixtures exercise Node SQLite behavior.
 export const SQLITE_DATABASE_RUNTIME_INCLUDE = [
+  'src/main/runtime/orchestration/db/pi-worker-admission.test.ts',
+  'src/main/runtime/orchestration/pi-worker-package.test.ts',
+  'src/main/runtime/rpc/methods/orchestration/worker/pi-worker-admission-rpc.test.ts',
   'src/main/ai-vault-search/session-search-file-write.test.ts',
   'src/main/ai-vault-search/session-search-live-transcript.test.ts',
   'src/main/ai-vault/session-scanner-devin-contention.test.ts',

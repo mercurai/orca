@@ -8,6 +8,7 @@ import { insertStartingDispatchContextRow } from '../dispatch-row-writer'
 import { recordedCreatorIdentity, type DispatchCreator } from '../dispatch-depth'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
 import { taskNotFoundError, taskNotStartableError } from '../../task-dispatch-refusal'
+import { bindPiWorkerAdmission } from '../runs/pi-worker-admission'
 
 export function createStartingWorkerDispatch(
   this: OrchestrationDb,
@@ -120,6 +121,7 @@ export function createStartingWorkerDispatch(
     }
 
     const id = generateId('ctx')
+    const startOptions = bindPiWorkerAdmission(this, task, id, params.startOptions)
     const creatorDispatchId = this.resolveCreatorDispatchId(params.creator)
     if (params.mutationReceipt) {
       this.db
@@ -151,7 +153,7 @@ export function createStartingWorkerDispatch(
            dispatch_id, runtime_epoch, state, stage, start_options
          ) VALUES (?, ?, 'starting', 'accepted', ?)`
       )
-      .run(id, params.runtimeEpoch ?? null, JSON.stringify(params.startOptions))
+      .run(id, params.runtimeEpoch ?? null, JSON.stringify(startOptions))
     if (params.federation) {
       this.db
         .prepare(

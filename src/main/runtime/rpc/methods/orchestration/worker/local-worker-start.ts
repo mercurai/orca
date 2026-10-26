@@ -141,6 +141,7 @@ export async function startLocalWorker(args: {
     baseBranch: params.baseBranch ?? null,
     terminal: params.terminal ?? null,
     agent: agent ?? null,
+    piProfileSha256: params.piProfileSha256 ?? null,
     launch: launch.receipt,
     timeoutMs: params.timeoutMs ?? 60_000,
     setup: createsWorktree ? (params.setup ?? 'run') : 'not_applicable',

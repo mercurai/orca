@@ -138,6 +138,15 @@ export async function startFederatedWorker(args: {
       baseBranch: params.baseBranch ?? null,
       terminal: params.terminal ?? null,
       agent: params.agent ?? null,
+      piProfileSha256: params.piProfileSha256 ?? null,
+      // Federation currently creates terminal workers only. The Pi admission gate must not
+      // mistake a remote capability advertisement for structured model/profile attestation.
+      mode: {
+        mode: 'terminal',
+        preferred: 'terminal',
+        reason: 'remote_execution_host',
+        detail: 'Federated worker-start uses the remote terminal route.'
+      },
       launch: requestedLaunch,
       timeoutMs: budgets.readinessTimeoutMs,
       setup: setupDecision,

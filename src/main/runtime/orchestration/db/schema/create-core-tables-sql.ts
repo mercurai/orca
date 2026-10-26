@@ -20,6 +20,21 @@ CREATE TABLE IF NOT EXISTS runs (
   updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Admission belongs to the coordinator generation, not worker launch flags. Kept additive so an
+-- older writer can still open this database without losing the grant or changing the runs shape.
+CREATE TABLE IF NOT EXISTS run_pi_worker_admission (
+  run_id                TEXT PRIMARY KEY,
+  consumer_generation   INTEGER NOT NULL,
+  config_json           TEXT NOT NULL,
+  config_sha256         TEXT NOT NULL
+);
+
+CREATE TRIGGER IF NOT EXISTS trg_runs_delete_pi_admission
+AFTER DELETE ON runs
+BEGIN
+  DELETE FROM run_pi_worker_admission WHERE run_id = OLD.id;
+END;
+
 CREATE TABLE IF NOT EXISTS messages (
   id            TEXT NOT NULL,
   run_id        TEXT NOT NULL DEFAULT '${LEGACY_RUN_ID}',

@@ -3,6 +3,18 @@ import { ORCHESTRATION_WORKER_COMMAND_SPECS } from './orchestration-worker-specs
 
 export const ORCHESTRATION_COMMAND_SPECS: CommandSpec[] = [
   {
+    path: ['orchestration', 'pi-admission', 'configure'],
+    summary: 'Configure coordinator-owned Pi worker admission for a Run',
+    usage: 'orca orchestration pi-admission configure --run <run_id> --generation <n> --config <policy.json> [--from <handle>] [--retry-request <id>] [--json]',
+    allowedFlags: [...GLOBAL_FLAGS, 'run', 'generation', 'config', 'from', 'retry-request'],
+    identityFlagRoles: { from: 'caller' },
+    notes: [
+      'Use the current consumer generation from run-show; a changed coordinator invalidates the grant.',
+      'The JSON file contains task/profile references, priced budgets and accepted CI/pilot gate IDs. Never include credentials.',
+      'Configuration cannot change while an admitted Pi Dispatch is active or its exit is uncertain.'
+    ]
+  },
+  {
     path: ['orchestration', 'run-create'],
     summary: 'Create and bind a lightweight orchestration Run',
     usage:

@@ -39,6 +39,7 @@ import { attachLifecycleTransition } from './lifecycle-transition'
 import { attachQuestionThreads } from './questions/question-threads'
 import { attachOrchestrationReset } from './reset/orchestration-reset'
 import { attachRunBinding } from './runs/run-binding'
+import { attachPiWorkerAdmission } from './runs/pi-worker-admission'
 import { attachRunCoordinatorMailRouting } from './runs/run-coordinator-mail-routing'
 import { attachRunCreate } from './runs/run-create'
 import { attachRunDelivery } from './runs/run-delivery'
@@ -88,6 +89,7 @@ export function attachOrchestrationDbMethods(ctor: { prototype: object }): void 
   attachLegacyReplyOperation(ctor)
   attachRunCreate(ctor)
   attachRunBinding(ctor)
+  attachPiWorkerAdmission(ctor)
   attachRunLookup(ctor)
   attachRunCoordinatorMailRouting(ctor)
   attachLegacyCoordinatorMailTakeover(ctor)

@@ -96,6 +96,40 @@ orca orchestration worker-start --task <taskId> --retry-of <dispatchId> --worktr
 
 Do not leave completed worker terminals open just to re-read output — use `worker-read` after `worker-release`. Do not substitute a broad `terminal close` when release returns `release_pending` or `release_unknown`; follow the receipt's recovery action.
 
+## Pi admission
+
+The Run coordinator configures supervised Pi admission before starting workers. Read the current
+`consumer_generation` with `run-show`, then submit a policy file:
+
+```bash
+orca orchestration pi-admission configure \
+  --run <runId> --generation <consumer_generation> --config <policy.json> --json
+```
+
+The policy has schema `orca.pi-worker-admission.v1`, `maxWorkers: 2`, an approved `ciGateId`,
+and `tasks`. Each task entry names `taskId`, its independent dependent `reviewTaskId`, and
+`profileSha256`: the SHA-256 of immutable template bytes **before** Dispatch binding. This hash
+is distinct from a final bound profile's semantic hash and the package manifest file's hash.
+The entry also sets positive integer `maxTokens`, `maxOutputTokens`, `maxCostMicrousd`, and
+`deadlineUnixMs`. Output tokens cannot exceed total tokens. `endpoint` contains an explicit `id`
+and nonnegative integer `inputMicrousdPerMillion` and `outputMicrousdPerMillion` prices, at least
+one positive. Credentials do not belong in this file.
+
+Admission checks the gate's stored approval in the same Run, coordinator identity and generation,
+task/review links, profile identity, budgets, and deadline. Its digest includes the Run and generation.
+Worker flags cannot override those controls. Pass the approved template reference with
+`worker-start --agent pi --pi-profile-sha256 <hash>`; terminal and current federated routes cannot
+attest the required Pi model/profile/tool state and are refused before launch. Ordinary interactive
+Pi chats do not use this admission policy.
+
+The existing Dispatch transaction reserves capacity before launch. Uncertain starts, stops and
+abandonment retain their reservations until exact settlement or proven process exit. Two completed
+implementations awaiting independent review block further admission. Replacing a policy is refused
+while any affected Pi attempt remains active or uncertain; rebinding the coordinator invalidates it.
+Four workers require `maxWorkers: 4` plus an approved `pilotGateId` whose task depends on the
+accepted reviews of two successful Pi pilot implementations. Configuration does not itself verify
+or deploy a worker package, and it does not grant merge or rollout authority.
+
 ## Federated workers (optional)
 
 ```bash
