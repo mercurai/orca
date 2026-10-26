@@ -1,4 +1,4 @@
-import { maybeCleanupLaunchState } from './structured-agent-session-launch-outcome-tracking'
+import { maybeCleanupLaunchState } from './agent-session/launch/structured-agent-session-launch-outcome-tracking'
 // @vitest-environment happy-dom
 import type * as LaunchIntentModule from './launch-structured-agent-session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

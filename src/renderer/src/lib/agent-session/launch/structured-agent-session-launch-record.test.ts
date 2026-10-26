@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { validRecord } from './structured-agent-session-launch-record'
-import { MAX_PROMPT_BYTES } from '../../../shared/rpc-contract/structured-agent-session-params'
+import { MAX_PROMPT_BYTES } from '../../../../../shared/rpc-contract/structured-agent-session-params'
 
 const record = {
   sessionId: 'codex_11111111_2222_3333_4444_555555555555',

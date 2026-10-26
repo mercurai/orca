@@ -1,4 +1,4 @@
-import { recoverStructuredLaunchDrafts } from './structured-agent-session-launch-draft-recovery'
+import { recoverStructuredLaunchDrafts } from '../../structured-agent-session-launch-draft-recovery'
 import {
   restoreStructuredAgentSessionLaunchIntent,
   type StructuredAgentSessionLaunchIntent

@@ -22,7 +22,7 @@ vi.mock('@/store', () => ({
   }
 }))
 
-import { markStructuredAgentSessionLaunchPublished } from './structured-agent-session-launch-publication'
+import { markStructuredAgentSessionLaunchPublished } from './agent-session/launch/structured-agent-session-launch-publication'
 import { restorePersistedStructuredLaunchState } from './agent-session/launch/structured-agent-session-launch-reload'
 import {
   readStructuredAgentLaunchRecord,
