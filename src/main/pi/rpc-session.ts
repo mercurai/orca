@@ -161,6 +161,7 @@ export class PiRpcSession {
       try {
         await applyPiRpcSessionOption(this.connection, this.selected, key, value)
       } catch (error) {
+        if (key === 'model') throw error
         this.skipped.push(key)
         this.deps.logger.warn('Pi rejected a saved option', {
           scope: 'pi-option-restore',

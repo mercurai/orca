@@ -243,7 +243,11 @@ export async function openProviderTimelineRig(
   const deferred = createDeferredStructuredAgentSessionEventSink(testEventSinkLogging())
   deferred.bind({ journal, fence: 1, publish: () => {} })
   cleanups.push(async () => {
+    await deferred.drained()
     deferred.close()
+    await journal.close()
+    // Windows cannot remove the state directory while its SQLite database is open.
+    closeTestJournalHostDatabase(root)
     await rm(root, { recursive: true, force: true })
   })
   const sink = providerTimelineSink(deferred.sink)

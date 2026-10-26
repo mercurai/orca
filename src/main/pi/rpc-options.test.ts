@@ -140,6 +140,20 @@ describe('Pi RPC session options', () => {
     })
   })
 
+  it('keeps the prior selection when model confirmation has an unsupported state shape', async () => {
+    const rpc = requester({ set_model: {}, get_state: { model: 'openrouter/deepseek-flash' } })
+    const selected = new Map([['model', 'anthropic/previous-model']])
+    await expect(
+      applyPiRpcSessionOption(
+        rpc,
+        selected,
+        'model',
+        'openrouter/deepseek/deepseek-v4.1-flash-1017'
+      )
+    ).rejects.toThrow()
+    expect(selected.get('model')).toBe('anthropic/previous-model')
+  })
+
   it('handles a signed-out state with no model', async () => {
     const rpc = requester({
       get_available_models: { models: [] },

@@ -1,9 +1,12 @@
 import { z } from 'zod'
+import { parsePiModelOptionId } from '../../shared/agent-session-option-catalog-pi'
 import type {
   AgentSessionCommandsResult,
   AgentSessionOptionsResult
 } from '../../shared/agent-session-wire'
 import { piRpcModelSchema, piRpcStateSchema } from './rpc-protocol'
+
+export { parsePiModelOptionId }
 
 export type PiRpcRequester = {
   request(
@@ -45,12 +48,12 @@ export function piModelOptionId(provider: string, modelId: string): string {
   return `${provider}/${modelId}`
 }
 
-export function parsePiModelOptionId(value: string): { provider: string; modelId: string } {
-  const slash = value.indexOf('/')
-  if (slash < 1 || slash === value.length - 1) {
-    throw new Error('Pi model requires an explicit provider and model ID')
+export async function confirmPiRpcModel(rpc: PiRpcRequester, value: string): Promise<void> {
+  const requested = parsePiModelOptionId(value)
+  const state = stateSchema.parse(await rpc.request('get_state'))
+  if (state.model?.provider !== requested.provider || state.model.id !== requested.modelId) {
+    throw new Error('Pi did not confirm the requested model')
   }
-  return { provider: value.slice(0, slash), modelId: value.slice(slash + 1) }
 }
 
 export async function readPiRpcSessionOptions(
@@ -98,6 +101,7 @@ export async function applyPiRpcSessionOption(
     const model = parsePiModelOptionId(value)
     modelSchema.parse({ provider: model.provider, id: model.modelId })
     await rpc.request('set_model', model)
+    await confirmPiRpcModel(rpc, value)
   } else if (key === 'effort') {
     if (!THINKING_LEVELS.some((level) => level === value)) {
       throw new Error(`Unsupported Pi thinking level: ${value}`)

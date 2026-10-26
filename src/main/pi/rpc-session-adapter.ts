@@ -19,7 +19,7 @@ import { buildPiRpcLaunch } from './rpc-launch'
 import { piRpcProviderLink, type PiRpcResolvedLaunch } from './rpc-launch-resolution'
 import { PiRpcSession, type PiRpcSessionDeps, type PiRpcConnection } from './rpc-session'
 import { PiRpcPromptError, preparePiRpcPrompt } from './rpc-prompt'
-import { applyPiRpcSessionOption } from './rpc-options'
+import { applyPiRpcSessionOption, confirmPiRpcModel } from './rpc-options'
 import { supportsSupervisedProviderChildLocation } from '../provider-process/supervised-provider-child-location'
 import { ClaudeDispatchContentError } from '../claude/claude-structured-dispatch-content'
 
@@ -146,6 +146,8 @@ export class PiRpcSessionAdapter implements StructuredAgentSessionAdapter {
         )
       }
     }
+    const selectedModel = session.selected.get('model')
+    if (selectedModel) await confirmPiRpcModel(session.connection, selectedModel)
     return session.turns.submit(
       input.clientMessageId,
       input.requestedAt ?? Date.now(),

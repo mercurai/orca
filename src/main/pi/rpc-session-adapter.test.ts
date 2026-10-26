@@ -691,7 +691,10 @@ describe('Pi requested model admission', () => {
     ])
   })
 
-  it('refuses task delivery after the observed model drifts from the requested selection', async () => {
+  it.each([
+    { label: 'drifted', observed: state },
+    { label: 'unsupported', observed: { ...state, model: 'not-a-model-object' } }
+  ])('refuses task delivery with a $label model observation', async ({ observed }) => {
     const h = await setup()
     await h.adapter.closeSession(sessionId)
     h.openConnection.mockImplementationOnce((_launch, handlers) => {
@@ -707,7 +710,7 @@ describe('Pi requested model admission', () => {
     await h.adapter.acquire({ ...h.input, fence: 8, options: { model } })
     const child = h.connections.at(-1)!
     child.requestOverride = (command) =>
-      command === 'get_state' ? Promise.resolve(state) : undefined
+      command === 'get_state' ? Promise.resolve(observed) : undefined
     await expect(
       h.adapter.dispatch({
         sessionId,
