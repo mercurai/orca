@@ -41,6 +41,7 @@ jobs:
           src/shared/agent-session-option-catalog.test.ts
           src/main/runtime/rpc/methods/orchestration/worker/worker-launch-preferences.test.ts
           src/main/pi/rpc-options.test.ts src/main/pi/rpc-prompt-delivery.test.ts
+          src/main/pi/rpc-launch.test.ts
           src/main/pi/rpc-worker-package.test.ts
           src/main/pi/rpc-session-adapter.test.ts
           src/main/pi/rpc-configured-default.test.ts
