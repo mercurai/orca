@@ -1,8 +1,15 @@
 import {
+  bumpEnvironmentWriteGeneration,
+  captureEnvironmentStoreVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
+import { randomUUID } from 'node:crypto'
+import {
   JsonStringifyByteLimitError,
   stringifyJsonWithinByteLimit
 } from './node-bounded-json-stringify'
-import { writeSecureFile } from './secure-file'
+import { readNodeFileWithinLimit } from './node-bounded-file-reader'
+import { SecureWriteSupersededError, writeSecureFileAsync } from './secure-file-async-write'
 import {
   RuntimeEnvironmentStoreSchema,
   type KnownRuntimeEnvironment,
@@ -17,7 +24,6 @@ import {
   getEnvironmentStorePath,
   MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES,
   readEnvironmentStoreRecords,
-  backUpBlankEnvironmentStore,
   RuntimeEnvironmentStoreError,
   type EnvironmentStoreRecordsReadOptions,
   warnUnreadableEnvironmentState
@@ -36,7 +42,10 @@ export {
   type RuntimeEnvironmentStoreErrorCode
 } from './runtime-environment-store-records'
 
-/** Readable records only; writeEnvironmentStore preserves unreadable corrupt/newer records verbatim. */
+/**
+ * The orca-environments.json records this build can read. Unreadable ones (corrupt, or written by
+ * a newer build) are left out here and carried through every write by writeEnvironmentStoreSnapshotAsync.
+ */
 export function readPersistedEnvironmentStore(
   userDataPath: string,
   options: EnvironmentStoreRecordsReadOptions = {}
@@ -114,8 +123,26 @@ export function readEnvironmentStore(
   }
 }
 
-/** Write persisted fields only; preserve unreadable on-disk records verbatim/in order. Sidecar writes stay separate. */
-export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnvironmentStore): void {
+/**
+ * Writes only persisted fields; sidecar state is written by the sidecar module. Records on disk
+ * this build cannot read are appended verbatim, in their original order.
+ */
+export function writeEnvironmentStoreSnapshotAsync(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore
+): Promise<void> {
+  return withRuntimeEnvironmentMutation(userDataPath, () =>
+    writeEnvironmentStoreAsync(userDataPath, store)
+  )
+}
+
+/** Publication inside a caller-owned transaction; the caller must compute from a current snapshot. */
+export async function writeEnvironmentStoreAsync(
+  userDataPath: string,
+  store: RuntimeEnvironmentStore,
+  options: { shouldPublish?: () => boolean } = {}
+): Promise<void> {
+  const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const path = getEnvironmentStorePath(userDataPath)
   const environments = RuntimeEnvironmentStoreSchema.parse(store).environments
   // The new registry replaces a blank file in one atomic write, so no reader sees it emptied early.
@@ -129,15 +156,32 @@ export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnviro
       'A server with this id already exists in a format that needs a newer version of Orca.'
     )
   }
-  let serialized: string
   try {
-    serialized = stringifyJsonWithinByteLimit(
+    const serialized = stringifyJsonWithinByteLimit(
       {
         version: 1,
         environments: [...environments, ...onDisk.unreadable.map((record) => record.raw)]
       },
       MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES
     ).serialized
+    const canPublish = (): boolean => isCurrent() && options.shouldPublish?.() !== false
+    if (onDisk.blankFile) {
+      await backUpBlankEnvironmentStoreAsync(path, canPublish)
+    }
+    await writeSecureFileAsync(
+      path,
+      serialized,
+      {
+        durable: true,
+        shouldPublish: () => {
+          if (!canPublish()) {
+            return false
+          }
+          bumpEnvironmentWriteGeneration()
+          return true
+        }
+      }
+    )
   } catch (error) {
     if (error instanceof JsonStringifyByteLimitError) {
       throw new RuntimeEnvironmentStoreError(
@@ -147,10 +191,18 @@ export function writeEnvironmentStore(userDataPath: string, store: RuntimeEnviro
     }
     throw error
   }
-  // Copied only once the write is certain to be attempted, so rejected saves leave no copies.
-  if (onDisk.blankFile) {
-    backUpBlankEnvironmentStore(userDataPath)
+}
+
+async function backUpBlankEnvironmentStoreAsync(
+  path: string,
+  canPublish: () => boolean
+): Promise<void> {
+  const { buffer } = await readNodeFileWithinLimit(path, MAX_RUNTIME_ENVIRONMENT_STORE_FILE_BYTES)
+  const contents = buffer.toString('utf8')
+  if (!canPublish() || !/^[\s\0]*$/.test(contents)) {
+    throw new SecureWriteSupersededError(path)
   }
-  // Without fsync before the rename, a crash can publish the name over NUL-filled data (#18766).
-  writeSecureFile(path, serialized, { durable: true })
+  const backupPath = `${path}.corrupt-${Date.now()}-${process.pid}-${randomUUID()}`
+  await writeSecureFileAsync(backupPath, contents, { durable: true, shouldPublish: canPublish })
+  console.warn(`[runtime-environments] ${path} held no data; kept a copy at ${backupPath}.`)
 }

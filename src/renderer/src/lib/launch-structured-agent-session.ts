@@ -1,3 +1,4 @@
+import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import type { StructuredLaunchSurfaceAddress } from './agent-session/launch/structured-agent-session-launch-record'
 import type { TuiAgent } from '../../../shared/tui-agent'
 import {
@@ -45,7 +46,13 @@ export type StructuredAgentSessionLaunchIntent = {
   params: StructuredAgentSessionCreateParams
   createMessageSupport?: boolean
   createPrepared?: true
-  prepareCreate?: () => void
+  prepareCreate?: (createMessageSupport: boolean) => {
+    params: StructuredAgentSessionCreateParams
+    commit?: () => StructuredAgentSessionCreateParams
+  }
+  /** Canonical picks retained separately from capability-translated frozen wire options. */
+  createCanonicalOptions?: Readonly<Record<string, string>>
+  createSpeedAuthority?: CodexSpeedWireAuthority
   beforeCreate?: () => boolean
   surfaceAddress?: StructuredLaunchSurfaceAddress
   seedOptions?: Readonly<Record<string, string>>
@@ -164,6 +171,8 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
   firstMessage?: StructuredAgentSessionFirstMessage
   options?: Readonly<Record<string, string>>
   createMessageSupport?: boolean
+  createCanonicalOptions?: Readonly<Record<string, string>>
+  createSpeedAuthority?: CodexSpeedWireAuthority
 }): StructuredAgentSessionLaunchIntent {
   const state = useAppStore.getState()
   const { target } = structuredAgentSessionOwnerTarget(args.worktreeId, args.executionHostId)
@@ -186,6 +195,8 @@ export function restoreStructuredAgentSessionLaunchIntent(args: {
       ...(args.firstMessage ? { firstMessage: args.firstMessage } : {}),
       ...(args.options ? { options: args.options } : {})
     },
+    ...(args.createCanonicalOptions ? { createCanonicalOptions: args.createCanonicalOptions } : {}),
+    ...(args.createSpeedAuthority ? { createSpeedAuthority: args.createSpeedAuthority } : {}),
     ...(args.createMessageSupport === undefined
       ? {}
       : { createMessageSupport: args.createMessageSupport }),

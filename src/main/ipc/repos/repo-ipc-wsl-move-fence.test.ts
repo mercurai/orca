@@ -75,7 +75,7 @@ describe('folderWorkspaces:update under a WSL move', () => {
       createdFrom: 'folder-scan'
     })
     const workspace = store.createFolderWorkspace({ projectGroupId: group.id, name: 'notes' })
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       testState.dir,
       cutover('move-1', 'source-fenced', {}, { folderWorkspaceIds: [workspace.id] })
     )
@@ -112,7 +112,7 @@ describe('projects:update under a WSL move', () => {
   it('refuses a runtime preference change when a source repo is moving', async () => {
     store.addRepo(repo('repo-1'))
     store.addRepo(repo('repo-2'))
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
     registerRepoCatalogHandlers(new BrowserWindow(), store, { removeProject: vi.fn() })
     const projectFor = (repoId: string) =>
       store.getProjects().find((project) => project.sourceRepoIds.includes(repoId))
@@ -130,7 +130,7 @@ describe('projects:update under a WSL move', () => {
 describe('RuntimeRepositorySettingsController under a WSL move', () => {
   it('refuses a settings edit to a moving repo and writes nothing', async () => {
     store.addRepo(repo('repo-1'))
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
     const notifyReposChanged = vi.fn()
     const controller = new RuntimeRepositorySettingsController({
       getStore: () => store,

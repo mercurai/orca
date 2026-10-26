@@ -60,7 +60,7 @@ describe('projectGroups IPC validation', () => {
   })
 
   it('returns partial local scan results after cancellation', async () => {
-    vi.mocked(isGitRepo).mockReturnValue(false)
+    vi.mocked(isGitRepo).mockResolvedValue(false)
     const root = await mkdtemp(join(tmpdir(), 'orca-nested-local-cancel-'))
     try {
       await mkdir(join(root, 'api', '.git'), { recursive: true })

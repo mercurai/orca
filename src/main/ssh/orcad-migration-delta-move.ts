@@ -1,4 +1,12 @@
-/** Journal only additions made after conversion to the same server; retain the full journal chain and source rows. Stage conflicts leave the changed mark and source intact; uncertain outcomes keep the journal for resume. */
+/**
+ * The delta move: a fresh, journaled conversion of only what an older build added to a converted
+ * host, committed to the same managed server. Its journal supersedes the previous head of the
+ * host's chain; both stay, and the source rows of every manifest in the chain are kept.
+ *
+ * A row the server already holds under another identity fails the whole move at stage, before
+ * anything is committed: the journal goes, and the host keeps its "changed" mark and the relay.
+ * A move whose outcome the server can't confirm keeps its journal, and the next move resumes it.
+ */
 import {
   ORCAD_MIGRATION_SOURCE_CUTOVER_VERSION,
   type OrcadMigrationSourceCutover
@@ -52,11 +60,14 @@ type OrcadDeltaMoveArgs = {
   claims: SshTargetOrcadClaims
   target: SshTarget
   environment: KnownRuntimeEnvironment
-  /** Build the destination after opening its tunnel: re-pairing during open can replace commit credentials. */
+  /**
+   * Opens the tunnel and returns the destination built from the pairing it stands on, the only
+   * way to get one: a re-pair while it opens replaces the credentials a commit must carry.
+   */
   connectDestination: () => Promise<OrcadMigrationDestinationCatalog>
-  /** Host census proves exit or identifies terminals preserved by the legacy bridge. */
+  /** The census of the host's relay endpoints that must prove exit. */
   censusHost?: CensusHostRelayTerminals | null
-  /** Serialize journal-through-commit with all other lifecycle changes to this host. */
+  /** Serializes the journal write through the commit with every other change to this host. */
   runTargetLifecycle: <T>(targetId: string, operation: () => Promise<T>) => Promise<T>
   now?: () => Date
 }
@@ -65,7 +76,7 @@ export async function runOrcadDeltaMove(args: OrcadDeltaMoveArgs): Promise<Orcad
   const { userDataPath, store, target } = args
   const now = args.now ?? (() => new Date())
   const plan = planOrcadDeltaMove(userDataPath, store, target, { now })
-  // Capture baseline with the manifest before awaiting so both describe the same source.
+  // Taken with the manifest, before any await: the baseline must describe what the server receives.
   const planned = currentOrcadSourceFingerprint(store, target)
   if (!plan.resumes && plan.added.length === 0) {
     return refuse('orcad_delta_nothing_new', 'An older build added nothing new to move.')
@@ -77,7 +88,7 @@ export async function runOrcadDeltaMove(args: OrcadDeltaMoveArgs): Promise<Orcad
     }
   }
   if (!plan.resumes) {
-    // Reject before journaling or an unsendable delta could pin the fence permanently.
+    // Before the journal: a delta no request can carry would pin the host's fence for good.
     assertOrcadMigrationRequestFits({ manifest: plan.manifest })
   }
   const terminals = await assessOrcadMigrationTerminals(store, target.id, args.censusHost)
@@ -87,33 +98,34 @@ export async function runOrcadDeltaMove(args: OrcadDeltaMoveArgs): Promise<Orcad
   const settled: SettledTerminals = terminals
   retireProvenExitedLeases(store, target.id, terminals)
   return args.runTargetLifecycle(target.id, async () => {
-    // Another move may have journaled or finished while waiting for the lifecycle lock.
+    // Why re-checked: another move of this host may have journaled or finished while this waited.
     const changedAt = store.getSshTarget(target.id)?.orcadFence?.sourceChangedAt
     const head = findOrcadMigrationSourceCutoverForTarget(userDataPath, target.id)
     if (!changedAt || head?.migrationId !== (plan.resumes ?? plan.head).migrationId) {
       return refuse('orcad_delta_superseded', 'Another move of this host ran first.')
     }
-    // Source remains writable before fencing; edits during census must not silently become the manifest's baseline.
+    // The source stays writable until the fence below: a draft typed while the terminals were
+    // checked is newer than the manifest, so it must not become the baseline the server is held to.
     if (!plan.resumes && planned !== currentOrcadSourceFingerprint(store, target)) {
       return refuse(
         'orcad_delta_source_changed',
         'This host changed while the move was starting. Try the move again.'
       )
     }
-    const cutover = plan.resumes ?? journalDelta(args, plan, planned, settled, now)
+    const cutover = plan.resumes ?? (await journalDelta(args, plan, planned, settled, now))
     return commitDelta(args, plan, cutover, changedAt, now)
   })
 }
 
 type SettledTerminals = Extract<OrcadMigrationTerminalVerdict, { verdict: 'exited' | 'bridged' }>
 
-function journalDelta(
+async function journalDelta(
   args: OrcadDeltaMoveArgs,
   plan: OrcadDeltaMovePlan,
   planned: string,
   terminals: SettledTerminals,
   now: () => Date
-): OrcadMigrationSourceCutover {
+): Promise<OrcadMigrationSourceCutover> {
   const timestamp = now().toISOString()
   const cutover: OrcadMigrationSourceCutover = {
     version: ORCAD_MIGRATION_SOURCE_CUTOVER_VERSION,
@@ -130,11 +142,11 @@ function journalDelta(
     // COMPAT(legacy-relay-bridge): a move leaves relay terminals running for the bridge too.
     ...(terminals.verdict === 'bridged' ? { bridgedPtyIds: terminals.bridgedPtyIds } : {}),
     supersedesMigrationId: plan.head.migrationId,
-    // Retained rows must match the whole source captured with this manifest.
+    // The whole source as the manifest saw it: what the retained rows must keep matching.
     sourceBaselineFingerprint: planned,
     manifest: plan.manifest
   }
-  writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
+  await writeOrcadMigrationSourceCutover(args.userDataPath, cutover)
   return cutover
 }
 
@@ -146,16 +158,16 @@ async function commitDelta(
   now: () => Date
 ): Promise<OrcadDeltaMoveResult> {
   const { userDataPath, store, target } = args
-  // Clear the changed mark and freeze source for the move.
+  // The fence goes back without its "changed" mark: the source freezes for the move.
   store.updateSshTarget(target.id, { orcadFence: { environmentId: plan.environmentId } })
   await args.claims.flush()
-  // Record before any new/resumed commit so rollback cannot cross the migration.
-  recordManagedOrcadMigration(userDataPath, plan.environmentId, now().toISOString())
+  // Before any commit can land, resumed ones included: a rollback must not cross this move.
+  await recordManagedOrcadMigration(userDataPath, plan.environmentId, now().toISOString())
   let destination: OrcadMigrationDestinationCatalog
   try {
     destination = await args.connectDestination()
   } catch (error) {
-    // No request reached the server; keep the journal for later resume.
+    // Nothing reached the server this time; the journal stays for the next move to resume.
     await restoreChangedMark(args, cutover, changedAt)
     throw error
   }
@@ -185,7 +197,10 @@ async function commitDelta(
   return { outcome: 'moved', migrationId: cutover.migrationId }
 }
 
-/** Release only on proven destination absence; otherwise retain journal for resume. Restore the host's changed mark either way. */
+/**
+ * Undoes a delta only once the server provably holds nothing of it, so no row moves twice. One it
+ * may hold stays journaled for the next move to resume; either way the host gets its mark back.
+ */
 async function releaseUncommittedDelta(
   args: OrcadDeltaMoveArgs,
   context: OrcadMigrationCutoverContext,
@@ -195,9 +210,9 @@ async function releaseUncommittedDelta(
   const restoreMark = (): Promise<void> => restoreChangedMark(args, cutover, changedAt)
   try {
     const result = await abortOrcadMigrationCutover(context, cutover.migrationId, async () => {
-      // Restore the mark first so a crash during journal removal leaves a resumable marked host.
+      // Mark first: a crash before the journal goes leaves a marked host that resumes this delta.
       await restoreMark()
-      removeOrcadMigrationSourceCutover(args.userDataPath, cutover.migrationId)
+      await removeOrcadMigrationSourceCutover(args.userDataPath, cutover.migrationId)
     })
     return result.outcome === 'released' ? 'released' : 'committed'
   } catch {
@@ -217,7 +232,7 @@ async function restoreChangedMark(
   await args.claims.flush()
 }
 
-/** Keep older-build changes only in retained profile rows. */
+/** "Keep the server's version": the older build's changes stay only in the retained profile rows. */
 export async function keepOrcadServerVersion(args: {
   userDataPath: string
   store: Store
@@ -227,7 +242,7 @@ export async function keepOrcadServerVersion(args: {
   const environmentId = args.target.orcadFence?.environmentId
   const chain = listOrcadMigrationCutoverChainForTarget(args.userDataPath, args.target.id)
   if (unfinishedOrcadDelta(chain)) {
-    // Unfinished moves may already have copied rows; only commit/abort can decide.
+    // Its rows may be on the server already; only finishing or undoing the move can say.
     throw new Error('orcad_delta_move_unfinished')
   }
   const head = committedOrcadMigrationChain(chain).at(-1)
@@ -236,9 +251,9 @@ export async function keepOrcadServerVersion(args: {
   }
   const current = collectOrcadMigrationSourceCatalog(args.store, args.target)
   const unmoved = unmovedOrcadSourceRows(current, committedOrcadMigrationChain(chain))
-  writeOrcadMigrationSourceCutover(args.userDataPath, {
+  await writeOrcadMigrationSourceCutover(args.userDataPath, {
     ...withKeptOrcadSourceRows(head, unmoved),
-    // Explicit reconcile accepts the current retained source as the new baseline.
+    // Keeping the server's version is the explicit reconcile: the source as it is now is the baseline.
     sourceBaselineFingerprint: orcadCatalogFingerprint(current)
   })
   args.store.updateSshTarget(args.target.id, { orcadFence: { environmentId } })

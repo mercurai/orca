@@ -1,6 +1,10 @@
 // Keep unanswered sends in memory only for the sender and mounted views.
 
-import type { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-send-mutation'
+import type { CodexSpeedWireAuthority } from '../../../../shared/codex-speed-wire-authority'
+import type {
+  structuredAgentSessionMessageSendMutation,
+  structuredAgentSessionSendBody
+} from '../../../../shared/structured-agent-session-send-mutation'
 import type { AgentJournalCursor } from '../../../../shared/agent-session-journal-types'
 
 export type StructuredAgentSessionPendingSend = {
@@ -11,6 +15,11 @@ export type StructuredAgentSessionPendingSend = {
   queuedAt: number
   delivery?: 'queue-if-active'
   options?: Readonly<Record<string, string>>
+  /** Frozen after negotiation: an uncertain retry must retain the original idempotent request. */
+  wireRequest?: {
+    params: ReturnType<typeof structuredAgentSessionMessageSendMutation>
+    authority?: CodexSpeedWireAuthority
+  }
   usageLimitContinuationOfTurnItemId?: string
   /** Sending blocks new sends; recorded releases the slot but retains its echo until host rows/cards arrive. */
   phase: 'sending' | 'recorded'

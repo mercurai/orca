@@ -22,6 +22,11 @@ export const MAIN_BUILD_ENTRY_POINTS: Record<string, string> = {
   ),
   // libuv spawns inline; run port probes on a worker to keep the UI loop free.
   'port-scan-command-worker-entry': resolve('src/main/ports/port-scan-command-worker-entry.ts'),
+  // Why: git and runProcess spawns run on a worker thread so a cold CreateProcessW
+  // never blocks the UI loop.
+  'git-spawn-worker-entry': resolve('src/main/git/command-runner/git-spawn-worker-entry.ts'),
+  // Why (#27362): the Codex usage probe spawns on window focus; a cold
+  // CreateProcessW must not block the UI loop.
   // Focus-triggered usage probes must not block UI on cold CreateProcessW (#27362).
   'worker-thread-child-process-entry': resolve(
     'src/main/worker-thread-child-process/worker-thread-child-process-entry.ts'

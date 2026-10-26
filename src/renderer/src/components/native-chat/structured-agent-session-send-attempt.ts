@@ -1,5 +1,9 @@
 // Only agentSession.send mutates; stops during earlier local/read-only work prove the request never went out.
 
+import {
+  CodexSpeedSelectionError,
+  prepareCodexSpeedWireOptions
+} from '@/runtime/codex-speed-selection'
 import type {
   AgentJournalCursor,
   AgentJournalSubmission
@@ -88,6 +92,9 @@ const RUNTIME_ENVIRONMENT_CHANGED = 'runtime_environment_changed'
 
 /** Explain pre-request compatibility blocks, host refusals or lost contact as not sent. */
 function notSentParts(error: unknown): AgentSessionWriteNoticePart[] {
+  if (error instanceof CodexSpeedSelectionError) {
+    return [{ text: error.message }, 'notDoneSend']
+  }
   if (isRuntimeCompatBlockError(error) && error instanceof Error) {
     return [{ text: error.message }, 'notDoneSend']
   }
@@ -110,11 +117,21 @@ export async function attemptStructuredAgentSessionSend(args: {
     return { kind: 'not-sent', parts: [...AGENT_SESSION_MESSAGE_TOO_LARGE_PARTS] }
   }
   let fence: number | null
+  let prepared: Awaited<ReturnType<typeof prepareCodexSpeedWireOptions>>
   try {
     if (target.kind === 'environment') {
       await ensureRuntimeEnvironmentCompatible(target.environmentId)
     }
-    fence = await knownFence(target, entry.sessionId)
+    // Retry authorization is fresh, but the original request is never retranslated.
+    prepared = await prepareCodexSpeedWireOptions({
+      target,
+      sessionId: entry.sessionId,
+      options: entry.options,
+      frozenOptions: entry.wireRequest?.params.options
+    })
+    fence =
+      entry.wireRequest?.params.envelope.expectedRuntimeFence ??
+      (await knownFence(target, entry.sessionId))
   } catch (error) {
     return args.abandoned() ? null : { kind: 'not-sent', parts: notSentParts(error) }
   }
@@ -124,27 +141,39 @@ export async function attemptStructuredAgentSessionSend(args: {
   if (fence === null) {
     return { kind: 'not-sent', parts: NOT_SENT }
   }
+  if (!entry.wireRequest) {
+    entry.wireRequest = {
+      params: structuredClone(
+        structuredAgentSessionMessageSendMutation({
+          sessionId: entry.sessionId,
+          clientOperationId: entry.clientMessageId,
+          expectedRuntimeFence: fence,
+          body: entry.body,
+          ...(entry.delivery ? { delivery: entry.delivery } : {}),
+          ...(prepared.options ? { options: prepared.options } : {}),
+          ...(entry.usageLimitContinuationOfTurnItemId
+            ? { usageLimitContinuationOfTurnItemId: entry.usageLimitContinuationOfTurnItemId }
+            : {})
+        })
+      ),
+      ...(prepared.authority ? { authority: { ...prepared.authority } } : {})
+    }
+  }
+  const { params, authority } = entry.wireRequest
   args.beforeIssue()
-  const params = structuredAgentSessionMessageSendMutation({
-    sessionId: entry.sessionId,
-    clientOperationId: entry.clientMessageId,
-    expectedRuntimeFence: fence,
-    body: entry.body,
-    ...(entry.delivery ? { delivery: entry.delivery } : {}),
-    ...(entry.options ? { options: entry.options } : {}),
-    ...(entry.usageLimitContinuationOfTurnItemId
-      ? { usageLimitContinuationOfTurnItemId: entry.usageLimitContinuationOfTurnItemId }
-      : {})
-  })
   type SendAnswer = AgentSessionMutationResult<AgentSessionSendResult>
   let answer: StructuredAgentSessionSendAnswer
   try {
-    const result =
-      target.kind === 'environment'
-        ? await callStructuredAgentSession<SendAnswer>(target, 'agentSession.send', params, {
-            skipCompatibilityCheck: true
-          })
-        : await callStructuredAgentSession<SendAnswer>(target, 'agentSession.send', params)
+    // Checked above, so the request goes out now or not at all.
+    const result = await callStructuredAgentSession<SendAnswer>(
+      target,
+      'agentSession.send',
+      params,
+      {
+        ...(target.kind === 'environment' ? { skipCompatibilityCheck: true as const } : {}),
+        ...authority
+      }
+    )
     answer = { kind: 'result', result }
   } catch (error) {
     // Re-pairing errors are raised before forwarding, proving the request never went out.

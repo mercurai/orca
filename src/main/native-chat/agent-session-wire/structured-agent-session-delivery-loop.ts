@@ -3,6 +3,7 @@ import type { StructuredAgentSessionDeliveryLoopDeps } from './structured-agent-
 // serialization for startup/readiness/provider calls so acceptance and Stop stay responsive.
 // Recover earlier-process queued sends before any handover; running commands block input.
 
+import { speedOptionDeliveryFailure } from './structured-agent-session-speed-option-error'
 import { beginStructuredAgentSessionInputHandover } from './structured-agent-session-input-handover'
 import { agentSessionFailureFact } from '../../../shared/agent-session-failure'
 import { structuredAgentSessionStartFailure } from './structured-agent-session-failure-text'
@@ -144,13 +145,16 @@ export class StructuredAgentSessionDeliveryLoop {
         sessionId,
         error
       })
-      const cause = { hostFault: true } as const
       await this.deps
         .serialize(sessionId, async () => {
           try {
             const session = this.deps.sessions.get(sessionId)
             const selected = session && oldestQueuedSubmission(session)
-            await this.fail(sessionId, { startKey: null, cause }, selected?.clientMessageId ?? null)
+            await this.fail(
+              sessionId,
+              speedOptionDeliveryFailure(error),
+              selected?.clientMessageId ?? null
+            )
           } finally {
             this.stop(sessionId)
           }

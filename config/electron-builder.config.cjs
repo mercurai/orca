@@ -79,7 +79,10 @@ const isMacAdhoc = process.env.ORCA_MAC_ADHOC === '1'
 const isWinHourly = process.env.ORCA_WIN_HOURLY === '1'
 const isWinDaily = process.env.ORCA_WIN_DAILY === '1'
 const isWinAdhoc = process.env.ORCA_WIN_ADHOC === '1'
-const isWinDevChannel = isWinHourly || isWinDaily || isWinAdhoc
+// Why: the mercurai fork channel is Windows-only and unsigned, so it joins the Windows dev-channel
+// signing treatment but has no macOS counterpart.
+const isWinMercurai = process.env.ORCA_WIN_MERCURAI === '1'
+const isWinDevChannel = isWinHourly || isWinDaily || isWinAdhoc || isWinMercurai
 const isMacRelease = process.env.ORCA_MAC_RELEASE === '1' || isMacHourly || isMacDaily || isMacAdhoc
 const isLinuxArm64Release = process.env.ORCA_LINUX_ARM64_RELEASE === '1'
 const localBuildVersion =
@@ -87,13 +90,22 @@ const localBuildVersion =
 const isHourlyChannel = isMacHourly || isWinHourly
 const isDailyChannel = isMacDaily || isWinDaily
 const isAdhocChannel = isMacAdhoc || isWinAdhoc
+const isMercuraiChannel = isWinMercurai
 const devChannelBuildVersion = isHourlyChannel
   ? process.env.ORCA_HOURLY_BUILD_VERSION
   : isDailyChannel
     ? process.env.ORCA_DAILY_BUILD_VERSION
     : isAdhocChannel
       ? process.env.ORCA_ADHOC_BUILD_VERSION
-      : undefined
+      : isMercuraiChannel
+        ? process.env.ORCA_MERCURAI_BUILD_VERSION
+        : undefined
+// Why each dev channel gets its own repo rather than tagging into the main one:
+// the releases atom feed exposes only the 10 newest entries, so 24 hourly tags a
+// day would evict every stable/RC entry and strand users on a feed with nothing
+// to install. Keeping adhoc/daily separate from hourly too means a branch build
+// or a once-a-day cut cannot be picked up by someone who only meant to ride
+// main's hourlies.
 // Separate dev-channel repos: 24 hourly tags/day would evict stable/RC from the ten-entry release feed; isolate adhoc/daily from hourly subscribers too.
 const devChannelRepo = isHourlyChannel
   ? 'orca-hourly'
@@ -101,7 +113,9 @@ const devChannelRepo = isHourlyChannel
     ? 'orca-daily'
     : isAdhocChannel
       ? 'orca-adhoc'
-      : null
+      : isMercuraiChannel
+        ? 'orca-mercurai'
+        : null
 const appId = 'com.stablyai.orca'
 const featureWallResources = {
   from: 'resources/onboarding/feature-wall',
@@ -696,7 +710,8 @@ module.exports = {
   npmRebuild: true,
   publish: {
     provider: 'github',
-    owner: 'stablyai',
+    // Why: the mercurai channel publishes to the fork's own org; every other channel is upstream's.
+    owner: isMercuraiChannel ? 'mercurai' : 'stablyai',
     repo: devChannelRepo ?? 'orca',
     // Keep main-repo releases draft until release-cut verifies all assets; early --publish always would expose missing Windows installers.
     releaseType: devChannelRepo ? 'prerelease' : 'draft'

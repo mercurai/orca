@@ -40,6 +40,11 @@ export class AgentModelCatalogFailures {
     return false
   }
 
+  heldReasonDue(fingerprint: string): boolean {
+    return this.get(fingerprint)?.unavailable !== undefined && !this.isActive(fingerprint)
+  }
+
+  /** The account behind this agent's catalogs changed: every held failure is due for a re-probe. */
   expireAgent(agent: string): void {
     for (const [fingerprint, failure] of this.failures) {
       if (failure.agent === agent) {

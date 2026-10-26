@@ -16,9 +16,9 @@ function sessionStore(hostIds: ExecutionHostId[]) {
 }
 
 describe('reconciling orphaned runtime sessions at startup', () => {
-  it('drops only runtime sessions whose server is gone, never local or ssh', () => {
+  it('drops only runtime sessions whose server is gone, never local or ssh', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-session-reconcile-'))
-    const kept = addEnvironmentFromPairingCode(userDataPath, {
+    const kept = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'kept',
       pairingCode: pairingCode()
     })

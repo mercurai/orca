@@ -15,7 +15,11 @@ export const AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY =
 // Terminal create/ensure are strict: send accountEnv only to hosts advertising support.
 export const AGENT_SESSION_ACCOUNT_ENV_RUNTIME_CAPABILITY = 'agent-session.account-env.v1' as const
 
-// Send is strict: advertise skills before sending selected paths; name-based agents still use the $name text.
+/** Exact Codex speed IDs, next-turn admission, and safe legacy preference migration. */
+export const CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY =
+  'agent-session.codex-speed-selection.v1' as const
+// Why: the send body is a strict object, so an older host refuses `skills`. A host advertising this
+// hands each skill the user picked to the agent by its path; elsewhere the `$name` text stands alone.
 export const AGENT_SESSION_SEND_SKILLS_RUNTIME_CAPABILITY = 'agent-session.send-skills.v1' as const
 
 // Ensure is strict: send a resumed Claude session's effort only to hosts advertising support.
@@ -27,6 +31,7 @@ export const AGENT_SESSION_SEND_USAGE_LIMIT_CONTINUATION_RUNTIME_CAPABILITY =
 
 export const AGENT_SESSION_CREATE_RUNTIME_CAPABILITIES = [
   AGENT_SESSION_SEND_USAGE_LIMIT_CONTINUATION_RUNTIME_CAPABILITY,
+  CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_TAB_PLACEMENT_RUNTIME_CAPABILITY,
