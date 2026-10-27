@@ -11,6 +11,7 @@ on:
       # The token-scope and tag tests pin every fork workflow.
       - '.github/workflows/fork-*.yml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
     branches: [mercurai]
     paths:
       - 'config/mercurai/**'
@@ -27,7 +28,7 @@ concurrency:
 
 jobs:
   test:
-    if: github.repository == 'mercurai/orca'
+    if: github.repository == 'mercurai/orca' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

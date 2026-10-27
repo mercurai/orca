@@ -1684,7 +1684,7 @@ jobs:
     outputs:
       required_results: ${{ steps.qualification-evidence.outputs.required_results }}
     # Publish an explicit result after every required dependency settles.
-    if: ${{ !cancelled() && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft != true) }}
     needs:
       - code_paths
       - preflight
