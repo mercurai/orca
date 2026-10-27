@@ -81,7 +81,7 @@ function currentAttempt(db: OrchestrationDb, dispatchId: string) {
   }
   const entry = PiTaskAdmissionSchema.safeParse({
     taskId: admission.taskId, profileSha256: admission.profileSha256,
-    templatePath: admission.templatePath, reviewTaskId: admission.reviewTaskId,
+    exportTaskId: admission.exportTaskId, templatePath: admission.templatePath, reviewTaskId: admission.reviewTaskId,
     maxTokens: admission.maxTokens, maxOutputTokens: admission.maxOutputTokens,
     maxCostMicrousd: admission.maxCostMicrousd, deadlineUnixMs: admission.deadlineUnixMs,
     endpoint: admission.endpoint

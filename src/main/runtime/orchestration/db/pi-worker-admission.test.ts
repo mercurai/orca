@@ -35,7 +35,7 @@ function open(path = join(directory, 'orchestration.db')) {
 
 function fixture(options: { causal?: boolean } = {}) {
   const db = open()
-  const causal = options.causal ?? false
+  const causal = options.causal ?? true
   const run = db.createRun({
     objective: 'Pi admission regression',
     coordinatorHandle: COORDINATOR.terminalHandle,
@@ -150,10 +150,51 @@ describe('Pi admission at the durable worker-start boundary', () => {
         taskId: f.tasks[0].id,
         dispatchId: first.dispatch.id,
         profileSha256: f.config.tasks[0].profileSha256,
+        exportTaskId: f.config.tasks[0].exportTaskId,
         configSha256: accepted.configSha256
       }
     })
     expect(f.db.getWorkerDispatch(first.dispatch.id)?.stage).toBe('accepted')
+  })
+
+  it('refuses a missing export prerequisite before admission persistence', () => {
+    const f = fixture({ causal: false })
+    expect(() => f.configure()).toThrow(expect.objectContaining({
+      code: 'pi_admission_invalid', message: expect.stringContaining('export prerequisite')
+    }))
+    expect(f.db.db.prepare('SELECT 1 FROM run_pi_worker_admission WHERE run_id = ?').get(f.run.id)).toBeUndefined()
+    expect(() => f.start(0)).toThrow(expect.objectContaining({ code: 'pi_admission_required' }))
+    expect(f.db.getDispatchContext(f.tasks[0].id)).toBeUndefined()
+  })
+
+  it('rejects malformed export and review dependency rows without persistence or Dispatch creation', () => {
+    const malformed: Array<{ label: string; make: (required: string[]) => string }> = [
+      { label: 'invalid JSON', make: () => '{"' },
+      { label: 'scalar', make: () => JSON.stringify(42) },
+      { label: 'boolean scalar', make: () => JSON.stringify(false) },
+      { label: 'null', make: () => JSON.stringify(null) },
+      { label: 'object', make: () => JSON.stringify({ dependency: 'not-an-array' }) },
+      { label: 'string', make: () => JSON.stringify('not-an-array') },
+      { label: 'mixed null', make: (required) => JSON.stringify([...required, null]) },
+      { label: 'mixed object', make: (required) => JSON.stringify([...required, { dependency: required[0] }]) },
+      { label: 'mixed empty string', make: (required) => JSON.stringify([...required, '']) }
+    ]
+    for (const target of ['export', 'review'] as const) {
+      for (const { label, make } of malformed) {
+        const f = fixture()
+        const exportTask = f.sourceExports[0]
+        const required = target === 'export' ? [f.tasks[0].id] : [f.tasks[0].id, exportTask.id]
+        const taskId = target === 'export' ? exportTask.id : f.reviews[0].id
+        f.db.db.prepare('UPDATE tasks SET deps = ? WHERE id = ?').run(make(required), taskId)
+
+        expect(() => f.configure(), `${target} ${label}`).toThrow(expect.objectContaining({
+          code: 'pi_admission_invalid', message: expect.stringContaining('export prerequisite')
+        }))
+        expect(f.db.db.prepare('SELECT 1 FROM run_pi_worker_admission WHERE run_id = ?').get(f.run.id)).toBeUndefined()
+        expect(() => f.start(0)).toThrow(expect.objectContaining({ code: 'pi_admission_required' }))
+        expect(f.db.getDispatchContext(f.tasks[0].id)).toBeUndefined()
+      }
+    }
   })
 
   it('shares the two slots between local and federated starts', () => {
@@ -250,6 +291,9 @@ describe('Pi admission at the durable worker-start boundary', () => {
       })).toMatchObject({ action: 'settled', duplicate: false })
     }
     expect(() => f.start(2, f.db, { pendingReviews: 0 })).toThrow(/review/i)
+    expect(f.db.getTask(f.reviews[0].id)?.status).toBe('pending')
+    f.db.updateTaskStatus(f.sourceExports[0].id, 'completed', 'coordinator source export completed')
+    expect(f.db.getTask(f.reviews[0].id)?.status).toBe('ready')
     f.db.updateTaskStatus(f.reviews[0].id, 'completed', 'independent review accepted')
     expect(f.start(2).worker.state).toBe('starting')
   })
@@ -331,6 +375,9 @@ describe('coordinator-owned Pi admission configuration', () => {
         outcome: 'succeeded',
         result: 'pilot patch ready'
       })).toMatchObject({ action: 'settled', duplicate: false })
+      expect(f.db.getTask(f.reviews[index].id)?.status).toBe('pending')
+      f.db.updateTaskStatus(f.sourceExports[index].id, 'completed', 'coordinator source export completed')
+      expect(f.db.getTask(f.reviews[index].id)?.status).toBe('ready')
       f.db.updateTaskStatus(f.reviews[index].id, 'completed', 'independent pilot review accepted')
     }
     const pilotTask = f.db.createTask({
@@ -361,6 +408,9 @@ describe('coordinator-owned Pi admission configuration', () => {
         outcome: 'succeeded',
         result: 'non-Pi patch ready'
       })).toMatchObject({ action: 'settled', duplicate: false })
+      expect(f.db.getTask(f.reviews[index].id)?.status).toBe('pending')
+      f.db.updateTaskStatus(f.sourceExports[index].id, 'completed', 'coordinator source export completed')
+      expect(f.db.getTask(f.reviews[index].id)?.status).toBe('ready')
       f.db.updateTaskStatus(f.reviews[index].id, 'completed', 'review accepted')
     }
     const pilotTask = f.db.createTask({

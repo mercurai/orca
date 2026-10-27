@@ -2,7 +2,10 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentJournalSubmission } from '../../../../shared/agent-session-journal-types'
 import type { AgentMessageSource } from '../../../../shared/agent-session-message-source'
-import { isAgentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
+import {
+  agentSessionRefusalError,
+  isAgentSessionRefusalError
+} from '../../../../shared/agent-session-wire-refusals'
 import { getAppEnvironment } from '../../../../shared/app-environment'
 import { DISPATCH_REJECTED_WRITE_FAILED } from '../../../../shared/structured-agent-session-dispatch-rejection'
 
@@ -139,22 +142,31 @@ describe('structured worker session', () => {
     // `commit` answers this after `attach` SUCCEEDED and only the tab publish failed, so the
     // provider child is live. Reading it as "refused, nothing created" strands that child with no
     // binding, and nothing else in the runtime ever retires it.
-    createSpy.mockImplementation(async () => ({
-      ok: false,
-      refusal: {
-        code: 'agent_session_operation_unknown',
-        message: 'The chat may have been created, but its tab could not be confirmed.'
-      }
-    }))
-    await expect(
-      createStructuredWorkerSession({
-        runtime: { ensureStructuredAgentSessionHost: async () => {} } as never,
-        worktreeId: 'wt_1',
-        agent: 'claude',
-        dispatchId: 'd_unknown',
-        onJournalActivity: () => {}
-      })
-    ).rejects.toThrow(/was refused/)
+    const refusal = agentSessionRefusalError(
+      'agent_session_operation_unknown',
+      { reason: 'tabUnconfirmed' },
+      'The chat may have been created, but its tab could not be confirmed.'
+    ).refusal
+    createSpy.mockImplementation(async () => ({ ok: false, refusal }))
+    const error = await createStructuredWorkerSession({
+      runtime: { ensureStructuredAgentSessionHost: async () => {} } as never,
+      worktreeId: 'wt_1',
+      agent: 'claude',
+      dispatchId: 'd_unknown',
+      onJournalActivity: () => {}
+    }).catch((thrown: unknown) => thrown)
+    expect(isAgentSessionRefusalError(error)).toBe(true)
+    expect(error).not.toHaveProperty('code')
+    if (!isAgentSessionRefusalError(error)) {
+      throw error
+    }
+    expect(error.message).toBe('agent_session_operation_unknown')
+    expect(error.refusal).toEqual(refusal)
+    expect(error.refusal).toMatchObject({
+      code: 'agent_session_operation_unknown',
+      message: 'The chat may have been created, but its tab could not be confirmed.',
+      details: { reason: 'tabUnconfirmed' }
+    })
     expect(closed).toHaveLength(1)
     expect(structuredWorkerIdentities.getBySessionId(closed[0]!)).toBeNull()
   })

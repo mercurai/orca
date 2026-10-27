@@ -18,7 +18,25 @@ describe('worker start outcome classification', () => {
     )
 
     expect(error).not.toHaveProperty('code')
+    expect(error.refusal).toMatchObject({
+      code: 'agent_session_operation_unknown',
+      message: 'The chat may have been created, but its tab could not be confirmed.',
+      details: { reason: 'tabUnconfirmed' }
+    })
     expect(isUnknownWorkerStartOutcome(error, 'dispatch_input')).toBe(true)
+    expect(isUnknownWorkerStartOutcome(error, 'worktree_create')).toBe(true)
+  })
+
+  it('keeps a typed definitive refusal definite at every stage', () => {
+    const error = agentSessionRefusalError(
+      'structured_agent_session_unsupported',
+      { reason: 'hostUnsupported' },
+      'Orca cannot open a structured agent chat for this workspace.'
+    )
+
+    expect(error).not.toHaveProperty('code')
+    expect(isUnknownWorkerStartOutcome(error, 'dispatch_input')).toBe(false)
+    expect(isUnknownWorkerStartOutcome(error, 'worktree_create')).toBe(false)
   })
 
   it('treats a lost connection during worktree create as unknown', () => {

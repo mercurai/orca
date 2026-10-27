@@ -13,6 +13,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { isDefinitiveAgentSessionCreateRefusal } from '../../../../shared/agent-session-definitive-refusal'
+import { AgentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import type { AgentMessageSource } from '../../../../shared/agent-session-message-source'
 import type {
   AgentJournalMessageItem,
@@ -141,10 +142,7 @@ export async function createStructuredWorkerSession(args: {
       activate: false
     })
     if (!created.ok) {
-      throw new OrchestrationError(
-        'agent_unconfigured',
-        `The structured ${args.agent} session for this worker was refused: ${created.refusal.message}`
-      )
+      throw new AgentSessionRefusalError(created.refusal)
     }
     const host = requireInstalledHost()
     const record = host.deps.store.getRecord(sessionId)

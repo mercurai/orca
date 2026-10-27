@@ -35,7 +35,8 @@ function fixture() {
     coordinatorPaneKey: 'tab_coord:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   })
   const task = db.createTask({ runId: run.id, spec: 'Bounded implementation' })
-  const review = db.createTask({ runId: run.id, spec: 'Independent review', deps: [task.id] })
+  const exportTask = db.createTask({ runId: run.id, spec: 'Coordinator-owned source export', deps: [task.id] })
+  const review = db.createTask({ runId: run.id, spec: 'Independent review', deps: [task.id, exportTask.id] })
   const ci = db.createTask({ runId: run.id, spec: 'CI ready' })
   const gate = db.createGate({ taskId: ci.id, question: 'Admit?' })
   db.resolveGate(gate.id, 'approved')
@@ -70,7 +71,7 @@ function fixture() {
         broker: { path: brokerPath, sha256: brokerBytesSha256 }
       },
       tasks: [{
-        taskId: task.id, reviewTaskId: review.id, templatePath,
+        taskId: task.id, exportTaskId: exportTask.id, reviewTaskId: review.id, templatePath,
         profileSha256: templateBytesSha256, maxTokens: 10000, maxOutputTokens: 1000,
         maxCostMicrousd: 2000000, deadlineUnixMs: Number.MAX_SAFE_INTEGER,
         endpoint: { id: 'qualified-endpoint', inputMicrousdPerMillion: 1000, outputMicrousdPerMillion: 2000 }
@@ -121,7 +122,7 @@ function fixture() {
   const prepare = async () => (await packageApi()).preparePiWorkerPackage({
     db, dispatchId: started.dispatch.id, privateRoot, runBroker
   })
-  return { prepare, started, task, run, templatePath, brokerPath, templateBytesSha256, brokerBytesSha256, privateRoot, runBroker, owner }
+  return { prepare, started, task, exportTask, run, templatePath, brokerPath, templateBytesSha256, brokerBytesSha256, privateRoot, runBroker, owner }
 }
 
 function installHostCliFixture(f: ReturnType<typeof fixture>): () => void {
@@ -148,6 +149,7 @@ describe('Pi package composition at the reserved Dispatch', () => {
   it('binds and provisions the exact reserved owner with three distinct hash meanings', async () => {
     const f = fixture()
     const prepared = await f.prepare()
+    expect(JSON.parse(f.started.worker.start_options).piAdmission.exportTaskId).toBe(f.exportTask.id)
     expect(f.runBroker.mock.calls.map(([command]) => command.args[1])).toEqual(['bind', 'provision', 'verify'])
     expect(f.runBroker.mock.calls[0][0].input).toMatchObject({
       owner: f.owner, template_bytes_sha256: f.templateBytesSha256,
@@ -161,6 +163,19 @@ describe('Pi package composition at the reserved Dispatch', () => {
     expect(JSON.parse(db.getWorkerDispatch(f.started.dispatch.id)!.start_options)).toMatchObject({
       piPackage: { finalProfileSemanticSha256: FINAL_SEMANTIC_HASH }
     })
+  })
+
+  it('requires the persisted export identity before broker execution', async () => {
+    const f = fixture()
+    await f.prepare()
+    const brokerCalls = f.runBroker.mock.calls.length
+    const options = JSON.parse(db.getWorkerDispatch(f.started.dispatch.id)!.start_options)
+    delete options.piAdmission.exportTaskId
+    db.db.prepare('UPDATE worker_dispatches SET start_options = ? WHERE dispatch_id = ?')
+      .run(JSON.stringify(options), f.started.dispatch.id)
+
+    await expect(f.prepare()).rejects.toMatchObject({ code: 'pi_package_invalid' })
+    expect(f.runBroker).toHaveBeenCalledTimes(brokerCalls)
   })
 
   it.each(['template', 'broker'])('rejects changed %s bytes before executing the broker', async (changed) => {

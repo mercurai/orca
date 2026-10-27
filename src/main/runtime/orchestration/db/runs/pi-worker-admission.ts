@@ -42,7 +42,13 @@ function invalid(message: string): never {
 
 function parseConfig(value: unknown): PiWorkerAdmissionConfig {
   const parsed = PiWorkerAdmissionConfigSchema.safeParse(value)
-  if (!parsed.success) invalid('Invalid Pi admission configuration fields or priced budget.')
+  if (!parsed.success) {
+    const hasMissingExportPrerequisite = parsed.error.issues.some((issue) =>
+      issue.path[0] === 'tasks' && issue.path[2] === 'exportTaskId'
+    )
+    if (hasMissingExportPrerequisite) invalid('Pi admission requires an explicit export prerequisite for each implementation.')
+    invalid('Invalid Pi admission configuration fields or priced budget.')
+  }
   return parsed.data
 }
 
@@ -65,13 +71,27 @@ function requireAcceptedGate(db: OrchestrationDb, runId: string, gateId: string,
   return gate
 }
 
+function taskDependsOn(task: TaskRow, dependencyId: string): boolean {
+  try {
+    const dependencies: unknown = JSON.parse(task.deps)
+    return Array.isArray(dependencies) &&
+      dependencies.every((dependency) => typeof dependency === 'string' && dependency.length > 0) &&
+      dependencies.includes(dependencyId)
+  } catch {
+    return false
+  }
+}
+
 function validateTaskLinks(db: OrchestrationDb, runId: string, config: PiWorkerAdmissionConfig) {
   for (const entry of config.tasks) {
     const task = db.getTask(entry.taskId)
+    const exportTask = db.getTask(entry.exportTaskId)
     const review = db.getTask(entry.reviewTaskId)
-    if (!task || task.run_id !== runId || !review || review.run_id !== runId ||
-      review.id === task.id || !JSON.parse(review.deps).includes(task.id)) {
-      invalid('Pi admission requires a same-Run implementation and linked independent review task.')
+    if (!task || task.run_id !== runId || !exportTask || exportTask.run_id !== runId ||
+      !review || review.run_id !== runId || new Set([task.id, exportTask.id, review.id]).size !== 3 ||
+      !taskDependsOn(exportTask, task.id) || !taskDependsOn(review, task.id) ||
+      !taskDependsOn(review, exportTask.id)) {
+      invalid('Pi admission requires a same-Run implementation, export prerequisite depending on it, and independent review depending on both.')
     }
     if (entry.deadlineUnixMs <= Date.now()) invalid('Pi admission task deadline has expired.')
   }

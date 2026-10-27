@@ -8,6 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AgentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import { setStructuredAgentSessionHost } from '../../../native-chat/agent-session-wire/structured-agent-session-registry'
 import { OrcaRuntimeService } from '../../orca-runtime'
 import type { OrchestrationDb } from '../../orchestration/db'
@@ -313,15 +314,22 @@ describe('structured worker discard retires the chat tab', () => {
       return { ok: false, refusal: { code: 'agent_session_operation_unknown', message: 'unknown' } }
     })
 
-    await expect(
-      createStructuredWorkerSession({
-        runtime,
-        worktreeId: WORKTREE,
-        agent: 'claude',
-        dispatchId: 'd_discard',
-        onJournalActivity: () => {}
-      })
-    ).rejects.toThrow(/was refused/)
+    const creation = createStructuredWorkerSession({
+      runtime,
+      worktreeId: WORKTREE,
+      agent: 'claude',
+      dispatchId: 'd_discard',
+      onJournalActivity: () => {}
+    })
+    await expect(creation).rejects.toBeInstanceOf(AgentSessionRefusalError)
+    await expect(creation).rejects.toMatchObject({
+      message: 'agent_session_operation_unknown',
+      refusal: {
+        code: 'agent_session_operation_unknown',
+        message: 'unknown'
+      }
+    })
+    await expect(creation).rejects.not.toHaveProperty('code')
 
     expect(close).toHaveBeenCalledWith(createdSessionId, 'evict')
     expect(await structuredTabIds(runtime)).toEqual([])

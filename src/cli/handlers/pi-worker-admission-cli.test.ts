@@ -16,7 +16,7 @@ const CONFIG = {
   maxWorkers: 2,
   ciGateId: 'gate_ci',
   tasks: [{
-    taskId: 'task_implementation', reviewTaskId: 'task_review', profileSha256: PROFILE,
+    taskId: 'task_implementation', exportTaskId: 'task_export', reviewTaskId: 'task_review', profileSha256: PROFILE,
     maxTokens: 10000, maxOutputTokens: 1000, maxCostMicrousd: 2000000,
     deadlineUnixMs: Number.MAX_SAFE_INTEGER,
     endpoint: { id: 'qualified-endpoint', inputMicrousdPerMillion: 1000, outputMicrousdPerMillion: 2000 }
@@ -65,6 +65,17 @@ describe('Pi admission CLI routing', () => {
   it('rejects malformed policy content without an RPC mutation', async () => {
     const path = join(directory, 'invalid.json')
     writeFileSync(path, JSON.stringify({ ...CONFIG, tasks: [{ ...CONFIG.tasks[0], maxTokens: -1 }] }))
+    await expect(invoke([
+      'orchestration', 'pi-admission', 'configure', '--run', 'run_pi', '--from', 'term_coord',
+      '--generation', '4', '--config', path
+    ])).rejects.toMatchObject({ code: 'invalid_argument', message: expect.stringContaining('Pi admission') })
+    expect(call).not.toHaveBeenCalled()
+  })
+
+  it('rejects a missing export prerequisite before RPC', async () => {
+    const path = join(directory, 'missing-export.json')
+    const { exportTaskId: _exportTaskId, ...taskWithoutExport } = CONFIG.tasks[0]
+    writeFileSync(path, JSON.stringify({ ...CONFIG, tasks: [taskWithoutExport] }))
     await expect(invoke([
       'orchestration', 'pi-admission', 'configure', '--run', 'run_pi', '--from', 'term_coord',
       '--generation', '4', '--config', path

@@ -16,6 +16,7 @@ export const PiWorkerArtifactsSchema = z.object({
 
 export const PiTaskAdmissionSchema = z.object({
   taskId: z.string().min(1),
+  exportTaskId: z.string().min(1),
   profileSha256: PiProfileSha256,
   templatePath: ArtifactPath.optional(),
   reviewTaskId: z.string().min(1),
@@ -49,6 +50,9 @@ export const PiWorkerAdmissionConfigSchema = z.object({
 ).refine(
   (config) => new Set(config.tasks.map((task) => task.reviewTaskId)).size === config.tasks.length,
   'Each implementation requires its own review task'
+).refine(
+  (config) => new Set(config.tasks.map((task) => task.exportTaskId)).size === config.tasks.length,
+  'Each implementation requires its own export task'
 )
 
 export type PiWorkerAdmissionConfig = z.infer<typeof PiWorkerAdmissionConfigSchema>

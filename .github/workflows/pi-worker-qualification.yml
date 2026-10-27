@@ -62,6 +62,7 @@ jobs:
           src/main/runtime/orchestration/preamble-pi.test.ts
           src/main/runtime/rpc/methods/orchestration-structured-worker-session.test.ts
           src/main/runtime/rpc/methods/orchestration/worker/worker-start-outcome-classification.test.ts
+          src/main/runtime/rpc/methods/structured-worker-tab-retirement.test.ts
           --maxWorkers=2
       - name: Typecheck Node and CLI integration
         id: types

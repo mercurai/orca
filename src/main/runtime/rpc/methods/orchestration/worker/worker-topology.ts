@@ -1,4 +1,5 @@
 import type { AgentLaunchPreferences } from '../../../../../../shared/agent-session-host-authority'
+import { isAgentSessionRefusalError } from '../../../../../../shared/agent-session-wire-refusals'
 import { narrowStructuredLaunchSeedOptions } from '../../../../../../shared/native-chat-session-option-defaults'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import type { OrcaRuntimeService } from '../../../../orca-runtime'
@@ -194,6 +195,12 @@ export function monitorWorkerSetup(args: {
 }
 
 export function isUnknownWorkerStartOutcome(error: unknown, stage: string): boolean {
+  if (
+    isAgentSessionRefusalError(error) &&
+    error.refusal.code === 'agent_session_operation_unknown'
+  ) {
+    return true
+  }
   const code =
     error && typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
       ? (error as { code: string }).code
