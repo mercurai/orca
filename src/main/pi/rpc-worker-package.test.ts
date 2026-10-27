@@ -19,7 +19,13 @@ const model = {
   id: workerPackage.model,
   contextWindow: workerPackage.contextWindow
 }
-const tools = ['harness_create', 'harness_read', 'harness_search', 'harness_write']
+const tools = [
+  'harness_create',
+  'harness_read',
+  'harness_search',
+  'harness_write',
+  'harness_report'
+]
 const command = {
   type: 'command',
   name: 'harness-ready',
@@ -180,22 +186,25 @@ describe('Pi admitted package readiness', () => {
     { model: { harness: 'pi', gateway: 'openrouter', id: 'other-model' } },
     { model: { ...receipt().model, context_window: 131_072 } },
     { model: { ...receipt().model, context_window: undefined } },
+    { tools: tools.slice(0, 4) },
+    { tools: [...tools.slice(0, 4), 'harness_report_replacement'] },
     { tools: [...tools, 'bash'] },
     { tools: tools.slice(1) },
     { tools: [...tools, tools[0]] },
     { tool_exposure: 'extension-visible' },
     { mcp_servers: 1 }
-  ])('refuses a mismatched readiness receipt: %j', async (changed) => {
+  ])('refuses a mismatched readiness receipt before sending the task prompt: %j', async (changed) => {
     const h = await setup()
     h.transformReceipt.mockImplementation((value) => ({ ...value, ...changed }))
     await expect(h.adapter.acquire(h.input)).rejects.toThrow()
     expect(h.sent).toEqual([])
   })
 
-  it('admits the task only after the pinned command and nonce-bound receipt agree', async () => {
+  it('admits the task only after the exact five-tool receipt agrees', async () => {
     const h = await setup()
     const acquired = await h.adapter.acquire(h.input)
     expect(h.prepareWorkerPackage).toHaveBeenCalledExactlyOnceWith(sessionId, acquired.acquisitionGeneration)
+    expect(h.order).toEqual(['readiness'])
     const prompt = h.requests.find((request) => request.command === 'prompt')
     expect(prompt?.params?.message).toBe('/harness-ready ' + JSON.stringify({
       schema: 'harness.pi-ready.request.v1',

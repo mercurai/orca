@@ -180,6 +180,7 @@
     "../src/main/provider-process/provider-executable-missing.ts",
     "../src/main/provider-process/provider-process-close.ts",
     "../src/main/provider-process/provider-process-launch.ts",
+    "../src/main/pi/rpc-worker-environment.ts",
     "../src/main/provider-process/provider-process-supervisor.ts",
     "../src/main/provider-process/provider-process-teardown.ts",
     "../src/main/provider-process/provider-spawn-failure-report.ts",
