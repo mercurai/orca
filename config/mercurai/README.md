@@ -1,32 +1,38 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-27.
 
 ## Current candidate registration
 
 The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
-(`041baf356b368d773f333e76375ce860fba2481b`). The remote patch
+(`041baf356b368d773f333e76375ce860fba2481b`). The patch
 `patch/current-main-release-823ca` is provisionally pinned to
-`6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49`, seven commits after that official
-ancestor, tree `c9da81a8a8146706a15448b59b4c6c6ba5621f0a`. PR
+`eba9a02316ac3dcb9056085aad9ab438af45aa35`, nine commits after that official
+ancestor, tree `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`. PR
 [#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
-The initial `c777bcfc` baseline reproduced the reviewed speed and WSL defects.
-Source `3ddf868540` cleared the targeted suite to 1,317 passed and 16 skipped,
-while full PR CI exposed type/lint integration failures. The migration baseline
-`03094fa753` then reproduced eight journal ordering/idempotency failures.
-Current `065d0b6103` includes independently reviewed type/lint and durable journal
-corrections. Targeted [40442414377](https://github.com/mercurai/orca/actions/runs/40442414377)
-and fresh full PR CI remain pending; no earlier receipt approves this pin.
-Controlled package-version injection must reconcile the stable floor explicitly.
+The initial baseline reproduced speed, WSL and journal integration defects.
+Source `065d0b6103` cleared all 99 Windows files: 1,349 tests passed and 16 skipped.
+Both deterministic cost jobs and 25 contracts passed. Source `6941c6cd4a` also
+passed real WSL, dependency isolation/typecheck, mobile bundle, lint, formatting
+and flaky-test ratchet checks; its full PR stopped at one duplicate-import warning.
+Source `d83942ea1a` passed all 99 Windows files again, both cost jobs and 25
+contracts. Its full PR [40447857412](https://github.com/mercurai/orca/actions/runs/40447857412)
+failed on two runtime-test type assertions. Independently reviewed `eba9a02316`
+replaces them with Zod response validation and a direct property-absence check.
+This source commit is local pending the shared push slot; fresh CI remains required.
+No earlier receipt qualifies this revision. The canonical build-version override
+must reconcile the stable floor and the reserved Mercurai version during packaging.
 
 The controller script suite passed 387 tests plus nine template checks at
 `92cb523b68`, but platform checks exposed incomplete dependencies from copying
 modern workflows onto an older checkout. The reviewed coherent controller merge
 now brings in the complete frozen official snapshot while preserving Mercurai
-policy/token boundaries. Its CI remains required. The fork lint pin follows
+policy/token boundaries. Its dedicated suite passed 387 Node tests and nine template checks at `38eb9af8b1`.
+The reviewed tag-only addition has an expected RED baseline (397 passed, 15 failed);
+complete GREEN and full controller CI remain required. The fork lint pin follows
 that snapshot's lockfile version. Promotion and recurring activation remain disabled.
 See the [authoritative plan](plans/2026-10-24-release-automation.md) for exact
 source/CI evidence, ownership and remaining rollout gates.
@@ -44,6 +50,23 @@ source/CI evidence, ownership and remaining rollout gates.
 Tags: upstream's tags are mirrored as they are; mercurai releases are `v<upstream>-mercurai.N`.
 Upstream cuts its tags on release branches, not on `main`, so "merged upstream" is always judged
 against the tag being rebased onto, never against `main`.
+
+## Mirror a reviewed stable floor for a main-snapshot candidate
+
+After this controller lands, mirror the owner-reviewed upstream tag with the explicit
+single-tag mode. The `allow_tag` SHA is the peeled upstream commit recorded by review.
+For the currently frozen floor:
+
+```bash
+gh workflow run fork-sync-upstream.yml --repo mercurai/orca --ref mercurai   -f mirror_tag_only=true   -f allow_tag=v1.4.241@041baf356b368d773f333e76375ce860fba2481b
+```
+
+This protected default-branch operation preserves the frozen patch basis. It runs the
+existing pinned-tag validator and mirror while suppressing main/default/other-ref writes,
+rebase handoffs and issue writes. Use `dry_run=true` to rehearse with no enabled write route.
+An absent pin, conflicting branch/guarded-main options or invalid mode fails before push
+authorization. The default `mirror_tag_only=false` retains ordinary sync behavior.
+The Mercurai candidate is qualified and released through the separate assembly workflow.
 
 ## The series: `config/mercurai/patches.yaml`
 

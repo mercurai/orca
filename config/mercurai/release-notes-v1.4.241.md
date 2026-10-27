@@ -15,9 +15,9 @@ before final independent review and preserve it through qualification and taggin
 - Frozen official main: `823ca6870fd46bc979ee073ee0731516a0607daa`.
 - Stable floor: `v1.4.241`, peeled commit
   `041baf356b368d773f333e76375ce860fba2481b`.
-- Provisional linear candidate: `6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49`,
-  draft [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `c9da81a8a8146706a15448b59b4c6c6ba5621f0a`; final review and qualification pending.
+- Provisional linear candidate: `eba9a02316ac3dcb9056085aad9ab438af45aa35`,
+  [#82](https://github.com/mercurai/orca/pull/82).
+- Tree: `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`; latest test-only correction is local; final qualification pending.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its
@@ -35,6 +35,8 @@ must reconcile the stable floor explicitly before packaging.
   fences. The new WSL focus path uses serialized async persistence and guarded
   reconnects; targeted CI cleared the reproduced wake/revocation regressions.
   This draft makes no measured responsiveness or memory improvement claim.
+- Preserve migration enable intent durably before disabling its source copy; await
+  acknowledgements without resurrecting concurrently cleared automation intent.
 - Admit publication through the complete required PR matrix, authenticated
   owner acceptance of independent review, and immutable monotonic publication.
   These controller repairs remain unqualified and disabled.
@@ -44,8 +46,11 @@ must reconcile the stable floor explicitly before packaging.
 1. Verify the independently reviewed saved-model binding correction in fresh CI.
    Source3dd passed 1,317 targeted tests with16skipped, but full CI reopened type/lint
    errors. Source065d includes those repairs and durable migration journal corrections.
-   Targeted run40442414377 and full PR CI remain pending. Source registration and
-   independent source review alone do not qualify the release.
+   Source065d targeted run40442414377 passed 1,349 tests with 16 skipped. Source
+   d839 repeated that result in40447857538; its full40447857412 failed two runtime-test
+   type assertions. Reviewed localeba9 replaces those assertions with checked parsing
+   and a direct absence check; fresh exact-head CI is required. Source registration
+   and independent review alone do not qualify the release.
 2. Pass targeted behavioral checks and the complete required matrix at the exact
    candidate, including every planned unit/layout shard. Record advisory results
    separately; Windows D7 is outside the required layout call.

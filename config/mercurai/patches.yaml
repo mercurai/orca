@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: 6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49
+    commit: eba9a02316ac3dcb9056085aad9ab438af45aa35
     owner: harness
     added: 2026-10-25
     tests:
@@ -184,6 +184,7 @@ patches:
       - src/main/runtime/runtime-managed-worktree-metadata-wsl-move.test.ts
       - src/main/runtime/runtime-provisioned-root-adoption.test.ts
       - src/main/runtime/runtime-rpc-relay-provider-install.test.ts
+      - src/main/runtime/runtime-rpc-mobile-terminal-streaming.test.ts
       - src/main/ssh/orcad-migration-cutover-journal.test.ts
       - src/main/ssh/orcad-migration-delta-move.test.ts
       - src/main/ssh/orcad-migration-delta-snapshot.test.ts
@@ -251,9 +252,9 @@ patches:
       - src/shared/native-chat-session-option-defaults.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
     notes: >-
-      Candidate 6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49 is seven linear commits
+      Candidate eba9a02316ac3dcb9056085aad9ab438af45aa35 is nine linear commits
       after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      c9da81a8a8146706a15448b59b4c6c6ba5621f0a. Source PR82 supersedes
+      dacfbec5ce4e6a8efdaed4e804c15dcaba480a64. Source PR82 supersedes
       historical PR79 preparation. Initial linear c777bcfc had the identical tree
       as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
       The frozen stable floor is v1.4.241, peeled commit
@@ -269,8 +270,12 @@ patches:
       journal-ordering failures and two existing idempotency failures. This pin adds
       independently reviewed typing/lint repairs and awaited serialized journal intent
       and acknowledgment updates. Source065d run40442414377 passed1349tests/16skip across99Windowsfiles, with
-      bothcostjobs and25contracts green. Current6941 adds only independently reviewed
-      formatting in fivefiles after fullPR found those format errors; fresh CI is pending.
+      both cost jobs and 25 contracts green. Prior6941 fixed formatting in five files;
+      sourced839 combines two catalog imports and passed targeted40447857538:
+      1349Windows tests/16skip, both cost jobs and25contracts. Full40447857412
+      failed on two runtime-test type assertions. Currenteba9 replaces them with
+      Zod response validation and a direct property-absence check; independently
+      reviewed, scoped formatting passed, fresh exact-head CI pending.
       No prior receipt approves this pin. Independent bounded reviews accepted the
       WSL, speed/model-binding and journal corrections; final qualification remains open.
       Registered paths retain the predecessor union and new regressions.

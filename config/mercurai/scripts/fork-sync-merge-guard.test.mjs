@@ -111,12 +111,18 @@ test('only a tag mirrored this run is handed to the rebase', () => {
 })
 
 test('the merge step runs only when the guard did not refuse; the issue steps fire on the outputs and fail the run', () => {
-  assert.match(step(MERGE), /^\s+if: \$\{\{ steps\.guard\.outputs\.refused == 'false' \}\}$/m)
+  assert.match(
+    step(MERGE),
+    /^\s+if: \$\{\{ steps\.mode\.outputs\.tag_only == 'false' && steps\.guard\.outputs\.refused == 'false' \}\}$/m
+  )
   assert.match(
     step(ISSUE),
-    /^\s+if: \$\{\{ steps\.guard\.outputs\.refused == 'true' \|\| steps\.merge\.outputs\.guarded == 'true' \}\}$/m
+    /^\s+if: \$\{\{ steps\.mode\.outputs\.tag_only == 'false' && \(steps\.guard\.outputs\.refused == 'true' \|\| steps\.merge\.outputs\.guarded == 'true'\) \}\}$/m
   )
-  assert.match(step(CONFLICT), /^\s+if: \$\{\{ steps\.merge\.outputs\.conflict == 'true' \}\}$/m)
+  assert.match(
+    step(CONFLICT),
+    /^\s+if: \$\{\{ steps\.mode\.outputs\.tag_only == 'false' && steps\.merge\.outputs\.conflict == 'true' \}\}$/m
+  )
   // The stage picks the text (a refusal pushed nothing; a reset merge came after the mirrors); the scripts run from /tmp.
   assert.match(
     step(ISSUE),
@@ -204,7 +210,7 @@ test('the owner-allowed tag comes last, ungated by the main-range guard, and fai
   assert.ok(tag.includes(`if: \${{ ${LAST_STEPS_GATE} && env.ALLOW_TAG != '' }}`))
   assert.ok(
     step(ALLOWED_DISPATCH).includes(
-      `if: \${{ ${LAST_STEPS_GATE} && steps.allowtag.outputs.tag != '' }}`
+      `if: \${{ steps.mode.outputs.tag_only == 'false' && ${LAST_STEPS_GATE} && steps.allowtag.outputs.tag != '' }}`
     )
   )
   assert.doesNotMatch(tag, /steps\.guard/)
@@ -237,7 +243,7 @@ test('the tag issues are the last step, run after a failure, and see the main mi
   const issues = step(SKIPPED_ISSUES)
   assert.match(
     issues,
-    /^\s+if: \$\{\{ !cancelled\(\) && steps\.fetch\.outcome == 'success' && steps\.mode\.outputs\.push == 'true' \}\}$/m
+    /^\s+if: \$\{\{ steps\.mode\.outputs\.tag_only == 'false' && !cancelled\(\) && steps\.fetch\.outcome == 'success' && steps\.mode\.outputs\.push == 'true' \}\}$/m
   )
   assert.match(issues, /^\s+GUARD_REFUSED: \$\{\{ steps\.guard\.outputs\.refused \}\}$/m)
   assert.match(issues, /^\s+MAIN_MIRRORED: \$\{\{ steps\.mainmirror\.outcome \}\}$/m)
