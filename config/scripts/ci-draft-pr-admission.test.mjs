@@ -2,6 +2,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
+import { verifyRequiredPrContext } from '../../.github/scripts/check-required-pr-context.mjs'
 
 const workflows = readdirSync('.github/workflows').flatMap((file) => {
   const workflow = parse(readFileSync(`.github/workflows/${file}`, 'utf8'))
@@ -123,4 +124,49 @@ it('keeps the root and README guards on ready docs-only PRs without another runn
     expect(step.if).toBeUndefined()
   }
   expect(prWorkflow.jobs.root_directory_guard).toBeUndefined()
+})
+
+it('validates the required context used by both PR and full-qualification entry points', () => {
+  expect(() => verifyRequiredPrContext(parse)).not.toThrow()
+  const { workflow } = workflows.find(({ file }) => file === 'pr.yml')
+  const evaluate = compileAggregateExpression(workflow.jobs.verify.if, ['github'])
+  for (const eventName of ['pull_request', 'workflow_dispatch', 'workflow_call']) {
+    for (const draft of [false, true]) {
+      const context = { github: { event_name: eventName, event: { pull_request: { draft } } } }
+      expect(evaluate(context).coerceString()).toBe(
+        eventName === 'pull_request' && draft ? 'false' : 'true'
+      )
+      expect(evaluate(context, true).coerceString()).toBe('false')
+    }
+  }
+})
+
+it.each([
+  '!cancelled()',
+  "github.event_name != 'pull_request' || github.event.pull_request.draft != true",
+  '!cancelled() && github.event.pull_request.draft != true'
+])('rejects a required context with incompatible admission: %s', (condition) => {
+  expect(() =>
+    verifyRequiredPrContext((raw) => {
+      const workflow = parse(raw)
+      if (workflow.jobs.verify?.name === 'PR checks passed') {
+        workflow.jobs.verify.if = condition
+      }
+      return workflow
+    })
+  ).toThrow('Required PR aggregate must run unless cancelled or the PR is a draft.')
+})
+
+it.each(['job', 'step'])('rejects ignored failures in the required aggregate %s', (location) => {
+  expect(() =>
+    verifyRequiredPrContext((raw) => {
+      const workflow = parse(raw)
+      const gate = workflow.jobs.verify
+      if (gate?.name === 'PR checks passed') {
+        const target = location === 'job' ? gate : gate.steps[0]
+        target['continue-on-error'] = true
+      }
+      return workflow
+    })
+  ).toThrow('Required PR aggregate must not ignore failures.')
 })

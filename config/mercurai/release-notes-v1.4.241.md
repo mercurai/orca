@@ -17,9 +17,9 @@ before final independent review and preserve it through qualification and taggin
 - Frozen official main: `823ca6870fd46bc979ee073ee0731516a0607daa`.
 - Stable floor: `v1.4.241`, peeled commit
   `041baf356b368d773f333e76375ce860fba2481b`.
-- Provisional linear candidate: `cd3e51b6c37e4455f7206bfd50d24f0716c4ba66`,
+- Provisional linear candidate: `ad46260b3da8929d0c1e13c49fd6d7a8577172a6`,
   [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`; reviewed regression boundary is pushed; final qualification pending.
+- Tree: `4449d00fc7c51ffb00a733fbb57850f3f67091f6`; reviewed CI correction is local after BUSY push admission; qualification pending.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its
@@ -56,7 +56,10 @@ must reconcile the stable floor explicitly before packaging.
    gates passed. Its full matrix then exposed 29 failing unit assertions and fake-WSL
    E2E failure. Current cd3e51b6c3 adds reviewed real-file regressions, awaited fixture
    cleanup and Actions-expression repairs; hosted runs40466899243/40466899212 are
-   queued. Connector and port-CAS production repairs still await RED. Source registration
+   failed: the target passed Windows/cost checks but failed99Linux contracts; full CI
+   stopped at the stale required-context guard. Reviewed local ad46260 corrects those
+   contracts and exposes persistence tests after earlier failures; its push is waiting
+   for shared admission. Connector and port-CAS production repairs still await RED. Source registration
    and independent review alone do not qualify the release.
 2. Pass targeted behavioral checks and the complete required matrix at the exact
    candidate, including every planned unit/layout shard. Record advisory results

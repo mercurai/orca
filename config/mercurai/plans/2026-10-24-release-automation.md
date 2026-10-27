@@ -17,7 +17,8 @@ conflicts disappear, an agent reports completion, or a dropdown exists.
 
 This is the authoritative implementation plan and implementation record. The completion audit reopened
 Phase 1's qualification and publication gates: verification coverage, review authentication, run correlation,
-and immutable monotonic publication remain incomplete. Admission is disabled in the proposed controller.
+and immutable monotonic publication remain incomplete. Production admission remains disabled; the proposed
+controller enables the protected manual path only after exact-revision gates and default landing.
 Phase 4's durable-state and coordinator code is proposed and CI-tested, without operational acceptance or
 schedule enablement. Phase 2 has a corrected source candidate on a frozen upstream base; newer upstream
 changes, full CI, packaging, installation, and runtime acceptance remain pending.
@@ -105,8 +106,20 @@ conflicts: six WSL/store/test conflicts and six filesystem, host-dispatch,
 worktree-cache, delivery-loop and secure-file test conflicts. The WSL dispositions
 test was deleted upstream; trace its replacement instead of restoring an obsolete
 inventory mechanically. No source files, index or branch changed during this
-inspection. Bounded read-only workers are classifying those contracts while
-hosted regression CI runs; actual integration remains a separate owned generation.
+inspection. Bounded read-only workers classified the contracts while hosted
+regression CI ran; actual integration remains a separate owned generation.
+
+Resolution must preserve official pending-stop/kept-record semantics alongside
+Mercurai serialized async store mutations and connector/generation fences.
+New `setWslHostPendingStop` and removal/admission callers need explicit async
+propagation; pending stop must be rechecked after reachability/withdrawal awaits.
+Keep both raw-UNC admission and fingerprint caching, excluding unresolved WSL
+UNC paths before fingerprint I/O. Combine official delivery-loop ownership guards
+with actionable speed failures. Host removal must return awaited typed stop
+receipts, preserving `kept:true`. Accept the intentional upstream dispositions
+suite deletion while retaining real move/projection/journal behavior coverage.
+Secure-file async/ACL tests need the retained security fixture import. Do not
+resolve these contracts by selecting an entire side of the merge.
 
 The current full source run `40453877833` exposed 29 failing assertions across
 five unit shards, plus persistence cleanup errors and Vitest failure-stack errors.
@@ -115,7 +128,7 @@ Independent reviews accepted the first CI-contract repairs, later CI fixture
 updates and a deterministic port-repair regression. Further real-file connector
 persistence/publication regressions are committed for hosted RED before
 production changes. Source regression boundary `cd3e51b6c3` is now reviewed, lint-clean and pushed;
-local controller is `256a93a6fc` plus pending registrations. Neither tip is
+controller registration includes the current CI repairs locally. Neither tip is
 qualified, landed or published. Shared push admission remains required.
 
 The durable pipeline is source-only and unregistered. Reopen P4.3: the dispatcher
@@ -145,12 +158,13 @@ Later upstream arrivals belong to a subsequent queued target; do not chase movin
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Frozen official main | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                              |
 | Stable floor         | `v1.4.241`, peeled `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                           |
-| Product source       | `patch/current-main-release-823ca@cd3e51b6c37e4455f7206bfd50d24f0716c4ba66`, [#82](https://github.com/mercurai/orca/pull/82)                                                            |
+| Product source       | `patch/current-main-release-823ca@ad46260b3da8929d0c1e13c49fd6d7a8577172a6`, [#82](https://github.com/mercurai/orca/pull/82)                                                            |
 | Controller           | `codex/release-registration-20261023`, [#80](https://github.com/mercurai/orca/pull/80), ready for review; manual-admission policy correction over tested `bbb2c308ad` requires fresh CI |
 | Admission            | Candidate sets `promotionEnabled: true` for protected manual admission after CI/review-gated landing; recurring coordinator remains off                                                 |
 
-Pushed source has eleven linear commits after the frozen base, tree
-`72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`. The manifest registers 248 unique existing tests, including the retained runtime WebSocket regressions.
+Pushed source `cd3e51b6c3` has eleven linear commits after the frozen base, tree
+`72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`. Local `ad46260b3d` adds the twelfth commit,
+tree `4449d00fc7c51ffb00a733fbb57850f3f67091f6`, and awaits shared push admission. The manifest registers 248 unique existing tests, including the retained runtime WebSocket regressions.
 Stable is not an ancestor of main: its sole stable-only change is package version metadata. Its functional
 parent is already included. The canonical release build binds `ORCA_MERCURAI_BUILD_VERSION` to the
 reserved tag while preserving source identity; verify packaged and loaded versions separately.
@@ -188,8 +202,19 @@ current native-session expectations and Actions-expression contracts. All 23 pat
 reviewed, including the six-test CI extraction; scoped lint and diff checks were clean.
 Production connector and port-CAS repairs remain unchanged until hosted RED.
 Targeted [40466899243](https://github.com/mercurai/orca/actions/runs/40466899243) and full
-[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) are queued.
-No full qualification receipt exists.
+[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) were queued;
+terminal results are recorded below. No full qualification receipt exists.
+At `cd3e51`, full run40466899212 stopped at repository guard122064384798: its required-context
+checker still pins the old PR-only condition, incompatible with the reviewed workflow-call admission.
+Independent review accepted the exact-condition correction and real-verifier regressions.
+Targeted Linux job122064383542 passed237cost tests, then failed99contract tests (98missing-input
+fixture errors and one real-child observer identity failure); the later persistence step was skipped.
+Keep that step cancellation-aware and independent so earlier failure cannot hide its RED evidence.
+Targeted Windows job122064383986 passed all99files:1349tests passed,16skipped.
+Reviewed `ad46260b3d` repairs the guard, synthetic inputs and concrete CommonJS observer leaf;
+scoped formatting/lint and diff checks passed. Its wrapped push returned `TEST_SLOT=BUSY`
+before Git ran; remote remains `cd3e51`. Controller registers the local revision provisionally;
+push source first after admission, then controller. No runtime-CAS/connector fix is admitted yet.
 No prior receipt qualifies it. Wait for draft-sync runs before marking ready to avoid stale event cancellation.
 
 A bounded audit covered 37 explicit async conversions and 16 Promise-returning store/journal APIs against

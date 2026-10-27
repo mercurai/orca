@@ -7,10 +7,10 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-27.
 
 The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
-(`041baf356b368d773f333e76375ce860fba2481b`). The pushed patch
+(`041baf356b368d773f333e76375ce860fba2481b`). The preparation patch
 `patch/current-main-release-823ca` is provisionally pinned to
-`cd3e51b6c37e4455f7206bfd50d24f0716c4ba66`, eleven commits after that official
-ancestor, tree `72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`. PR
+`ad46260b3da8929d0c1e13c49fd6d7a8577172a6`, twelve commits after that official
+ancestor, tree `4449d00fc7c51ffb00a733fbb57850f3f67091f6`. This latest pin is local; shared push admission is busy. PR
 [#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
 The initial baseline reproduced speed, WSL and journal integration defects.
@@ -31,7 +31,12 @@ packaging, but all five full unit shards failed (29 assertions) and fake-WSL
 E2E failed. The current `cd3e51b6c3` boundary adds reviewed regression coverage,
 fixture cleanup and CI-contract repairs; targeted
 [40466899243](https://github.com/mercurai/orca/actions/runs/40466899243) and full
-[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) are queued.
+[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) failed.
+The former passed all 1,349 Windows tests (16 skipped) and both cost suites,
+but 99 Linux contract tests failed and persistence was skipped. Full CI stopped
+at the stale required-context guard. Reviewed local `ad46260b3d` corrects the
+synthetic contexts, real observer export and guard, and exposes persistence tests
+after earlier failures. Its wrapped push returned `TEST_SLOT=BUSY` before Git ran.
 Official `v1.4.242` and newer main are queued for an isolated next generation;
 this 241 preparation is retained as its repair source, not the publishing target.
 No earlier receipt qualifies this revision. The canonical build-version override

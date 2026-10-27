@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: cd3e51b6c37e4455f7206bfd50d24f0716c4ba66
+    commit: ad46260b3da8929d0c1e13c49fd6d7a8577172a6
     owner: harness
     added: 2026-10-25
     tests:
@@ -269,9 +269,9 @@ patches:
       - src/shared/wsl-move/wsl-move-dispositions.test.ts
       - tests/e2e/wsl-host-fake-transport.spec.ts
     notes: >-
-      Candidate cd3e51b6c37e4455f7206bfd50d24f0716c4ba66 is eleven linear commits
+      Candidate ad46260b3da8929d0c1e13c49fd6d7a8577172a6 is twelve linear commits
       after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      72a486cbb6c1961ec708b16d13f82c4f1f48b1cf. Source PR82 supersedes
+      4449d00fc7c51ffb00a733fbb57850f3f67091f6. Source PR82 supersedes
       historical PR79 preparation. Initial linear c777bcfc had the identical tree
       as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
       The frozen stable floor is v1.4.241, peeled commit
@@ -298,7 +298,13 @@ patches:
       E2E and persistence cleanup errors. Current cd3e51 adds reviewed real-file
       persistence regressions, awaited fixture cleanup and current Actions-expression
       contracts. Production connector and port-CAS fixes are intentionally pending
-      hosted RED. Targeted40466899243 and full40466899212 are queued; no pass claimed.
+      hosted RED. At cd3e51, targeted40466899243 passed1349Windows tests/16skip
+      and both cost suites, but Linux contracts failed99tests (98missing-input fixture
+      errors, one real-child observer identity failure). Full40466899212 stopped at
+      the stale required-context guard. Independently reviewed ad46260 repairs those
+      contexts, instruments the real CJS leaf and aligns the exact guard expression;
+      the persistence step now runs despite earlier contract failure. Shared push
+      admission returnedBUSY, so this pin is local and unqualified; no pass claimed.
       No prior receipt approves this pin. Independent bounded reviews accepted the
       WSL, speed/model-binding and journal corrections; final qualification remains open.
       Registered paths retain the predecessor union and new regressions.
