@@ -124,6 +124,26 @@ function fixture() {
   return { prepare, started, task, run, templatePath, brokerPath, templateBytesSha256, brokerBytesSha256, privateRoot, runBroker, owner }
 }
 
+function installHostCliFixture(f: ReturnType<typeof fixture>): () => void {
+  const executable = join(f.privateRoot, process.platform === 'win32' ? 'orca-ide.exe' : 'orca-ide')
+  writeFileSync(executable, 'host-owned CLI fixture')
+  const previousEnvironment = hasAppEnvironment() ? getAppEnvironment() : null
+  setAppEnvironment({
+    getPath: () => f.privateRoot,
+    getAppPath: () => directory,
+    getVersion: () => '0.0.0-test',
+    isPackaged: () => true,
+    getCliLauncherPath: () => executable,
+    onWillQuit: () => {},
+    exit: () => {},
+    getAppMetrics: () => []
+  })
+  return () => {
+    if (previousEnvironment) setAppEnvironment(previousEnvironment)
+    rmSync(executable, { force: true })
+  }
+}
+
 describe('Pi package composition at the reserved Dispatch', () => {
   it('binds and provisions the exact reserved owner with three distinct hash meanings', async () => {
     const f = fixture()
@@ -163,57 +183,67 @@ describe('Pi package composition at the reserved Dispatch', () => {
   it('mints a new immutable nonce binding for each real acquisition of the same exact session', async () => {
     const f = fixture()
     await f.prepare()
-    const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
-    bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_fixture')
-    const first = await preparePiWorkerAcquisition({
-      db, sessionId: 'session_fixture', acquisitionId: 'acquisition_first', privateRoot: f.privateRoot, runBroker: f.runBroker
-    })
-    const second = await preparePiWorkerAcquisition({
-      db, sessionId: 'session_fixture', acquisitionId: 'acquisition_second', privateRoot: f.privateRoot, runBroker: f.runBroker
-    })
-    expect(first).toBeDefined()
-    expect(second).toBeDefined()
-    expect(first!.readinessNonce).not.toBe(second!.readinessNonce)
-    expect(first!.bindingPath).not.toBe(second!.bindingPath)
-    expect(JSON.parse(readFileSync(first!.bindingPath, 'utf8'))).toMatchObject({ readinessNonce: first!.readinessNonce })
-    expect(JSON.parse(readFileSync(second!.bindingPath, 'utf8'))).toMatchObject({ readinessNonce: second!.readinessNonce })
-    db.failDispatch(f.started.dispatch.id, 'process exited', { workerProcessExited: true })
-    await expect(preparePiWorkerAcquisition({
-      db, sessionId: 'session_fixture', acquisitionId: 'acquisition_after_exit', privateRoot: f.privateRoot, runBroker: f.runBroker
-    })).rejects.toMatchObject({ code: 'pi_package_inactive' })
+    const restoreHostCliFixture = installHostCliFixture(f)
+    try {
+      const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
+      bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_fixture')
+      const first = await preparePiWorkerAcquisition({
+        db, sessionId: 'session_fixture', acquisitionId: 'acquisition_first', privateRoot: f.privateRoot, runBroker: f.runBroker
+      })
+      const second = await preparePiWorkerAcquisition({
+        db, sessionId: 'session_fixture', acquisitionId: 'acquisition_second', privateRoot: f.privateRoot, runBroker: f.runBroker
+      })
+      expect(first).toBeDefined()
+      expect(second).toBeDefined()
+      expect(first!.readinessNonce).not.toBe(second!.readinessNonce)
+      expect(first!.bindingPath).not.toBe(second!.bindingPath)
+      expect(JSON.parse(readFileSync(first!.bindingPath, 'utf8'))).toMatchObject({ readinessNonce: first!.readinessNonce })
+      expect(JSON.parse(readFileSync(second!.bindingPath, 'utf8'))).toMatchObject({ readinessNonce: second!.readinessNonce })
+      db.failDispatch(f.started.dispatch.id, 'process exited', { workerProcessExited: true })
+      await expect(preparePiWorkerAcquisition({
+        db, sessionId: 'session_fixture', acquisitionId: 'acquisition_after_exit', privateRoot: f.privateRoot, runBroker: f.runBroker
+      })).rejects.toMatchObject({ code: 'pi_package_inactive' })
+    } finally {
+      restoreHostCliFixture()
+    }
   })
 
   it('pins the private model catalog generated from verified profile metadata and approved price ceilings', async () => {
     const f = fixture()
     await f.prepare()
-    const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
-    bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_catalog')
-    const binding = await preparePiWorkerAcquisition({
-      db, sessionId: 'session_catalog', acquisitionId: 'acquisition_catalog',
-      privateRoot: f.privateRoot, runBroker: f.runBroker
-    })
-    expect(binding).toMatchObject({
-      contextWindow: 1048576, modelsJsonPath: expect.any(String),
-      modelsJsonSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
-    })
-    const bytes = readFileSync(binding!.modelsJsonPath)
-    expect(binding!.modelsJsonSha256).toBe(sha(bytes))
-    expect(binding!.modelsJsonPath).toBe(join(binding!.agentHomeDirectory, 'models.json'))
-    expect(JSON.parse(bytes.toString('utf8'))).toEqual({
-      providers: { openrouter: {
-        api: 'openai-completions', baseUrl: 'https://openrouter.ai/api/v1',
-        apiKey: '$OPENROUTER_API_KEY',
-        models: [{
-          id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek implementation worker',
-          reasoning: false, input: ['text'], contextWindow: 1048576, maxTokens: 1000,
-          cost: { input: 0.001, output: 0.002, cacheRead: 0.001, cacheWrite: 0.001 }
-        }]
-      } }
-    })
-    expect(JSON.parse(readFileSync(binding!.bindingPath, 'utf8'))).toMatchObject({
-      modelsJsonPath: binding!.modelsJsonPath, modelsJsonSha256: binding!.modelsJsonSha256,
-      expectedModel: { context_window: 1048576 }
-    })
+    const restoreHostCliFixture = installHostCliFixture(f)
+    try {
+      const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
+      bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_catalog')
+      const binding = await preparePiWorkerAcquisition({
+        db, sessionId: 'session_catalog', acquisitionId: 'acquisition_catalog',
+        privateRoot: f.privateRoot, runBroker: f.runBroker
+      })
+      expect(binding).toMatchObject({
+        contextWindow: 1048576, modelsJsonPath: expect.any(String),
+        modelsJsonSha256: expect.stringMatching(/^[a-f0-9]{64}$/)
+      })
+      const bytes = readFileSync(binding!.modelsJsonPath)
+      expect(binding!.modelsJsonSha256).toBe(sha(bytes))
+      expect(binding!.modelsJsonPath).toBe(join(binding!.agentHomeDirectory, 'models.json'))
+      expect(JSON.parse(bytes.toString('utf8'))).toEqual({
+        providers: { openrouter: {
+          api: 'openai-completions', baseUrl: 'https://openrouter.ai/api/v1',
+          apiKey: '$OPENROUTER_API_KEY',
+          models: [{
+            id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek implementation worker',
+            reasoning: false, input: ['text'], contextWindow: 1048576, maxTokens: 1000,
+            cost: { input: 0.001, output: 0.002, cacheRead: 0.001, cacheWrite: 0.001 }
+          }]
+        } }
+      })
+      expect(JSON.parse(readFileSync(binding!.bindingPath, 'utf8'))).toMatchObject({
+        modelsJsonPath: binding!.modelsJsonPath, modelsJsonSha256: binding!.modelsJsonSha256,
+        expectedModel: { context_window: 1048576 }
+      })
+    } finally {
+      restoreHostCliFixture()
+    }
   })
 
   it('exposes the exact host-generated launch binding for native handoff without identity or credentials', async () => {
@@ -222,19 +252,7 @@ describe('Pi package composition at the reserved Dispatch', () => {
     const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
     bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_report_contract')
     const platform = process.platform
-    const executable = join(f.privateRoot, platform === 'win32' ? 'orca-ide.exe' : 'orca-ide')
-    writeFileSync(executable, 'host-owned CLI fixture')
-    const previousEnvironment = hasAppEnvironment() ? getAppEnvironment() : null
-    setAppEnvironment({
-      getPath: () => f.privateRoot,
-      getAppPath: () => directory,
-      getVersion: () => '0.0.0-test',
-      isPackaged: () => true,
-      getCliLauncherPath: () => executable,
-      onWillQuit: () => {},
-      exit: () => {},
-      getAppMetrics: () => []
-    })
+    const restoreHostCliFixture = installHostCliFixture(f)
     try {
       const { resolvePiWorkerReportCli } = await import('../../pi/worker-report-bridge')
       vi.stubEnv('ORCA_CLI_COMMAND', '/wrong/runtime --arbitrary-rpc')
@@ -257,7 +275,7 @@ describe('Pi package composition at the reserved Dispatch', () => {
       expect(JSON.parse(readFileSync(binding!.bindingPath, 'utf8')).reportCli).toEqual(trustedReportCli)
     } finally {
       vi.unstubAllEnvs()
-      if (previousEnvironment) setAppEnvironment(previousEnvironment)
+      restoreHostCliFixture()
     }
   })
 
