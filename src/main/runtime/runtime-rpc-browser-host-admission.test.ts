@@ -56,7 +56,7 @@ describe('runtime RPC browser-host admission', () => {
       methods: [blockingMethod('browser.clientHost.attach'), blockingMethod('terminal.wait')]
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry'].addDevice('runtime-test', 'runtime')
+    const device = await server['deviceRegistry'].addDevice('runtime-test', 'runtime')
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the server reads only these wiring members in this test.
     server['mobileSocketWiring'] = {
       dispose: () => {},
@@ -119,8 +119,8 @@ describe('runtime RPC browser-host admission', () => {
       methods: [blockingHost]
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const deviceA = server['deviceRegistry'].addDevice('runtime-a', 'runtime')
-    const deviceB = server['deviceRegistry'].addDevice('runtime-b', 'runtime')
+    const deviceA = await server['deviceRegistry'].addDevice('runtime-a', 'runtime')
+    const deviceB = await server['deviceRegistry'].addDevice('runtime-b', 'runtime')
     const socketA = new FakeWebSocket()
     const socketB = new FakeWebSocket()
     const socketAReplacement = new FakeWebSocket()
@@ -219,8 +219,8 @@ describe('runtime RPC browser-host admission', () => {
       ]
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const deviceA = server['deviceRegistry'].addDevice('runtime-a', 'runtime')
-    const deviceB = server['deviceRegistry'].addDevice('runtime-b', 'runtime')
+    const deviceA = await server['deviceRegistry'].addDevice('runtime-a', 'runtime')
+    const deviceB = await server['deviceRegistry'].addDevice('runtime-b', 'runtime')
     const socketA = new FakeWebSocket()
     const socketB = new FakeWebSocket()
     const replies: Record<string, unknown>[] = []

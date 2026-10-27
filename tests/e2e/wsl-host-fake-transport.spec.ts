@@ -29,7 +29,7 @@ import { WSL_HOSTS_INTERNAL_GATE_ENV } from '../../src/shared/wsl-host-internal-
 import { openSidebarProjectDialog } from './helpers/sidebar-project-dialog'
 import { ensureTerminalVisible, waitForSessionReady } from './helpers/store'
 import {
-  focusActiveTerminalInput,
+  execInTerminal,
   waitForActivePanePtyId,
   waitForActiveTerminalManager,
   waitForTerminalOutput
@@ -44,7 +44,10 @@ async function launchDesktopWithFakeWsl(
   pairingCode: string,
   testInfo: Parameters<typeof forwardElectronProcessLogs>[1],
   fakeOverrides: Record<string, unknown> = {},
-  options: { internalGate?: boolean; beforeLaunch?: (userDataDir: string) => void } = {}
+  options: {
+    internalGate?: boolean
+    beforeLaunch?: (userDataDir: string) => void | Promise<unknown>
+  } = {}
 ): Promise<{
   app: ElectronApplication
   page: Page
@@ -56,7 +59,7 @@ async function launchDesktopWithFakeWsl(
     path.join(userDataDir, 'orca-data.json'),
     `${JSON.stringify(getE2ECompletedOnboardingProfile(), null, 2)}\n`
   )
-  options.beforeLaunch?.(userDataDir)
+  await options.beforeLaunch?.(userDataDir)
   const { ELECTRON_RUN_AS_NODE: _unused, ...cleanEnv } = process.env
   void _unused
   const isolation = createElectronHomeIsolation({
@@ -313,9 +316,7 @@ test('adds a WSL distro as a host, adds a project on it, and runs a terminal the
     await waitForActiveTerminalManager(page, 30_000)
     const ptyId = await waitForActivePanePtyId(page, 30_000)
     expect(ptyId).toMatch(/^remote:/)
-    await focusActiveTerminalInput(page)
-    await page.keyboard.type("printf 'WSL_HOST_TERMINAL_%s\\n' ready")
-    await page.keyboard.press('Enter')
+    await execInTerminal(page, ptyId, "printf 'WSL_HOST_TERMINAL_%s\\n' ready")
     await waitForTerminalOutput(page, 'WSL_HOST_TERMINAL_ready', 30_000)
     await page.screenshot({ path: testInfo.outputPath('wsl-host-terminal.png') })
 

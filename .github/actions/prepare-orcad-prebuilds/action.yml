@@ -2,6 +2,9 @@ name: Prepare server native prebuilds
 description: Builds and smokes the current server slot, optionally restoring a validated Windows slot.
 
 inputs:
+  cache-mode:
+    description: Use off to disable persistent cache restoration.
+    default: auto
   resolve-windows-cache:
     description: Resolve the exact Windows cache identity for restoration or later qualified publication.
     default: 'false'
@@ -38,7 +41,7 @@ runs:
     - name: Restore the exact Windows server prebuild
       id: orcad-prebuild-cache-restore
       if: >-
-        inputs.restore-windows-cache == 'true' &&
+        inputs.cache-mode != 'off' && inputs.restore-windows-cache == 'true' &&
         steps.orcad-prebuild-cache-identity.outcome == 'success' &&
         steps.orcad-prebuild-cache-identity.outputs.key != ''
       continue-on-error: true

@@ -81,17 +81,17 @@ export function electronModuleMock(mocks: ReposIpcMocks): Record<string, unknown
 
 // Preserve pure Git helpers; mock process and filesystem boundaries.
 export function gitRepoModuleMock(actual: typeof RepoModule): Record<string, unknown> {
-  const isGitRepo = vi.fn().mockReturnValue(true)
-  const getGitRepoRoot = vi.fn((path: string) => path)
+  const isGitRepo = vi.fn().mockResolvedValue(true)
+  const getGitRepoRoot = vi.fn(async (path: string) => path)
   return {
     ...actual,
     isGitRepo,
     isGitRepoAsync: isGitRepo,
     getGitRepoRoot,
     getGitRepoRootAsync: getGitRepoRoot,
-    inspectGitRepoForRegistrationAsync: vi.fn((path: string) => ({
-      isRepo: isGitRepo(path),
-      rootPath: getGitRepoRoot(path),
+    inspectGitRepoForRegistrationAsync: vi.fn(async (path: string) => ({
+      isRepo: await isGitRepo(path),
+      rootPath: await getGitRepoRoot(path),
       mainRepoPath: null
     })),
     getRepoName: vi.fn().mockImplementation((path: string) => path.split('/').pop()),
@@ -172,7 +172,7 @@ export function resetProjectGroupMocks(
   mocks.listWorktreeGraphMock.mockReset()
   mocks.listWorktreeGraphMock.mockResolvedValue([])
   vi.mocked(gitRepo.isGitRepo).mockReset()
-  vi.mocked(gitRepo.isGitRepo).mockReturnValue(true)
+  vi.mocked(gitRepo.isGitRepo).mockResolvedValue(true)
   vi.mocked(gitRepo.getGitRepoRoot).mockReset()
   vi.mocked(gitRepo.getGitRepoRoot).mockImplementation((path: string) => path)
   mocks.invalidateAuthorizedRootsCacheMock.mockReset()

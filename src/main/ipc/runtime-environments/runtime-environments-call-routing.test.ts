@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { REMOTE_RUNTIME_SHARED_CONTROL_CAPABILITY } from '../../../shared/protocol-version'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../../shared/electron-remote-runtime-client-capabilities'
+import { markEnvironmentUsed } from '../../../shared/runtime-environment-usage'
 import * as environmentStore from '../../../shared/runtime-environment-store'
 import { AtomicSnapshotWriter } from '../../persistence/atomic-snapshot-writer'
 import { desktopChatCreationHistory } from '../../runtime/desktop-chat-creation-history'
@@ -127,7 +128,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
     'dispatches with minting membership while durability is unresolved (lost reply: %s)',
     async (lostReply) => {
       registerRuntimeEnvironmentHandlers(store as never)
-      const environment = environmentStore.addEnvironmentFromPairingCode(userDataPath, {
+      const environment = await environmentStore.addEnvironmentFromPairingCode(userDataPath, {
         name: 'desk',
         pairingCode: pairingCode()
       })
@@ -450,7 +451,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { ok: true; result: unknown }
     >('runtimeEnvironments:call')
     await call(null, { selector: 'desk', method: 'repo.list' })
-    environmentStore.markEnvironmentUsed(userDataPath, added.environment.id, {
+    await markEnvironmentUsed(userDataPath, added.environment.id, {
       runtimeId: 'runtime-downgraded'
     })
     await call(null, { selector: 'desk', method: 'repo.list' })
@@ -470,7 +471,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       { environment: { id: string; name: string } }
     >('runtimeEnvironments:addFromPairingCode')
     const added = await add(null, { name: 'desk', pairingCode: pairingCode() })
-    environmentStore.markEnvironmentUsed(userDataPath, added.environment.id, {
+    await markEnvironmentUsed(userDataPath, added.environment.id, {
       runtimeId: 'runtime-replacement'
     })
 

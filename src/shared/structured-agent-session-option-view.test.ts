@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { CLAUDE_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
+import {
+  CLAUDE_SESSION_OPTION_CATALOG,
+  CODEX_SESSION_OPTION_CATALOG
+} from './agent-session-option-catalog-claude-codex'
 import type { AgentSessionModelCatalogResult } from './agent-session-wire'
+import type {
+  SessionOptionDescriptor,
+  SessionOptionValueSource
+} from './native-chat-session-options'
 import {
   applyStructuredAgentSessionModelCatalog,
   applyStructuredAgentSessionOptions,
@@ -57,6 +64,172 @@ const carried = (
   seed?: Readonly<Record<string, string>>,
   picks: Readonly<Record<string, string>> = {}
 ) => structuredAgentSessionSendSelection(structuredAgentSessionOptionView(state, seed, picks))
+
+describe('explicit Codex speed without a replacement model', () => {
+  it.each([
+    { saved: 'paid-speed-request-17', requested: 'default' },
+    { saved: 'default', requested: 'paid-speed-request-17' }
+  ])('shows and sends explicit $requested above saved $saved', ({ saved, requested }) => {
+    const model = 'synthetic-tier-only-model'
+    const state = applyStructuredAgentSessionModelCatalog(
+      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+      CODEX_SESSION_OPTION_CATALOG,
+      {
+        origin: 'probe',
+        catalogState: 'available',
+        fetchedAt: 1,
+        listingNamesConfiguredModel: true,
+        models: [
+          {
+            id: model,
+            label: model,
+            isDefault: true,
+            efforts: [],
+            serviceTiers: [{ value: 'paid-speed-request-17', label: 'Fast' }]
+          }
+        ]
+      },
+      { newLaunch: true }
+    )
+    const record = structuredClone(state.record)
+    const view = structuredAgentSessionOptionView(
+      state,
+      { model, serviceTier: saved },
+      {},
+      { serviceTier: requested }
+    )
+    expect(
+      structuredAgentSessionOptionSnapshot(view).find(({ id }) => id === 'serviceTier')
+    ).toMatchObject({ kind: { currentValue: requested } })
+    expect(structuredAgentSessionSendSelection(view)).toMatchObject({
+      model,
+      serviceTier: requested
+    })
+    expect(state.record).toEqual(record)
+  })
+
+  it.each(
+    ['default', undefined].flatMap((savedTier) =>
+      [false, true].flatMap((listingInProgress) =>
+        [false, true].map((otherModelSpeed) => ({
+          savedTier,
+          listingInProgress,
+          otherModelSpeed
+        }))
+      )
+    )
+  )(
+    'retains unlisted model and Standard (saved=$savedTier, loading=$listingInProgress, other-speed=$otherModelSpeed)',
+    ({ savedTier, listingInProgress, otherModelSpeed }) => {
+      const savedModel = 'synthetic-saved-model-not-listed'
+      const listedDefault = 'synthetic-different-catalog-default'
+      const listedModel = {
+        id: listedDefault,
+        label: listedDefault,
+        isDefault: true,
+        efforts: [],
+        serviceTiers: [
+          { value: 'default', label: 'Standard' },
+          { value: 'paid-only-for-default-B', label: 'Fast' }
+        ]
+      }
+      const listed = applyStructuredAgentSessionModelCatalog(
+        createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+        CODEX_SESSION_OPTION_CATALOG,
+        {
+          origin: 'probe',
+          catalogState: 'available',
+          fetchedAt: 1,
+          listingNamesConfiguredModel: true,
+          models: [listedModel]
+        },
+        { newLaunch: true }
+      )
+      const answered = otherModelSpeed
+        ? applyStructuredAgentSessionOptions(listed, CODEX_SESSION_OPTION_CATALOG, {
+            models: [listedModel],
+            current: {
+              model: listedDefault,
+              serviceTier: 'paid-only-for-default-B',
+              defaulted: ['model']
+            },
+            speed: {
+              requested: { tierId: 'paid-only-for-default-B' },
+              support: 'available',
+              applied: { tierId: 'paid-only-for-default-B', turnId: 'B-turn' },
+              processing: {
+                status: 'reported',
+                tierId: 'paid-only-for-default-B',
+                turnId: 'B-turn'
+              }
+            }
+          })
+        : listed
+      const state = { ...answered, listingInProgress }
+      const record = structuredClone(state.record)
+      const view = structuredAgentSessionOptionView(
+        state,
+        { model: savedModel, ...(savedTier === undefined ? {} : { serviceTier: savedTier }) },
+        {},
+        { serviceTier: 'default' }
+      )
+      expect(structuredAgentSessionSendSelection(view)).toMatchObject({
+        model: savedModel,
+        serviceTier: 'default'
+      })
+      const snapshot = structuredAgentSessionOptionSnapshot(view)
+      expect(snapshot.find(({ id }) => id === 'model')).toMatchObject({
+        kind: { currentValue: savedModel }
+      })
+      const descriptor = snapshot.find(({ id }) => id === 'serviceTier')
+      expect(descriptor?.kind).toMatchObject({ type: 'select', currentValue: 'default' })
+      expect(descriptor?.speed).toEqual({
+        requested: { tierId: 'default' },
+        support: listingInProgress ? 'loading' : 'unknown',
+        processing: { status: 'unknown' }
+      })
+      expect(descriptor?.settable).toBe(!listingInProgress)
+      const tier = descriptor?.kind
+      expect(tier?.type === 'select' ? tier.choices.map(({ value }) => value) : []).not.toContain(
+        'paid-only-for-default-B'
+      )
+      expect(state.record).toEqual(record)
+    }
+  )
+
+  it.each(['unavailable', 'loading'] as const)(
+    'preserves genuine %s evidence for the same unlisted model',
+    (support) => {
+      const model = 'synthetic-unlisted-own-model'
+      const speed = {
+        requested: { tierId: 'default' },
+        support,
+        processing: { status: 'unknown' as const }
+      }
+      const state = applyStructuredAgentSessionOptions(
+        createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+        CODEX_SESSION_OPTION_CATALOG,
+        {
+          models: [
+            { id: 'synthetic-other-listed-model', label: 'Other', efforts: [], isDefault: true }
+          ],
+          listedModelIds: ['synthetic-other-listed-model'],
+          current: { model, serviceTier: 'default', defaulted: [] },
+          speed
+        }
+      )
+      const view = structuredAgentSessionOptionView(
+        state,
+        undefined,
+        {},
+        { serviceTier: 'default' }
+      )
+      expect(
+        structuredAgentSessionOptionSnapshot(view).find(({ id }) => id === 'serviceTier')
+      ).toMatchObject({ kind: { currentValue: 'default' }, speed })
+    }
+  )
+})
 
 describe('a Claude model its CLI no longer lists', () => {
   it('stays the chat model through a refresh and every send, its effort read-only', () => {
@@ -137,6 +310,85 @@ describe('what a send carries', () => {
       { models: [OPUS], current: { model: 'opus[1m]' } }
     )
     expect(carried(codex)).toBeUndefined()
+  })
+})
+
+function legacySelection(snapshot: SessionOptionDescriptor[]) {
+  const state = createStructuredAgentSessionOptionState('codex', {
+    ...CLAUDE_SESSION_OPTION_CATALOG,
+    models: [
+      {
+        id: 'synthetic-model',
+        label: 'Synthetic',
+        options: [
+          {
+            id: 'fastMode',
+            label: 'Fast',
+            kind: { type: 'boolean', defaultValue: false },
+            apply: {}
+          }
+        ]
+      }
+    ]
+  })
+  state.catalogSource = 'live'
+  state.record.values.model = { value: 'synthetic-model', source: 'default' }
+  for (const option of snapshot) {
+    const value = option.kind.currentValue
+    if (value !== undefined && option.valueSource !== 'unknown') {
+      state.record.values[option.id] = { value, source: option.valueSource }
+    }
+  }
+  return structuredAgentSessionSendSelection(state)
+}
+
+describe('Codex legacy Fast provenance on sends', () => {
+  function legacy(
+    valueSource: SessionOptionValueSource,
+    currentValue: boolean
+  ): SessionOptionDescriptor {
+    return {
+      id: 'fastMode',
+      label: 'Fast',
+      kind: { type: 'boolean', currentValue },
+      valueSource,
+      transport: 'agent-session',
+      settable: true
+    }
+  }
+
+  it.each(['unknown', 'default'] as const)(
+    'does not turn an %s false display into an explicit Standard request',
+    (source) => {
+      expect(legacySelection([legacy(source, false)])).toBeUndefined()
+    }
+  )
+
+  it.each(['applied', 'dispatched', 'reported'] as const)(
+    'preserves explicit false and true from %s',
+    (source) => {
+      expect(legacySelection([legacy(source, false)])).toEqual({
+        fastMode: 'false'
+      })
+      expect(legacySelection([legacy(source, true)])).toEqual({
+        fastMode: 'true'
+      })
+    }
+  )
+
+  it('keeps the model attached to an explicit legacy false preference', () => {
+    const model: SessionOptionDescriptor = {
+      id: 'model',
+      label: 'Model',
+      kind: { type: 'select', currentValue: 'synthetic-model', choices: [] },
+      valueSource: 'reported',
+      transport: 'agent-session',
+      settable: true
+    }
+    expect(legacySelection([model, legacy('dispatched', false)])).toEqual({
+      model: 'synthetic-model',
+      fastMode: 'false'
+    })
   })
 })
 

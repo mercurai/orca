@@ -1,5 +1,5 @@
 // The seam's watch, as the cloud reads it. Turn ends wait in an owner-only file so a restart still reports them.
-import { readFileSync, rmSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
@@ -8,7 +8,8 @@ import {
   ConnectorConversation,
   type ConnectorEvent
 } from '../../shared/connector-cloud-contract'
-import { writeSecureJsonFile } from '../../shared/secure-file'
+import { removeSecureFile, writeSecureFileAsync } from '../../shared/secure-file-async-write'
+import { pathDiscardEpoch, serializePathWrite } from '../../shared/path-write-serializer'
 import type {
   ConversationEvent,
   ConversationSnapshot
@@ -141,6 +142,9 @@ export class ConnectorTurnEvents {
   // Something owed was dropped to stay within the caps; only a fresh snapshot restates it.
   private dropped = false
   private warnedTrimmed = false
+  private pending: { epoch: number; turnEnds: TurnEnded[] } | null = null
+  private writing: Promise<void> | null = null
+  private writeFailure: { error: unknown } | null = null
 
   constructor(
     userDataPath: string,
@@ -197,6 +201,26 @@ export class ConnectorTurnEvents {
     return this.outbox.refused(stamp)
   }
 
+  /** Publication waits for these bytes; a failed attempt is reported before a later call retries. */
+  async flushPendingWrites(): Promise<void> {
+    const failure = this.writeFailure
+    if (failure) {
+      this.writeFailure = null
+      throw failure.error
+    }
+    this.startPersistence()
+    while (this.writing) {
+      try {
+        await this.writing
+      } catch (error) {
+        if (this.writeFailure?.error === error) {
+          this.writeFailure = null
+        }
+        throw error
+      }
+    }
+  }
+
   /** Drops everything, file included: no other account can report these turns. */
   clear(): void {
     this.outbox.restart([], () => false)
@@ -204,7 +228,7 @@ export class ConnectorTurnEvents {
 
   /** The same, before any owner exists in this process. */
   static clearStored(userDataPath: string): void {
-    rmSync(join(userDataPath, TURN_OUTBOX_FILE), { force: true })
+    removeSecureFile(join(userDataPath, TURN_OUTBOX_FILE))
   }
 
   private readStored(): ConnectorEvent[] {
@@ -228,9 +252,55 @@ export class ConnectorTurnEvents {
   private store(events: readonly ConnectorEvent[]): void {
     const turnEnds = events.filter(isTurnEnded)
     if (turnEnds.length === 0) {
-      rmSync(this.filePath, { force: true })
+      this.pending = null
+      this.writeFailure = null
+      removeSecureFile(this.filePath)
     } else {
-      writeSecureJsonFile(this.filePath, { account: this.account, turnEnds })
+      this.pending = { epoch: pathDiscardEpoch(this.filePath), turnEnds }
+      this.startPersistence()
+    }
+  }
+
+  private startPersistence(): void {
+    if (this.writing || !this.pending || this.writeFailure) {
+      return
+    }
+    const { epoch } = this.pending
+    this.writing = serializePathWrite(`${this.filePath}#mutation`, async () => {
+      try {
+        await this.persistPending(epoch)
+      } catch (error) {
+        this.writeFailure = { error }
+        console.warn('[connector] saving turn events failed', error)
+        throw error
+      } finally {
+        this.writing = null
+        // Enqueue before this lane releases so quit also owns a newer post-clear snapshot.
+        this.startPersistence()
+      }
+    })
+    void this.writing.catch(() => {})
+  }
+
+  private async persistPending(epoch: number): Promise<void> {
+    while (this.pending?.epoch === epoch) {
+      const snapshot = this.pending
+      if (pathDiscardEpoch(this.filePath) === epoch) {
+        try {
+          await writeSecureFileAsync(
+            this.filePath,
+            JSON.stringify({ account: this.account, turnEnds: snapshot.turnEnds }, null, 2),
+            { durable: true, shouldPublish: () => pathDiscardEpoch(this.filePath) === epoch }
+          )
+        } catch (error) {
+          if (pathDiscardEpoch(this.filePath) === epoch) {
+            throw error
+          }
+        }
+      }
+      if (this.pending === snapshot) {
+        this.pending = null
+      }
     }
   }
 }

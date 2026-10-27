@@ -1,3 +1,4 @@
+import { recoverStructuredLaunchDrafts } from '../../structured-agent-session-launch-draft-recovery'
 import {
   restoreStructuredAgentSessionLaunchIntent,
   type StructuredAgentSessionLaunchIntent
@@ -38,6 +39,10 @@ export function restorePersistedStructuredLaunchState(
       ...(record.firstMessage ? { firstMessage: record.firstMessage } : {}),
       ...(record.optionsMode ? { optionsMode: record.optionsMode } : {}),
       ...(record.options ? { options: record.options } : {}),
+      ...(record.createCanonicalOptions
+        ? { createCanonicalOptions: record.createCanonicalOptions }
+        : {}),
+      ...(record.createSpeedAuthority ? { createSpeedAuthority: record.createSpeedAuthority } : {}),
       ...(record.explicitLaunchOptions
         ? { explicitLaunchOptions: record.explicitLaunchOptions }
         : {}),
@@ -66,10 +71,12 @@ export function restorePersistedStructuredLaunchState(
     cancelled: false,
     onVisibilityChanged: undefined,
     callers,
-    selection: initialStructuredLaunchSelection(intent)
+    ...(record.heldPromptDrafts ? { heldPromptDrafts: record.heldPromptDrafts } : {}),
+    selection: { ...initialStructuredLaunchSelection(intent), held: record.heldOptions ?? {} }
   }
   callers.outcome = record.lifecycle === 'failed' ? 'failed' : 'unknown'
   callers.failedAt = record.failedAt
   setStructuredLaunchState(state)
+  void recoverStructuredLaunchDrafts(state)
   return state
 }

@@ -330,7 +330,7 @@ describe('scheduled dispatch fenced on the host the record captured', () => {
     const store = await createStore()
     const automation = seedSshAutomation(store)
     const { service, send } = attachedService(store)
-    writeOrcadMigrationSourceCutover(testState.dir, {
+    await writeOrcadMigrationSourceCutover(testState.dir, {
       ...orcadMigrationCutoverFixture('m-1', TARGET_ID, { generation: 1 }),
       phase: 'destination-committed'
     })

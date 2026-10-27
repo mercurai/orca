@@ -43,14 +43,19 @@ export async function removeWslHostServer(
     await connector.releaseHolder(record.distro)
   }
   if (serverStop.stopped) {
-    removeWslHostEnvironment(userDataPath, record.environmentId)
+    await removeWslHostEnvironment(userDataPath, record.environmentId, record.createdAt)
     return { serverStop, removed: true }
   }
-  setWslHostPendingStop(userDataPath, record.environmentId, {
-    since: Date.now(),
-    reason: serverStop.reason,
-    verdict: serverStop.verdict ?? 'unverifiable'
-  })
+  await setWslHostPendingStop(
+    userDataPath,
+    record.environmentId,
+    {
+      since: Date.now(),
+      reason: serverStop.reason,
+      verdict: serverStop.verdict ?? 'unverifiable'
+    },
+    record.createdAt
+  )
   return { serverStop: { ...serverStop, kept: true }, removed: false }
 }
 
@@ -81,16 +86,16 @@ export async function readdPendingWslHost(
 }
 
 /** A pending host connects only for the user's own Connect or Add, which withdraws its Remove. */
-export function admitConnectToPendingHost(
+export async function admitConnectToPendingHost(
   userDataPath: string,
   record: WslHostDeploymentRecord,
   withdraw: boolean
-): void {
+): Promise<void> {
   if (!record.pendingStop) {
     return
   }
   if (!withdraw) {
     throw new Error(wslHostRemovalPendingMessage(record.distro))
   }
-  setWslHostPendingStop(userDataPath, record.environmentId, null)
+  await setWslHostPendingStop(userDataPath, record.environmentId, null, record.createdAt)
 }

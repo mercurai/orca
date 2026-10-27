@@ -11,9 +11,16 @@ import type { AgentSessionExecutionOptions } from '../../shared/agent-session-ex
 import { AgentSessionOptionRejectedError } from '../native-chat/agent-session-wire/structured-agent-session-option-error'
 import { readCodexConfiguredLaunchDefaults } from './codex-configured-launch-defaults'
 import { codexAcquireCatalogListing } from './codex-structured-catalog-entry'
-import { CODEX_DEFAULT_SERVICE_TIER } from './codex-structured-service-tier'
+import { CODEX_DEFAULT_SERVICE_TIER, setCodexServiceTier } from './codex-structured-service-tier'
 import type { CodexSession } from './codex-structured-session-state'
 import { applyCodexStructuredSessionOption } from './codex-structured-session-options'
+
+/** Allowlist turn overrides so saved options cannot replace the thread's permission policy. */
+const CODEX_TURN_OPTION_KEYS = new Set(['model', 'effort', 'personality', 'serviceTier'])
+
+export function isCodexTurnOptionKey(key: string): boolean {
+  return CODEX_TURN_OPTION_KEYS.has(key)
+}
 
 function codexModelDefaults(session: CodexSession, selected?: string) {
   const listing = codexAcquireCatalogListing(session.catalogAccess)
@@ -117,12 +124,15 @@ export async function resolvedCodexMessageOptions(
   }
   for (const key of ['effort', 'personality', 'fastMode', 'serviceTier'] as const) {
     const value = choices[key]
-    if (value !== undefined) {
-      if (key === 'fastMode') {
-        await applyCodexStructuredSessionOption(selected, key, value)
-      } else {
-        selected.options.set(key, value)
-      }
+    if (value === undefined || (key === 'fastMode' && choices.serviceTier !== undefined)) {
+      continue
+    }
+    if (key === 'fastMode') {
+      await applyCodexStructuredSessionOption(selected, key, value)
+    } else if (key === 'serviceTier') {
+      setCodexServiceTier(selected.options, value)
+    } else {
+      selected.options.set(key, value)
     }
   }
   return Object.fromEntries(selected.options)

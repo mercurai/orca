@@ -16,7 +16,8 @@ export async function buildOnBindableLocalPort<T>(
 ): Promise<T> {
   const savedPort = () =>
     getOrcadSshDeployment(resolveEnvironment(userDataPath, environmentId))?.localPort
-  const saved = savedPort()
+  const environment = resolveEnvironment(userDataPath, environmentId)
+  const saved = getOrcadSshDeployment(environment)?.localPort
   try {
     return await build()
   } catch (error) {
@@ -34,12 +35,20 @@ export async function buildOnBindableLocalPort<T>(
     if (savedPort() !== saved) {
       return build()
     }
-    console.warn(
-      `[ssh] Moving the tunnel to this host’s Orca server from local port ${saved} to ${localPort}: ${error.message}`
-    )
-    moveManagedOrcadLocalPort(userDataPath, environmentId, localPort)
-    // Like a repair, the rebind retires transports and status owners still dialing the old port.
-    await notifyManagedOrcadPairingRepaired(environmentId)
+    let moved = false
+    await moveManagedOrcadLocalPort(userDataPath, environmentId, localPort, undefined, {
+      expectedPairingRevision: environment.pairingRevision ?? environment.createdAt,
+      onMoved: () => {
+        moved = true
+      }
+    })
+    if (moved) {
+      console.warn(
+        `[ssh] Moved the tunnel to this host’s Orca server from local port ${saved} to ${localPort}: ${error.message}`
+      )
+      // Like a repair, the rebind retires transports and status owners still dialing the old port.
+      await notifyManagedOrcadPairingRepaired(environmentId)
+    }
     return build()
   }
 }

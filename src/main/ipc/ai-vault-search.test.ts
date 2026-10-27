@@ -327,7 +327,7 @@ it('binds the desktop leg once before awaited agent status and reuses the produc
 it('keeps healthy All results when a persisted runtime is removed between enumeration and eager binding', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sta10541-all-bind-'))
   try {
-    const environment = addEnvironmentFromPairingCode(root, {
+    const environment = await addEnvironmentFromPairingCode(root, {
       name: 'search-host',
       pairingCode: encodePairingOffer({
         v: 2,
@@ -336,11 +336,9 @@ it('keeps healthy All results when a persisted runtime is removed between enumer
         publicKeyB64: publicKeyToBase64(generateKeyPair().publicKey)
       })
     })
-    runtimeHostInfos.mockImplementationOnce(() => {
-      const advertised = getSavedRuntimeAiVaultHostInfos(root)
-      removeEnvironment(root, environment.id)
-      return advertised
-    })
+    const advertised = getSavedRuntimeAiVaultHostInfos(root)
+    await removeEnvironment(root, environment.id)
+    runtimeHostInfos.mockReturnValueOnce(advertised)
     const local = fakeSearchService()
     setSessionSearchService(local)
     const bindRuntimeSearch = vi.fn((id: string) => bindRuntimeSessionSearch(root, id))

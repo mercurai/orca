@@ -6,7 +6,12 @@ import { wslExeProcessSpec } from './wsl-exe-process'
 type WslAvailabilityCache =
   | { available: true }
   | { available: false; unsupported: true }
-  | { available: false; cachedAt: number; retryable: boolean; failures: number }
+  | {
+      available: false
+      cachedAt: number
+      retryable: boolean
+      failures: number
+    }
 
 let wslAvailableCache: WslAvailabilityCache | null = null
 let wslAvailabilityProbeInFlight: Promise<boolean> | null = null

@@ -84,6 +84,7 @@ describe('a live listing beside the account-level discovery', () => {
     const run = harness(() => new Promise((resolve) => (settle = resolve)))
     expect(await run.catalog.read({ agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     run.saveLive()

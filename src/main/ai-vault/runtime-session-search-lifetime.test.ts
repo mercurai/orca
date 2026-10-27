@@ -6,9 +6,9 @@ import { generateKeyPair, publicKeyToBase64 } from '../../shared/e2ee-crypto'
 import { encodePairingOffer } from '../../shared/pairing'
 import {
   addEnvironmentFromPairingCode,
-  markEnvironmentUsed,
   updateEnvironmentFromPairingCode
 } from '../../shared/runtime-environment-store'
+import { markEnvironmentUsed } from '../../shared/runtime-environment-usage'
 import { enqueueRuntimeCall } from '../ipc/runtime-environments/runtime-environment-call-queue'
 import { bindRuntimeSessionSearch } from './runtime-session-search-call'
 
@@ -28,6 +28,7 @@ it.each(['pairing', 'runtime'] as const)(
       release = resolve
     })
     const blockers: Promise<void>[] = []
+    let result: Promise<unknown> | undefined
     try {
       send.mockClear()
       const pairingCode = encodePairingOffer({
@@ -36,13 +37,13 @@ it.each(['pairing', 'runtime'] as const)(
         deviceToken: 'a'.repeat(48),
         publicKeyB64: publicKeyToBase64(generateKeyPair().publicKey)
       })
-      const env = addEnvironmentFromPairingCode(root, { name: 'search-host', pairingCode })
-      markEnvironmentUsed(root, env.id, { runtimeId: 'runtime-a' })
+      const env = await addEnvironmentFromPairingCode(root, { name: 'search-host', pairingCode })
+      await markEnvironmentUsed(root, env.id, { runtimeId: 'runtime-a' })
       const call = bindRuntimeSessionSearch(root, env.id)
       for (let index = 0; index < 8; index++) {
         blockers.push(enqueueRuntimeCall(env.id, 'aiVault.searchSessions', () => held))
       }
-      const result = call('aiVault.searchSessions', {
+      result = call('aiVault.searchSessions', {
         query: 'needle',
         within: { kind: 'project', projectKey: 'project:P', canonicalProjectKey: 'repo:b' }
       }).then(
@@ -51,18 +52,16 @@ it.each(['pairing', 'runtime'] as const)(
         },
         (error: unknown) => error
       )
-      if (change === 'pairing') {
-        updateEnvironmentFromPairingCode(root, env.id, { pairingCode })
-      } else {
-        markEnvironmentUsed(root, env.id, { runtimeId: 'runtime-b' })
-      }
+      await (change === 'pairing'
+        ? updateEnvironmentFromPairingCode(root, env.id, { pairingCode })
+        : markEnvironmentUsed(root, env.id, { runtimeId: 'runtime-b' }))
       release()
       await Promise.all(blockers)
       expect(await result).toMatchObject({ code: 'runtime_environment_changed' })
       expect(send).not.toHaveBeenCalled()
     } finally {
       release()
-      await Promise.all(blockers)
+      await Promise.allSettled([...blockers, result])
       await rm(root, { recursive: true, force: true })
     }
   }

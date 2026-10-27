@@ -47,7 +47,7 @@ export const ENVIRONMENT_HANDLERS: Record<string, CommandHandler> = {
     const name = getRequiredStringFlag(flags, 'name')
     const pairingCode = getRequiredStringFlag(flags, 'pairing-code')
     const environment = redactRuntimeEnvironment(
-      addEnvironmentFromPairingCode(getDefaultUserDataPath(), {
+      await addEnvironmentFromPairingCode(getDefaultUserDataPath(), {
         name,
         pairingCode
       })
@@ -116,7 +116,9 @@ export const ENVIRONMENT_HANDLERS: Record<string, CommandHandler> = {
   },
   'environment rm': async ({ flags, json }) => {
     const selector = getRequiredStringFlag(flags, 'environment')
-    const removed = redactRuntimeEnvironment(removeEnvironment(getDefaultUserDataPath(), selector))
+    const removed = redactRuntimeEnvironment(
+      await removeEnvironment(getDefaultUserDataPath(), selector)
+    )
     printResult(
       localSuccess({ removed }),
       json,

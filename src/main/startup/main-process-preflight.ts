@@ -39,12 +39,12 @@ import { isStartupDiagnosticsEnabled, logStartupDiagnostic } from './startup-dia
 import { startEventLoopStallProbe } from './event-loop-stall-probe'
 import { startEventLoopDelayProbe } from '../diagnostics/event-loop-delay-probe'
 import {
-  isMainThreadDiagnosticsEnabled,
   recordSubprocessSpawn,
   startMainThreadChurnProbe
 } from '../diagnostics/main-thread-churn-probe'
 import { setSpawnObserver } from '@orca/process-host/spawn-observer'
 import { settledDiffCache } from '../git/source-control/git-read-cache-invalidation'
+import { installRunProcessWorkerRoute } from '../git/command-runner/git-spawn-worker-access'
 import { reserveServeStdoutForReadiness } from '../server/serve-stdout-boundary'
 import { createServeDesktopActivationGate } from './serve-desktop-activation'
 import {
@@ -198,6 +198,8 @@ function initializeMainProcessPreflight(options: MainProcessPreflightOptions): b
   }
   // Register before spawning so CLI/relay-shared tree killing can reach main's gate and breadcrumbs.
   installMainProcessTreeKillGate()
+  // Why: runProcess captures spawn on the git spawn worker instead of the UI loop (#1091).
+  installRunProcessWorkerRoute()
   configureDevUserDataPath(isDev)
   configureOrcaUserDataPathEnv()
   // #16761: install the lazy environment accessor immediately after userData selection or early resolves can throw/memoize the wrong profile.
@@ -225,11 +227,12 @@ function initializeMainProcessPreflight(options: MainProcessPreflightOptions): b
     })
     startEventLoopStallProbe()
   }
-  // Session-long main-thread diagnostics (#7576) distinguish cold cache from unstable filesystem stamps via hit/miss/unprovable counts.
-  if (isMainThreadDiagnosticsEnabled()) {
-    // Include process-host spawns too; Git-only probe sites miss rg/ps/PTY helpers.
-    setSpawnObserver(recordSubprocessSpawn)
-  }
+  // Always on: feeds the per-minute main.loop trace span; only the 5s stderr line is gated on ORCA_MAIN_THREAD_DIAGNOSTICS (issue #7576).
+  // Why the diff-cache counters ride along: a stamp the filesystem reports unstably makes the cache
+  // look exactly like a cold start, and only the hit/miss/unprovable split tells the two apart.
+  // Why here too: the probe's own call sites only cover src/main/git, so without
+  // this every spawnProcess/runProcess child (rg, ps, pty helpers) is invisible.
+  setSpawnObserver(recordSubprocessSpawn)
   startMainThreadChurnProbe({ extraStats: () => ({ diffCache: settledDiffCache.stats() }) })
   // Lock after userData override so dev/packaged namespaces differ; concurrent dev copies also need separate profiles to avoid store corruption (#1326, #1312).
   const bypass = shouldBypassSingleInstanceLock({ isDev, isServeMode: state.isServeMode })

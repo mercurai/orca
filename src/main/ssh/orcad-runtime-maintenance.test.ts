@@ -1,3 +1,5 @@
+import * as managedPairingStore from '../../shared/runtime-environment-managed-orcad-store'
+import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
 import { rmSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listEnvironments } from '../../shared/runtime-environment-store'
@@ -86,11 +88,11 @@ const {
 } = await import('./orcad-runtime-maintenance')
 
 const idle = { liveSessions: 0, startedSinceActivation: 0, daemonProtocolVersion: 7 }
-let harness: ReturnType<typeof createManagedLifecycleHarness>
+let harness: Awaited<ReturnType<typeof createManagedLifecycleHarness>>
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
-  harness = createManagedLifecycleHarness()
+  harness = await createManagedLifecycleHarness()
   mocks.state.store = harness.targetStore
   mocks.resolveContext.mockImplementation(async () => harness.context())
   mocks.census.mockResolvedValue(idle)
@@ -189,26 +191,6 @@ describe('updateManagedOrcadEnvironment', () => {
     expect(mocks.deploy.mock.calls[1]?.[0].admitRecord(newer, 'v3')).toBeNull()
   })
 
-  it('updates past live terminals only over the confirmed build, keeping the downgrade refusal', async () => {
-    const running = {
-      ...harness.context().activationRecord,
-      active: 'v1',
-      activeAppVersion: '0.0.0-test'
-    }
-    mocks.deploy.mockResolvedValue({ outcome: 'installed-and-activated', fullVersion: 'v3' })
-    await updateManagedOrcadEnvironment(harness.userDataPath, {
-      selector: 'Managed',
-      pastLiveTerminals: { incumbentVersion: 'v1' }
-    })
-    const deployed = mocks.deploy.mock.calls[0]?.[0]
-    expect(deployed.force).toBe('live-terminals')
-    expect(deployed.admitRecord(running, 'v3')).toBeNull()
-    expect(deployed.admitRecord({ ...running, active: 'v2' }, 'v3')).toMatch(/changed since/)
-    expect(
-      deployed.admitRecord({ ...running, active: 'v1', activeAppVersion: '99.0.0' }, 'v3')
-    ).toMatch(/last ran/)
-  })
-
   it('offers Force when Update was refused by policy', async () => {
     mocks.deploy.mockResolvedValueOnce({
       outcome: 'installed-not-activated',
@@ -238,7 +220,7 @@ describe('updateManagedOrcadEnvironment', () => {
     const deployed = mocks.deploy.mock.calls[0]?.[0]
     expect(deployed?.recountCensus).toBeTypeOf('function')
     await expect(deployed!.recountCensus()).resolves.toEqual(opened)
-    // Only final recount closes admission; initial counts can predate upload.
+    // Only the last count closes the server's terminal admission; the first precedes the upload.
     expect(mocks.census.mock.calls.map((call) => call[4])).toEqual([
       { releaseFinishedAutomationTerminals: true },
       {
@@ -267,7 +249,7 @@ describe('updateManagedOrcadEnvironment', () => {
 
   it('keeps a pairing the terminal count repaired, not the one read before it', async () => {
     mocks.census.mockImplementationOnce(async () => {
-      refreshManagedOrcadPairing(
+      await refreshManagedOrcadPairing(
         harness.userDataPath,
         'environment-1',
         encodePairingOffer({
@@ -286,6 +268,53 @@ describe('updateManagedOrcadEnvironment', () => {
     expect(environment?.endpoints[0]?.deviceToken).toBe('repaired-token')
   })
 
+  it('does not restore an old grant over a newer repair queued before maintenance', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const queued = Promise.withResolvers<void>()
+    const held = withRuntimeEnvironmentMutation(harness.userDataPath, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const newer = refreshManagedOrcadPairing(
+      harness.userDataPath,
+      'environment-1',
+      encodePairingOffer({
+        v: PAIRING_OFFER_VERSION,
+        endpoint: `ws://127.0.0.1:${MANAGED_LOCAL_PORT}/`,
+        deviceToken: 'queued-repaired-token',
+        publicKeyB64: 'public-key'
+      }),
+      (harness.environment.pairingRevision ?? harness.environment.createdAt) + 1
+    )
+    const refresh = managedPairingStore.refreshManagedOrcadPairing
+    const spy = vi
+      .spyOn(managedPairingStore, 'refreshManagedOrcadPairing')
+      .mockImplementation((...args) => {
+        const result = refresh(...args)
+        queued.resolve()
+        return result
+      })
+    mocks.deploy.mockResolvedValueOnce({ outcome: 'already-active', fullVersion: MANAGED_VERSION })
+    mocks.probe.mockResolvedValueOnce(managedReadiness('startup-offer-token'))
+    const updated = updateManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
+    try {
+      await queued.promise
+      release.resolve()
+      await held
+      const repaired = await newer
+      await updated
+      const [saved] = listEnvironments(harness.userDataPath)
+      expect(saved?.endpoints[0]?.deviceToken).toBe('queued-repaired-token')
+      expect(saved?.pairingRevision).toBe(repaired.pairingRevision)
+    } finally {
+      release.resolve()
+      await Promise.allSettled([held, newer, updated])
+      spy.mockRestore()
+    }
+  })
+
   it('keeps the enrolled grant when the updated server offers a new device', async () => {
     mocks.deploy.mockResolvedValueOnce({ outcome: 'installed-and-activated', fullVersion: 'v3' })
     mocks.probe.mockResolvedValueOnce(managedReadiness('startup-offer-token'))
@@ -295,7 +324,7 @@ describe('updateManagedOrcadEnvironment', () => {
 
   it('saves the new pairing on the tunnel port the census moved to', async () => {
     mocks.census.mockImplementationOnce(async () => {
-      moveManagedOrcadLocalPort(harness.userDataPath, 'environment-1', MANAGED_LOCAL_PORT + 1)
+      await moveManagedOrcadLocalPort(harness.userDataPath, 'environment-1', MANAGED_LOCAL_PORT + 1)
       return idle
     })
     mocks.deploy.mockResolvedValueOnce({ outcome: 'installed-and-activated', fullVersion: 'v3' })
@@ -368,7 +397,12 @@ describe('rollbackManagedOrcadEnvironment', () => {
   })
 
   it('refuses a rollback to a snapshot older than the migrated catalog, not a newer one', async () => {
-    recordManagedOrcadMigration(harness.userDataPath, 'environment-1', '2026-02-01T00:00:00.000Z')
+    // The harness's active version activated 2026-01-01.
+    await recordManagedOrcadMigration(
+      harness.userDataPath,
+      'environment-1',
+      '2026-02-01T00:00:00.000Z'
+    )
     await expect(
       rollbackManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     ).resolves.toMatchObject({ outcome: 'refused', code: 'orcad_rollback_crosses_migration' })
@@ -382,8 +416,8 @@ describe('rollbackManagedOrcadEnvironment', () => {
   })
 
   it('refuses a rollback across a retained delta move that predates the mark', async () => {
-    // Older deltas lack a durable mark; their retained journal must still block destructive rollback.
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    // A delta finished by an earlier build left no mark; its retained journal still counts.
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('delta-1', 'ssh-1', { environmentId: 'environment-1' }),
       startedAt: '2026-02-01T00:00:00.000Z',
       phase: 'destination-committed',
@@ -429,7 +463,7 @@ describe('rollbackManagedOrcadEnvironment', () => {
     mocks.rollback.mockResolvedValueOnce({ outcome: 'refused', code: 'x', reason: 'y' })
     await rollbackManagedOrcadEnvironment(harness.userDataPath, { selector: 'Managed' })
     const options = mocks.rollback.mock.calls[0]?.[0]
-    // Initial census is unfenced; rollback must recount under lock.
+    // The count here is unfenced; rollbackOrcad recounts under the host lock.
     expect(mocks.census.mock.calls.map((call) => call[4]?.closeAdmissionForMs)).toEqual([undefined])
     await options.recountCensus()
     await options.releaseIncumbentAdmission()

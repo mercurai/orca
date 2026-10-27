@@ -9,6 +9,10 @@ on:
         required: false
   workflow_call:
     inputs:
+      cache_mode:
+        description: Use off to disable persistent dependency and build caches.
+        type: string
+        default: auto
       ref:
         type: string
         required: false
@@ -37,6 +41,7 @@ jobs:
       - uses: ./.github/actions/setup-wsl-test-runtime
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: electron
       - name: Build relay and Electron
         run: |

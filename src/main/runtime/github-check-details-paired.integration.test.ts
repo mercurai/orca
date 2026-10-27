@@ -44,7 +44,8 @@ vi.mock('../github/client', async () => {
   }
 })
 vi.mock('../github/work-item-details', () => ({ getPRFileContents: vi.fn() }))
-vi.mock('@orca/process-host/process-tree-termination', () => ({
+vi.mock('@orca/process-host/process-tree-termination', async (original) => ({
+  ...(await original()),
   signalProcessTree: terminationMock,
   forceTerminateProcessTree: terminationMock
 }))
@@ -224,7 +225,7 @@ describe('paired check details over real encrypted loopback transport', () => {
         },
         async () => {
           await server.start()
-          const offer = server.createPairingOffer({ name: 'check-details', scope: 'runtime' })
+          const offer = await server.createPairingOffer({ name: 'check-details', scope: 'runtime' })
           if (!offer.available) {
             throw new Error('Pairing unavailable')
           }

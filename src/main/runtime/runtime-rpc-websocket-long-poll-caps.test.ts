@@ -56,7 +56,7 @@ describe('OrcaRuntimeRpcServer', () => {
     const device = server['deviceRegistry'] ?? null
     expect(device).toBeNull()
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const entry = server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
+    const entry = await server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
     const ws = new FakeWebSocket()
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the server reads only these wiring members in this test.
     server['mobileSocketWiring'] = {
@@ -127,7 +127,7 @@ describe('OrcaRuntimeRpcServer', () => {
     // A consuming check now requires a live pane; these transport tests only need it to block.
     vi.spyOn(runtime, 'getTerminalPaneKey').mockImplementation((handle) => `tab_${handle}:leaf`)
     seedSupervisedAskWorkers(db, ['term_w0', 'term_w1', 'term_w2'])
-    // Cap 4 reserves half for waits; shed the third ask.
+    // Why: cap 4 → ask sub-cap 2, so the third ask must be shed while waits keep the other half.
     const server = new OrcaRuntimeRpcServer({
       runtime,
       methods: [...ORCHESTRATION_CHECK_METHODS, ...ORCHESTRATION_ASK_METHODS],
@@ -136,8 +136,8 @@ describe('OrcaRuntimeRpcServer', () => {
       longPollCap: 4
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    // Use runtime scope because mobile does not allow orchestration.ask.
-    const entry = server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
+    // Why: 'runtime' scope, not 'mobile' — orchestration.ask is absent from the mobile allowlist.
+    const entry = await server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
     const ws = new FakeWebSocket()
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the server reads only these wiring members in this test.
     server['mobileSocketWiring'] = {
@@ -168,7 +168,7 @@ describe('OrcaRuntimeRpcServer', () => {
           timeoutMs: 10_000
         })
       )
-      // Fill existing total first so missing ask sub-cap fails at the shed assertion.
+      // Why: gate on the pre-existing total so a missing sub-cap fails on the shed below, not here.
       await waitFor(() => server['activeLongPolls'] === 2)
 
       await dispatch('req_ask_overflow', 'orchestration.ask', {
@@ -226,7 +226,7 @@ describe('OrcaRuntimeRpcServer', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const entry = server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
+    const entry = await server['deviceRegistry']!.addDevice('runtime-test', 'runtime')
     const ws = new FakeWebSocket()
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the server reads only these wiring members in this test.
     server['mobileSocketWiring'] = {
