@@ -97,8 +97,18 @@ export class ConnectorPollClient {
     // Every hello restarts the numbering with a snapshot.
     this.eventSender = new ConnectorOutboxSender(
       options.events,
-      (events, rev, seq) =>
-        this.post(CONNECTOR_PATHS.events, rev, { v: 1, helloRev: rev, seq, events }),
+      async (events, rev, seq) => {
+        try {
+          await options.events.flushPendingWrites()
+          if (this.stopped.signal.aborted || this.helloRev !== rev) {
+            return UNREADABLE_ANSWER
+          }
+          return await this.post(CONNECTOR_PATHS.events, rev, { v: 1, helloRev: rev, seq, events })
+        } catch (error) {
+          console.warn('[connector] publishing turn events failed', error)
+          return UNREADABLE_ANSWER
+        }
+      },
       helloRev,
       this.random
     )

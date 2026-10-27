@@ -198,7 +198,7 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
   it('bounds lost-steer without replaying possibly written input', async () => {
     const { host, codex, turns, permissionSend, pick, row, starts, began } = current()
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-    await began(await permissionSend('running'))
+    await began(await permissionSend('running', { personality: 'friendly' }))
     const journal = host.collaboratorsForTests().sessions.get(SESSION)!.journal
     const persisted = vi.spyOn(journal, 'resolveDispatch')
     const reply = Promise.withResolvers<unknown>()
