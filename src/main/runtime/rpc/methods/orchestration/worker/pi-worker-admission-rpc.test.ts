@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OrchestrationDb } from '../../../../orchestration/db'
+import type { TaskRow } from '../../../../orchestration/types'
 import { createOrchestrationWorkerReleaseHarness } from './worker-release.test-support'
 import { releaseStructuredWorkerSession } from '../../orchestration-structured-worker-session'
 import { structuredWorkerIdentities } from '../../../../structured-worker-identity'
@@ -56,10 +57,12 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
   let hostClose: ReturnType<typeof vi.fn>
   const structuredDispatches = new Set<string>()
   const successfulStructuredSessions = new Set<string>()
+  const structuredSessionRecords = new Map<string, ReturnType<typeof sessionRecord>>()
   beforeEach(() => {
     harness.setup()
     structuredWorkerIdentities.clear()
     successfulStructuredSessions.clear()
+    structuredSessionRecords.clear()
     vi.spyOn(harness.runtime, 'getClientSettings').mockReturnValue({ experimentalNativeChat: true } as never)
     vi.spyOn(harness.runtime, 'getStructuredAgentSessionCreateSupport').mockResolvedValue({ supported: true })
     vi.spyOn(harness.runtime, 'ensureStructuredAgentSessionHost').mockResolvedValue(undefined)
@@ -105,13 +108,16 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
       close: hostClose,
       deps: {
         store: {
-          getRecord: (sessionId: string) => structuredWorkerIdentities.getBySessionId(sessionId)
-            && successfulStructuredSessions.has(sessionId)
-            ? {
-                location: { executionHostId: 'local', wslDistro: null },
-                lease: { runtimeFence: 1, runtimeKind: 'native', claimStatus: 'live' }
-              }
-            : null
+          getRecord: (sessionId: string) => structuredSessionRecords.get(sessionId) ?? (
+            structuredWorkerIdentities.getBySessionId(sessionId)
+              && successfulStructuredSessions.has(sessionId)
+              ? {
+                  location: { executionHostId: 'local', wslDistro: null },
+                  lease: { runtimeFence: 1, runtimeKind: 'native', claimStatus: 'live' }
+                }
+              : null
+          ),
+          listRecords: () => [...structuredSessionRecords.values()]
         }
       },
       subscribe: vi.fn(async (_sessionId: string) => dispose)
@@ -311,10 +317,12 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
 
   it('refuses adopting an existing Pi chat without creating a Dispatch or sending its task', async () => {
     const task = harness.db.createTask({ runId: harness.activeRunId, spec: 'Attempt Pi chat adoption' })
-    vi.spyOn(chatAdmission, 'admitChatAssignee').mockResolvedValue({
+    const piSession = {
       ...sessionRecord(SESSION_X, { location: { workspaceId: 'repo::worktree' } }),
       provider: 'pi'
-    })
+    }
+    structuredSessionRecords.set(SESSION_X, piSession)
+    vi.spyOn(chatAdmission, 'admitChatAssignee').mockResolvedValue(piSession)
     await expect(harness.call('orchestration.workerStart', {
       task: task.id, from: 'term_coord', terminal: ADDRESS_X
     })).rejects.toMatchObject({ code: 'pi_admission_required' })
@@ -726,7 +734,7 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
     let commitFaultHits = 0
     let firstDispatchId: string | undefined
     let observedEnvelope: { sessionId: string; clientOperationId: string } | undefined
-    let preFailureTask: ReturnType<OrchestrationDb['getTask']>
+    let preFailureTask: TaskRow | undefined
     let preFailureDispatch: ReturnType<OrchestrationDb['getDispatchContextById']>
     let preFailureWorker: ReturnType<OrchestrationDb['getWorkerDispatch']>
     const realExec = durableDb.db.exec.bind(durableDb.db)
