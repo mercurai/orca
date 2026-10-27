@@ -111,8 +111,9 @@ export function installNativeBenchmarkObserver(api, output, environment = proces
 
 if (process.env.ORCA_NATIVE_BENCHMARK_TRACE) {
   const require = createRequire(import.meta.url)
-  installNativeBenchmarkObserver(
-    require('@orca/process-host'),
-    process.env.ORCA_NATIVE_BENCHMARK_TRACE
-  )
+  const entry = require.resolve('@orca/process-host')
+  // Re-export getters are immutable; publish the observed facade before production ESM loads it.
+  const api = { ...require(entry) }
+  installNativeBenchmarkObserver(api, process.env.ORCA_NATIVE_BENCHMARK_TRACE)
+  require.cache[entry].exports = api
 }

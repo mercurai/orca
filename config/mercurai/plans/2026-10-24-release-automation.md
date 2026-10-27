@@ -72,6 +72,69 @@ procedures in the October 12 and 13 handoffs; no existing release-automation pla
 CodeGraph was not available. Existing source, workflow, PR, and documentation inspection supplied the reuse evidence.
 No new library, external agent service, always-running chat, or product UI is needed.
 
+## Next release target and durable-controller audit
+
+Owner update, 2026-10-27: official `v1.4.242` is published. The next publishing
+candidate must include that release and the selected current-main snapshot while
+retaining the reviewed Mercurai changes. Preserve the active 241 worktrees as
+repair/recovery sources; finish their atomic regression boundary before creating
+an isolated new candidate generation. Keep later arrivals queued after that freeze.
+
+| Input                      | Recorded next target                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| Stable release             | `v1.4.242`, published 2026-10-27 00:09:03 UTC                                            |
+| Annotated tag object       | `0360ad49840ab10d6493aa6c26c7d066d641eb95`                                               |
+| Peeled stable commit       | `86ad9d95cac792f3d1359d886cef9fb9b0aadd47`                                               |
+| Observed official main     | `cbbaa2d7635297916ea257a0287cc4ec6c12af25`                                               |
+| Published Mercurai channel | `v1.4.237-mercurai.2`; no newer published/prerelease/draft entry in the 12-record census |
+
+The earlier `217f9355` observation was 109 commits ahead of the active `823ca687` base. Main
+advanced again to `cbbaa2d7` on the fresh read; it is queued, not a frozen candidate. Its API changed-file
+list hit the 300-file cap, so a complete Git diff is required before classification.
+Stable 242 diverges from that base: its two unique commits affect `package.json`,
+`.github/workflows/pr.yml` and `.github/workflows/macos-updater-tests.yml`.
+Classify those release-branch changes explicitly; do not assume version-only
+variance or discard them with an ours/theirs selection. This is an owner-recorded
+queue entry, not a claim that the disabled automation state branch was updated.
+No new release suffix is allocated; use the existing allocator after freezing inputs.
+
+The complete object-based Git diff to `cbbaa2d7` now counts 2,738 changed files and
+115 upstream commits after `823ca687`; this replaces the capped API inventory.
+A virtual merge of reviewed `cd3e51b6c3` with that main snapshot reports 12
+conflicts: six WSL/store/test conflicts and six filesystem, host-dispatch,
+worktree-cache, delivery-loop and secure-file test conflicts. The WSL dispositions
+test was deleted upstream; trace its replacement instead of restoring an obsolete
+inventory mechanically. No source files, index or branch changed during this
+inspection. Bounded read-only workers are classifying those contracts while
+hosted regression CI runs; actual integration remains a separate owned generation.
+
+The current full source run `40453877833` exposed 29 failing assertions across
+five unit shards, plus persistence cleanup errors and Vitest failure-stack errors.
+Real WSL, Windows/Linux packaging and compatibility checks passed at `eba9`.
+Independent reviews accepted the first CI-contract repairs, later CI fixture
+updates and a deterministic port-repair regression. Further real-file connector
+persistence/publication regressions are committed for hosted RED before
+production changes. Source regression boundary `cd3e51b6c3` is now reviewed, lint-clean and pushed;
+local controller is `256a93a6fc` plus pending registrations. Neither tip is
+qualified, landed or published. Shared push admission remains required.
+
+The durable pipeline is source-only and unregistered. Reopen P4.3: the dispatcher
+currently validates a local version and lease owner, but does not independently
+enforce candidate/task eligibility, lease freshness, conflict-task scope or
+remote state-commit authority. Its optional local persistence is not a complete
+durable claim/settlement path. The precheck currently refuses conflicts, so it
+cannot by itself admit bounded conflict-resolution work. Keep publication blocked
+on unresolved conflicts while separately admitting approved, isolated resolution
+work. Verify actual native CLI semantics before choosing retry/reconciliation IDs.
+
+Complete that wiring with one trusted state writer, expected-parent updates,
+intent checkpoints before external mutations, actual run/task/dispatch receipt
+reconciliation, and fail-closed handling of ambiguous worker outcomes. Then run
+tokenless crash/duplicate/conflict rehearsals, register the repository-targeted
+Orca automation disabled, inspect its owner/host/account bindings, and enable the
+hourly GitHub/local wakeups only after the release and operational gates pass.
+Durability comes from recorded state and receipts; worker sessions remain bounded.
+
 ## Current candidate and completion audit
 
 Audited 2026-10-27. No default landing, version reservation, final qualification, release tag,
@@ -82,12 +145,12 @@ Later upstream arrivals belong to a subsequent queued target; do not chase movin
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Frozen official main | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                              |
 | Stable floor         | `v1.4.241`, peeled `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                           |
-| Product source       | `patch/current-main-release-823ca@eba9a02316ac3dcb9056085aad9ab438af45aa35`, [#82](https://github.com/mercurai/orca/pull/82)                                                            |
+| Product source       | `patch/current-main-release-823ca@cd3e51b6c37e4455f7206bfd50d24f0716c4ba66`, [#82](https://github.com/mercurai/orca/pull/82)                                                            |
 | Controller           | `codex/release-registration-20261023`, [#80](https://github.com/mercurai/orca/pull/80), ready for review; manual-admission policy correction over tested `bbb2c308ad` requires fresh CI |
 | Admission            | Candidate sets `promotionEnabled: true` for protected manual admission after CI/review-gated landing; recurring coordinator remains off                                                 |
 
-Pushed source has nine linear commits after the frozen base, tree
-`dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`. The manifest registers 231 unique existing tests, including the retained runtime WebSocket regressions.
+Pushed source has eleven linear commits after the frozen base, tree
+`72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`. The manifest registers 248 unique existing tests, including the retained runtime WebSocket regressions.
 Stable is not an ancestor of main: its sole stable-only change is package version metadata. Its functional
 parent is already included. The canonical release build binds `ORCA_MERCURAI_BUILD_VERSION` to the
 reserved tag while preserving source identity; verify packaged and loaded versions separately.
@@ -119,7 +182,14 @@ After shared-slot admission, exact `eba9a02316` targeted
 1,349 passed, 16 skipped; both cost jobs and 25 contracts passed. Full source
 [40453877833](https://github.com/mercurai/orca/actions/runs/40453877833) passed static analysis/typecheck,
 changed-code quality, dependency isolation, mobile bundle, compatibility, real WSL and Windows packaging.
-Full unit/layout and remaining contract jobs are pending; no full qualification receipt exists.
+All five unit shards later failed, with 29 failing assertions; fake-WSL E2E also failed.
+Reviewed source `cd3e51b6c3` adds real-file connector/port-race coverage, awaited fixtures,
+current native-session expectations and Actions-expression contracts. All 23 paths were
+reviewed, including the six-test CI extraction; scoped lint and diff checks were clean.
+Production connector and port-CAS repairs remain unchanged until hosted RED.
+Targeted [40466899243](https://github.com/mercurai/orca/actions/runs/40466899243) and full
+[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) are queued.
+No full qualification receipt exists.
 No prior receipt qualifies it. Wait for draft-sync runs before marking ready to avoid stale event cancellation.
 
 A bounded audit covered 37 explicit async conversions and 16 Promise-returning store/journal APIs against
@@ -434,7 +504,7 @@ Parallelism: coordinator worker owns new scripts and sync/rebase workflows; owne
       Preserve exact protected-range authorization and atomic series pushes; do not silently enable inherited workflows.
       The coordinator now records a deterministic bounded task plan for every conflict inventory; no task plan bypasses
       the unresolved-conflict admission block.
-- [x] P4.3 Coordinator worker: add proposed `config/mercurai/scripts/release-precheck.mjs`,
+- [ ] P4.3 Coordinator worker: add proposed `config/mercurai/scripts/release-precheck.mjs`,
       `config/mercurai/scripts/release-agent-dispatch.mjs`, and `config/mercurai/automation-contract.md`.
       Use the existing Orca CLI interfaces to reconcile and launch bounded workers from the local scheduled run.
       GitHub coordinates durable state and protected operations; it does not assume access to the user's Orca runtime.
@@ -444,7 +514,7 @@ Parallelism: coordinator worker owns new scripts and sync/rebase workflows; owne
       Add behavioral tests for the adapter and precheck, including recovery between worker start and receipt persistence.
       Define bounded work/review tasks, precise writable paths, task/dispatch binding, and unconditional admission checks.
       Test empty queue, manual precheck bypass, offline host, stale completion, and worker release uncertainty.
-- [x] P4.4 Owner: extend `config/mercurai/README.md` with lifecycle, required evidence, roles, blocker handling,
+- [ ] P4.4 Owner: extend `config/mercurai/README.md` with lifecycle, required evidence, roles, blocker handling,
       recovery, pause/resume, publication versus runtime status, and rollback limits. Link this plan and CLI docs.
       Add queue age and blocker-change alerts without hourly duplicate comments. Record freshness as observed lag, not
       a promise that a release is always identical to a continuously moving main branch.

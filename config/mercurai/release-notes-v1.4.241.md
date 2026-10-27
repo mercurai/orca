@@ -6,7 +6,9 @@ stability: draft
 
 # Mercurai release based on Orca 1.4.241
 
-Draft only. No version suffix, qualified candidate, published package or loaded
+Recovery/preparation draft only. Official 242 and newer main are queued as the
+next publishing target in the authoritative plan. Preserve this boundary as a
+patch source. No version suffix, qualified candidate, published package or loaded
 runtime is claimed. The release owner must reserve an unused `mercurai.N` version
 before final independent review and preserve it through qualification and tagging.
 
@@ -15,9 +17,9 @@ before final independent review and preserve it through qualification and taggin
 - Frozen official main: `823ca6870fd46bc979ee073ee0731516a0607daa`.
 - Stable floor: `v1.4.241`, peeled commit
   `041baf356b368d773f333e76375ce860fba2481b`.
-- Provisional linear candidate: `eba9a02316ac3dcb9056085aad9ab438af45aa35`,
+- Provisional linear candidate: `cd3e51b6c37e4455f7206bfd50d24f0716c4ba66`,
   [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`; latest test-only correction is pushed; final qualification pending.
+- Tree: `72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`; reviewed regression boundary is pushed; final qualification pending.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its
@@ -51,7 +53,10 @@ must reconcile the stable floor explicitly before packaging.
    d839 repeated that result in40447857538; its full40447857412 failed two runtime-test
    type assertions. Reviewed eba9 replaces those assertions with checked parsing
    and a direct absence check; its targeted run40453877785 passed 1,349 tests with16skipped and full static/typecheck
-   gates passed. Remaining full-matrix jobs are pending. Source registration
+   gates passed. Its full matrix then exposed 29 failing unit assertions and fake-WSL
+   E2E failure. Current cd3e51b6c3 adds reviewed real-file regressions, awaited fixture
+   cleanup and Actions-expression repairs; hosted runs40466899243/40466899212 are
+   queued. Connector and port-CAS production repairs still await RED. Source registration
    and independent review alone do not qualify the release.
 2. Pass targeted behavioral checks and the complete required matrix at the exact
    candidate, including every planned unit/layout shard. Record advisory results

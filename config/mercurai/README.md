@@ -9,8 +9,8 @@ The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
 (`041baf356b368d773f333e76375ce860fba2481b`). The pushed patch
 `patch/current-main-release-823ca` is provisionally pinned to
-`eba9a02316ac3dcb9056085aad9ab438af45aa35`, nine commits after that official
-ancestor, tree `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`. PR
+`cd3e51b6c37e4455f7206bfd50d24f0716c4ba66`, eleven commits after that official
+ancestor, tree `72a486cbb6c1961ec708b16d13f82c4f1f48b1cf`. PR
 [#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
 The initial baseline reproduced speed, WSL and journal integration defects.
@@ -27,7 +27,13 @@ Source `eba9a02316` is pushed: targeted run
 1,349 Windows tests (16 skipped), both cost jobs and 25 contracts. Full source run
 [40453877833](https://github.com/mercurai/orca/actions/runs/40453877833) has passed
 static analysis/typecheck, changed-code quality, compatibility, real WSL and Windows
-packaging; remaining required jobs are pending.
+packaging, but all five full unit shards failed (29 assertions) and fake-WSL
+E2E failed. The current `cd3e51b6c3` boundary adds reviewed regression coverage,
+fixture cleanup and CI-contract repairs; targeted
+[40466899243](https://github.com/mercurai/orca/actions/runs/40466899243) and full
+[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) are queued.
+Official `v1.4.242` and newer main are queued for an isolated next generation;
+this 241 preparation is retained as its repair source, not the publishing target.
 No earlier receipt qualifies this revision. The canonical build-version override
 must reconcile the stable floor and the reserved Mercurai version during packaging.
 

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 import {
   finishModuleCache,
   moduleCacheIdentity,
@@ -182,7 +183,17 @@ it('uses an optional exact restore after install and saves successful scoped pro
     })
     expect(admitted, name).toBe(expected)
   }
-  expect(save.if).toBe("steps.module-cache-seal.outputs.ready == 'true'")
+  const saveAllowed = compileAggregateExpression(save.if, ['inputs', 'steps'])
+  for (const cache_mode of ['auto', 'off']) {
+    for (const ready of ['true', 'false', undefined]) {
+      expect(
+        saveAllowed({
+          inputs: { cache_mode },
+          steps: { 'module-cache-seal': { outputs: { ready } } }
+        }).coerceString()
+      ).toBe(String(cache_mode !== 'off' && ready === 'true'))
+    }
+  }
   expect(save.with.key).toBe(steps[restore].with.key)
   expect(workflow.on.workflow_call.inputs.module_cache.default).toBe('off')
   expect(workflow.on.workflow_call.inputs.run_relay_integration.default).toBe(true)

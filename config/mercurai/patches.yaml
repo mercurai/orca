@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: eba9a02316ac3dcb9056085aad9ab438af45aa35
+    commit: cd3e51b6c37e4455f7206bfd50d24f0716c4ba66
     owner: harness
     added: 2026-10-25
     tests:
@@ -251,10 +251,27 @@ patches:
       - src/main/wsl/wsl-host-early-wake.test.ts
       - src/shared/native-chat-session-option-defaults.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
+      - config/scripts/ci-unit-module-cache.test.mjs
+      - config/scripts/orcad-terminal-smoke-change-scope.test.mjs
+      - config/scripts/pr-code-change-scope-workflow.test.mjs
+      - config/scripts/pr-code-change-scope.test.mjs
+      - config/scripts/pr-ready-check-reuse.test.mjs
+      - config/scripts/windows-native-preparation-benchmark.test.mjs
+      - config/scripts/wsl-e2e-lane-contract.test.mjs
+      - src/main/connector-cloud/connector-poll-client.persistence.test.ts
+      - src/main/connector-cloud/connector-turn-events.persistence.test.ts
+      - src/main/connector-cloud/connector-turn-events.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-tunnel-local-port.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-codex-input-finalization.spec.ts
+      - src/main/runtime/device-registry-file-read.test.ts
+      - src/main/runtime/rpc/methods/agent-launch-at-rest.test.ts
+      - src/renderer/src/components/tab-bar/cli-chat-resume-run.test.ts
+      - src/shared/wsl-move/wsl-move-dispositions.test.ts
+      - tests/e2e/wsl-host-fake-transport.spec.ts
     notes: >-
-      Candidate eba9a02316ac3dcb9056085aad9ab438af45aa35 is nine linear commits
+      Candidate cd3e51b6c37e4455f7206bfd50d24f0716c4ba66 is eleven linear commits
       after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      dacfbec5ce4e6a8efdaed4e804c15dcaba480a64. Source PR82 supersedes
+      72a486cbb6c1961ec708b16d13f82c4f1f48b1cf. Source PR82 supersedes
       historical PR79 preparation. Initial linear c777bcfc had the identical tree
       as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
       The frozen stable floor is v1.4.241, peeled commit
@@ -275,7 +292,13 @@ patches:
       1349Windows tests/16skip, both cost jobs and25contracts. Full40447857412
       failed on two runtime-test type assertions. Currenteba9 replaces them with
       Zod response validation and a direct property-absence check; independently
-      reviewed, scoped formatting passed, fresh exact-head CI pending.
+      reviewed and scoped formatting passed. At eba9, targeted40453877785 passed
+      1349Windows tests/16skip and both cost jobs; full40453877833 passed static
+      checks but exposed29assertion failures across five unit shards plus fake-WSL
+      E2E and persistence cleanup errors. Current cd3e51 adds reviewed real-file
+      persistence regressions, awaited fixture cleanup and current Actions-expression
+      contracts. Production connector and port-CAS fixes are intentionally pending
+      hosted RED. Targeted40466899243 and full40466899212 are queued; no pass claimed.
       No prior receipt approves this pin. Independent bounded reviews accepted the
       WSL, speed/model-binding and journal corrections; final qualification remains open.
       Registered paths retain the predecessor union and new regressions.

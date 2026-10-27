@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { classifyPrJobs } from './pr-code-change-scope.mjs'
 import { WINDOWS_BOUNDARY_TESTS } from './pr-package-test-paths.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 
 const read = (path) => parse(readFileSync(path, 'utf8'))
 const workflow = (name) => read(`.github/workflows/${name}.yml`)
@@ -518,7 +519,17 @@ describe('CI dependency download caches', () => {
     )
     const linux = release.strategy.matrix.include.find((entry) => entry.platform === 'linux-x64')
 
-    expect([linux.os, 'blacksmith-4vcpu-ubuntu-2404']).toContain(packaging['runs-on'])
+    const runner = compileAggregateExpression(packaging['runs-on'], ['github'])
+    for (const [repository, expected] of [
+      ['mercurai/orca', linux.os],
+      ['stablyai/orca', 'blacksmith-4vcpu-ubuntu-2404']
+    ]) {
+      expect(runner({ github: { repository } }).coerceString()).toBe(expected)
+    }
+    const cache = compileAggregateExpression(consumer.if, ['inputs'])
+    for (const cache_mode of ['auto', 'off']) {
+      expect(cache({ inputs: { cache_mode } }).coerceString()).toBe(String(cache_mode !== 'off'))
+    }
     expect(writer.if).toBe("matrix.platform == 'linux-x64' && github.ref == 'refs/heads/main'")
     expect(writer.uses).toBe('actions/cache@v5')
     expect(writer.with.path).toBe(consumer.with.path)
