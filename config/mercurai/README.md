@@ -9,8 +9,8 @@ The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
 (`041baf356b368d773f333e76375ce860fba2481b`). The remote patch
 `patch/current-main-release-823ca` is provisionally pinned to
-`065d0b6103af12d402bc7e8d09db577551960dce`, six commits after that official
-ancestor, tree `36303c8754ce8c087b745d8d8b7035b858c94c0c`. PR
+`6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49`, seven commits after that official
+ancestor, tree `c9da81a8a8146706a15448b59b4c6c6ba5621f0a`. PR
 [#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
 The initial `c777bcfc` baseline reproduced the reviewed speed and WSL defects.

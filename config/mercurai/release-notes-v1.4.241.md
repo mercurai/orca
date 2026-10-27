@@ -15,9 +15,9 @@ before final independent review and preserve it through qualification and taggin
 - Frozen official main: `823ca6870fd46bc979ee073ee0731516a0607daa`.
 - Stable floor: `v1.4.241`, peeled commit
   `041baf356b368d773f333e76375ce860fba2481b`.
-- Provisional linear candidate: `065d0b6103af12d402bc7e8d09db577551960dce`,
+- Provisional linear candidate: `6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49`,
   draft [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `36303c8754ce8c087b745d8d8b7035b858c94c0c`; final review and qualification pending.
+- Tree: `c9da81a8a8146706a15448b59b4c6c6ba5621f0a`; final review and qualification pending.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its

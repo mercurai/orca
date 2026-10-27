@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: 065d0b6103af12d402bc7e8d09db577551960dce
+    commit: 6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49
     owner: harness
     added: 2026-10-25
     tests:
@@ -251,9 +251,9 @@ patches:
       - src/shared/native-chat-session-option-defaults.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
     notes: >-
-      Candidate 065d0b6103af12d402bc7e8d09db577551960dce is six linear commits
+      Candidate 6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49 is seven linear commits
       after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      36303c8754ce8c087b745d8d8b7035b858c94c0c. Source PR82 supersedes
+      c9da81a8a8146706a15448b59b4c6c6ba5621f0a. Source PR82 supersedes
       historical PR79 preparation. Initial linear c777bcfc had the identical tree
       as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
       The frozen stable floor is v1.4.241, peeled commit
@@ -268,7 +268,9 @@ patches:
       run40439842064 observed1340pass/8fail/16skip, including six intended new
       journal-ordering failures and two existing idempotency failures. This pin adds
       independently reviewed typing/lint repairs and awaited serialized journal intent
-      and acknowledgment updates. Targeted run40442414377 and fullPR CI are pending.
+      and acknowledgment updates. Source065d run40442414377 passed1349tests/16skip across99Windowsfiles, with
+      bothcostjobs and25contracts green. Current6941 adds only independently reviewed
+      formatting in fivefiles after fullPR found those format errors; fresh CI is pending.
       No prior receipt approves this pin. Independent bounded reviews accepted the
       WSL, speed/model-binding and journal corrections; final qualification remains open.
       Registered paths retain the predecessor union and new regressions.

@@ -70,7 +70,7 @@ installation, runtime acceptance, or schedule activation is complete.
 | Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                  |
 | Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                      |
 | Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                             |
-| New linear candidate                             | `patch/current-main-release-823ca@065d0b6103af12d402bc7e8d09db577551960dce`, [#82](https://github.com/mercurai/orca/pull/82); targeted run [40442414377](https://github.com/mercurai/orca/actions/runs/40442414377) pending |
+| New linear candidate                             | `patch/current-main-release-823ca@6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49`, [#82](https://github.com/mercurai/orca/pull/82); targeted run [40442414377](https://github.com/mercurai/orca/actions/runs/40442414377) pending |
 | Controller preparation                           | `codex/release-registration-20261023@ea3a3b9a1681fa0ebb895c0a8940e8d17b9e6b7b`, PR [#80](https://github.com/mercurai/orca/pull/80); correction and current evidence below                                                   |
 | Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                            |
 
@@ -98,8 +98,8 @@ recovery alongside fork exact tiers, async persistence and host fences.
 | `c777bcfc`, [40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) | Windows: 97 files, 1,282 passed, 21 failed, 16 skipped. Twenty product regressions and one extraction import error. Linux costs: 237 passed; Windows: 232 passed, five skipped. Qualification contracts: 25 passed. |
 | `918ee0ca`, [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045) | Windows: 95 files passed, two failed; 1,304 tests passed, two failed, 16 skipped. Both cost jobs succeeded. Only saved unlisted-model binding cases remain RED.                                                     |
 
-Current source `065d0b6103af12d402bc7e8d09db577551960dce`, tree
-`36303c8754ce8c087b745d8d8b7035b858c94c0c`, has six linear commits after the frozen base.
+Current source `6941c6cd4abe5c73cdd2a024c6d6aeb0c71aec49`, tree
+`c9da81a8a8146706a15448b59b4c6c6ba5621f0a`, has seven linear commits after the frozen base.
 The WSL correction serializes complete bounded async focus writes, drains them on quit, revokes pending
 intent on disable/removal, preserves unrelated pending hosts, and fences post-await reconnects by owner
 and generation. Independent review accepted it. Startup reads and immediate revocation retain bounded
@@ -140,6 +140,14 @@ after queued cleanup and deterministic gate cleanup. Those corrections are commi
 The exported-API/new-upstream-call audit covered 37 explicit async conversions and 16 Promise-returning
 store/journal APIs; it found only the two already corrected new journal calls. This is bounded evidence,
 not whole-program promise-flow proof or a measured UI/memory claim.
+
+At `065d0b6103`, [40442414377](https://github.com/mercurai/orca/actions/runs/40442414377) passed
+all 99 Windows files: 1,349 tests passed, 16 skipped; both cost jobs and 25 contracts passed. The full
+PR run was cancelled by a late draft-sync event, then retried. Dependency isolation/typecheck, lint,
+mobile bundle and flaky-test ratchet passed; formatting failed in five retained files. Current
+`6941c6cd4a` applies only the independently reviewed pinned-formatter correction to those files.
+Scoped lint and whitespace checks passed; fresh complete CI remains required. Let draft synchronize
+runs settle before marking ready, so a late skipped run cannot cancel the ready run.
 
 The provisional manifest pins this committed source and 230 test paths. Replace the pin only after the
 final source commit; source branch-head drift must fail assembly. Full required CI, version reservation,
@@ -247,6 +255,21 @@ bounded agent execution. A durable agent chat is optional convenience, never the
 An entirely manual runbook cannot meet recurring freshness. A new standalone agent service duplicates existing Orca
 scheduling, increases credential exposure, and is unnecessary. Blind conflict resolution with ours/theirs can silently
 discard performance and compatibility fixes, so it is not an acceptable automation strategy.
+
+### Stable-tag mirroring without changing the frozen patch basis
+
+The fork currently has no `v1.4.241` tag; assembly requires the reviewed upstream tag to exist in the fork.
+The existing owner-approved tag mirror also dispatches stable-tag patch rebasing. That is unsafe for the
+current main-snapshot manifest: rebasing `823ca..patch` onto the stable release would omit upstream main.
+Do not invoke that coupled operation or manually create a release tag as a workaround.
+
+Add an explicit manual `mirror_tag_only` input to the existing sync workflow, default false. Require an
+owner-reviewed `allow_tag` pin and reject contradictory branch/guarded-merge inputs. In this mode only the
+existing pinned-tag mirror may write: skip main/bulk-tag/branch/default merges, both rebase dispatches and
+issue-writing side effects. Preserve schedule, dry-run, protected-default-branch and token boundaries;
+normal mode retains existing behavior. Test actual workflow routing plus invalid-mode refusal in hosted
+RED/GREEN, independently review, and update the existing runbook. This is a prerequisite for this release's
+stable floor, not activation of the recurring coordinator. Promotion remains disabled.
 
 ### Candidate identity and evidence
 
@@ -410,7 +433,7 @@ Parallelism: assign non-overlapping product paths only after inspecting the pinn
       Reuse manifest tests and existing performance contracts; add tests only for unresolved changes and actual gaps.
       Compare upstream and candidate under matching deterministic fixtures, retaining required prior regression budgets.
 - [ ] P2.4 Owner: register reviewed patch heads and test paths in `patches.yaml`; reconcile stale preparation notes.
-      Reserve the version, update source version metadata and repository release notes, then freeze final patch order.
+      Reserve the version, bind the canonical build-version override and repository release notes, then freeze patch order.
       Assemble one immutable candidate and obtain independent combined review plus
       full CI, targeted tests, typecheck, lint, compatibility, and packaging checks at the required exact revisions.
       Any corrective source change restarts affected qualification and review; do not waive the known async failures.
