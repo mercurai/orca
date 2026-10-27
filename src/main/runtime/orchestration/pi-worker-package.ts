@@ -6,6 +6,7 @@ import {
   PiWorkerArtifactsSchema
 } from '../../../shared/pi-worker-admission'
 import type { PiWorkerPackage, PiWorkerPackageBinding } from '../../pi/worker-package-binding'
+import { resolvePiWorkerReportCli } from '../../pi/worker-report-bridge'
 import { execFileCaptureToTermination } from '../../git/command-runner/exec-file-capture'
 import type { OrchestrationDb } from './db'
 import { OrchestrationError } from './orchestration-error'
@@ -284,13 +285,15 @@ export async function preparePiWorkerAcquisition(
   const modelCatalog = await prepareModelCatalog(pkg, attempt.entry, acquisitionDirectory)
   const bindingPath = join(acquisitionDirectory, 'launch-binding.json')
   const readinessNonce = randomBytes(32).toString('hex')
+  const reportCli = resolvePiWorkerReportCli()
   const binding = {
     schema: 'harness.pi-launch.v1', owner: provenance(pkg).owner,
     templateBytesSha256: pkg.templateBytesSha256, finalProfileSemanticSha256: pkg.finalProfileSemanticSha256,
     manifestBytesSha256: pkg.manifestBytesSha256, brokerBytesSha256: pkg.broker.sha256,
     canonicalSourceCommit: pkg.canonicalSourceCommit, expectedPiVersion: pkg.piVersion,
     expectedModel: { harness: 'pi', gateway: pkg.provider, id: pkg.model, context_window: modelCatalog.contextWindow },
-    modelsJsonPath: modelCatalog.modelsJsonPath, modelsJsonSha256: modelCatalog.modelsJsonSha256, readinessNonce
+    modelsJsonPath: modelCatalog.modelsJsonPath, modelsJsonSha256: modelCatalog.modelsJsonSha256,
+    reportCli, readinessNonce
   }
   await writeExclusive(bindingPath, JSON.stringify(binding))
   currentAttempt(context.db, attempt.dispatch.id)

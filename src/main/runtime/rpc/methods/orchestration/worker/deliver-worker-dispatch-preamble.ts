@@ -66,6 +66,7 @@ export async function deliverWorkerDispatchPreamble(args: {
         ? formatOrcaSessionAddress(canonicalOrcaSessionId(structuredSession.identity.sessionId))
         : terminalHandle,
     devMode: args.devMode,
+    reportingMode: args.launchedAgent === 'pi' ? 'pi-tool' : undefined,
     cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle)
   })
   if (chatAssigneeSessionId(terminalHandle)) {
