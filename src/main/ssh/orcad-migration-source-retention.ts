@@ -10,8 +10,7 @@ import type { Store } from '../persistence'
 import { withRenamedOrcadMigrationDrafts } from '../persistence/migrating-orcad-catalog/orcad-source-draft-rename'
 import {
   listOrcadMigrationSourceCutovers,
-  updateOrcadMigrationSourceCutover,
-  writeOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 
 type OrcadMigrationDraftRenameStore = Pick<
@@ -64,9 +63,16 @@ async function retainOnce(
     .listAutomations()
     .filter((automation) => automation.enabled && moved.has(automation.id))
   if (cutover.automationsToEnableOnServer === undefined && enabled.length > 0) {
-    writeOrcadMigrationSourceCutover(userDataPath, {
-      ...cutover,
-      automationsToEnableOnServer: enabled.map(({ id }) => id)
+    await updateOrcadMigrationSourceCutover(userDataPath, migrationId, (current) => {
+      if (current.phase !== 'destination-committed') {
+        throw new Error('orcad_migration_retain_before_commit')
+      }
+      if (current.manifestSha256 !== cutover.manifestSha256) {
+        throw new Error('orcad_migration_destination_state_mismatch')
+      }
+      return current.automationsToEnableOnServer === undefined
+        ? { ...current, automationsToEnableOnServer: enabled.map(({ id }) => id) }
+        : current
     })
   }
   await store.runDurableMutation(() => {

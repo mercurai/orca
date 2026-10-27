@@ -25,7 +25,8 @@ import {
 } from './orcad-migration-moved-automations'
 import { createOrcadMigrationManifest } from './orcad-migration-manifest-export'
 import * as boundedWrites from '../../shared/bounded-secure-json-file'
-import { drainPendingPathWrites } from '../../shared/path-write-serializer'
+import * as cutoverJournal from './orcad-migration-cutover-journal'
+import { drainPendingPathWrites, serializePathWrite } from '../../shared/path-write-serializer'
 
 const TARGET_ID = 'ssh-1'
 const SOURCE_HOST = `ssh:${TARGET_ID}`
@@ -491,6 +492,50 @@ describe('moving automations that ran on this desktop', () => {
       })
     } finally {
       release.resolve()
+      await Promise.allSettled(operations)
+    }
+  })
+
+  it('accepts an obsolete enable acknowledgement when queued cleanup removes its journal', async () => {
+    await retainedWithAutomation()
+    const directoryEntered = Promise.withResolvers<void>()
+    const releaseDirectory = Promise.withResolvers<void>()
+    const providerEntered = Promise.withResolvers<void>()
+    const releaseProvider = Promise.withResolvers<boolean>()
+    const acknowledgementQueued = Promise.withResolvers<void>()
+    const execute = cutoverJournal.updateOrcadMigrationSourceCutover
+    vi.spyOn(cutoverJournal, 'updateOrcadMigrationSourceCutover').mockImplementation((...args) => {
+      const updating = execute(...args)
+      acknowledgementQueued.resolve()
+      return updating
+    })
+    const operations: Promise<unknown>[] = []
+    try {
+      const blocking = serializePathWrite(
+        cutoverJournal.orcadMigrationCutoverJournalDirectory(userDataPath),
+        async () => {
+          directoryEntered.resolve()
+          await releaseDirectory.promise
+        }
+      )
+      operations.push(blocking)
+      await directoryEntered.promise
+      const enabling = enableMovedOrcadAutomations(userDataPath, 'm-1', () => {
+        providerEntered.resolve()
+        return releaseProvider.promise
+      })
+      operations.push(enabling)
+      await expect(Promise.race([providerEntered.promise, enabling])).resolves.toBeUndefined()
+      const removing = removeOrcadMigrationSourceCutover(userDataPath, 'm-1')
+      operations.push(removing)
+      releaseProvider.resolve(true)
+      await expect(Promise.race([acknowledgementQueued.promise, enabling])).resolves.toBeUndefined()
+      releaseDirectory.resolve()
+      await expect(Promise.all([removing, enabling])).resolves.toEqual([undefined, 0])
+      expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([])
+    } finally {
+      releaseProvider.resolve(true)
+      releaseDirectory.resolve()
       await Promise.allSettled(operations)
     }
   })
