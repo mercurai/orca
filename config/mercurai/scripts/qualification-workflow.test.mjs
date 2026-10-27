@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { test } from 'node:test'
 
@@ -8,6 +8,163 @@ const workflow = readFileSync(
   resolve(root, '.github', 'workflows', 'fork-qualify-release.yml'),
   'utf8'
 ).replaceAll('\r\n', '\n')
+
+function localUses(text) {
+  let blockIndent = null
+  const references = []
+  for (const line of text.split('\n')) {
+    const indent = line.search(/\S/)
+    if (blockIndent !== null) {
+      if (indent === -1 || indent > blockIndent) {
+        continue
+      }
+      blockIndent = null
+    }
+    const block = /^(\s*)(-\s+)?[\w-]+:\s*[|>][-+]?\s*(?:#.*)?$/.exec(line)
+    if (block) {
+      blockIndent = block[1].length + (block[2]?.length ?? 0)
+      continue
+    }
+    const reference =
+      /^\s*(?:-\s+)?(?:uses|'uses'|"uses"):\s*(['"]?)(\.\/[^\s'"]+)\1\s*(?:#.*)?$/.exec(line)
+    if (reference) {
+      references.push(reference[2].slice(2))
+    }
+  }
+  return references
+}
+
+function missingLocalDependencies(entrypoints, read) {
+  const pending = [...entrypoints]
+  const visited = new Set()
+  const missing = []
+  while (pending.length > 0) {
+    const document = pending.pop()
+    if (visited.has(document)) {
+      continue
+    }
+    visited.add(document)
+    for (const reference of localUses(read(document))) {
+      const targets = /\.ya?ml$/.test(reference)
+        ? [reference]
+        : [`${reference}/action.yml`, `${reference}/action.yaml`]
+      const target = targets.find((path) => read(path) !== null)
+      if (target) {
+        pending.push(target)
+      } else {
+        missing.push(`${document} -> ./${reference}`)
+      }
+    }
+  }
+  return missing.toSorted()
+}
+
+test('the shared qualification workflows have a complete recursive local-action dependency closure', () => {
+  const workflows = readdirSync(resolve(root, '.github/workflows'))
+    .filter((name) => /\.ya?ml$/.test(name))
+    .map((name) => `.github/workflows/${name}`)
+  const read = (path) => {
+    assert.match(path, /^\.github\/(actions|workflows)\//)
+    assert.equal(
+      path.split('/').includes('..'),
+      false,
+      'local dependency stays inside the repository'
+    )
+    const absolute = resolve(root, path)
+    return existsSync(absolute) ? readFileSync(absolute, 'utf8') : null
+  }
+  assert.deepEqual(missingLocalDependencies(workflows, read), [])
+})
+
+test('closure catches a missing nested setup action while ignoring script and description examples', () => {
+  const files = new Map([
+    [
+      '.github/workflows/root.yml',
+      [
+        'jobs:',
+        '  check:',
+        '    steps:',
+        "      - uses: './.github/actions/install' # actual dependency",
+        '      - run: |',
+        '          uses: ./.github/actions/not-an-action',
+        '      - uses: actions/checkout@v6'
+      ].join('\n')
+    ],
+    [
+      '.github/actions/install/action.yml',
+      [
+        'description: >-',
+        '  uses: ./.github/actions/description-only',
+        'runs:',
+        '  using: composite',
+        '  steps:',
+        '    - uses: ./.github/actions/setup-pnpm'
+      ].join('\n')
+    ]
+  ])
+  const read = (path) => files.get(path) ?? null
+  assert.deepEqual(missingLocalDependencies(['.github/workflows/root.yml'], read), [
+    '.github/actions/install/action.yml -> ./.github/actions/setup-pnpm'
+  ])
+  files.set(
+    '.github/actions/setup-pnpm/action.yml',
+    'runs:\n  using: composite\n  steps:\n    - uses: pnpm/setup@v2\n'
+  )
+  assert.deepEqual(missingLocalDependencies(['.github/workflows/root.yml'], read), [])
+})
+
+for (const style of ['|', '>-']) {
+  test(`a sequence-first ${style} scalar cannot hide a sibling local-action dependency`, () => {
+    const files = new Map([
+      [
+        '.github/workflows/root.yml',
+        [
+          'jobs:',
+          '  check:',
+          '    steps:',
+          `      - name: ${style}`,
+          '          A caption containing an example:',
+          '          uses: ./.github/actions/caption-only',
+          '        uses: ./.github/actions/missing-after-caption'
+        ].join('\n')
+      ]
+    ])
+    const read = (path) => files.get(path) ?? null
+    assert.deepEqual(missingLocalDependencies(['.github/workflows/root.yml'], read), [
+      '.github/workflows/root.yml -> ./.github/actions/missing-after-caption'
+    ])
+    files.set(
+      '.github/actions/missing-after-caption/action.yml',
+      'runs:\n  using: composite\n  steps:\n    - uses: pnpm/setup@v2\n'
+    )
+    assert.deepEqual(missingLocalDependencies(['.github/workflows/root.yml'], read), [])
+  })
+}
+
+for (const key of ["'uses'", '"uses"']) {
+  test(`a literal quoted ${key} key cannot hide a missing local action`, () => {
+    const files = new Map([
+      [
+        '.github/workflows/root.yml',
+        [
+          'jobs:',
+          '  check:',
+          '    steps:',
+          `      - ${key}: './.github/actions/quoted-missing'`
+        ].join('\n')
+      ]
+    ])
+    const read = (path) => files.get(path) ?? null
+    assert.deepEqual(missingLocalDependencies(['.github/workflows/root.yml'], read), [
+      '.github/workflows/root.yml -> ./.github/actions/quoted-missing'
+    ])
+    files.set(
+      '.github/actions/quoted-missing/action.yml',
+      'runs:\n  using: composite\n  steps:\n    - uses: pnpm/setup@v2\n'
+    )
+    assert.deepEqual(missingLocalDependencies(['.github/workflows/root.yml'], read), [])
+  })
+}
 
 test('qualification is manual, default-branch controlled, and read-only', () => {
   assert.match(workflow, /^name: fork-qualify-release$/m)

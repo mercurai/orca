@@ -115,6 +115,21 @@ That bounded correction passed independent review. Fresh targeted run
 [40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) and full PR CI are pending;
 no installed-app acceptance is claimed.
 
+Full PR run [40436716086](https://github.com/mercurai/orca/actions/runs/40436716086) completed RED
+at source `3ddf868540` after targeted GREEN: eight TypeScript diagnostics, two file-size violations,
+two extracted fixture wall-clock findings and three stale baseline entries blocked the required matrix.
+The mobile bundle passed; WSL startup failed on the same TypeScript errors before native checks,
+and required package jobs were skipped.
+Local mutable-record typing repairs passed independent review. Prompt contracts were extracted unchanged,
+redundant current-value spreads removed, fixture timestamps fixed, and the baseline only reduced.
+These working corrections still need independent review and fresh complete CI.
+
+The missing migration-journal call also exposed two omitted awaits after the journal became async.
+Retained automation intent must persist before disable, and enable acknowledgment must finish before
+returning without resurrecting concurrently cleared IDs. Six deterministic real-store regressions and
+awaited seed fixtures are authored for hosted RED before those production corrections. The existing
+targeted workflow now includes the retention and host-fence suites. No automatic task launch is added.
+
 The provisional manifest pins this committed source and 229 test paths. Replace the pin only after the
 final source commit; source branch-head drift must fail assembly. Full required CI, version reservation,
 combined review, package checks and runtime evidence remain outstanding. Prior source revisions and run
@@ -138,6 +153,13 @@ follow-up parenthesizes those identity filters without changing predicates or we
 publication freshness and reused-destination fetch cases passed in the latter run. Complete controller
 GREEN still requires a fresh commit/run. Default `c5f11af2` is an ancestor of `ea3a3b9a`; the manifest-only
 merge exactly preserved reviewed correction tree `77b0e5ed37aba1681d6f6174a40d36b06b973496`.
+
+Controller `18c6887c6c` passed [40437126908](https://github.com/mercurai/orca/actions/runs/40437126908):
+381 Node tests and nine modern-template integration tests, zero failures/skips. Its separate PR platform
+preflight [40437124830](https://github.com/mercurai/orca/actions/runs/40437124830) failed because copied
+matrix actions lacked `setup-pnpm`. A closure audit also found `build-mobile-web-bundle` missing.
+Both actions are copied byte-for-byte from reviewed source `3ddf868540`; a recursive closure regression
+is under independent review. Script-suite GREEN alone does not authorize controller landing.
 
 Owner intake authenticates account-controlled acceptance of an independent review, binding full
 candidate/tree/controller/manifest/policy/version/ordered-series/upstream identity to both GitHub actors,
