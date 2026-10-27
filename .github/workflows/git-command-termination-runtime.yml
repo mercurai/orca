@@ -220,3 +220,6 @@ jobs:
           node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
           config/scripts/ci-unit-plan.test.mjs
           config/scripts/pr-qualification-contract.test.mjs
+          config/scripts/ci-draft-pr-admission.test.mjs
+          config/scripts/pr-auxiliary-preflight-admission.test.mjs
+          config/scripts/pr-e2e-route-contracts.test.mjs

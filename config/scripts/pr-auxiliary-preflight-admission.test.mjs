@@ -15,6 +15,7 @@ import { runProcessSync } from '@orca/process-host'
 import { parse } from 'yaml'
 import { classifyPrJobs } from './pr-code-change-scope.mjs'
 import { collectNodeServerInputs } from './node-server-change-scope.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 
 const workflow = parse(readFileSync('.github/workflows/pr.yml', 'utf8'))
 const unit = parse(readFileSync('.github/workflows/unit-tests.yml', 'utf8'))
@@ -423,31 +424,40 @@ function createMobileCiScopeRepository(
     writeFileSync(join(directory, file), 'export const revision = 1\n')
   }
   const base = commit()
-  const detect = (stepId = 'filter') => {
+  const detect = (
+    stepId = 'filter',
+    { upstreamBaseSha = '', pullRequestBaseSha = base, eventName = 'pull_request' } = {}
+  ) => {
     const output = join(
       directory,
       stepId === 'filter' ? 'github-output' : `github-output-${stepId}`
     )
     const step = workflow.jobs.code_paths.steps.find((candidate) => candidate.id === stepId)
+    const context = {
+      inputs: { upstream_base_sha: upstreamBaseSha },
+      github: { event: { pull_request: { base: { sha: pullRequestBaseSha } } } }
+    }
+    const render = (value) =>
+      value.replace(/\$\{\{.*?\}\}/g, (expression) =>
+        compileAggregateExpression(expression, ['inputs', 'github'])(context).coerceString()
+      )
     const result = runProcessSync({
       program: 'bash',
-      args: [
-        '-e',
-        '-c',
-        step.run.replace('${{ github.event.pull_request.base.sha }}', '$BASE_SHA')
-      ],
+      args: ['-e', '-c', render(step.run)],
       cwd: directory,
       env: {
         ...process.env,
-        BASE_SHA: base,
-        GITHUB_EVENT_NAME: 'pull_request',
+        ...Object.fromEntries(
+          Object.entries(step.env ?? {}).map(([key, value]) => [key, render(value)])
+        ),
+        GITHUB_EVENT_NAME: eventName,
         GITHUB_OUTPUT: output,
         ORCA_BACKGROUND_LAUNCH: '1'
       }
     })
     return { result, output }
   }
-  return { directory, tool, git, commit, detect }
+  return { directory, tool, git, commit, detect, base }
 }
 
 describe.skipIf(process.platform === 'win32')('Mobile CI complete Git change evidence', () => {
@@ -514,32 +524,43 @@ describe.skipIf(process.platform === 'win32')('Daemon mock complete Git change e
     expect(flags).toContain('test=true\n')
     expect(flags).toContain('typecheck=true\n')
   })
-  it('routes the complete three-file modification through the real detector', () => {
-    const companions = [
-      'src/main/native-chat/agent-session-wire/structured-agent-session-claude-queued-stop.test.ts',
-      'config/scripts/process-host-build-dist.test.mjs'
-    ]
-    const repo = createMobileCiScopeRepository(true, helper, companions)
-    for (const file of [helper, ...companions]) {
-      writeFileSync(join(repo.directory, file), 'export const revision = 2\n')
+  it.each([false, true])(
+    'routes the complete three-file modification with qualification=%s',
+    (qualification) => {
+      const companions = [
+        'src/main/native-chat/agent-session-wire/structured-agent-session-claude-queued-stop.test.ts',
+        'config/scripts/process-host-build-dist.test.mjs'
+      ]
+      const repo = createMobileCiScopeRepository(true, helper, companions)
+      for (const file of [helper, ...companions]) {
+        writeFileSync(join(repo.directory, file), 'export const revision = 2\n')
+      }
+      const candidate = repo.commit()
+      const bases = qualification
+        ? {
+            upstreamBaseSha: repo.base,
+            pullRequestBaseSha: 'f'.repeat(40),
+            eventName: 'workflow_call'
+          }
+        : {}
+      const { result, output } = repo.detect('filter', bases)
+      expect(result.code, result.stderr).toBe(0)
+      const flags = readFileSync(output, 'utf8')
+      for (const name of ['package', 'package_windows']) {
+        expect(classifyPrJobs([helper, ...companions])[name]).toBe(true)
+        expect(flags).toContain(`${name}=false\n`)
+      }
+      for (const name of ['test', 'static_analysis', 'typecheck', 'cross-version-wire']) {
+        expect(flags).toContain(`${name}=true\n`)
+      }
+      const e2e = repo.detect('e2e_filter', bases)
+      expect(e2e.result.code, e2e.result.stderr).toBe(0)
+      expect(repo.git('rev-parse', 'HEAD')).toBe(candidate)
+      const routes = readFileSync(e2e.output, 'utf8')
+      expect(routes).toContain('test_files=[]\n')
+      expect(routes).toContain('should_run=false\n')
     }
-    repo.commit()
-    const { result, output } = repo.detect()
-    expect(result.code, result.stderr).toBe(0)
-    const flags = readFileSync(output, 'utf8')
-    for (const name of ['package', 'package_windows']) {
-      expect(classifyPrJobs([helper, ...companions])[name]).toBe(true)
-      expect(flags).toContain(`${name}=false\n`)
-    }
-    for (const name of ['test', 'static_analysis', 'typecheck', 'cross-version-wire']) {
-      expect(flags).toContain(`${name}=true\n`)
-    }
-    const e2e = repo.detect('e2e_filter')
-    expect(e2e.result.code, e2e.result.stderr).toBe(0)
-    const routes = readFileSync(e2e.output, 'utf8')
-    expect(routes).toContain('test_files=[]\n')
-    expect(routes).toContain('should_run=false\n')
-  })
+  )
   it.each(['addition', 'deletion', 'rename', 'type change'])(
     'keeps platform packages for an actual %s',
     (change) => {
