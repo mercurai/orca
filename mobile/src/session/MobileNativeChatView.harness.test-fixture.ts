@@ -7,9 +7,18 @@ import { MobileNativeChatView } from './MobileNativeChatView'
 import {
   scrollToEnd,
   scrollToOffset,
-  platform,
   pageScroller
 } from './MobileNativeChatView.render-stubs.test-fixture'
+
+vi.mock('../components/DragReorderList', () => ({ DragReorderList: 'DragReorderList' }))
+vi.mock('react-native-reanimated', async () => {
+  const { useRef } = await import('react')
+  return {
+    default: { ScrollView: 'ScrollView' },
+    useAnimatedRef: () => useRef(null),
+    useSharedValue: (value: unknown) => useRef({ value }).current
+  }
+})
 
 export type Overrides = {
   messages?: Parameters<typeof MobileNativeChatView>[0]['messages']
@@ -167,4 +176,9 @@ export async function scrollAwayFromTail(): Promise<void> {
   })
 }
 
-export { scrollToEnd, scrollToOffset, platform, pageScroller }
+export {
+  scrollToEnd,
+  scrollToOffset,
+  platform,
+  pageScroller
+} from './MobileNativeChatView.render-stubs.test-fixture'
