@@ -2,6 +2,10 @@ name: Prepare native runtime
 description: Restore and probe source-built native modules for the requested runtime.
 
 inputs:
+  cache-mode:
+    description: Use off to disable persistent cache restoration and saving.
+    required: false
+    default: auto
   native-runtime:
     description: Native runtime to prepare (none, node, or electron).
     required: false
@@ -76,7 +80,7 @@ runs:
 
     - name: Restore compiled native modules
       id: native-cache-restore
-      if: inputs.native-runtime != 'none' && inputs.persist-native-cache != 'false'
+      if: inputs.cache-mode != 'off' && (inputs.native-runtime != 'none' && inputs.persist-native-cache != 'false')
       uses: actions/cache@v5
       with:
         # Post-job saving cannot resolve nested composite step outputs.
@@ -89,7 +93,7 @@ runs:
 
     - name: Restore compiled native modules without saving
       id: native-cache-restore-only
-      if: inputs.native-runtime != 'none' && inputs.persist-native-cache == 'false'
+      if: inputs.cache-mode != 'off' && (inputs.native-runtime != 'none' && inputs.persist-native-cache == 'false')
       uses: actions/cache/restore@v5
       with:
         path: |

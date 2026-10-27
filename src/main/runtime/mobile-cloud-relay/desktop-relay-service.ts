@@ -205,11 +205,11 @@ export class DesktopRelayService {
         throw new Error('relay_provision_authorization_unavailable')
       }
       if (
-        !this.runtimeRpc.setMobileRelayBinding(context.deviceId, {
+        !(await this.runtimeRpc.setMobileRelayBinding(context.deviceId, {
           relayHostId: broker.hostId,
           relayDeviceId: context.deviceId,
           ownerIdentityKey: broker.ownerIdentityKey
-        })
+        }))
       ) {
         throw new Error('mobile_device_not_found')
       }
@@ -265,7 +265,7 @@ export class DesktopRelayService {
   ): Promise<void> {
     try {
       await broker.revokeDevice(item.relayDeviceId, item.reqId)
-      this.revokeOutbox.remove(item.reqId)
+      await this.revokeOutbox.remove(item.reqId)
       this.refreshDemand()
     } catch {
       // Durable revoke reqId survives reconnect; remote retry must not delay local revocation.

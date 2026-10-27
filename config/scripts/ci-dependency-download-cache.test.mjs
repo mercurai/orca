@@ -10,6 +10,23 @@ const workflow = (name) => read(`.github/workflows/${name}.yml`)
 const action = read('.github/actions/install-node-dependencies/action.yml')
 
 describe('CI dependency download caches', () => {
+  it('turns off every download cache without changing the ordinary default', () => {
+    expect(action.inputs['cache-mode'].default).toBe('auto')
+    const evaluate = (expression) =>
+      runInNewContext(expression.replaceAll(/inputs\.([\w-]+)/g, 'inputs["$1"]'), {
+        inputs: { 'cache-mode': 'off' },
+        github: { event_name: 'workflow_dispatch' }
+      })
+    for (const step of action.runs.steps) {
+      if (step.uses?.startsWith('actions/cache')) {
+        expect(evaluate(step.if)).toBe(false)
+      }
+      if (step.uses === 'actions/setup-node@v6') {
+        expect(evaluate(step.with.cache.slice(3, -2))).toBe('')
+      }
+    }
+  })
+
   it('scopes desktop stores to the root lockfile and lets mixed installs opt in', () => {
     expect(action.inputs['cache-dependency-path'].default).toBe('pnpm-lock.yaml')
     for (const step of action.runs.steps.filter((step) => step.uses === 'actions/setup-node@v6')) {
@@ -81,7 +98,9 @@ describe('CI dependency download caches', () => {
     const restore = action.runs.steps.find((step) => step.id === 'pnpm-store-restore')
     expect(action.inputs['cache-pnpm-store-lookup-only'].default).toBe('auto')
     expect(lookup.uses).toBe('actions/cache@v5')
-    expect(lookup.if).toBe("steps.pnpm-store-mode.outputs.lookup-only == 'true'")
+    expect(lookup.if).toBe(
+      "inputs.cache-mode != 'off' && (steps.pnpm-store-mode.outputs.lookup-only == 'true')"
+    )
     expect(lookup.with).toEqual({
       path: '${{ env.ORCA_PNPM_STORE_CACHE_PATH }}',
       key: restore.with.key,
@@ -219,6 +238,7 @@ describe('CI dependency download caches', () => {
           }
         },
         inputs: {
+          'cache-mode': 'auto',
           'cache-pnpm-store': storeCache,
           'cache-pnpm-store-lookup-only': lookupOnly,
           'cache-dependency-path':
@@ -242,7 +262,8 @@ describe('CI dependency download caches', () => {
               'inputs["cache-pnpm-store-lookup-only"]'
             )
             .replaceAll('inputs.cache-dependency-path', 'inputs["cache-dependency-path"]')
-            .replaceAll('inputs.cache-pnpm-store', 'inputs["cache-pnpm-store"]'),
+            .replaceAll('inputs.cache-pnpm-store', 'inputs["cache-pnpm-store"]')
+            .replaceAll('inputs.cache-mode', 'inputs["cache-mode"]'),
           context
         )
       for (const step of action.runs.steps.filter(
@@ -395,12 +416,19 @@ describe('CI dependency download caches', () => {
     const warmInstall = warm.steps.find((step) => step.uses === installer)
     const unitInstall = units.steps.find((step) => step.uses === installer)
     expect(warm['runs-on']).toBe('${{ matrix.runner }}')
+    const runnerFor = (expression, repository) =>
+      runInNewContext(expression.slice(3, -2), { github: { repository } })
     expect(warm.strategy.matrix.runner).toEqual([
       'blacksmith-4vcpu-ubuntu-2404-arm',
-      pr.jobs.test.with.runner
+      runnerFor(pr.jobs.test.with.runner, 'stablyai/orca')
     ])
-    expect(pr.jobs.preflight['runs-on']).toBe('blacksmith-8vcpu-ubuntu-2404')
-    expect(pr.jobs.test.with.runner).toBe('blacksmith-8vcpu-ubuntu-2404')
+    for (const [repository, preflightRunner, unitRunner] of [
+      ['mercurai/orca', 'ubuntu-latest', 'ubuntu-latest'],
+      ['stablyai/orca', 'blacksmith-8vcpu-ubuntu-2404', 'blacksmith-8vcpu-ubuntu-2404']
+    ]) {
+      expect(runnerFor(pr.jobs.preflight['runs-on'], repository)).toBe(preflightRunner)
+      expect(runnerFor(pr.jobs.test.with.runner, repository)).toBe(unitRunner)
+    }
     expect(units['runs-on']).toBe('${{ inputs.runner }}')
     expect(JSON.parse(pr.jobs.test.with.node_versions)).toEqual(['24'])
     expect(warmInstall.if).toBeUndefined()

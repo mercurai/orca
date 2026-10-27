@@ -1,3 +1,4 @@
+import { WslHostConnectionChanges } from './wsl-host-connection-change'
 /**
  * C7/E9: persist WSL hosts and connect them. A stopped distro boots only for an explicit
  * Add/Connect, or when the user switches to one of its workspaces. After a confirmed stop the host is
@@ -60,11 +61,32 @@ export class WslHostService {
   private visible = new Set<string>()
   private readonly parked = new Set<string>()
   private readonly removing = new Set<string>()
-  // Invalidate in-flight Adds when disabled so they cannot later publish ready hosts.
+  // Bumped on disable so an Add that started before it cannot finish as a ready host.
   private disableGeneration = 0
+  private readonly connectionChanges: WslHostConnectionChanges
   private readonly statusListeners = new Set<() => void>()
 
-  constructor(private readonly deps: WslHostServiceDependencies) {}
+  constructor(private readonly deps: WslHostServiceDependencies) {
+    this.connectionChanges = new WslHostConnectionChanges({
+      record: (distro) => this.recordForDistro(distro),
+      generation: () => this.disableGeneration,
+      current: (record, generation) => this.connectionIsCurrent(record, generation),
+      persist: (record, connection, current) =>
+        persistWslHostConnection(deps.userDataPath(), record, connection, current),
+      pairingChanged: deps.pairingChanged,
+      publish: (record, status, connection) => {
+        if (status.state === 'distro-stopped') {
+          this.parked.add(record.environmentId)
+        } else if (status.state === 'ready') {
+          this.parked.delete(record.environmentId)
+        }
+        this.setStatus(record, status, connection)
+        if (status.state === 'ready' && connection) {
+          deps.ready(record.environmentId)
+        }
+      }
+    })
+  }
 
   /** Two-phase so the connector's `onChange` can call back into this service. */
   attach(connector: WslHostConnector): void {
@@ -83,23 +105,19 @@ export class WslHostService {
     distro: string,
     connection: WslOrcadConnection | null,
     status: WslOrcadConnectionStatus
-  ): void {
-    const record = this.recordForDistro(distro)
-    if (!record) {
-      return
-    }
-    if (connection && persistWslHostConnection(this.deps.userDataPath(), record, connection)) {
-      this.deps.pairingChanged(record.environmentId)
-    }
-    if (status.state === 'distro-stopped') {
-      this.parked.add(record.environmentId)
-    } else if (status.state === 'ready') {
-      this.parked.delete(record.environmentId)
-    }
-    this.setStatus(record, status, connection)
-    if (status.state === 'ready' && connection) {
-      this.deps.ready(record.environmentId)
-    }
+  ): Promise<void> {
+    return this.connectionChanges.handle(distro, connection, status)
+  }
+
+  private connectionIsCurrent(record: WslHostDeploymentRecord, generation: number): boolean {
+    const owner = this.recordForEnvironment(record.environmentId)
+    return (
+      this.disableGeneration === generation &&
+      !this.removing.has(record.environmentId) &&
+      owner?.createdAt === record.createdAt &&
+      owner.distroId === record.distroId &&
+      this.canRun()
+    )
   }
 
   getStatuses(): WslHostStatus[] {
@@ -141,6 +159,7 @@ export class WslHostService {
         deps: this.deps,
         wsl: () => this.wsl,
         disableGeneration: () => this.disableGeneration,
+        canRegister: (environmentId) => this.canRun() && !this.removing.has(environmentId),
         recordForDistro: (distro) => this.recordForDistro(distro),
         recordForEnvironment: (environmentId) => this.recordForEnvironment(environmentId),
         setReady: (record, connection) =>
@@ -157,7 +176,7 @@ export class WslHostService {
     if (!record) {
       throw new Error('This server is not a WSL host.')
     }
-    // Block reconnect from visible work, liveness and calls before stopping.
+    // First: nothing may reconnect it while it is being stopped (open work, liveness, calls).
     this.removing.add(environmentId)
     const connector = this.connector
     let serverStop: WslHostServerStop = { stopped: true }
@@ -170,12 +189,12 @@ export class WslHostService {
         // Without its holder the distro idles out.
         await connector.releaseHolder(record.distro)
       }
-      removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
+      await removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
       forgetWslHostToWake(this.deps.userDataPath(), record.distro)
       this.visible.delete(environmentId)
       this.parked.delete(environmentId)
     } finally {
-      // Failed removal must leave the host usable and allow another removal attempt.
+      // Why: a failed removal (e.g. EBUSY on Windows) must leave the host usable and removable.
       this.removing.delete(environmentId)
     }
     this.statuses.delete(environmentId)
@@ -184,7 +203,10 @@ export class WslHostService {
     return serverStop
   }
 
-  /** Disable closes connections/watches and releases holders; reenable resumes only hosts needed by visible work. */
+  /**
+   * Turning the experiment off ends every connection and liveness watch and releases the
+   * holders, so distros idle-stop; turning it on resumes only hosts open work needs.
+   */
   async enabledChanged(enabled: boolean): Promise<void> {
     const connector = this.connector
     if (!connector) {
@@ -313,7 +335,7 @@ export class WslHostService {
 
   hasUserVisibleWork(distro: string): boolean {
     const record = this.recordForDistro(distro)
-    // Liveness needs visible demand, an enabled gate and no removal in progress.
+    // Why the gate: liveness relaunches only for visible work, and none may run while off.
     const id = record?.environmentId
     return id ? this.canRun() && this.visible.has(id) && !this.removing.has(id) : false
   }

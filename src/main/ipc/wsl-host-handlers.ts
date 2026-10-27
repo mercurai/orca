@@ -1,3 +1,8 @@
+import type { WslOrcadConnectionDependencies } from '../wsl/wsl-orcad-connection'
+/**
+ * IPC for WSL hosts (WSL-via-orcad C7); Windows only, or an e2e fake on any OS, and only with the
+ * internal gate open.
+ */
 import { BrowserWindow, ipcMain } from 'electron'
 import {
   WSL_HOST_STATUS_CHANNEL,
@@ -140,7 +145,11 @@ function createService(args: WslHostHandlerArgs): WslHostService | null {
       )
     }
   })
-  const onChange = created.handleConnectionChange.bind(created)
+  const onChange: NonNullable<WslOrcadConnectionDependencies['onChange']> = (...args) => {
+    void created.handleConnectionChange(...args).catch((error: unknown) => {
+      console.warn('[wsl-hosts] Could not persist a connection change:', error)
+    })
+  }
   const isKnownDistro = (distro: string): boolean => created.isKnownDistro(distro)
   const runtime = wslHostRuntimeAccess(args.getUserDataPath)
   created.attach(

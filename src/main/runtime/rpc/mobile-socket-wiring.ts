@@ -46,8 +46,18 @@ export type AuthenticatedMobileSocket = {
   transport: MobileSocketTransportMetadata
 }
 
+/** Registry operations used by socket admission, activity and ephemeral-device cleanup. */
+export type MobileSocketDeviceRegistry = Pick<
+  DeviceRegistry,
+  | 'validateToken'
+  | 'lookupDeviceKey'
+  | 'prepareDeviceAuthentication'
+  | 'updateLastSeenDeferred'
+  | 'pruneIdleEphemeralDevices'
+>
+
 type MobileSocketWiringOptions = {
-  deviceRegistry: DeviceRegistry
+  deviceRegistry: MobileSocketDeviceRegistry
   e2eeKeypair: E2EEKeypair
   onText: (
     socket: AuthenticatedMobileSocket,
@@ -70,7 +80,7 @@ function toAuthenticatedDevice(device: DeviceEntry): E2EEAuthenticatedDevice {
 }
 
 export class MobileSocketWiring {
-  private readonly deviceRegistry: DeviceRegistry
+  private readonly deviceRegistry: MobileSocketDeviceRegistry
   private readonly e2eeKeypair: E2EEKeypair
   private readonly onText: MobileSocketWiringOptions['onText']
   private readonly onBinary: MobileSocketWiringOptions['onBinary']
@@ -93,7 +103,7 @@ export class MobileSocketWiring {
     this.onReady = options.onReady
     this.onUnpairedDeviceAuthFailure = options.onUnpairedDeviceAuthFailure
     this.ephemeralSweep = setInterval(
-      () => this.sweepIdleEphemeralDevices(Date.now()),
+      () => void this.sweepIdleEphemeralDevices(Date.now()),
       EPHEMERAL_DEVICE_SWEEP_INTERVAL_MS
     )
     // Why: bookkeeping must never hold the process open.
@@ -105,10 +115,10 @@ export class MobileSocketWiring {
   }
 
   /** Removes idle session-only browser rows and cuts any socket still bound to them. */
-  sweepIdleEphemeralDevices(now: number): string[] {
+  async sweepIdleEphemeralDevices(now: number): Promise<string[]> {
     let removed: string[] = []
     try {
-      removed = this.deviceRegistry.pruneIdleEphemeralDevices(now, (deviceId) =>
+      removed = await this.deviceRegistry.pruneIdleEphemeralDevices(now, (deviceId) =>
         this.hasAuthenticatedSocket(deviceId)
       )
     } catch (error) {
@@ -190,7 +200,8 @@ export class MobileSocketWiring {
           if (!device) {
             return null
           }
-          // Outer relay authorization cannot choose Orca identity; E2EE resolves the device before readiness.
+          // Why: outer relay authorization cannot choose the local Orca
+          // identity; E2EE must resolve the same device before readiness.
           if (metadata.transport === 'relay' && metadata.relayDeviceId !== device.deviceId) {
             return null
           }
@@ -201,7 +212,9 @@ export class MobileSocketWiring {
           if (lookup.kind !== 'found') {
             return lookup
           }
-          // Enforce token auth's Relay binding; forks inherit it. Never answer unknown for an existing device or the client deletes its key.
+          // Why: same relay binding rule as token auth — the outer relay cannot pick the identity.
+          // A fork keeps its token row's Relay binding (the key proof names the installation).
+          // Never "unknown": the device exists, and that verdict would make the client delete its key.
           if (
             metadata.transport === 'relay' &&
             metadata.relayDeviceId !== lookup.device.deviceId &&
@@ -215,13 +228,17 @@ export class MobileSocketWiring {
             devicePublicKeyB64: lookup.device.devicePublicKeyB64
           }
         },
+        beforeReady: (_channel, device) => this.deviceRegistry.prepareDeviceAuthentication(device),
         onReady: (channel, device) => {
           const socket = {
             ws,
             connectionId,
             device,
             transcriptHashB64: channel.transcriptHashB64,
-            // Read/write capabilities through the connection-owned channel; getter-only updates throw and strand capable phones.
+            // Why: the channel owns the set for the whole connection, so this reads
+            // through rather than snapshotting. It must also WRITE through — the
+            // capability RPC updates the socket, and a getter-only property makes
+            // that a TypeError, which strands a capable phone with no capabilities.
             get clientCapabilities() {
               return channel.clientCapabilities
             },
@@ -232,7 +249,7 @@ export class MobileSocketWiring {
           }
           this.authenticatedSockets.set(ws, socket)
           transport.setClientId(ws, device.deviceId)
-          // Do not delay e2ee_authenticated for the secure-file rewrite.
+          // First sighting was durably admitted; ordinary timestamp refreshes stay deferred.
           this.deviceRegistry.updateLastSeenDeferred(device.deviceId)
           this.onReady?.(socket)
         },
@@ -245,7 +262,7 @@ export class MobileSocketWiring {
             try {
               this.onUnpairedDeviceAuthFailure?.(metadata)
             } catch (error) {
-              // Renderer delivery can throw during teardown; auth cleanup must still win.
+              // Why: renderer teardown can make UI delivery throw; auth cleanup must remain authoritative.
               console.error('[mobile] Failed to report unpaired-device auth failure:', error)
             }
           }
@@ -279,7 +296,7 @@ export class MobileSocketWiring {
       Array.from(this.authenticatedSockets.values()).some(
         (candidate) => candidate.device.deviceId === socket.device.deviceId
       )
-    // Session-only idle time starts at disconnect, not connection.
+    // Why: a session-only row idles from its last disconnect, not from when it connected.
     if (socket && !hasOtherConnections && socket.device.deviceToken === undefined) {
       this.deviceRegistry.updateLastSeenDeferred(socket.device.deviceId)
     }

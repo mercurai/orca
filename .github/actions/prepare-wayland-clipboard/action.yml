@@ -2,6 +2,10 @@ name: Prepare Wayland clipboard helper
 description: Reuse the source-matched Ubuntu 20.04 helper, validating its architecture and glibc requirements every time.
 
 inputs:
+  cache-mode:
+    description: Use off to disable persistent cache restoration and saving.
+    required: false
+    default: auto
   save-cache:
     description: Publish a validated helper from the default branch.
     default: 'false'
@@ -30,6 +34,7 @@ runs:
         NODE
 
     - name: Restore Wayland clipboard helper
+      if: inputs.cache-mode != 'off'
       id: cache
       uses: actions/cache/restore@v5
       continue-on-error: true
@@ -45,7 +50,7 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/build-or-validate.sh"
 
     - name: Save validated Wayland clipboard helper from main
-      if: inputs.build != 'false' && inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      if: inputs.cache-mode != 'off' && (inputs.build != 'false' && inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request')
       uses: actions/cache/save@v5
       continue-on-error: true
       with:

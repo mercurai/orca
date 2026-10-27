@@ -3,6 +3,11 @@ name: Unit selection evidence
 # Call advisory evidence beside unit-tests, preserving artifacts without delaying verify ~36s after shards; job/comparison remain continue-on-error.
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: Exact source commit; omitted for existing callers.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -11,10 +16,11 @@ jobs:
   selection_evidence:
     if: ${{ !cancelled() }}
     continue-on-error: true
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           sparse-checkout: config/scripts/ci-unit-selection-review.mjs
           sparse-checkout-cone-mode: false
           persist-credentials: false

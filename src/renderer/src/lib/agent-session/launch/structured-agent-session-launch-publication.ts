@@ -9,15 +9,10 @@ import {
 } from './structured-agent-session-launch-registry'
 import { forgetUnlistedCreatedChat } from '../../structured-agent-session-unlisted-created-chats'
 
-function confirmStructuredLaunchFirstMessagePublication(
-  worktreeId: string,
-  sessionId: string
-): void {
+function confirmStructuredLaunchPublication(worktreeId: string, sessionId: string): void {
   // Store teardown imports publication bookkeeping; recovery may read the store after it exists.
   void import('./structured-agent-session-launch-publication-confirmation')
-    .then((confirmation) =>
-      confirmation.confirmStructuredLaunchFirstMessagePublication(worktreeId, sessionId)
-    )
+    .then((confirmation) => confirmation.confirmStructuredLaunchPublication(worktreeId, sessionId))
     .catch((error: unknown) => {
       console.warn('[native-chat] confirming a published opening message failed', error)
     })
@@ -38,8 +33,12 @@ export function markStructuredAgentSessionLaunchPublished(
     if (persisted.explicitLaunchOptions && persisted.createMessageSupport !== true) {
       return false
     }
-    if (persisted.firstMessage) {
-      confirmStructuredLaunchFirstMessagePublication(worktreeId, sessionId)
+    if (
+      persisted.firstMessage ||
+      persisted.heldPromptDrafts?.length ||
+      Object.keys(persisted.heldOptions ?? {}).length > 0
+    ) {
+      confirmStructuredLaunchPublication(worktreeId, sessionId)
       return false
     }
     deleteStructuredAgentLaunchRecord(sessionId)
@@ -57,6 +56,14 @@ export function markStructuredAgentSessionLaunchPublished(
   if (state.callers.outcome === 'published') {
     return true
   }
+  if (
+    state.heldPromptDrafts?.length ||
+    state.draftRecovery ||
+    Object.keys(state.selection.held).length > 0
+  ) {
+    confirmStructuredLaunchPublication(worktreeId, sessionId)
+    return false
+  }
   // Still in flight: its own settlement publishes once the picks held during launch land.
   if (state.callers.outcome === 'pending') {
     return true
@@ -65,7 +72,7 @@ export function markStructuredAgentSessionLaunchPublished(
     return false
   }
   if (state.intent.params.firstMessage) {
-    confirmStructuredLaunchFirstMessagePublication(worktreeId, sessionId)
+    confirmStructuredLaunchPublication(worktreeId, sessionId)
     return false
   }
   state.callers.outcome = 'published'

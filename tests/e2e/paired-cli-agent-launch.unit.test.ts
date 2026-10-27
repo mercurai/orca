@@ -50,7 +50,7 @@ describe.each([
     })
     try {
       await server.start()
-      const offer = server.createPairingOffer({ name: 'paired-cli', scope: 'runtime' })
+      const offer = await server.createPairingOffer({ name: 'paired-cli', scope: 'runtime' })
       if (!offer.available) {
         throw new Error('pairing unavailable')
       }

@@ -1,5 +1,6 @@
 // Use IndexedDB so drafts do not compete with settings for localStorage quota.
 
+import { readDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
 import type { JSONContent } from '@tiptap/react'
 import { parseExecutionHostId, type ExecutionHostId } from '../../../../shared/execution-host'
 import { createIndexedDbNativeChatComposerDraftStorage } from './native-chat-composer-draft-indexeddb'
@@ -14,6 +15,8 @@ export type NativeChatComposerDraftImage = {
 }
 
 export type NativeChatComposerDraft = {
+  /** Durable recovery acknowledgements, retained even after the visible draft is emptied. */
+  readonly recoveredMessageIds?: readonly string[]
   readonly text: string
   readonly pastedTextFiles?: Readonly<Record<string, string>>
   /** The editor's document for exactly `text`; dropped when the text changes without one. */
@@ -78,11 +81,9 @@ export function createMemoryNativeChatComposerDraftStorage(): NativeChatComposer
       }
       const next = apply(drafts.get(scopeKey))
       if (next) {
-        drafts.set(scopeKey, next)
-      } else {
-        drafts.delete(scopeKey)
+        return storage.write(scopeKey, next)
       }
-      return Promise.resolve()
+      return storage.remove([scopeKey])
     }
   }
   return storage
@@ -165,12 +166,14 @@ export function parseStoredNativeChatComposerDraft(
       )
     : undefined
   const owner = parseOwner(value.owner)
+  const recoveredMessageIds = readDraftRecoveryReceipts(value.recoveredMessageIds)
   return {
     text,
     ...(pastedTextFiles ? { pastedTextFiles } : {}),
     ...(isEditorDocument(document) ? { document } : {}),
     images: images.flatMap((image) => parseImage(image) ?? []),
     savedAt,
+    ...(recoveredMessageIds.length ? { recoveredMessageIds } : {}),
     ...(owner ? { owner } : {})
   }
 }

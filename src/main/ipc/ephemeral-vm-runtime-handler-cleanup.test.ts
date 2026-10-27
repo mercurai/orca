@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { upsertEphemeralVmRuntime } from '../../shared/ephemeral-vm-runtime-store'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import type * as RuntimeEnvironmentStore from '../../shared/runtime-environment-store'
 
 const handlers = new Map<string, (_event: unknown, args: { runtimeId: string }) => unknown>()
@@ -51,6 +52,8 @@ function nodeCommand(scriptPath: string): string {
 
 beforeEach(() => {
   handlers.clear()
+  listEnvironmentsMock.mockReset().mockReturnValue([])
+  removeEnvironmentMock.mockReset().mockResolvedValue(undefined)
   handleMock.mockReset()
   removeRuntimeOwnedSshTargetMock.mockReset().mockResolvedValue(undefined)
   removeHandlerMock.mockReset()
@@ -71,7 +74,7 @@ it('removes the hidden SSH target when provider cleanup cannot start', async () 
   const userDataPath = mkdtempSync(join(tmpdir(), 'orca-vm-runtime-handler-'))
   tempDirs.push(userDataPath)
   getPathMock.mockReturnValue(userDataPath)
-  upsertEphemeralVmRuntime(userDataPath, {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-missing-context',
     recipeId: 'cloud-sandbox',
     repoId: 'missing-repo',
@@ -116,7 +119,7 @@ it('stops in-flight cleanup and retains the runtime for retry', async () => {
     destroyPath,
     `require('fs').writeFileSync(${JSON.stringify(destroyStartedPath)}, 'yes'); setInterval(() => {}, 1000)`
   )
-  upsertEphemeralVmRuntime(userDataPath, {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-stop',
     recipeId: 'cloud-sandbox',
     recipe: {
@@ -152,6 +155,8 @@ it('stops in-flight cleanup and retains the runtime for retry', async () => {
   const cleanup = handlers.get('ephemeralVm:cleanup')?.(null, {
     runtimeId: 'runtime-stop'
   }) as Promise<{ status: string }>
+  // Why: the status write before the spawn is async now; settle it so the wait covers only the spawn.
+  await drainPendingPathWrites()
   await vi.waitFor(() => expect(existsSync(destroyStartedPath)).toBe(true))
   const stopped = await handlers.get('ephemeralVm:stopCleanup')?.(null, {
     runtimeId: 'runtime-stop'
@@ -173,7 +178,7 @@ it("retires a recipe server's session partition once its VM is destroyed (#33805
   const destroyPath = join(repoPath, 'destroy.js')
   writeFileSync(destroyPath, 'process.exit(0)')
   listEnvironmentsMock.mockReturnValue([{ id: 'env-recipe' }])
-  upsertEphemeralVmRuntime(userDataPath, {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-paired',
     recipeId: 'cloud-sandbox',
     recipe: {

@@ -16,7 +16,14 @@ it('shares one setup and overlaps the compiler only after type-aware checks fini
   expect(workflow.jobs.static_analysis).toBeUndefined()
   expect(workflow.jobs.typecheck).toBeUndefined()
   expect(preflight.needs).toEqual(['code_paths'])
-  expect(preflight['runs-on']).toBe('blacksmith-8vcpu-ubuntu-2404')
+  for (const [repository, runner] of [
+    ['mercurai/orca', 'ubuntu-latest'],
+    ['stablyai/orca', 'blacksmith-8vcpu-ubuntu-2404']
+  ]) {
+    expect(runInNewContext(preflight['runs-on'].slice(3, -2), { github: { repository } })).toBe(
+      runner
+    )
+  }
   const installs = steps.filter(
     (step) => step.uses === './.github/actions/install-node-dependencies'
   )
@@ -33,10 +40,15 @@ it('shares one setup and overlaps the compiler only after type-aware checks fini
   expect(bunSetup.with['bun-version-file']).toBe('config/.bun-version')
   expect(bunSetup.if).toBeUndefined()
   expect(plan.background).toBe(true)
-  expect(plan.run.trim().split('\n')).toEqual([
-    'if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi',
-    'node config/scripts/ci-unit-plan.mjs'
-  ])
+  const planCommands = plan.run.trim().split('\n')
+  expect(planCommands.indexOf('ORCA_SHARD_SOURCE_SHA="$(git rev-parse HEAD)"')).toBeGreaterThan(
+    planCommands.indexOf(
+      'if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi'
+    )
+  )
+  expect(planCommands.indexOf('export ORCA_SHARD_SOURCE_SHA')).toBeLessThan(
+    planCommands.indexOf('node config/scripts/ci-unit-plan.mjs')
+  )
   expect(plan.env.ORCA_UNIT_SELECTION_MODE).toContain('vars.ORCA_UNIT_SELECTION_MODE')
   expect(plan.env.ORCA_UNIT_FULL_SHARD_COUNT).toBe("${{ vars.ORCA_UNIT_FULL_SHARD_COUNT || '5' }}")
   expect(steps.indexOf(plan)).toBeLessThan(compilerJoin)
@@ -197,6 +209,7 @@ it.each(['true', 'false'])(
   (reused) => {
     const scope = classifyPrJobs(['src/main/runtime/orca-runtime.ts'])
     const context = {
+      inputs: {},
       steps: {
         readiness: { outputs: { reused } },
         filter: {
@@ -210,7 +223,12 @@ it.each(['true', 'false'])(
     const outputs = Object.fromEntries(
       ['static_analysis', 'typecheck', 'e2e_should_run'].map((name) => [
         name,
-        String(runInNewContext(workflow.jobs.code_paths.outputs[name].slice(3, -2), context))
+        String(
+          runInNewContext(workflow.jobs.code_paths.outputs[name].slice(3, -2), {
+            inputs: {},
+            ...context
+          })
+        )
       ])
     )
     expect(outputs).toEqual({

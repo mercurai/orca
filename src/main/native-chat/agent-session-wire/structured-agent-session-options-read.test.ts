@@ -502,11 +502,11 @@ describe('a chat at rest, read by the host', () => {
   })
 
   it.each([
-    ['another model offers', listed, 'default'],
-    // Unlisted Codex Flex remains configured without inferred catalog support.
+    ['another model offers', listed, 'flex'],
+    // Unknown availability preserves intent; turn admission decides whether it can run.
     ['no model lists', listed.slice(0, 1), 'flex']
   ])(
-    'names the tier the model runs where %s it, and keeps the saved one',
+    'preserves explicit tier intent where %s it without projecting a downgrade',
     async (_n, models, runs) => {
       const options = { model: 'gpt-account', serviceTier: 'flex' }
       const answer = await readAtRest({ options }, [], false, models)
@@ -587,6 +587,35 @@ describe('a chat at rest, read by the host', () => {
     chat.ran('b', { effort: 'low' }, [])
     await chat.pick('serviceTier', 'priority')
     expect(chat.record().options).toEqual({ model: 'b', effort: 'high', serviceTier: 'priority' })
+  })
+
+  it('keeps an exact speed request across a model switch that cannot advertise it', async () => {
+    const tier = 'account-speed-v2'
+    const chat = picking({ model: 'a', fastMode: 'false' })
+    expect(await chat.pick('serviceTier', tier)).toMatchObject({
+      ok: true,
+      value: { options: { model: 'a', serviceTier: tier } }
+    })
+    expect(await chat.pick('model', 'c')).toMatchObject({
+      ok: true,
+      value: { options: { model: 'c', serviceTier: tier } }
+    })
+    expect(chat.record().options).toEqual({ model: 'c', serviceTier: tier })
+    const answer = await readAtRest({ options: chat.record().options }, [], false, efforts)
+    expect(answer.current.serviceTier).toBe(tier)
+    expect(answer.speed).toMatchObject({
+      requested: { tierId: tier },
+      support: 'unknown',
+      processing: { status: 'unknown' }
+    })
+  })
+
+  it('lets a new legacy speed pick replace a saved canonical request', async () => {
+    const chat = picking({ model: 'a', serviceTier: 'account-speed-v2' })
+    expect(await chat.pick('fastMode', 'false')).toMatchObject({ ok: true })
+    expect(chat.record().options).toEqual({ model: 'a', serviceTier: 'default' })
+    expect(await chat.pick('fastMode', 'true')).toMatchObject({ ok: true })
+    expect(chat.record().options).toEqual({ model: 'a', fastMode: 'true' })
   })
 
   it('keeps saved literal values after the installed list omits their model', async () => {

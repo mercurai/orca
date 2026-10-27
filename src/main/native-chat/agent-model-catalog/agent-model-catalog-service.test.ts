@@ -67,6 +67,7 @@ describe('agent model catalog service', () => {
     })
     expect(await service.read({ agent: 'grok', sessionId: 'session-1' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     // Coalesce reads under the record's pinned account, regardless of current selection.
@@ -117,6 +118,7 @@ describe('agent model catalog service', () => {
     })
     expect(await service.read({ agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     expect(probe).toHaveBeenCalledWith(GROK_HOME('/homes/new'), {
@@ -196,11 +198,13 @@ describe('agent model catalog service', () => {
     })
     expect(await service.read({ agent: 'grok', sessionId: 'session-1' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1))
     expect(await service.read({ agent: 'grok', sessionId: 'session-1' })).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     expect(probe).toHaveBeenCalledTimes(1)
   })
@@ -218,7 +222,10 @@ describe('agent model catalog service', () => {
       },
       probes: { grok: probe }
     })
-    expect(await service.read({ agent: 'grok' })).toEqual({ origin: 'unknown' })
+    expect(await service.read({ agent: 'grok' })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(probe).not.toHaveBeenCalled()
   })
 
@@ -254,6 +261,7 @@ describe('agent model catalog service', () => {
       const { service } = coldService(probe)
       expect(await service.read({ agent: 'grok' })).toEqual({
         origin: 'unknown',
+        catalogState: 'loading',
         listingInProgress: true
       })
       const waited = service.read({ agent: 'grok', waitForListing: true })
@@ -286,6 +294,7 @@ describe('agent model catalog service', () => {
       const { store, service } = coldService(() => pendingProbe.promise)
       expect(await service.read({ agent: 'grok' })).toEqual({
         origin: 'unknown',
+        catalogState: 'loading',
         listingInProgress: true
       })
       const waited = service.read({ agent: 'grok', waitForListing: true })
@@ -417,7 +426,7 @@ describe('agent model catalog service', () => {
       const { service } = coldService(() => pending.promise)
       const waited = service.read({ agent: 'grok', waitForListing: true })
       pending.reject(new Error('spawn failed'))
-      expect(await waited).toEqual({ origin: 'unknown' })
+      expect(await waited).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     })
 
     it('does not wait or report a listing while a failure is inside its TTL', async () => {
@@ -427,9 +436,13 @@ describe('agent model catalog service', () => {
       const { store, service } = coldService(probe)
       store.recordFailure(selectedHomeFingerprint('/homes/selected'), 'spawn failed')
       expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
-      expect(await service.read({ agent: 'grok' })).toEqual({ origin: 'unknown' })
+      expect(await service.read({ agent: 'grok' })).toEqual({
+        origin: 'unknown',
+        catalogState: 'unknown'
+      })
       expect(probe).not.toHaveBeenCalled()
     })
 
@@ -443,7 +456,8 @@ describe('agent model catalog service', () => {
         resolveAccountHome: async () => GROK_HOME('/homes/selected')
       })
       expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
     })
 
@@ -582,7 +596,8 @@ describe('agent model catalog service', () => {
         probes: { opencode: probe }
       })
       expect(await service.read({ agent: 'opencode', sessionId: 'session-1' })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
       expect(probe).not.toHaveBeenCalled()
     })

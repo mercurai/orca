@@ -108,11 +108,15 @@ async function readStructuredAgentSessionOptionsAtRest(
     (rules?.effortDefaultsToModel || (saved.model === undefined && folderDefault)
       ? defaultModels.find((entry) => entry.id === model)?.defaultEffort
       : undefined)
+  const speed = rules?.readSpeed?.({ saved, currentModel: model, catalog })
   const defaulted = (['model', 'effort'] as const).filter(
     (key) => saved[key] === undefined && Boolean(key === 'model' ? model : effort)
   )
-  const serviceTier = savedEffectiveServiceTier(saved, models)
+  // Codex preserves requested speed; availability and actual processing are separate observations.
+  const serviceTier =
+    record.provider === 'codex' ? saved.serviceTier : savedEffectiveServiceTier(saved, models)
   return {
+    ...(speed ? { speed } : {}),
     inventory: catalog,
     fallback: catalog.origin === 'unknown' ? (listed ?? []) : [],
     models: listed ? structuredAgentSessionOptionModels(listed, model, (row) => row) : [],

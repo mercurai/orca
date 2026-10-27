@@ -3,6 +3,15 @@ name: Terminal IME E2E
 on:
   # Let pr.yml own costly real-IBus path routing; a separate pull_request trigger would run every PR.
   workflow_call:
+    inputs:
+      ref:
+        description: Exact source commit; omitted for existing callers.
+        type: string
+        default: ''
+      cache_mode:
+        description: Use off to disable persistent dependency and build caches.
+        type: string
+        default: auto
   workflow_dispatch:
     inputs:
       diagnose_wayland_input:
@@ -29,6 +38,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - name: Install native build and IME tools
@@ -48,6 +58,7 @@ jobs:
 
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: electron
 
       - name: Build Electron app for E2E
@@ -84,6 +95,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
       - name: Install native build, nested compositor and IME tools
         run: >-
@@ -93,6 +105,7 @@ jobs:
           xdotool xvfb x11-utils imagemagick
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: electron
       - name: Build Electron app for E2E
         env:
