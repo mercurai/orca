@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentJournalSubmission } from '../../../../shared/agent-session-journal-types'
 import type { AgentMessageSource } from '../../../../shared/agent-session-message-source'
+import { isAgentSessionRefusalError } from '../../../../shared/agent-session-wire-refusals'
 import { getAppEnvironment } from '../../../../shared/app-environment'
 import { DISPATCH_REJECTED_WRITE_FAILED } from '../../../../shared/structured-agent-session-dispatch-rejection'
 
@@ -158,28 +159,68 @@ describe('structured worker session', () => {
     expect(structuredWorkerIdentities.getBySessionId(closed[0]!)).toBeNull()
   })
 
-  it('does not close anything when the create refusal proves nothing was created', async () => {
+  it('preserves a definitive create refusal and does not close anything', async () => {
     installHost()
     const closed: string[] = []
+    let lowerCall:
+      | {
+          envelope: {
+            sessionId: string
+            clientOperationId: string
+            expectedRuntimeFence: number | null
+            payloadFingerprint: string
+          }
+        }
+      | undefined
     ;(hostRef.current as { close: (id: string) => Promise<void> }).close = async (id) => {
       closed.push(id)
     }
-    createSpy.mockImplementation(async () => ({
-      ok: false,
-      refusal: {
-        code: 'structured_agent_session_unsupported',
-        message: 'Orca cannot open a structured agent chat for this workspace.'
+    createSpy.mockImplementation(
+      async (args: {
+        envelope: {
+          sessionId: string
+          clientOperationId: string
+          expectedRuntimeFence: number | null
+          payloadFingerprint: string
+        }
+      }) => {
+        lowerCall = args
+        return {
+          ok: false,
+          refusal: {
+            code: 'structured_agent_session_unsupported',
+            message: 'Orca cannot open a structured agent chat for this workspace.'
+          }
+        }
       }
-    }))
-    await expect(
-      createStructuredWorkerSession({
-        runtime: { ensureStructuredAgentSessionHost: async () => {} } as never,
-        worktreeId: 'wt_1',
-        agent: 'claude',
-        dispatchId: 'd_definitive',
-        onJournalActivity: () => {}
+    )
+    const error = await createStructuredWorkerSession({
+      runtime: { ensureStructuredAgentSessionHost: async () => {} } as never,
+      worktreeId: 'wt_1',
+      agent: 'claude',
+      dispatchId: 'd_definitive',
+      onJournalActivity: () => {}
+    }).catch((thrown: unknown) => thrown)
+    expect(isAgentSessionRefusalError(error)).toBe(true)
+    expect(error).not.toHaveProperty('code')
+    if (!isAgentSessionRefusalError(error)) {
+      throw error
+    }
+    expect(error.refusal).toMatchObject({
+      code: 'structured_agent_session_unsupported',
+      message: 'Orca cannot open a structured agent chat for this workspace.'
+    })
+    expect(lowerCall).toEqual(
+      expect.objectContaining({
+        envelope: expect.objectContaining({
+          sessionId: expect.any(String),
+          clientOperationId: expect.any(String),
+          expectedRuntimeFence: null,
+          payloadFingerprint: ''
+        })
       })
-    ).rejects.toThrow(/was refused/)
+    )
+    expect(structuredWorkerIdentities.getBySessionId(lowerCall!.envelope.sessionId)).toBeNull()
     expect(closed).toEqual([])
   })
 

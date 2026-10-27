@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { agentSessionRefusalError } from '../../../../../../shared/agent-session-wire-refusals'
 import { isUnknownWorkerStartOutcome } from './worker-topology'
 
 describe('worker start outcome classification', () => {
@@ -7,6 +8,17 @@ describe('worker start outcome classification', () => {
 
     expect(isUnknownWorkerStartOutcome(error, 'dispatch_input')).toBe(true)
     expect(isUnknownWorkerStartOutcome(error, 'worktree_create')).toBe(true)
+  })
+
+  it('treats a typed post-attach operation-unknown refusal as unknown', () => {
+    const error = agentSessionRefusalError(
+      'agent_session_operation_unknown',
+      { reason: 'tabUnconfirmed' },
+      'The chat may have been created, but its tab could not be confirmed.'
+    )
+
+    expect(error).not.toHaveProperty('code')
+    expect(isUnknownWorkerStartOutcome(error, 'dispatch_input')).toBe(true)
   })
 
   it('treats a lost connection during worktree create as unknown', () => {

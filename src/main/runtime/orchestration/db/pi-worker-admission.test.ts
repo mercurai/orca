@@ -33,8 +33,9 @@ function open(path = join(directory, 'orchestration.db')) {
   return db
 }
 
-function fixture() {
+function fixture(options: { causal?: boolean } = {}) {
   const db = open()
+  const causal = options.causal ?? false
   const run = db.createRun({
     objective: 'Pi admission regression',
     coordinatorHandle: COORDINATOR.terminalHandle,
@@ -43,8 +44,17 @@ function fixture() {
   const tasks = Array.from({ length: 6 }, (_, index) =>
     db.createTask({ runId: run.id, spec: `Implement isolated task ${index}` })
   )
-  const reviews = tasks.map((task) =>
-    db.createTask({ runId: run.id, spec: `Review ${task.id}`, deps: [task.id] })
+  const sourceExports = causal
+    ? tasks.map((task, index) =>
+        db.createTask({ runId: run.id, spec: `Coordinator-owned source export ${index}`, deps: [task.id] })
+      )
+    : []
+  const reviews = tasks.map((task, index) =>
+    db.createTask({
+      runId: run.id,
+      spec: `Review ${task.id}`,
+      deps: sourceExports[index] ? [task.id, sourceExports[index].id] : [task.id]
+    })
   )
   const ciTask = db.createTask({ runId: run.id, spec: 'Confirm CI admission' })
   const ciGate = db.createGate({ taskId: ciTask.id, question: 'CI capacity available?' })
@@ -57,6 +67,7 @@ function fixture() {
       taskId: task.id,
       profileSha256: String(index + 1).repeat(64),
       reviewTaskId: reviews[index].id,
+      ...(sourceExports[index] ? { exportTaskId: sourceExports[index].id } : {}),
       maxTokens: 10000,
       maxOutputTokens: 1000,
       maxCostMicrousd: 2000000,
@@ -76,11 +87,17 @@ function fixture() {
       config: { ...config, ...overrides }
     })
   }
-  function start(index: number, target = db, extras: Record<string, unknown> = {}) {
+  function start(
+    index: number,
+    target = db,
+    extras: Record<string, unknown> = {},
+    runtimeEpoch?: string
+  ) {
     return target.createStartingWorkerDispatch({
       creator: { kind: 'system' },
       maxDepth: 3,
       taskId: tasks[index].id,
+      ...(runtimeEpoch ? { runtimeEpoch } : {}),
       ...(extras.on ? {
         federation: {
           environmentId: 'env_fixture',
@@ -103,7 +120,7 @@ function fixture() {
       }
     })
   }
-  return { db, run, tasks, reviews, ciGate, config, configure, start }
+  return { db, run, tasks, sourceExports, reviews, ciGate, config, configure, start }
 }
 
 describe('Pi admission at the durable worker-start boundary', () => {
@@ -373,5 +390,153 @@ describe('coordinator-owned Pi admission configuration', () => {
     expect(() => f.configure({
       tasks: [{ ...f.config.tasks[0], ...invalid }]
     })).toThrow(expect.objectContaining({ code: 'pi_admission_invalid' }))
+  })
+})
+
+describe('pre-child proof writer and federation controls', () => {
+  const reservedEffect = {
+    kind: 'structured_create_refusal',
+    schema: 'orca.worker-create-refusal.v1',
+    refusalCode: 'structured_agent_session_unsupported'
+  }
+  const ordinaryEffects = [{ kind: 'worktree', action: 'reused', id: 'repo::worktree' }]
+
+  it.each(['recordWorkerStage', 'updateWorkerSetupEvidence', 'markWorkerDispatchReady'] as const)(
+    'does not accept reserved-kind proof through the local %s writer, while ordinary effects remain permitted',
+    (writer) => {
+      const ordinary = fixture({ causal: true })
+      ordinary.configure()
+      const ordinaryStarted = ordinary.start(0, ordinary.db, {}, `attempt_epoch_${writer}_ordinary`)
+      if (writer === 'recordWorkerStage') {
+        ordinary.db.recordWorkerStage({
+          dispatchId: ordinaryStarted.dispatch.id,
+          stage: 'terminal_create',
+          effects: ordinaryEffects
+        })
+      } else if (writer === 'updateWorkerSetupEvidence') {
+        ordinary.db.updateWorkerSetupEvidence({
+          dispatchId: ordinaryStarted.dispatch.id,
+          setupState: 'failed',
+          effects: ordinaryEffects
+        })
+      } else {
+        ordinary.db.markWorkerDispatchReady(ordinaryStarted.dispatch.id, ordinaryEffects)
+      }
+      expect(JSON.parse(ordinary.db.getWorkerDispatch(ordinaryStarted.dispatch.id)!.effects)).toEqual(ordinaryEffects)
+      const ordinaryReopened = open()
+      expect(JSON.parse(ordinaryReopened.getWorkerDispatch(ordinaryStarted.dispatch.id)!.effects)).toEqual(
+        ordinaryEffects
+      )
+
+      const f = fixture({ causal: true })
+      f.configure()
+      const started = f.start(0, f.db, {}, `attempt_epoch_${writer}`)
+      const beforeReservedWrite = f.db.getWorkerDispatch(started.dispatch.id)!
+      const refusalAndOrdinaryEffects = [...ordinaryEffects, reservedEffect]
+      const writeReserved = () => {
+        if (writer === 'recordWorkerStage') {
+          f.db.recordWorkerStage({
+            dispatchId: started.dispatch.id,
+            stage: 'terminal_create',
+            effects: refusalAndOrdinaryEffects
+          })
+        } else if (writer === 'updateWorkerSetupEvidence') {
+          f.db.updateWorkerSetupEvidence({
+            dispatchId: started.dispatch.id,
+            setupState: 'failed',
+            effects: refusalAndOrdinaryEffects
+          })
+        } else {
+          f.db.markWorkerDispatchReady(started.dispatch.id, refusalAndOrdinaryEffects)
+        }
+      }
+      // Expected RED until the local writer owns this reserved-kind guard; this test must never
+      // turn a caller-provided refusal-shaped object into admission proof. Either refusal or
+      // sanitization is valid, but persistence of the reserved object is not.
+      let reservedWriteError: unknown
+      try {
+        writeReserved()
+      } catch (error) {
+        reservedWriteError = error
+      }
+      const afterReservedWrite = f.db.getWorkerDispatch(started.dispatch.id)!
+      // A refusal must not leave a partial protected-output mutation behind.
+      if (reservedWriteError) {
+        expect(afterReservedWrite).toMatchObject({
+          state: beforeReservedWrite.state,
+          stage: beforeReservedWrite.stage,
+          setup_state: beforeReservedWrite.setup_state,
+          effects: beforeReservedWrite.effects
+        })
+      }
+      if (!reservedWriteError) {
+        expect(JSON.parse(afterReservedWrite.effects)).toEqual(ordinaryEffects)
+      }
+      const reopened = open()
+      const reopenedReservedWrite = reopened.getWorkerDispatch(started.dispatch.id)!
+      expect(JSON.parse(reopenedReservedWrite.effects)).toEqual(
+        reservedWriteError ? JSON.parse(beforeReservedWrite.effects) : ordinaryEffects
+      )
+    }
+  )
+
+  it('reconciles a federated terminal-create failure, fences a stale projection, and retains capacity after reload', () => {
+    const f = fixture({ causal: true })
+    f.configure()
+    const started = f.start(0, f.db, { on: 'server-fixture' }, 'attempt_epoch_remote')
+    const ordinaryEffects = [{ kind: 'worktree', action: 'reused', id: 'repo::remote' }]
+    f.db.reconcileFederatedWorkerStart({ dispatchId: started.dispatch.id, state: 'start_unknown', stage: 'remote_attach', setupState: 'not_applicable', effects: ordinaryEffects })
+    const oldFence = f.db.captureFederatedDispatchObservationFence(started.dispatch.id)
+    expect(oldFence).toBeDefined()
+    f.db.reconcileFederatedWorkerStart({
+      dispatchId: started.dispatch.id,
+      state: 'failed',
+      stage: 'terminal_create',
+      lastError: 'remote create refused',
+      setupState: 'not_applicable',
+      effects: ordinaryEffects
+    })
+    expect(f.db.getFederatedDispatch(started.dispatch.id)).toMatchObject({
+      environment_id: 'env_fixture',
+      peer_fingerprint: 'peer_fixture'
+    })
+    expect(f.db.projectFederatedDispatchObservation(oldFence!, () => {
+      f.db.recordWorkerStage({
+        dispatchId: started.dispatch.id,
+        stage: 'remote_attach',
+        effects: ordinaryEffects
+      })
+    })).toBe(false)
+
+    const peerRefusalEffects = [{
+      ...reservedEffect,
+      source: 'peer',
+      environmentId: 'env_fixture',
+      peerFingerprint: 'peer_fixture'
+    }]
+    const currentFence = f.db.captureFederatedDispatchObservationFence(started.dispatch.id)
+    expect(currentFence).toMatchObject({
+      worker_state: 'failed',
+      worker_stage: 'terminal_create'
+    })
+    expect(f.db.projectFederatedDispatchObservation(currentFence!, () => {
+      f.db.recordWorkerStage({
+        dispatchId: started.dispatch.id,
+        stage: 'terminal_create',
+        effects: peerRefusalEffects
+      })
+    })).toBe(true)
+    expect(JSON.parse(f.db.getWorkerDispatch(started.dispatch.id)!.effects)).toEqual(peerRefusalEffects)
+
+    const reopened = open()
+    expect(reopened.getWorkerDispatch(started.dispatch.id)).toMatchObject({ state: 'failed', stage: 'terminal_create' })
+    expect(JSON.parse(reopened.getWorkerDispatch(started.dispatch.id)!.effects)).toEqual(peerRefusalEffects)
+    expect(reopened.getFederatedDispatch(started.dispatch.id)).toMatchObject({
+      environment_id: 'env_fixture',
+      peer_fingerprint: 'peer_fixture'
+    })
+    const second = f.start(1, reopened)
+    reopened.markWorkerDispatchReady(second.dispatch.id, ordinaryEffects)
+    expect(() => f.start(2, reopened)).toThrow(expect.objectContaining({ code: 'pi_admission_capacity' }))
   })
 })
