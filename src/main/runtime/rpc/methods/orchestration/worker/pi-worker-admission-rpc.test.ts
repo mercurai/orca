@@ -309,37 +309,150 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
     expect(harness.runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
   })
 
-  it('binds the configured review task and keeps review pending until source export succeeds', async () => {
+  it('refuses an implementation-only review graph before persisting Pi admission or launching', async () => {
     const f = policy()
-    const exportTask = harness.db.createTask({ runId: harness.activeRunId, spec: 'Coordinator-owned source export' })
-    const sourceGate = harness.db.createGate({ taskId: exportTask.id, question: 'Source delivered?' })
-    harness.db.db.prepare('UPDATE tasks SET deps = ? WHERE id = ?')
-      .run(JSON.stringify([f.task.id, exportTask.id]), f.review.id)
-    await harness.call('orchestration.piWorkerAdmissionConfigure', f.params)
 
-    const started = harness.db.createStartingWorkerDispatch({
-      taskId: f.task.id, creator: { kind: 'system' }, maxDepth: 3,
-      startOptions: {
-        agent: 'pi', piProfileSha256: f.profileSha256,
-        mode: { mode: 'structured', preferred: 'structured', reason: 'user_default', detail: 'Host selected.' }
-      }
+    await expect(harness.call('orchestration.piWorkerAdmissionConfigure', f.params)).rejects.toMatchObject({
+      code: 'pi_admission_invalid',
+      message: expect.stringContaining('export prerequisite')
     })
-    const admission = JSON.parse(started.worker.start_options).piAdmission as Record<string, unknown>
-    expect(admission).toMatchObject({ taskId: f.task.id, reviewTaskId: f.review.id })
-    expect(admission.reviewTaskId).not.toBe(f.task.id)
-    expect(JSON.parse(harness.db.getTask(f.review.id)!.deps)).toEqual([f.task.id, exportTask.id])
+    expect(harness.db.db.prepare('SELECT 1 FROM run_pi_worker_admission WHERE run_id = ?').get(harness.activeRunId)).toBeUndefined()
+    expect(harness.db.getDispatchContext(f.task.id)).toBeUndefined()
+    expect(harness.runtime.createTerminal).not.toHaveBeenCalled()
+    expect(packagePrepare).not.toHaveBeenCalled()
+    expect(structuredWorker.create).not.toHaveBeenCalled()
+  })
 
-    harness.db.markWorkerDispatchReady(started.dispatch.id)
+  it('binds the intended export contract through registered endpoints and gates review on delivery', async () => {
+    const f = policy()
+    const isRecord = (value: unknown): value is Record<string, unknown> =>
+      typeof value === 'object' && value !== null && !Array.isArray(value)
+    const requireRpcEntity = (result: unknown, key: 'task' | 'gate'): { id: string } => {
+      if (!isRecord(result) || !isRecord(result[key]) || typeof result[key].id !== 'string') {
+        throw new Error(`Registered RPC result did not contain a ${key} id.`)
+      }
+      return { id: result[key].id }
+    }
+    const requireConfigSha256 = (result: unknown): string => {
+      if (!isRecord(result) || typeof result.configSha256 !== 'string') {
+        throw new Error('Registered admission RPC result did not contain configSha256.')
+      }
+      return result.configSha256
+    }
+    const createTask = async (spec: string, deps: string[] = []) => {
+      const result = await harness.call('orchestration.taskCreate', {
+        spec,
+        run: harness.activeRunId,
+        callerTerminalHandle: 'term_coord',
+        ...(deps.length > 0 ? { deps: JSON.stringify(deps) } : {})
+      })
+      return requireRpcEntity(result, 'task')
+    }
+    const createGate = async (task: string, question: string) => {
+      const result = await harness.call('orchestration.gateCreate', {
+        task,
+        question,
+        run: harness.activeRunId,
+        from: 'term_coord'
+      })
+      return requireRpcEntity(result, 'gate')
+    }
+    const implementation = await createTask('Registered implementation task')
+    const exportTask = await createTask('Coordinator-owned source export', [implementation.id])
+    const review = await createTask('Independent Sol review', [implementation.id, exportTask.id])
+    const ciTask = await createTask('CI capacity admission')
+    const ciGate = await createGate(ciTask.id, 'Admit CI work?')
+    await harness.call('orchestration.gateResolve', {
+      id: ciGate.id,
+      resolution: 'approved',
+      run: harness.activeRunId,
+      from: 'term_coord'
+    })
+    const sourceGate = await createGate(exportTask.id, 'Source delivered?')
+    const taskEntry = {
+      ...f.params.config.tasks[0],
+      taskId: implementation.id,
+      reviewTaskId: review.id,
+      exportTaskId: exportTask.id
+    }
+    const intendedConfig = {
+      ...f.params.config,
+      ciGateId: ciGate.id,
+      tasks: [taskEntry]
+    }
+
+    const wrongExport = await createTask('Export without implementation dependency')
+    const wrongReview = await createTask('Review paired to export without implementation dependency', [implementation.id, wrongExport.id])
+    const reviewWithoutExport = await createTask('Review without export dependency', [implementation.id])
+    const foreignRun = harness.db.createRun({
+      objective: 'Foreign export Run',
+      coordinatorHandle: 'term_foreign_export',
+      coordinatorPaneKey: 'foreign_export:pane'
+    })
+    const foreignExport = harness.db.createTask({ runId: foreignRun.id, spec: 'Foreign source export' })
+    for (const invalidLink of [
+      { exportTaskId: wrongExport.id, reviewTaskId: wrongReview.id },
+      { exportTaskId: exportTask.id, reviewTaskId: reviewWithoutExport.id },
+      { exportTaskId: implementation.id, reviewTaskId: review.id },
+      { exportTaskId: review.id, reviewTaskId: review.id },
+      { exportTaskId: foreignExport.id, reviewTaskId: review.id }
+    ]) {
+      await expect(harness.call('orchestration.piWorkerAdmissionConfigure', {
+        ...f.params,
+        config: { ...intendedConfig, tasks: [{ ...taskEntry, ...invalidLink }] }
+      })).rejects.toMatchObject({ code: 'pi_admission_invalid' })
+    }
+
+    const accepted = await harness.call('orchestration.piWorkerAdmissionConfigure', {
+      ...f.params,
+      config: intendedConfig
+    })
+    const acceptedConfigSha256 = requireConfigSha256(accepted)
+    expect(accepted).toMatchObject({ configSha256: expect.stringMatching(/^[a-f0-9]{64}$/) })
+    const result = await harness.call('orchestration.workerStart', {
+      task: implementation.id,
+      run: harness.activeRunId,
+      from: 'term_coord',
+      agent: 'pi',
+      piProfileSha256: taskEntry.profileSha256
+    })
+    expect(result).toMatchObject({ state: 'ready', mode: { mode: 'structured' } })
+    const dispatch = harness.db.getDispatchContext(implementation.id)
+    expect(dispatch).toBeDefined()
+    const worker = harness.db.getWorkerDispatch(dispatch!.id)
+    expect(worker).toBeDefined()
+    expect(JSON.parse(worker!.start_options).piAdmission).toMatchObject({
+      taskId: implementation.id,
+      exportTaskId: exportTask.id,
+      reviewTaskId: review.id,
+      configSha256: acceptedConfigSha256
+    })
+    expect(structuredWorker.create).toHaveBeenCalledTimes(1)
+    expect(packagePrepare).toHaveBeenCalledTimes(1)
+
     expect(harness.db.settleWorkerReport({
-      taskId: f.task.id, dispatchId: started.dispatch.id, outcome: 'succeeded', result: 'implementation ready'
+      taskId: implementation.id, dispatchId: dispatch!.id, outcome: 'succeeded', result: 'implementation ready'
     })).toMatchObject({ action: 'settled' })
-    expect(harness.db.getTask(f.task.id)?.status).toBe('completed')
-    expect(harness.db.getTask(f.review.id)?.status).toBe('pending')
+    expect(harness.db.getTask(implementation.id)?.status).toBe('completed')
+    expect(harness.db.getTask(exportTask.id)?.status).toBe('blocked')
+    expect(harness.db.getTask(review.id)?.status).toBe('pending')
     expect(harness.db.getGate(sourceGate.id)?.status).toBe('pending')
 
-    harness.db.resolveGate(sourceGate.id, 'approved')
+    await harness.call('orchestration.gateResolve', {
+      id: sourceGate.id,
+      resolution: 'approved',
+      run: harness.activeRunId,
+      from: 'term_coord'
+    })
     expect(harness.db.getTask(exportTask.id)?.status).toBe('ready')
-    harness.db.updateTaskStatus(exportTask.id, 'completed', 'source export succeeded')
-    expect(harness.db.getTask(f.review.id)?.status).toBe('ready')
+    expect(harness.db.getTask(review.id)?.status).toBe('pending')
+    await harness.call('orchestration.taskUpdate', {
+      id: exportTask.id,
+      status: 'completed',
+      result: 'source export succeeded',
+      run: harness.activeRunId,
+      callerTerminalHandle: 'term_coord'
+    })
+    expect(harness.db.getTask(review.id)?.status).toBe('ready')
   })
 })
