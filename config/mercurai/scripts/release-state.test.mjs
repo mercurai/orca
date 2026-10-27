@@ -83,7 +83,12 @@ test('accepts the ordered candidate lifecycle and records evidence at each bound
     ['packaged', { artifactDigest: SHA }],
     ['published', { channel: 'mercurai' }]
   ]) {
-    state = transitionState(state, { expectedVersion: state.version, to, owner: 'release-owner', evidence })
+    state = transitionState(state, {
+      expectedVersion: state.version,
+      to,
+      owner: 'release-owner',
+      evidence
+    })
   }
 
   assert.equal(state.state, 'published')
@@ -95,24 +100,44 @@ test('accepts the ordered candidate lifecycle and records evidence at each bound
 test('rejects skipping a lifecycle stage or advancing without required evidence', () => {
   const state = createState(target())
 
-  assert.throws(() => transitionState(state, { expectedVersion: 0, to: 'qualified', owner: 'owner' }), /invalid transition/i)
+  assert.throws(
+    () => transitionState(state, { expectedVersion: 0, to: 'qualified', owner: 'owner' }),
+    /invalid transition/i
+  )
   const frozen = transitionState(state, { expectedVersion: 0, to: 'frozen', owner: 'owner' })
   assert.throws(
-    () => transitionState(frozen, { expectedVersion: frozen.version, to: 'qualified', owner: 'owner' }),
+    () =>
+      transitionState(frozen, { expectedVersion: frozen.version, to: 'qualified', owner: 'owner' }),
     /invalid transition/i
   )
 })
 
 test('leases one generation and refuses a second owner until the lease expires', () => {
   const state = createState(target())
-  const claimed = claimLease(state, { expectedVersion: 0, owner: 'worker-a', now: 1000, leaseMs: 100 })
+  const claimed = claimLease(state, {
+    expectedVersion: 0,
+    owner: 'worker-a',
+    now: 1000,
+    leaseMs: 100
+  })
 
   assert.equal(claimed.lease.owner, 'worker-a')
   assert.throws(
-    () => claimLease(claimed, { expectedVersion: claimed.version, owner: 'worker-b', now: 1050, leaseMs: 100 }),
+    () =>
+      claimLease(claimed, {
+        expectedVersion: claimed.version,
+        owner: 'worker-b',
+        now: 1050,
+        leaseMs: 100
+      }),
     /lease/i
   )
-  const reclaimed = claimLease(claimed, { expectedVersion: claimed.version, owner: 'worker-b', now: 1200, leaseMs: 100 })
+  const reclaimed = claimLease(claimed, {
+    expectedVersion: claimed.version,
+    owner: 'worker-b',
+    now: 1200,
+    leaseMs: 100
+  })
   assert.equal(reclaimed.lease.owner, 'worker-b')
 })
 
@@ -128,19 +153,52 @@ test('coalesces later upstream targets while an active candidate remains frozen'
 
 test('activates the newest queued target only after the prior candidate is terminal', () => {
   let state = createState(target())
-  state = enqueueTarget(state, target({ upstreamMainSha: 'b'.repeat(40) }), { now: '2026-10-24T20:01:00.000Z' })
+  state = enqueueTarget(state, target({ upstreamMainSha: 'b'.repeat(40) }), {
+    now: '2026-10-24T20:01:00.000Z'
+  })
   assert.throws(
     () => activateQueuedTarget(state, { expectedVersion: state.version }),
     /cannot activate.*detected/i
   )
   state = transitionState(state, { expectedVersion: state.version, to: 'frozen', owner: 'owner' })
-  state = transitionState(state, { expectedVersion: state.version, to: 'integrating', owner: 'owner' })
-  state = transitionState(state, { expectedVersion: state.version, to: 'qualifying', owner: 'owner' })
-  state = transitionState(state, { expectedVersion: state.version, to: 'qualified', owner: 'owner', evidence: { qualified: true } })
-  state = transitionState(state, { expectedVersion: state.version, to: 'tagged', owner: 'owner', evidence: { tagSha: SHA } })
-  state = transitionState(state, { expectedVersion: state.version, to: 'packaged', owner: 'owner', evidence: { artifactDigest: SHA } })
-  state = transitionState(state, { expectedVersion: state.version, to: 'published', owner: 'owner', evidence: { channel: 'mercurai' } })
-  const next = activateQueuedTarget(state, { expectedVersion: state.version, now: '2026-10-24T20:02:00.000Z' })
+  state = transitionState(state, {
+    expectedVersion: state.version,
+    to: 'integrating',
+    owner: 'owner'
+  })
+  state = transitionState(state, {
+    expectedVersion: state.version,
+    to: 'qualifying',
+    owner: 'owner'
+  })
+  state = transitionState(state, {
+    expectedVersion: state.version,
+    to: 'qualified',
+    owner: 'owner',
+    evidence: { qualified: true }
+  })
+  state = transitionState(state, {
+    expectedVersion: state.version,
+    to: 'tagged',
+    owner: 'owner',
+    evidence: { tagSha: SHA }
+  })
+  state = transitionState(state, {
+    expectedVersion: state.version,
+    to: 'packaged',
+    owner: 'owner',
+    evidence: { artifactDigest: SHA }
+  })
+  state = transitionState(state, {
+    expectedVersion: state.version,
+    to: 'published',
+    owner: 'owner',
+    evidence: { channel: 'mercurai' }
+  })
+  const next = activateQueuedTarget(state, {
+    expectedVersion: state.version,
+    now: '2026-10-24T20:02:00.000Z'
+  })
   assert.equal(next.state, 'detected')
   assert.equal(next.generation, 2)
   assert.equal(next.candidate.upstreamMainSha, 'b'.repeat(40))

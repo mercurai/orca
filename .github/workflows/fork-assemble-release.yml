@@ -1,7 +1,8 @@
 # mercurai fork: assemble a release branch = one upstream release tag + the active patch series,
 # run the patches' tests, and tag it `v<upstream>-mercurai.N`. The branch and tag are what the
 # build/publish job (fork-release-win-build, which this workflow dispatches after tagging) consumes. The series must
-# already be rebased onto the tag (fork-rebase-patches does that and records it per patch).
+# already be rebased onto the frozen base. Tag-only assembly remains available for dry-run preparation;
+# promotion requires upstream_main_sha, a prepared commit and authenticated owner acceptance.
 # With upstream_main_sha the branch is a frozen commit of official stablyai/orca main instead: the
 # tag is then the version floor and the name, and the manifest pins every active patch by commit.
 # Dispatched from a non-default branch, or with dry_run, it pushes nothing. Lives in the fork only.
@@ -22,7 +23,7 @@ on:
         type: string
         required: true
       upstream_main_sha:
-        description: Frozen stablyai/orca main commit to assemble on, lowercase 40-hex (empty assembles on the tag)
+        description: Frozen stablyai/orca main commit, lowercase 40-hex (required for promotion; empty allows tag-only dry runs)
         type: string
         required: false
         default: ''
@@ -30,8 +31,16 @@ on:
         description: Assemble and test, but push nothing
         type: boolean
         default: false
-      reviewer:
-        description: Independent reviewer identity from the fleet receipt; required for publication
+      prepared_candidate_sha:
+        description: Exact materialized and independently reviewed candidate; required for promotion
+        type: string
+        default: ''
+      prepared_release_tag:
+        description: Reserved vX.Y.Z-mercurai.N tag reviewed with the candidate
+        type: string
+        default: ''
+      review_run_id:
+        description: Successful authenticated owner-review intake run for this candidate and controller
         type: string
         default: ''
 
@@ -54,7 +63,9 @@ env:
   TAG: ${{ inputs.tag }}
   # Empty assembles on the tag. The script refuses anything but a full sha that official main holds.
   UPSTREAM_MAIN_SHA: ${{ inputs.upstream_main_sha }}
-  REVIEWER: ${{ inputs.reviewer }}
+  PREPARED_CANDIDATE_SHA: ${{ inputs.prepared_candidate_sha }}
+  PREPARED_RELEASE_TAG: ${{ inputs.prepared_release_tag }}
+  REVIEW_RUN_ID: ${{ inputs.review_run_id }}
 
 jobs:
   test:
@@ -132,8 +143,64 @@ jobs:
           echo "assembled tree ${{ steps.assemble.outputs.tree }}"
           echo "would tag ${{ steps.assemble.outputs.release_tag }} on ${{ steps.assemble.outputs.release_branch }}; nothing pushed"
 
+  review:
+    if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      review_attempt: ${{ steps.review.outputs.review_attempt }}
+      review_workflow_id: ${{ steps.review.outputs.review_workflow_id }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Authenticate owner acceptance of the prepared candidate
+        id: review
+        run: |
+          set -euo pipefail
+          [[ "$PREPARED_CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::promotion requires prepared_candidate_sha'; exit 1; }
+          [[ "$UPSTREAM_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::promotion requires frozen upstream_main_sha; tag-only assembly is dry-run preparation'; exit 1; }
+          [[ "$PREPARED_RELEASE_TAG" == "$TAG-mercurai."* && "${PREPARED_RELEASE_TAG#"$TAG-mercurai."}" =~ ^[1-9][0-9]*$ ]] || exit 1
+          [[ "$REVIEW_RUN_ID" =~ ^[1-9][0-9]*$ ]] || { echo '::error::promotion requires an owner review_run_id'; exit 1; }
+          jq -e '.promotionEnabled == true' config/mercurai/release-policy.json >/dev/null
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 1
+          [ "$(yq -r '.base' "$MANIFEST")" = "$UPSTREAM_MAIN_SHA" ] || exit 1
+          [ "$(yq -r '.upstream_release_tag' "$MANIFEST")" = "$TAG" ] || exit 1
+          CANDIDATE_TREE=$(git rev-parse "$PREPARED_CANDIDATE_SHA^{tree}")
+          MANIFEST_SHA=$(git rev-parse HEAD:config/mercurai/patches.yaml)
+          POLICY_SHA=$(sha256sum config/mercurai/release-policy.json | cut -d ' ' -f 1)
+          export CANDIDATE_TREE MANIFEST_SHA POLICY_SHA
+          yq -o=json "$MANIFEST" > "$RUNNER_TEMP/review-manifest.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const env = process.env
+          const manifest = JSON.parse(readFileSync(`${env.RUNNER_TEMP}/review-manifest.json`, 'utf8'))
+          const expected = {
+            repository: env.GITHUB_REPOSITORY,
+            candidate: {
+              commit: env.PREPARED_CANDIDATE_SHA, tree: env.CANDIDATE_TREE, controllerSha: env.GITHUB_SHA,
+              manifestSha: env.MANIFEST_SHA, policySha: env.POLICY_SHA, version: env.PREPARED_RELEASE_TAG.slice(1),
+              series: manifest.patches.filter((row) => ['ours-only', 'upstream-open'].includes(row.status)).map((row) => `${row.branch}:${row.commit}`),
+              upstream: { repository: manifest.upstream, mainSha: manifest.base, stableTag: manifest.upstream_release_tag, stableCommit: manifest.upstream_release_sha }
+            }
+          }
+          writeFileSync(`${env.RUNNER_TEMP}/review-expected.json`, `${JSON.stringify(expected)}\n`)
+          NODE
+          bash config/mercurai/scripts/fetch-release-review.sh "$RUNNER_TEMP/review-expected.json" \
+            config/mercurai/release-policy.json "$REVIEW_RUN_ID" "$RUNNER_TEMP/owner-review"
+          echo "review_attempt=$(jq -r '.run.run_attempt' "$RUNNER_TEMP/owner-review/review-context.json")" >> "$GITHUB_OUTPUT"
+          echo "review_workflow_id=$(jq -r '.run.workflow_id' "$RUNNER_TEMP/owner-review/review-context.json")" >> "$GITHUB_OUTPUT"
+
   push:
-    needs: test
+    needs: [test, review]
     # Read from the dispatch alone: nothing the test job ran can open it.
     if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') && !inputs.dry_run }}
     runs-on: ubuntu-latest
@@ -149,6 +216,8 @@ jobs:
       dispatch_id: ${{ steps.dispatch.outputs.dispatch_id }}
       workflow_id: ${{ steps.dispatch.outputs.workflow_id }}
       started_at: ${{ steps.dispatch.outputs.started_at }}
+      review_attempt: ${{ needs.review.outputs.review_attempt }}
+      review_workflow_id: ${{ needs.review.outputs.review_workflow_id }}
     steps:
       - name: Require the bot token
         env:
@@ -229,8 +298,17 @@ jobs:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           RELEASE_BRANCH: ${{ steps.assemble.outputs.release_branch }}
           CANDIDATE_SHA: ${{ steps.assemble.outputs.candidate_sha }}
+          REVIEW_ATTEMPT: ${{ needs.review.outputs.review_attempt }}
+          REVIEW_WORKFLOW_ID: ${{ needs.review.outputs.review_workflow_id }}
         run: |
           set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$REVIEW_RUN_ID" | jq -e \
+            --argjson run "$REVIEW_RUN_ID" --argjson attempt "$REVIEW_ATTEMPT" \
+            --argjson workflow "$REVIEW_WORKFLOW_ID" --arg controller "$GITHUB_SHA" --arg repository "$GH_REPO" \
+            '.id == $run and .run_attempt == $attempt and .workflow_id == $workflow and
+             .head_sha == $controller and .repository.full_name == $repository and
+             .event == "workflow_dispatch" and .status == "completed" and .conclusion == "success"' >/dev/null
+          [ "$(git ls-remote origin "refs/heads/$FORK_BRANCH" | cut -f 1)" = "$GITHUB_SHA" ] || { echo '::error::controller moved after owner acceptance'; exit 1; }
           auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
           echo "::add-mask::$auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
@@ -249,11 +327,9 @@ jobs:
           MANIFEST_SHA: ${{ steps.controller.outputs.manifest_sha }}
           POLICY_SHA: ${{ steps.controller.outputs.policy_sha }}
           SERIES: ${{ steps.series.outputs.series }}
-          REVIEWER: ${{ env.REVIEWER }}
           FORK_BRANCH: ${{ env.FORK_BRANCH }}
         run: |
           set -euo pipefail
-          [ -n "$REVIEWER" ] || { echo "::error::reviewer is required before qualification"; exit 1; }
           started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           dispatch_id="assembly-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${CANDIDATE_SHA}"
           workflow_id=$(gh api "repos/$GH_REPO/actions/workflows/fork-qualify-release.yml" --jq .id)
@@ -266,9 +342,7 @@ jobs:
             -f "manifest_sha=$MANIFEST_SHA" \
             -f "policy_sha=$POLICY_SHA" \
             -f "version=${RELEASE_TAG#v}" \
-            -f "reviewed_sha=$CANDIDATE_SHA" \
-            -f "reviewer=$REVIEWER" \
-            -f "review_controller_sha=$CONTROLLER_SHA" \
+            -f "review_run_id=$REVIEW_RUN_ID" \
             -f "series=$SERIES"
           {
             echo "dispatch_id=$dispatch_id"
@@ -319,9 +393,11 @@ jobs:
           [ "$(git rev-parse HEAD)" = "$CONTROLLER_SHA" ] || { echo "::error::verifier controller changed"; exit 1; }
           [ "$(git rev-parse HEAD:config/mercurai/patches.yaml)" = "$MANIFEST_SHA" ] || { echo "::error::verifier manifest changed"; exit 1; }
           [ "$(sha256sum config/mercurai/release-policy.json | awk '{print $1}')" = "$POLICY_SHA" ] || { echo "::error::verifier policy changed"; exit 1; }
+          yq -o=json config/mercurai/patches.yaml > "$RUNNER_TEMP/qualification-manifest.json"
           node --input-type=module <<'NODE'
-          import { writeFileSync } from 'node:fs'
+          import { readFileSync, writeFileSync } from 'node:fs'
           const env = process.env
+          const manifest = JSON.parse(readFileSync(`${env.RUNNER_TEMP}/qualification-manifest.json`, 'utf8'))
           const expected = {
             repository: env.GITHUB_REPOSITORY,
             workflowId: Number(env.WORKFLOW_ID),
@@ -336,7 +412,8 @@ jobs:
               manifestSha: env.MANIFEST_SHA,
               policySha: env.POLICY_SHA,
               version: env.RELEASE_TAG.slice(1),
-              series: env.SERIES ? env.SERIES.split(',').filter(Boolean) : []
+              series: env.SERIES ? env.SERIES.split(',').filter(Boolean) : [],
+              upstream: { repository: manifest.upstream, mainSha: manifest.base, stableTag: manifest.upstream_release_tag, stableCommit: manifest.upstream_release_sha }
             }
           }
           writeFileSync(env.EXPECTATION, `${JSON.stringify(expected)}\n`)
@@ -367,9 +444,14 @@ jobs:
           set -euo pipefail
           gh run download "$QUALIFICATION_RUN_ID" --name promotion-receipt --dir "$RUNNER_TEMP/promotion-receipt"
           gh api "repos/$GH_REPO/actions/runs/$QUALIFICATION_RUN_ID" > "$RUNNER_TEMP/qualification-run.json"
+          bash config/mercurai/scripts/fetch-release-review.sh "$EXPECTATION" \
+            config/mercurai/release-policy.json "$REVIEW_RUN_ID" "$RUNNER_TEMP/qualification-owner-review"
+          cmp -s <(jq -S '.review' "$RUNNER_TEMP/promotion-receipt/promotion-receipt.json") \
+            <(jq -S '.' "$RUNNER_TEMP/qualification-owner-review/release-review.json") || { echo '::error::receipt review differs from current owner acceptance'; exit 1; }
           node config/mercurai/scripts/qualification-run.mjs verify \
             "$RUNNER_TEMP/promotion-receipt/promotion-receipt.json" config/mercurai/release-policy.json \
-            "$EXPECTATION" "$RUNNER_TEMP/qualification-run.json" "$QUALIFICATION_RUN_ID"
+            "$EXPECTATION" "$RUNNER_TEMP/qualification-run.json" "$QUALIFICATION_RUN_ID" \
+            "$RUNNER_TEMP/qualification-owner-review/review-context.json"
           echo 'verified=true' >> "$GITHUB_OUTPUT"
           echo "attempt=$(jq -r '.run_attempt' "$RUNNER_TEMP/qualification-run.json")" >> "$GITHUB_OUTPUT"
 
@@ -397,8 +479,16 @@ jobs:
           QUALIFICATION_ATTEMPT: ${{ needs.qualification.outputs.attempt }}
           DISPATCH_ID: ${{ needs.push.outputs.dispatch_id }}
           WORKFLOW_ID: ${{ needs.push.outputs.workflow_id }}
+          REVIEW_ATTEMPT: ${{ needs.push.outputs.review_attempt }}
+          REVIEW_WORKFLOW_ID: ${{ needs.push.outputs.review_workflow_id }}
         run: |
           set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$REVIEW_RUN_ID" | jq -e \
+            --argjson run "$REVIEW_RUN_ID" --argjson attempt "$REVIEW_ATTEMPT" \
+            --argjson workflow "$REVIEW_WORKFLOW_ID" --arg controller "$GITHUB_SHA" --arg repository "$GH_REPO" \
+            '.id == $run and .run_attempt == $attempt and .workflow_id == $workflow and
+             .head_sha == $controller and .repository.full_name == $repository and
+             .event == "workflow_dispatch" and .status == "completed" and .conclusion == "success"' >/dev/null
           remote=$(git ls-remote origin "refs/heads/$RELEASE_BRANCH" | awk '{print $1}')
           [ "$remote" = "$CANDIDATE_SHA" ] || { echo "::error::candidate branch moved during qualification"; exit 1; }
           controller=$(git ls-remote origin "refs/heads/$FORK_BRANCH" | awk '{print $1}')
@@ -429,6 +519,6 @@ jobs:
           QUALIFICATION_RUN_ID: ${{ needs.qualification.outputs.run_id }}
         run: |
           gh workflow run fork-release-win-build.yml --ref "$FORK_BRANCH" -f "tag=$RELEASE_TAG" -f "qualification_run_id=$QUALIFICATION_RUN_ID" || {
-            echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG (the token needs Actions write)"
+            echo "::error::$RELEASE_TAG is tagged but the build was not dispatched; run: gh workflow run fork-release-win-build.yml -R mercurai/orca --ref $FORK_BRANCH -f tag=$RELEASE_TAG -f qualification_run_id=$QUALIFICATION_RUN_ID (the token needs Actions write)"
             exit 1
           }

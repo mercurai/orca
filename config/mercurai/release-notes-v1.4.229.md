@@ -55,13 +55,13 @@ restart action. These acceptance receipts are outstanding while this document re
 
 Source landed, package installed and runtime loaded are separate gates. None is complete yet.
 
-| Gate | Evidence required | Current state |
-| --- | --- | --- |
-| Candidate | Immutable commit/tree and consolidated patch registration | Pending |
-| Review and CI | Independent review and full PR aggregate at that exact commit | Pending |
-| Packaging | Protected dry runs, installer digest and packaged remote-worker/template inspection | Pending |
-| Live update | Installed package plus running executable/version and preserved active work | Not run |
-| Recovery | Native speed request evidence, local/SSH checks and rollback or forward repair | Not run |
+| Gate          | Evidence required                                                                   | Current state |
+| ------------- | ----------------------------------------------------------------------------------- | ------------- |
+| Candidate     | Immutable commit/tree and consolidated patch registration                           | Pending       |
+| Review and CI | Independent review and full PR aggregate at that exact commit                       | Pending       |
+| Packaging     | Protected dry runs, installer digest and packaged remote-worker/template inspection | Pending       |
+| Live update   | Installed package plus running executable/version and preserved active work         | Not run       |
+| Recovery      | Native speed request evidence, local/SSH checks and rollback or forward repair      | Not run       |
 
 Publication must replace these pending states with evidence. A picker selection alone is not proof
 of outgoing request selection or actual Ultrafast processing. If upstream catalog metadata prevents

@@ -2,7 +2,7 @@
 owner: Mercurai Orca release owner (Codex /root, delegated by the user)
 last-reviewed: 2026-10-26
 stability: draft
-status: completion audit in progress; source and controller branches published for CI, release held
+status: source reconciliation and release-gate repairs in progress; release held
 ---
 
 # Mercurai upstream integration and release automation
@@ -43,13 +43,13 @@ not this repository-owned design. Any later vault session record must use Obsidi
 
 Reuse check performed before choosing the workspace:
 
-| Existing capability | Decision |
-| --- | --- |
-| Hourly `fork-sync-upstream.yml` and protected-path guards | Extend detection and deduplication; retain guards. |
-| Rebase workflow, series script, atomic leased push | Reuse patch preparation and conflict evidence. |
-| `fork-assemble-release.yml`, `assemble-release.sh` | Preserve frozen-main assembly; qualify an immutable commit. |
-| `fork-release-win-build.yml` and orcad template validation | Reuse secretless packaging and separate publication. |
-| Orca schedules and supervised orchestration | Reuse bounded runs, isolated worktrees, tasks, dispatches, and gates. |
+| Existing capability                                        | Decision                                                              |
+| ---------------------------------------------------------- | --------------------------------------------------------------------- |
+| Hourly `fork-sync-upstream.yml` and protected-path guards  | Extend detection and deduplication; retain guards.                    |
+| Rebase workflow, series script, atomic leased push         | Reuse patch preparation and conflict evidence.                        |
+| `fork-assemble-release.yml`, `assemble-release.sh`         | Preserve frozen-main assembly; qualify an immutable commit.           |
+| `fork-release-win-build.yml` and orcad template validation | Reuse secretless packaging and separate publication.                  |
+| Orca schedules and supervised orchestration                | Reuse bounded runs, isolated worktrees, tasks, dispatches, and gates. |
 
 PR #70 hardened sync and PR #72 registered the previous release; both are merged. PR #71 is comparison CI, not a
 competing coordinator. No competing automation PR was found in the open/recent PR scan. Preserve historical PRs.
@@ -58,298 +58,160 @@ procedures in the October 12 and 13 handoffs; no existing release-automation pla
 CodeGraph was not available. Existing source, workflow, PR, and documentation inspection supplied the reuse evidence.
 No new library, external agent service, always-running chat, or product UI is needed.
 
-## Verified baseline and known defect
+## Current candidate and completion audit
 
-These are observations, not a frozen next-release target. Revalidate them before implementation.
+Evidence below records the last completed inspections and hosted runs, rather than claiming a fresh live
+GitHub read during the fleet quiet order. No source or controller landing, tag, package publication,
+installation, runtime acceptance, or schedule activation is complete.
 
-| Item | Observed value |
-| --- | --- |
-| Official stable release | `v1.4.239`, published October 24, 2026 |
-| Latest public Mercurai release | `v1.4.237-mercurai.2`, published October 23, 2026 |
-| Official main during planning | `d58849a7d8d68929bd0e686571678d85e70740af` |
-| Controller default branch | `mercurai@c5f11af2b2dae111070cc3938a9be20267e23e48` |
-| Previous release upstream base | `54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40` |
+| Item                                             | Last verified identity or status                                                                                                                                                                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Official main, inspected 2026-10-26 23:30:54 UTC | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                                                                            |
+| Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                            |
+| Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                                |
+| Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                                       |
+| New linear candidate                             | `patch/current-main-release-823ca@c777bcfcfdfb463cd2b6b337c3e3de1eb18955db`, draft [#82](https://github.com/mercurai/orca/pull/82); targeted run [40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) completed RED |
+| Controller preparation                           | `codex/release-registration-20261023@5651284ad6`, PR [#80](https://github.com/mercurai/orca/pull/80); further edits uncommitted                                                                                                       |
+| Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                                      |
 
-Earlier investigation at main `4e7c3538e506b7eebb069911be9269ac834c3356` counted 296 intervening commits and 199
-overlapping upstream/fork paths. Those counts do not apply automatically to the newer planning snapshot.
-Overlapping paths are review candidates, not demonstrated merge conflicts or proof that upstream replaced our behavior.
+Official main adds 91 commits beyond `98690db2ab1d53d7e67eae296dc061c000c2ea2f`.
+The new merge produced 21 content conflicts. All conflict contents are resolved and committed as
+`e4095165f1ba45b638c9c45aec3bce3ce22d5b68`. The identical tree
+`5a1e6e854f002888994691a5fbf2cb458cd2bf53` is materialized as linear
+`c777bcfcfdfb463cd2b6b337c3e3de1eb18955db` directly on the frozen official parent.
+Both candidate and comparison refs are remote; the provisional manifest matches the candidate.
+Runtime/renderer defects remain intentionally unfixed for hosted RED, so this is not qualified.
 
-Previous candidate `fea33f5c8944a2dbd4cc29b0cd048e4ed47a5006` had successful targeted assembly/package checks,
-but full CI run `39916170172` failed: one test file and 12 tests failed, with the aggregate check also failing.
-`src/main/runtime/runtime-rpc/runtime-rpc-pairing.ts` changed `createPairingOffer` to async, while
-`tests/e2e/paired-cli-agent-launch.unit.test.ts` inspected its Promise without awaiting it.
-Correct that caller and examine callers affected by the same async conversion. Do not classify it as baseline noise.
-This finding does not by itself demonstrate a runtime pairing defect.
+Stable `041baf35` is not an ancestor of main. Its sole stable-only change is `package.json` version
+`1.4.214` to `1.4.241`; its functional parent is already in the old official base. Explicitly reconcile the
+stable version floor with the controlled Mercurai package-version injection and record that evidence.
+Do not claim stable-commit ancestry or omit the version change silently.
 
-The published `.2` commit was `8dc0af619f622f719be8c16818693f662a92cadd`; its tree matched the reviewed candidate.
-Tree equality is useful provenance but does not justify claiming CI ran at a different commit.
-The next pipeline must materialize, qualify, and tag one exact candidate commit.
+### Source audit
 
-### Current integration probe (2026-10-25)
+The earlier audit disproved broad completion claims: relocated imports and async fixtures were broken,
+canonical speed precedence was inconsistent, and a rejected overlapping turn could erase newer choices.
+The repaired old source has targeted hosted evidence, not installed-app acceptance:
 
-The current upstream refs were revalidated in an isolated worktree: the earlier official `main` snapshot
-`870038cfc646fd654a146f82d64f6019456319b6` advanced during this work to `d58849a7d8d68929bd0e686571678d85e70740af`;
-stable `v1.4.239` resolves to peeled commit `47f77cf7018ebc0d046b82c6dde31cf704909162`; the fork controller remains
-`c5f11af2b2dae111070cc3938a9be20267e23e48`. The active patch branch has eight commits from base
-`54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40`; its first retention commit changes 665 files.
-The refreshed current-main merge probe reported 81 conflicts (79 content and two modify/delete; the stable-tag
-probe remains 76). Conflicts include Codex service-tier/session options and turn start, runtime/persistence,
-process/file async paths, package manifests, workflows, and renderer/session-wire code. An isolated review
-scaffold at `codex/orca-upstream-reconcile-20261025` records merge commit `8f2fb7dc6d`; it used `-X ours` only
-to expose the full tree and is not a release candidate. The two modify/delete cases were deliberately accepted:
-upstream removed the unreachable hook IPC and replaced the old conversation-stop test with provider-specific
-suites. The initial 79 content conflicts required bounded semantic reconciliation; no publication may
-use the scaffold until each skipped upstream hunk has a disposition and exact-candidate CI passes.
-The controller now records this evidence through `release-conflict-inventory.mjs`; its precheck refuses a
-candidate with unresolved paths rather than dispatching an agent against an unreviewed merge.
-It also derives `release-conflict-task-plan.mjs` packages with deterministic family ownership, bounded path counts,
-and explicit writable paths; those packages remain blocked work until an isolated integrator resolves and reviews them.
-The scaffold has since incorporated reviewed Codex turn-receipt handling (`305e97cc91`), process-host/Git capture
-compatibility (`0d69ba4e3a`), and native catalog/session-wire allocation and intent fixes (`a066562e97`). A fresh
-merge-tree probe against the new scaffold head reports 78 remaining conflict records; these changes reduce the
-review surface but do not make the scaffold releasable.
-The bounded follow-up lanes then recorded workflow/dependency reconciliation (`c61cb34a88`), runtime pairing
-coverage (`96edfe2c5e`), SSH pairing and WSL journal fixes (`9319079fb6`), native mutation lifecycle and hook
-cleanup (`eb0ef241dd`), and managed-runtime async persistence/host-restart compatibility (`a14c625a9c`). Their
-combined diff was materialized as one candidate commit `3f330defd4410b4e51c31b66de02235113b29e6b` on the exact
-official-main parent `870038cfc646fd654a146f82d64f6019456319b6`; merge-tree against that parent is clean and
-the candidate is still local, unqualified, and unreleased. Independent review then found the known async pairing
-fixture omission; candidate commit `2ad742a69b57027b04c8bfac8e3808502a4b43df` adds the required await. A second
-review found structured-clone loss of `stderrBytes`; candidate commit `d3def6cf25c347d3629c97b462f238c31389181c`
-restores both byte fields and adds invalid-UTF8/WSL-marker coverage. The current candidate is the three-commit
-range from `870038cfc6` ending at `d3def6cf25`.
-Independent review of `d3def6cf25` returned `accept` for the scoped integration corrections; this is a source-review
-verdict only. Exact-candidate CI, package qualification, installation/runtime acceptance, and protected publication
-remain open.
-The latest-main refresh is a separate candidate merge commit `3c7d22012cfae09aa32ed03c41a306b201922e74` whose
-upstream parent is `d58849a7d8`; it supersedes the three-commit `870038cfc6` candidate. Because the release assembler
-cherry-picks linear patch branches, the identical tree was materialized as linear patch commit
-`5ce0aead4533980294b8c26989a173501361ee27` on `patch/current-main-release-d58849a7d8`, followed by
-`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` to replace a removed stop-test path with upstream's split coverage.
-The current tree is `73fbf286056a9106df8acd1a947dda7c8f59263a`. Independent source review of the merge returned `accept`; exact-SHA
-CI, package qualification, installation/runtime acceptance, protected publication, and remote branch registration
-remain open.
+| Exact source / hosted run                                                                                            | Observed evidence and limit                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `423176798d119980771fcfddd8a60797c99040b4`, [40401238493](https://github.com/mercurai/orca/actions/runs/40401238493) | 93 Windows files: 1,232 passed, 16 skipped; Linux/Windows deterministic cost jobs passed                                                                                            |
+| `b31ced0216480a4f1dceeb11d21a918865234164`, [40405108355](https://github.com/mercurai/orca/actions/runs/40405108355) | Typecheck and lint passed; ast-grep found nine flaky-test violations in eight retained files                                                                                        |
+| `23fdb7e094814974722570e1ac696de6837bb78d`, [40419856282](https://github.com/mercurai/orca/actions/runs/40419856282) | Windows 1,232 passed, 16 skipped; expanded cost suites Linux 237 passed, Windows 232 passed and five skipped; new full-qualification contracts 10 passed, 10 failed as intended RED |
 
-### Upstream refresh probe (2026-10-25, refreshed)
+The new upstream merge preserves conversation-backed catalog ownership, live-record fences, launch
+`explicitLaunchOptions`/`optionsMode`, awaited VM retirement, and WSL no-boot recovery alongside fork tiers
+and async persistence. Independent source review accepted only the bounded catalog merge.
+Runtime review found a new wake race: a reachability await can reconnect after disable or removal.
+Three deferred-probe regressions now await hosted RED; production remains unfixed.
+Renderer review also found newer held legacy Fast choices losing to saved canonical speed; its regression
+cases await hosted RED before correction. New upstream `wsl-host-early-wake.ts` adds synchronous focus-path
+I/O; migrate it with existing async secure persistence and revocation ordering before claiming preserved
+async responsiveness. None of these findings establishes an installed-app throughput or memory measurement.
 
-Official `main` advanced again to `f07673123107caafbfb3aa28763c72d77433b308`; stable `v1.4.239` remains
-`47f77cf7018ebc0d046b82c6dde31cf704909162`. A read-only merge-tree replay of the registered candidate
-`a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` against the new main exits `1` with exactly three content conflicts:
-`config/e2e-typecheck-baseline.txt`,
-`src/renderer/src/components/native-chat/use-structured-agent-session-sends.ts`, and
-`tests/e2e/cross-version-wire/cross-version-web-device-key.unit.test.ts`.
-The target adds seven upstream commits and 839 changed paths beyond the frozen `d58849a7d8` base.
-The deterministic conflict planner assigns the first and third paths to one bounded `other` task and the renderer
-path to one `renderer` task. The current manifest remains pinned to the reviewed `d58849a7d8` candidate until these
-three paths are reconciled semantically; no automatic ours/theirs resolution is authorized.
+The follow-up renderer audit found another HIGH: model-less explicit speed options can be overwritten
+by the seeded tier in first-message construction and option presentation. Explicit Standard over a saved
+nonstandard tier must never become a paid request. Six tier-only cases are authored: modern create and picker/send regressions in both directions,
+plus legacy transport controls. They are unrun and production remains unchanged. The WSL revocation gap also affects passive runtime calls, including an
+`available` verdict arriving after disable; four additional deferred-probe cases cover that path.
+Seven early-wake cases now cover async focus I/O, complete-operation quit draining, latest intent,
+disable/removal, unrelated pending intent, profile isolation and normalized-list deduplication.
+The larger service test was split into service lifecycle and wake/reconnect suites to preserve the
+existing size limit. Production remains unchanged until hosted RED.
 
-Conflict task obligations:
+Hosted run [40429242854](https://github.com/mercurai/orca/actions/runs/40429242854)
+completed at `c777bcfc`: 97 Windows files, 1,282 passed, 21 failed, 16 skipped.
+Twenty failures confirm the intended product regressions; one missing reset import came from test
+extraction and is being corrected. Linux deterministic costs passed 237 tests; Windows passed 232
+with five skipped. All 25 full-qualification contracts passed on Linux, establishing the shared-matrix
+RED-to-GREEN correction at this source revision, not full matrix or runtime acceptance.
+Speed and WSL corrections now have separate writable owners and independent review before fresh CI.
+Controller lint exposed an oversized prepared-candidate test module; it is split into general assembly,
+prepared promotion and shared fixture files with a real independent source review. Controller lint
+now passes, while authenticated intake, preparation and final publication behavior still need hosted CI.
 
-- `upstream-conflict-other-1`: reconcile the E2E type-error baseline and device-key wire test. Preserve the
-  upstream removal of obsolete baseline entries, retain only errors still present on the candidate after the new
-  async registry/API and keyed-support types are applied, and await every async registry/device-key operation.
-  Preserve Mercurai's cross-version pairing behavior and session-only fallback semantics.
-- `upstream-conflict-renderer-1`: combine upstream's `useEffectEvent` recovery-lifecycle change with Mercurai's
-  `CodexSpeedSelectionError` notice path. The recovery callback must not capture stale batches, and a refused speed
-  selection must remain actionable without sending or silently downgrading the message.
+### Release-gate audit
 
-Each task may modify only its listed paths, must add or update focused behavioral coverage, and must produce a new
-candidate generation before qualification. The release owner must review the combined tree after both tasks land.
+Four HIGH findings reopened Phase 1: partial qualification labeled full, unauthenticated reviewer text,
+incorrect qualification-run selection, and mutable/non-monotonic channel publication.
 
-### Upstream refresh probe (2026-10-26)
+| Gate                                         | Implementation / verification status                                                                                                                                                                                                          |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exact qualification correlation              | Independent review accepted the split trusted verification and token jobs; controller [40404591475](https://github.com/mercurai/orca/actions/runs/40404591475) passed 222 Node and nine template-integration tests                            |
+| Authenticated review                         | Hosted [40418219241](https://github.com/mercurai/orca/actions/runs/40418219241) rejected the new owner-auth test as expected: 222 passed, one failed; owner-intake validator/workflow and caller wiring now under source review               |
+| Prepared immutable candidate and publication | Hosted [40418899486](https://github.com/mercurai/orca/actions/runs/40418899486) yielded 223 passed and 15 intended failures; exact prepared SHA/reserved version and immutable monotonic publisher repairs are local, awaiting complete GREEN |
+| Full matrix                                  | Source [40419856282](https://github.com/mercurai/orca/actions/runs/40419856282) provides RED; shared PR workflow/full unit planning/cache bypass and actual matrix receipt are being wired                                                    |
 
-Official `stablyai/orca` `main` advanced to
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f`; stable `v1.4.239` still peels to
-`47f77cf7018ebc0d046b82c6dde31cf704909162`. The target is 416 commits beyond
-the frozen `d58849a7d8d68929bd0e686571678d85e70740af` base. Replaying the
-registered candidate `a06bff3b3578b1abf1abc73a5cce15a21bc02a1b` produces merge-tree
-`eb5ae36c13e6380321af21493b9c0ef212b70bb7`, exit `1`, and 108 conflict records:
-106 content conflicts and two modify/delete conflicts.
+Owner acceptance binds full candidate/tree/controller/manifest/policy/version/ordered series/upstream identity
+to an authenticated GitHub workflow actor and triggering actor, current run attempt, artifact identity and
+ZIP digest. Reviewer text alone cannot authorize promotion. This authenticates account-controlled acceptance
+of an independent review; it does not prove a human click or an AI model's cryptographic identity.
 
-The deterministic planner creates 13 bounded tasks (maximum 12 paths each): one
-Codex-catalog task, one workflow/package task, three process/Git tasks, three runtime
-tasks, two renderer tasks, and three remaining-path tasks. Fixed-reference review
-classifies 51 paths as candidate-code-only changes, 50 as genuine two-sided code
-changes, two as upstream deletions requiring replacement coverage, four as launch
-relocations/additions, and the E2E baseline as text-only. The safe disposition is
-candidate retention for the candidate-only set, semantic union for both-sided code,
-explicit replacement review for deletions/relocations, and upstream's header-only
-E2E baseline after the async pairing fixture is present.
+Assembly now requires the prepared candidate, reserved tag and accepted-review run before canonical branch
+mutation, then refetches review evidence after qualification. Publisher preflight also verifies external
+candidate identity and fresh owner context. These are uncommitted source edits, not accepted live gates.
+The fetch helper's reused-destination stale-context regression remains deliberately RED pending hosted
+execution and correction. Publication still needs a final fresh review/qualification recheck after the
+long build, immediately before channel mutation.
 
-Required upstream behavior to preserve during reconciliation includes WSL pairing-key
-binding and save-only blank-store recovery, desktop chat creation-history retirement,
-structured-session shutdown and pane-grid flush ordering, connector fencing, and
-launch-module relocations. Required Mercurai behavior includes async durable writes,
-generation/revocation fences, exact Codex tier IDs, no-downgrade speed admission,
-held-speed refusal, and actionable renderer notices. The manifest remains pinned to
-the reviewed candidate until the new conflict tasks are completed, independently
-reviewed, and qualified at one immutable candidate SHA.
+Independent review of the new shared matrix found a source-identity defect: the planner inherited
+`GITHUB_SHA` from the controller rather than the source checkout. Both PR and standalone planners now
+derive `ORCA_SHARD_SOURCE_SHA` from actual `HEAD`, with a mismatched-controller/candidate fixture.
+The correction remains unrun. The new verifier binds job evidence to an exact run-attempt endpoint,
+preserving genuine optional per-job attempt fields instead of inventing API fields. If a failed-only
+rerun cannot provide complete current-attempt evidence, dispatch fresh full qualification; ordinary
+source-PR retry behavior remains unchanged.
 
-The local reconciliation is complete as the linear branch
-`patch/current-main-release-98690`, head
-`5fb6766ff1576b6e5d58d76241e54f5246ae7669`, with tree
-`3548a5bc4a6bcf0a56c7f2ee2f66cc9e9240a76c` and official `main`
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f` as its ancestor. This is a review
-artifact at the time it was recorded. The subsequent completion audit below
-supersedes that status and records the corrected preparation candidate.
+Independent review accepted the bounded shared-matrix and schema-2 qualifier source, with hosted
+verification still required. The release owner copied 24 reviewed workflow/action/planner paths into
+the isolated controller. Actual API evidence requires all 14 logical successes and every planned
+unit/layout shard, complete pagination and the exact attempt endpoint; optional API row attempt fields
+remain optional and are never fabricated. A positive fixture covers nested reusable job names.
+Linux D7 is required by the existing layout call; Windows D7 remains advisory and is not claimed passed.
+The current [release-note draft](../release-notes-v1.4.241.md) distinguishes intended behavior, remaining
+regressions, publication and installed-runtime acceptance. No candidate suffix has been reserved yet.
 
-### Completion audit (2026-10-26)
+Publication now has source-only RED cases for 14 stale controller/review/qualification/artifact
+conditions, authorization API refusal before empty-channel bootstrap, and a review rerun during draft
+upload. The actual publisher Bash runs against the isolated GitHub boundary; healthy publish/retry
+controls remain. Additional null-digest controls distinguish byte comparison from metadata rejection.
+The boundary fixture lives in `publication-github-fixture.mjs` to preserve file size and responsibility.
+These cases are unrun and the final freshness guard remains unimplemented pending hosted RED.
 
-The user requested a fresh audit and forward progress. The linear head `5fb6766ff1`
-has 14 commits after official `98690db2`; that upstream commit is an ancestor,
-not its direct parent. Static checks did not establish build or runtime correctness.
-Independent source and release-gate reviewers returned changes requested:
-
-- Renderer launch relocation left one production import and three test imports
-  pointing at missing files. Four registered test paths were stale too.
-- Captured message choices can validate legacy Fast before an explicit canonical
-  service tier. A late rejection can also roll back a newer picker/request snapshot.
-  Both require behavioral regression evidence before acceptance.
-- Qualification runs only Node tests, lint, and typecheck rather than the required
-  PR verification matrix. P1.3 is incomplete.
-- Reviewer text is converted to approval without an authenticated review record;
-  qualification-run selection can select another candidate's run before tagging.
-- Publishing can replace an existing release's assets and mark an older rerun
-  latest. P1.4 is incomplete until serialization, monotonicity, and immutable
-  retry checks have behavioral coverage.
-
-The source correction branch is now remote at `patch/current-main-release-98690`.
-Run [40393548246](https://github.com/mercurai/orca/actions/runs/40393548246)
-tests commit `12fe91cb8e323000fef6ee541ee64c679e05b0c5`; run
-[40394059772](https://github.com/mercurai/orca/actions/runs/40394059772) adds the
-late-rejection regression cases at `5435e43bf4`. These are targeted verification
-runs, not full qualification receipts. No publication is accepted by this audit.
-
-The first run finished with 1,193 passed, 29 failed, and 13 skipped tests;
-the second added the two rollback regressions and finished with 31 failed.
-The corrected head `81745a9e88dfb953ef0aa01b83a6da6b07e7e527` is now published
-and provisionally registered for CI, with 225 existing test paths and tree
-`ea4ece923003b19b1bbf59cead59b09d1b913da3`. Run
-[40395898889](https://github.com/mercurai/orca/actions/runs/40395898889) verifies
-the corrections. Both earlier runs passed the separate Linux and Windows
-deterministic cost jobs. Those jobs do not establish installed-app performance.
-
-Two concurrently pending starts that both reject remain an identified rollback
-ordering gap; no current result claims that ordering is covered. Release-gate
-findings remain open. Controller CI also exposed 70 lint errors before reaching
-its tests; the brace/style corrections are under CI at
-[40395992018](https://github.com/mercurai/orca/actions/runs/40395992018).
-
-That controller run reached the tests after lint correction: 169 passed and the
-new disabled-promotion test failed as expected. The subsequent implementation
-requires a strict boolean `promotionEnabled: true` at assembly, qualification,
-and receipt verification; the preparation policy stays false. This is containment,
-not completion of the four release-gate repairs. The GitHub coordinator schedule
-also stays inactive unless `MERCURAI_RELEASE_COORDINATOR_ENABLED=true`; explicit
-manual reconciliation is separate from scheduled activation.
-
-Source run 40395898889 then reduced the earlier failures to four assertions in
-the new precedence fixture (1,222 passed, 16 skipped). The fixture now supplies
-known native defaults, avoiding an unrelated config read. The corrected source
-and behavior-preserving extraction are published in draft PR
-[#79](https://github.com/mercurai/orca/pull/79), head
-`ffb802f98ef5dc3d239aad898eeb05bff22cce08`, with 19 commits after upstream and
-tree `83aa6d0f4de7ec0e19f04651baca074b3d9a344d`. The provisional manifest now
-matches that remote pin. CI run
-[40397677548](https://github.com/mercurai/orca/actions/runs/40397677548) passed
-at that exact head: 93 Windows test files, 1,226 tests passed and 16 skipped.
-The deterministic cost jobs passed on Linux (206 tests) and Windows
-(201 passed, five skipped). These do not establish installed-app performance.
-Full PR verification and all original release gates remain open.
-
-Controller containment commit `ba18ca1c2c6ebaa6769c01ca2f89d25656e47259`
-passed [40398674155](https://github.com/mercurai/orca/actions/runs/40398674155):
-lint, series-script checks, 171 Node tests, and nine modern-template integration
-tests. Independent review accepted only the containment delta. The four HIGH
-release findings remain open. The both-rejected ordering regression delta at
-source `cccf3efc8b` failed three cases in CI; the six-case expansion at
-`4bdb3f6fb6` failed four. The ownership-based fix at
-`423176798d119980771fcfddd8a60797c99040b4`, tree
-`0bb47c54f78a7abdeafc179e7a49e352c977b6a8`, passed targeted run
-[40401238493](https://github.com/mercurai/orca/actions/runs/40401238493):
-1,232 tests passed and 16 skipped across 93 Windows files. Both platform cost
-jobs passed. Independent delta review accepted it; 22 linear commits follow
-official `98690db2`. The provisional manifest matches this proven source pin.
-Source PR #79 is now open for full PR verification; controller PR #80 remains
-draft. Source landing and all release/runtime gates remain pending.
-
-The exact-run repair has a hosted RED baseline in
-[40400287474](https://github.com/mercurai/orca/actions/runs/40400287474):
-176 passed and 31 new cases failed. That synthetic baseline reproduces the
-existing shell lookup/admission semantics; it is not wired into a publisher.
-The correction separates trusted read-only selection/receipt verification from
-credential-bearing push and tag jobs, preserving their interpreter bans. It
-must verify external candidate/controller/manifest/policy/version/series and
-unique dispatch identity before tagging. The other three HIGH findings remain
-outside this focused repair.
-
-The reviewed correlation correction is committed as `277e5ac7b4`. Hosted run
-[40403060335](https://github.com/mercurai/orca/actions/runs/40403060335)
-passed 221 of 222 controller tests. The only failure was an older contract test
-expecting two trusted checkouts after the workflow split into four jobs; its
-assertion now requires all four jobs to check out the dispatched controller.
-The correction's own behavioral and security-contract cases passed. A fresh
-complete controller run is required after this fixture correction.
-
-Full source PR run
-[40402086128](https://github.com/mercurai/orca/actions/runs/40402086128)
-exposed eight type errors (stale imports, a missed async fixture, and an unused
-import) plus three file-size violations. The packaged Windows check also failed
-on those source type errors. Separate scoped workers corrected the imports and
-fixture; bounded extractions preserve the size-limited modules' behavior.
-This new evidence supersedes any suggestion that targeted success establishes
-full source correctness. Full CI and WSL acceptance remain open.
-
-Controller follow-up `23a667dfe4` passed hosted
-[40404591475](https://github.com/mercurai/orca/actions/runs/40404591475):
-222 Node tests, nine modern-template integration tests, lint, and series-script
-checks. Independent security review accepted the exact-run/pre-tag correction.
-Its live workflow rehearsal remains pending. The original qualification-matrix,
-review-authentication, and immutable-publication HIGH findings remain open.
-
-Current source is `b31ced0216480a4f1dceeb11d21a918865234164`, tree
-`75384be34c9b9d7695c621eeee4b75e4e962a9fc`, with 23 commits after the frozen
-official ancestor. Static lint passed for all 13 changed files. Independent
-refactor review accepted preserved async routing, SSH sidecar state, public
-exports, catalog freshness, and bounded Maps after restoring an omitted import.
-Fresh full run 40405108355 and targeted run 40405108314 are pending.
-The WSL build failure was traced to the same two missing SSH exports, now
-corrected; it still requires fresh hosted acceptance. The manifest tracks this
-remote pin provisionally and does not claim it has passed its predecessor's CI.
-
-Current upstream discovery found official `main` at
-`44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`, published
-2026-10-26. Queue those inputs after the frozen candidate's corrections; do not
-describe the `98690db2`/`v1.4.239` snapshot as the current official release.
+The fleet posted `BOX SMOKE DONE` at 2026-10-27 00:33 UTC, lifting the quiet order and slot hold.
+Git/GitHub operations and hosted CI resumed. Local build/test admission for this lane remains CI-only;
+no local tests, builds, installs or app launches are authorized by that change. Earlier green runs never satisfy the new
+candidate/controller revisions. Historical preparation artifacts remain available in Git history; do not
+reuse their verdicts for the current generation.
 
 ## Requirements and acceptance criteria
 
 ### Release completeness
 
 - [ ] R1: Freeze an official main SHA, stable version floor, controller SHA, and ordered patch heads per candidate.
-  Include current stable product changes; explicitly reconcile release-only tag differences. Queue later arrivals.
+      Include current stable product changes; explicitly reconcile release-only tag differences. Queue later arrivals.
 - [ ] R2: Inventory every active fork enhancement and disposition it as retained, upstream-equivalent, reconciled,
-  or blocked. Require behavioral evidence before removing a patch. Never omit an enhancement silently.
+      or blocked. Require behavioral evidence before removing a patch. Never omit an enhancement silently.
 - [ ] R3: Preserve async process/file work, bounded memory behavior, Codex speed selection, account/home/resume
-  changes actually present in the active patch, remote compatibility, and release branding/channel behavior.
-  Mark earlier proposed work absent from the patch as unimplemented; do not invent shipped scope.
+      changes actually present in the active patch, remote compatibility, and release branding/channel behavior.
+      Mark earlier proposed work absent from the patch as unimplemented; do not invent shipped scope.
 - [ ] R4: Fix the missed async fixture, pass required full CI plus targeted regression checks at the candidate,
-  and obtain independent review bound to that candidate and controller policy revision.
+      and obtain independent review bound to that candidate and controller policy revision.
 - [ ] R5: Publish a monotonic Mercurai version through existing protected packaging; report source, package,
-  installation, and loaded runtime separately, preserving active user sessions and runtime-owned configuration.
+      installation, and loaded runtime separately, preserving active user sessions and runtime-owned configuration.
 
 ### Recurring integration
 
 - [ ] R6: Detect both main and stable release changes hourly, deduplicate them, and retain a durable queue when the
-  desktop is unavailable. One active release owns the selected target; newer upstream work does not reset it.
+      desktop is unavailable. One active release owns the selected target; newer upstream work does not reset it.
 - [ ] R7: Run agents only for eligible work in isolated owned worktrees, with bounded retries and explicit writable
-  paths. Independent review and protected publication remain separate from implementation-agent completion.
+      paths. Independent review and protected publication remain separate from implementation-agent completion.
 - [ ] R8: Recover from controller, desktop, agent, and workflow interruption without duplicate publication, stale
-  dispatch acceptance, overlapping release ownership, lost patches, or premature worker replacement.
+      dispatch acceptance, overlapping release ownership, lost patches, or premature worker replacement.
 - [ ] R9: Enforce promotion on manual and automatic entry points. Fail closed on stale or missing evidence,
-  unexpected skips, guarded changes without authorization, altered tags, or unverified artifact provenance.
+      unexpected skips, guarded changes without authorization, altered tags, or unverified artifact provenance.
 - [ ] R10: Document operator intervention, rollback limits, queue age, current blocker, release receipts, and
-  automation pause/resume. Enable the recurring workflow only after rehearsal and the first qualified release.
+      automation pause/resume. Enable the recurring workflow only after rehearsal and the first qualified release.
 
 ## Design and tradeoffs
 
@@ -418,13 +280,13 @@ artifacts under an existing version or let an old rerun move the latest channel 
 
 ### Agent ownership and conflict handling
 
-| Role | Writable ownership | Output |
-| --- | --- | --- |
-| Release owner | Manifest, workflow landing, runbook, accepted state | Frozen inputs and promotion decisions |
-| Product integrator | Assigned product/tests on isolated patch branch | Patch head and behavior evidence |
-| Promotion worker | Verifier/schema/tests; assembly/build workflows | Qualification contract |
-| Coordinator worker | Detector, reducer, precheck, task contract; sync/rebase workflows | Bounded orchestration |
-| Independent reviewer | No implementation files | Candidate-bound verdict and blockers |
+| Role                 | Writable ownership                                                | Output                                |
+| -------------------- | ----------------------------------------------------------------- | ------------------------------------- |
+| Release owner        | Manifest, workflow landing, runbook, accepted state               | Frozen inputs and promotion decisions |
+| Product integrator   | Assigned product/tests on isolated patch branch                   | Patch head and behavior evidence      |
+| Promotion worker     | Verifier/schema/tests; assembly/build workflows                   | Qualification contract                |
+| Coordinator worker   | Detector, reducer, precheck, task contract; sync/rebase workflows | Bounded orchestration                 |
+| Independent reviewer | No implementation files                                           | Candidate-bound verdict and blockers  |
 
 Promotion and coordinator workers must not concurrently edit shared schema or workflow files. Freeze the interface
 after the promotion phase; assign later changes to one owner. Split product lanes only after enumerating actual
@@ -481,26 +343,26 @@ Dependencies: explicit implementation instruction; current repository/fleet orde
 Parallelism: owner inventory and promotion worker may proceed independently; shared workflow edits have one owner.
 
 - [ ] P1.1 Owner: revalidate open PRs, release/main refs, relevant ownership orders, and current default controller.
-  Freeze the next candidate record and stable tag relationship. Inspect complete paginated deltas; record guarded
-  paths and per-enhancement dispositions. Files: existing `config/mercurai/patches.yaml` plus candidate evidence.
-  Verify every active patch has one disposition and every input has a resolved immutable ID.
-- [x] P1.2 Promotion worker: specify then test a small verifier and receipt schema in proposed
-  `config/mercurai/scripts/verify-promotion.mjs`, `verify-promotion.test.mjs`, and
-  `config/mercurai/release-policy.json`. Add deterministic failure fixtures before implementing checks.
-  Verify failed full CI with passing targeted checks, forged checks, stale review, latest-attempt failure, truncated
-  API data, and wrong-SHA/same-tree cases all refuse promotion. Use the existing fork-scripts CI workflow.
+      Freeze the next candidate record and stable tag relationship. Inspect complete paginated deltas; record guarded
+      paths and per-enhancement dispositions. Files: existing `config/mercurai/patches.yaml` plus candidate evidence.
+      Verify every active patch has one disposition and every input has a resolved immutable ID.
+- [ ] P1.2 Promotion worker: specify then test a small verifier and receipt schema in proposed
+      `config/mercurai/scripts/verify-promotion.mjs`, `verify-promotion.test.mjs`, and
+      `config/mercurai/release-policy.json`. Add deterministic failure fixtures before implementing checks.
+      Verify failed full CI with passing targeted checks, forged checks, stale review, latest-attempt failure, truncated
+      API data, and wrong-SHA/same-tree cases all refuse promotion. Use the existing fork-scripts CI workflow.
 - [ ] P1.3 Promotion worker: extend `assemble-release.sh` and `.github/workflows/fork-assemble-release.yml` to
-  materialize the candidate without tagging, qualify its exact commit, and independently verify recomposed inputs.
-  Add `.github/workflows/fork-qualify-release.yml` as a trusted full-CI entry point reusing the PR test matrix.
-  Extract a reusable workflow if needed; do not copy a divergent suite or rely on implicit PR event coverage.
-  Pin required job/matrix identities and justified conditional skips in the reviewed release policy.
-  Verify candidate ref movement, changed manifest/controller, and selected-unit mode cannot satisfy qualification.
+      materialize the candidate without tagging, qualify its exact commit, and independently verify recomposed inputs.
+      Add `.github/workflows/fork-qualify-release.yml` as a trusted full-CI entry point reusing the PR test matrix.
+      Extract a reusable workflow if needed; do not copy a divergent suite or rely on implicit PR event coverage.
+      Pin required job/matrix identities and justified conditional skips in the reviewed release policy.
+      Verify candidate ref movement, changed manifest/controller, and selected-unit mode cannot satisfy qualification.
 - [ ] P1.4 Promotion worker: enforce the same receipt in `fork-release-win-build.yml` before publication, including
-  manual dispatch. Extend `release-workflow-token-scope.test.mjs` and related existing workflow contract tests.
-  Verify direct publish bypass, unexpected skips, changed tag, altered artifact, and stale version all fail closed.
+      manual dispatch. Extend `release-workflow-token-scope.test.mjs` and related existing workflow contract tests.
+      Verify direct publish bypass, unexpected skips, changed tag, altered artifact, and stale version all fail closed.
 - [ ] P1.5 Owner: independently review and land the minimal gate through the established owner route, with full
-  required controller CI at its exact revision. Update the README qualification section and remove stale assumptions
-  only where supported by evidence. Do not enable recurring agent automation yet.
+      required controller CI at its exact revision. Update the README qualification section and remove stale assumptions
+      only where supported by evidence. Do not enable recurring agent automation yet.
 
 ### Phase 2: integrate current upstream and preserve fork behavior
 
@@ -508,21 +370,23 @@ Dependencies: P1.1; product work can overlap P1.2-P1.4. Promotion requires all o
 Parallelism: assign non-overlapping product paths only after inspecting the pinned upstream/fork diff.
 
 - [x] P2.1 Integrator: port the registered patch onto the frozen official main in an owned isolated branch.
-  Reuse `rebase-series.sh` and existing patch conventions. Resolve conflicts by required behavior, not ours/theirs.
-  Record upstream-equivalence evidence before dropping any hunk; leave proposed-but-unshipped features clearly marked.
-  Completed locally as `patch/current-main-release-98690` at
-  `5fb6766ff1576b6e5d58d76241e54f5246ae7669`; publication, registration, and qualification remain owner gates.
+      New `823ca687` linear pin `c777bcfc` has the same tree as its preserved reconciliation merge.
+      This completes materialization only; product corrections, full CI and release acceptance remain open.
+      Reuse `rebase-series.sh` and existing patch conventions. Resolve conflicts by required behavior, not ours/theirs.
+      Record upstream-equivalence evidence before dropping any hunk; leave proposed-but-unshipped features clearly marked.
+      Completed locally as `patch/current-main-release-98690` at
+      `5fb6766ff1576b6e5d58d76241e54f5246ae7669`; publication, registration, and qualification remain owner gates.
 - [ ] P2.2 Integrator: first reproduce the missed-await failure in CI, then correct
-  `tests/e2e/paired-cli-agent-launch.unit.test.ts` and audit relevant `createPairingOffer` callers for awaited cleanup.
-  Verify all 12 previous failing cases pass and no background async operation survives fixture teardown.
+      `tests/e2e/paired-cli-agent-launch.unit.test.ts` and audit relevant `createPairingOffer` callers for awaited cleanup.
+      Verify all 12 previous failing cases pass and no background async operation survives fixture teardown.
 - [ ] P2.3 Integrator: preserve async/process, memory bounds, account/resume, local/SSH, and provider behavior.
-  Reuse manifest tests and existing performance contracts; add tests only for unresolved changes and actual gaps.
-  Compare upstream and candidate under matching deterministic fixtures, retaining required prior regression budgets.
+      Reuse manifest tests and existing performance contracts; add tests only for unresolved changes and actual gaps.
+      Compare upstream and candidate under matching deterministic fixtures, retaining required prior regression budgets.
 - [ ] P2.4 Owner: register reviewed patch heads and test paths in `patches.yaml`; reconcile stale preparation notes.
-  Reserve the version, update source version metadata and repository release notes, then freeze final patch order.
-  Assemble one immutable candidate and obtain independent combined review plus
-  full CI, targeted tests, typecheck, lint, compatibility, and packaging checks at the required exact revisions.
-  Any corrective source change restarts affected qualification and review; do not waive the known async failures.
+      Reserve the version, update source version metadata and repository release notes, then freeze final patch order.
+      Assemble one immutable candidate and obtain independent combined review plus
+      full CI, targeted tests, typecheck, lint, compatibility, and packaging checks at the required exact revisions.
+      Any corrective source change restarts affected qualification and review; do not waive the known async failures.
 
 ### Phase 3: publish and verify the next Mercurai release
 
@@ -530,15 +394,15 @@ Dependencies: Phases 1 and 2. This release precedes rollout of the complete recu
 Parallelism: owner-controlled serial promotion; no competing release candidate.
 
 - [ ] P3.1 Owner: confirm the reserved version remains unused; tag the qualified candidate SHA only.
-  A collision blocks promotion; any changed version metadata requires a new candidate and qualification.
-  Run protected Windows packaging and matching orcad template checks. Record installer/blockmap/update-manifest
-  digests, build run and attempt, source/controller identities, and publication receipt.
+      A collision blocks promotion; any changed version metadata requires a new candidate and qualification.
+      Run protected Windows packaging and matching orcad template checks. Record installer/blockmap/update-manifest
+      digests, build run and attempt, source/controller identities, and publication receipt.
 - [ ] P3.2 Owner: publish the already-qualified release notes and append channel evidence for actual validation
-  and remaining upstream limits. Correct the previous full-CI claim without rewriting old receipts.
-  Confirm both release metadata and channel assets identify the new version and candidate.
+      and remaining upstream limits. Correct the previous full-CI claim without rewriting old receipts.
+      Confirm both release metadata and channel assets identify the new version and candidate.
 - [ ] P3.3 Owner: stage the normal app update while preserving active work; report installation and loaded-runtime
-  evidence separately. Verify retained conversations and applicable native behavior through approved tooling.
-  Keep live gaps explicit; record any required user restart/resume action and tested rollback/forward-repair route.
+      evidence separately. Verify retained conversations and applicable native behavior through approved tooling.
+      Keep live gaps explicit; record any required user restart/resume action and tested rollback/forward-repair route.
 
 ### Phase 4: add recurring detection and bounded agent coordination
 
@@ -546,28 +410,28 @@ Dependencies: Phase 3; reuse the landed qualification interface. No extra produc
 Parallelism: coordinator worker owns new scripts and sync/rebase workflows; owner owns README and task contracts.
 
 - [x] P4.1 Coordinator worker: add proposed `config/mercurai/scripts/release-state.mjs` and its tests for validated
-  transitions, expected-state commits, active generation, pending-target coalescing, retries, and evidence references.
-  Exercise duplicate coordinators, stale workers, restart, uncertain publication, and crash after tag-before-build.
+      transitions, expected-state commits, active generation, pending-target coalescing, retries, and evidence references.
+      Exercise duplicate coordinators, stale workers, restart, uncertain publication, and crash after tag-before-build.
 - [x] P4.2 Coordinator worker: extend `fork-sync-upstream.yml`, `report-sync-issue.sh`, and
-  `fork-rebase-patches.yml` to record actionable candidates and deduplicate blockers by target/reason.
-  Add one thin trusted `.github/workflows/fork-release-coordinate.yml` entry point for state transitions and dispatch.
-  Preserve exact protected-range authorization and atomic series pushes; do not silently enable inherited workflows.
-  The coordinator now records a deterministic bounded task plan for every conflict inventory; no task plan bypasses
-  the unresolved-conflict admission block.
+      `fork-rebase-patches.yml` to record actionable candidates and deduplicate blockers by target/reason.
+      Add one thin trusted `.github/workflows/fork-release-coordinate.yml` entry point for state transitions and dispatch.
+      Preserve exact protected-range authorization and atomic series pushes; do not silently enable inherited workflows.
+      The coordinator now records a deterministic bounded task plan for every conflict inventory; no task plan bypasses
+      the unresolved-conflict admission block.
 - [x] P4.3 Coordinator worker: add proposed `config/mercurai/scripts/release-precheck.mjs`,
-  `config/mercurai/scripts/release-agent-dispatch.mjs`, and `config/mercurai/automation-contract.md`.
-  Use the existing Orca CLI interfaces to reconcile and launch bounded workers from the local scheduled run.
-  GitHub coordinates durable state and protected operations; it does not assume access to the user's Orca runtime.
-  Claim the current generation through the trusted coordinator, invoke CLI commands with structured argv,
-  persist returned run/task/dispatch IDs through that coordinator, and submit evidence without publisher credentials.
-  Reconcile execution-host status as `live`, `unverifiable`, or `exited`; loss of contact never proves exit.
-  Add behavioral tests for the adapter and precheck, including recovery between worker start and receipt persistence.
-  Define bounded work/review tasks, precise writable paths, task/dispatch binding, and unconditional admission checks.
-  Test empty queue, manual precheck bypass, offline host, stale completion, and worker release uncertainty.
+      `config/mercurai/scripts/release-agent-dispatch.mjs`, and `config/mercurai/automation-contract.md`.
+      Use the existing Orca CLI interfaces to reconcile and launch bounded workers from the local scheduled run.
+      GitHub coordinates durable state and protected operations; it does not assume access to the user's Orca runtime.
+      Claim the current generation through the trusted coordinator, invoke CLI commands with structured argv,
+      persist returned run/task/dispatch IDs through that coordinator, and submit evidence without publisher credentials.
+      Reconcile execution-host status as `live`, `unverifiable`, or `exited`; loss of contact never proves exit.
+      Add behavioral tests for the adapter and precheck, including recovery between worker start and receipt persistence.
+      Define bounded work/review tasks, precise writable paths, task/dispatch binding, and unconditional admission checks.
+      Test empty queue, manual precheck bypass, offline host, stale completion, and worker release uncertainty.
 - [x] P4.4 Owner: extend `config/mercurai/README.md` with lifecycle, required evidence, roles, blocker handling,
-  recovery, pause/resume, publication versus runtime status, and rollback limits. Link this plan and CLI docs.
-  Add queue age and blocker-change alerts without hourly duplicate comments. Record freshness as observed lag, not
-  a promise that a release is always identical to a continuously moving main branch.
+      recovery, pause/resume, publication versus runtime status, and rollback limits. Link this plan and CLI docs.
+      Add queue age and blocker-change alerts without hourly duplicate comments. Record freshness as observed lag, not
+      a promise that a release is always identical to a continuously moving main branch.
 
 ### Phase 5: rehearse, enable, and observe automation
 
@@ -575,18 +439,18 @@ Dependencies: Phase 4 reviewed and exact-revision CI passing; applicable runtime
 Parallelism: independent reviewer checks security/recovery; owner alone registers and enables the schedule.
 
 - [ ] P5.1 Run tokenless rehearsals against synthetic repositories and recorded non-sensitive CI metadata for clean
-  updates, conflicts, guarded changes, incomplete comparisons, rate limits, CI failure, lost workers, and crashes.
-  Verify dry-run cannot tag, publish, mutate the channel, enable an automation, or access production credentials.
+      updates, conflicts, guarded changes, incomplete comparisons, rate limits, CI failure, lost workers, and crashes.
+      Verify dry-run cannot tag, publish, mutate the channel, enable an automation, or access production credentials.
 - [ ] P5.2 Register an Orca automation disabled through the owning runtime's CLI; inspect its provider, repository,
-  schedule, precheck, and task contract. Do not edit runtime-owned config directly. Run an explicit nonpublishing
-  rehearsal whose controller guard executes even though manual runs omit the scheduler precheck. Use the checked-in
-  `scripts/release-automation-spec.mjs` to produce the disabled registration argv; do not enable it in source.
+      schedule, precheck, and task contract. Do not edit runtime-owned config directly. Run an explicit nonpublishing
+      rehearsal whose controller guard executes even though manual runs omit the scheduler precheck. Use the checked-in
+      `scripts/release-automation-spec.mjs` to produce the disabled registration argv; do not enable it in source.
 - [ ] P5.3 Enable the verified hourly schedule through the existing CLI and record its automation ID and controller
-  revision. Verify no-op cycles launch no workers and restart recovery resumes one existing candidate only.
-  If the desktop is unavailable, verify the GitHub queue retains work and recovery does not duplicate agents.
+      revision. Verify no-op cycles launch no workers and restart recovery resumes one existing candidate only.
+      If the desktop is unavailable, verify the GitHub queue retains work and recovery does not duplicate agents.
 - [ ] P5.4 Observe one complete upstream-to-release cycle using genuine eligible work after enabling; preserve all
-  receipts. If no new upstream work exists yet, mark this acceptance pending rather than creating a production change.
-  Confirm the pause mechanism, blocker alerts, monotonic channel behavior, and installation/runtime status reporting.
+      receipts. If no new upstream work exists yet, mark this acceptance pending rather than creating a production change.
+      Confirm the pause mechanism, blocker alerts, monotonic channel behavior, and installation/runtime status reporting.
 
 ## Validation instructions and completion evidence
 
@@ -594,13 +458,13 @@ Before every local test, reread the host's `BUILD-FREEZE.md` and `TEST-SLOT-ROLL
 test-slot runner. A local build remains unperformed; CI is required for the full product qualification.
 The following are CI commands/methods, not permission to bypass admission:
 
-| Area | Validation method |
-| --- | --- |
-| Controller scripts | `node --test --test-concurrency=2 config/mercurai/scripts/*.test.mjs` in fork-scripts CI |
-| Series/ref safety | `bash config/mercurai/scripts/test-fork-series-scripts.sh`; guard/token-scope tests |
-| Async fixture | `pnpm test tests/e2e/paired-cli-agent-launch.unit.test.ts` in CI with runner limits |
-| Product qualification | Full PR matrix, actual checkout SHA, typecheck/lint/compatibility and targeted tests |
-| Release/runtime | Package/install smoke, artifact digests, channel proof, then retained-profile evidence |
+| Area                  | Validation method                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| Controller scripts    | `node --test --test-concurrency=2 config/mercurai/scripts/*.test.mjs` in fork-scripts CI |
+| Series/ref safety     | `bash config/mercurai/scripts/test-fork-series-scripts.sh`; guard/token-scope tests      |
+| Async fixture         | `pnpm test tests/e2e/paired-cli-agent-launch.unit.test.ts` in CI with runner limits      |
+| Product qualification | Full PR matrix, actual checkout SHA, typecheck/lint/compatibility and targeted tests     |
+| Release/runtime       | Package/install smoke, artifact digests, channel proof, then retained-profile evidence   |
 
 The plan is complete when documented and independently checked; implementation completion requires R1-R10 evidence.
 Independent plan review: `/root/spec_plan_checker` accepted this plan on October 24 after the version/notes ordering,
@@ -611,13 +475,13 @@ Required live evidence cannot be converted into a passed gate merely because CI 
 
 ## Risks, dependencies, and stop conditions
 
-| Risk or dependency | Mitigation or explicit stop condition |
-| --- | --- |
-| Upstream moves during integration | Freeze one candidate; queue next target; never rebase qualified work silently. |
-| Overlapping performance changes | Review behavior and tests; preserve budgets; require equivalence evidence. |
-| CI budget, rate limits, missing runs | Persist blocker; bound retries; never treat absent checks as green. |
-| State or artifact tampering | Trusted writer, expected-parent updates, identity checks at promotion boundaries. |
-| Native or rollback evidence absent | Keep acceptance pending; preserve user profile and active sessions. |
+| Risk or dependency                   | Mitigation or explicit stop condition                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------- |
+| Upstream moves during integration    | Freeze one candidate; queue next target; never rebase qualified work silently.    |
+| Overlapping performance changes      | Review behavior and tests; preserve budgets; require equivalence evidence.        |
+| CI budget, rate limits, missing runs | Persist blocker; bound retries; never treat absent checks as green.               |
+| State or artifact tampering          | Trusted writer, expected-parent updates, identity checks at promotion boundaries. |
+| Native or rollback evidence absent   | Keep acceptance pending; preserve user profile and active sessions.               |
 
 Do not resurrect historical unrelated fleet assignments from vault notes. Revalidate applicable owner routing at
 implementation start; the user has delegated Orca release ownership to this session. Preserve test admission and

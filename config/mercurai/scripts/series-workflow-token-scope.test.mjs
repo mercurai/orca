@@ -51,11 +51,14 @@ for (const [file, pushGate] of WORKFLOWS) {
     const topLevel = body.split('\n').filter((line) => /^ {2}\S/.test(line) && !/^ {2}#/.test(line))
     assert.deepEqual(
       topLevel,
-      assemble ? ['  test:', '  push:', '  qualification:', '  tag:'] : ['  test:', '  push:']
+      assemble
+        ? ['  test:', '  review:', '  push:', '  qualification:', '  tag:']
+        : ['  test:', '  push:']
     )
     assert.doesNotMatch(code(jobs.get('test')), SECRET)
     if (assemble) {
       assert.doesNotMatch(code(jobs.get('qualification')), SECRET)
+      assert.doesNotMatch(code(jobs.get('review')), SECRET)
     }
     assert.doesNotMatch(code(workflow.slice(0, workflow.indexOf('\njobs:\n'))), SECRET)
     assert.doesNotMatch(code(workflow), /secrets:\s*inherit/)
@@ -238,4 +241,27 @@ test('a step holding the token never builds a yq expression from shell values', 
       String.raw`if [[ ! "$TARGET" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then`
     )
   )
+})
+
+test('assembly authenticates owner acceptance before any canonical candidate push', () => {
+  const jobs = jobsOf(read('fork-assemble-release.yml'))
+  const review = jobs.get('review')
+  assert.match(jobs.get('push'), /^ {4}needs: \[test, review\]$/m)
+  assert.match(review, /GH_TOKEN: \$\{\{ github\.token \}\}/)
+  assert.match(review, /fetch-release-review\.sh/)
+  assert.match(review, /PREPARED_CANDIDATE_SHA/)
+  assert.match(review, /PREPARED_RELEASE_TAG/)
+  assert.match(review, /promotionEnabled == true/)
+  assert.doesNotMatch(code(review), SECRET)
+  assert.doesNotMatch(code(jobs.get('push')), /reviewed_sha=|reviewer=|review_controller_sha=/)
+  assert.match(jobs.get('push'), /review_run_id=\$REVIEW_RUN_ID/)
+})
+
+test('assembly preserves the reviewed prepared commit and reserved version at both assemblies', () => {
+  const workflow = read('fork-assemble-release.yml')
+  assert.match(workflow, /PREPARED_CANDIDATE_SHA: \$\{\{ inputs\.prepared_candidate_sha \}\}/)
+  assert.match(workflow, /PREPARED_RELEASE_TAG: \$\{\{ inputs\.prepared_release_tag \}\}/)
+  const qualification = jobsOf(workflow).get('qualification')
+  assert.match(qualification, /fetch-release-review\.sh/)
+  assert.match(qualification, /review-context\.json/)
 })

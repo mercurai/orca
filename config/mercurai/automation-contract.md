@@ -75,8 +75,10 @@ qualification correlation, or immutable monotonic publication requirements.
 Those gates need implementation, independent review, and CI before admission
 can be enabled. Older controller revisions are outside this proposed guard.
 
-The proposed exact-run correction separates assembly into test, credentialed
-push/dispatch, read-only qualification verification, and credentialed tagging.
+The proposed assembly separates five jobs: candidate tests, read-only owner-review
+admission, credentialed push/dispatch, read-only qualification verification, and
+credentialed tagging. Promotion reuses the exact prepared commit and reserved
+version; deterministic tree equality alone cannot replace its identity.
 An assembly-specific dispatch ID identifies the qualification run. Complete
 paginated discovery refuses ambiguous or incomplete results. Before tagging,
 the read-only job compares the downloaded receipt against external candidate,
@@ -87,11 +89,16 @@ candidate code. Independent review accepted this correction; controller run
 40404591475 passed 222 Node tests and nine modern-template integration tests.
 A hosted end-to-end assembly rehearsal remains pending, and admission is false.
 
-The receipt's reviewer text remains unauthenticated; authenticated review intake
-is pending. The qualification checks also omit required PR verification lanes.
-`fork-release-win-build.yml` verifies a receipt with the trusted controller
-before packaging or publication. Direct build dispatch without a receipt is
-dry-run-only. These mechanisms do not yet satisfy the promotion boundary.
+The local intake and validators now bind authenticated owner and rerun actors to
+complete candidate/controller/upstream identity and an exact artifact digest.
+The qualifier is being wired to the shared required matrix, full unit discovery
+and actual paginated job evidence. These edits are not accepted live gates.
+The stale-refetch regression and final post-build publication freshness check
+remain open, alongside complete hosted verification and rehearsal.
+`fork-release-win-build.yml` refetches owner evidence and verifies externally
+bound candidate identity before packaging. Direct build dispatch without a
+valid receipt remains dry-run-only. No proposed mechanism enables admission
+until its own final revision is independently reviewed and verified.
 
 The recurring coordinator is intentionally disabled until the first qualified
 release and a nonpublishing rehearsal have been reviewed. To pause it, disable

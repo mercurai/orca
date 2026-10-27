@@ -6,6 +6,9 @@ stability: draft
 
 # Mercurai release based on Orca 1.4.239
 
+Historical preparation material. The current integration draft is
+[the 1.4.241 release](release-notes-v1.4.241.md); this file is not publication input.
+
 This is draft release material. It describes the frozen source candidate; it
 does not claim a tag, package publication, installation, or runtime acceptance.
 The `mercurai.N` suffix is allocated by the protected assembler after

@@ -1,0 +1,116 @@
+name: fork-accept-release-review
+run-name: accept review for ${{ inputs.candidate_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact materialized candidate commit reviewed independently
+        type: string
+        required: true
+      version:
+        description: Reserved Mercurai version reviewed with the candidate
+        type: string
+        required: true
+      review_record:
+        description: Bounded JSON attestation accepting an independent full candidate-and-controller review
+        type: string
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: release-review-${{ inputs.candidate_sha }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    if: ${{ github.repository == 'mercurai/orca' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      REVIEW_RECORD: ${{ inputs.review_record }}
+      CONTROLLER_REF: ${{ github.ref }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Resolve the reviewed candidate and controller
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 1
+          git cat-file -e "$CANDIDATE_SHA^{commit}"
+          git for-each-ref --contains "$CANDIDATE_SHA" --format='%(refname)' refs/remotes/origin/patch/ > "$RUNNER_TEMP/reviewed-refs"
+          [ -s "$RUNNER_TEMP/reviewed-refs" ] || { echo '::error::candidate is not reachable from a current fork patch ref'; exit 1; }
+          base=$(yq -r '.base' config/mercurai/patches.yaml)
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          git merge-base --is-ancestor "$base" "$CANDIDATE_SHA"
+          echo "REVIEWED_TREE=$(git rev-parse "$CANDIDATE_SHA^{tree}")" >> "$GITHUB_ENV"
+          echo "MANIFEST_SHA=$(git rev-parse HEAD:config/mercurai/patches.yaml)" >> "$GITHUB_ENV"
+          echo "POLICY_SHA=$(sha256sum config/mercurai/release-policy.json | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+          yq -o=json config/mercurai/patches.yaml > "$RUNNER_TEMP/review-manifest.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > "$RUNNER_TEMP/review-intake-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/fork-accept-release-review.yml" > "$RUNNER_TEMP/review-intake-workflow.json"
+      - name: Record authenticated owner acceptance
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { validateReleaseReviewSubmission } from './config/mercurai/scripts/release-review.mjs'
+          const env = process.env
+          const read = (name) => JSON.parse(readFileSync(`${env.RUNNER_TEMP}/${name}`, 'utf8'))
+          const manifest = read('review-manifest.json')
+          const run = read('review-intake-run.json')
+          const workflow = read('review-intake-workflow.json')
+          const policy = JSON.parse(readFileSync('config/mercurai/release-policy.json', 'utf8'))
+          const owner = (actor) => policy.review.owners.some((row) => row.id === actor?.id && row.login.toLowerCase() === actor?.login?.toLowerCase())
+          if (env.CONTROLLER_REF !== policy.review.controllerRef || !owner(run.actor) || !owner(run.triggering_actor)) throw new Error('owner acceptance requires an authorized actor and triggering actor on the default controller')
+          if (run.id !== Number(env.GITHUB_RUN_ID) || run.run_attempt !== Number(env.GITHUB_RUN_ATTEMPT) || run.head_sha !== env.GITHUB_SHA || run.repository?.full_name !== env.GITHUB_REPOSITORY || run.event !== 'workflow_dispatch' || run.workflow_id !== workflow.id || workflow.path !== policy.review.workflowPath) throw new Error('owner intake runtime identity changed')
+          const expected = {
+            repository: env.GITHUB_REPOSITORY,
+            workflowId: workflow.id,
+            controllerRef: env.CONTROLLER_REF,
+            candidate: {
+              commit: env.CANDIDATE_SHA, tree: env.REVIEWED_TREE, controllerSha: env.GITHUB_SHA,
+              manifestSha: env.MANIFEST_SHA, policySha: env.POLICY_SHA, version: env.RELEASE_VERSION,
+              series: manifest.patches.filter((row) => ['ours-only', 'upstream-open'].includes(row.status)).map((row) => `${row.branch}:${row.commit}`),
+              upstream: { repository: manifest.upstream, mainSha: manifest.base, stableTag: manifest.upstream_release_tag, stableCommit: manifest.upstream_release_sha }
+            }
+          }
+          if (!env.RELEASE_VERSION.startsWith(`${manifest.upstream_release_tag.slice(1)}-mercurai.`) || !/^\d+\.\d+\.\d+-mercurai\.[1-9]\d*$/.test(env.RELEASE_VERSION)) throw new Error('reserved version does not match the frozen stable floor')
+          if (Buffer.byteLength(env.REVIEW_RECORD, 'utf8') > 65535) throw new Error('review submission exceeds the input size limit')
+          const submitted = JSON.parse(env.REVIEW_RECORD)
+          const validation = validateReleaseReviewSubmission(submitted, expected)
+          if (!validation.ok) throw new Error(validation.reasons.join('; '))
+          const accepted = {
+            schemaVersion: 1, scope: submitted.scope, verdict: submitted.verdict,
+            ownerAccepted: submitted.ownerAccepted, openBlockers: [], candidate: expected.candidate,
+            reviewer: { identity: submitted.reviewer.identity, independent: true, evidenceSummary: submitted.reviewer.evidenceSummary, evidenceSha256: submitted.reviewer.evidenceSha256 },
+            authentication: {
+              repository: expected.repository, workflowId: workflow.id, workflowPath: workflow.path,
+              controllerRef: env.CONTROLLER_REF, controllerSha: env.GITHUB_SHA,
+              runId: run.id, attempt: run.run_attempt, actor: { login: run.actor.login, id: run.actor.id },
+              triggeringActor: { login: run.triggering_actor.login, id: run.triggering_actor.id }
+            }
+          }
+          writeFileSync(`${env.RUNNER_TEMP}/release-review.json`, `${JSON.stringify(accepted)}\n`)
+          NODE
+      - name: Store the owner acceptance record for this exact attempt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/release-review.json
+          if-no-files-found: error
+          retention-days: 90

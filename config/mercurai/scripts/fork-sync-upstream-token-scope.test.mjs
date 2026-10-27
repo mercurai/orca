@@ -16,7 +16,10 @@ const code = text
   .filter((line) => !/^\s*#/.test(line))
   .join('\n')
 const header = code.slice(0, code.indexOf('\njobs:\n'))
-const steps = code.slice(code.indexOf('\njobs:\n')).split(/^ {6}- /m).slice(1)
+const steps = code
+  .slice(code.indexOf('\njobs:\n'))
+  .split(/^ {6}- /m)
+  .slice(1)
 const SECRET = /\bsecrets\b/
 const stepName = (step) => /^name: (.+)$/m.exec(step)?.[1] ?? step.split('\n')[0]
 
@@ -71,7 +74,10 @@ test('the token-bearing job is unavailable to workflow files from untrusted bran
 test('the checkout is pinned by commit and persists no credential', () => {
   const checkouts = steps.filter((step) => /uses: actions\/checkout@/.test(step))
   assert.equal(checkouts.length, 1)
-  assert.match(checkouts[0], /^uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4\.4\.0$/m)
+  assert.match(
+    checkouts[0],
+    /^uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4\.4\.0$/m
+  )
   assert.match(checkouts[0], /persist-credentials: false/)
   assert.doesNotMatch(checkouts[0], /^\s+token:/m)
   assert.doesNotMatch(code, /git config[^\n]*extraheader|git remote set-url[^\n]*@/)
@@ -86,22 +92,33 @@ test('every action is pinned by commit', () => {
 test('the token reaches only the named write steps', () => {
   const holders = steps.filter((step) => SECRET.test(step)).map(stepName)
   assert.deepEqual(holders, ['Require the bot token', ...WRITE_STEPS])
-  for (const step of steps.filter((s) => SECRET.test(s) && stepName(s) !== 'Require the bot token')) {
+  for (const step of steps.filter(
+    (s) => SECRET.test(s) && stepName(s) !== 'Require the bot token'
+  )) {
     const refs = step.match(/^\s+[A-Za-z_]+: .*\bsecrets\b.*$/gm)
-    assert.deepEqual(refs?.map((ref) => ref.trim()).filter((ref) => !TOKEN_ENV.includes(ref)), [], stepName(step))
+    assert.deepEqual(
+      refs?.map((ref) => ref.trim()).filter((ref) => !TOKEN_ENV.includes(ref)),
+      [],
+      stepName(step)
+    )
     assert.equal(refs?.length, 1, stepName(step))
   }
   const check = steps.find((step) => stepName(step) === 'Require the bot token')
-  assert.deepEqual(check.match(/^\s+[A-Za-z_]+: .*\bsecrets\b.*$/gm).map((l) => l.trim()), [
-    "HAS_TOKEN: ${{ secrets.FORK_BOT_TOKEN != '' }}"
-  ])
+  assert.deepEqual(
+    check.match(/^\s+[A-Za-z_]+: .*\bsecrets\b.*$/gm).map((l) => l.trim()),
+    ["HAS_TOKEN: ${{ secrets.FORK_BOT_TOKEN != '' }}"]
+  )
 })
 
 test('every step that pushes sets the extraheader, and gh gets GH_TOKEN, only in those steps', () => {
   for (const step of steps) {
     const name = stepName(step)
     if (GIT_WRITERS.includes(name)) {
-      assert.match(step, /export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http\.https:\/\/github\.com\/\.extraheader/, name)
+      assert.match(
+        step,
+        /export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http\.https:\/\/github\.com\/\.extraheader/,
+        name
+      )
       assert.match(step, /export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic \$auth"/, name)
       assert.match(step, /::add-mask::\$auth/, name)
     } else {

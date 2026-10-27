@@ -7,6 +7,8 @@ import { test } from 'node:test'
 
 import { selectQualificationRun, verifyQualificationRun } from './qualification-run.mjs'
 
+const NOW = Date.parse('2026-10-26T12:00:00Z')
+const OWNER = { login: 'synthetic-owner', id: 7 }
 const expected = {
   repository: 'mercurai/orca',
   workflowId: 41,
@@ -22,14 +24,95 @@ const expected = {
     manifestSha: 'd'.repeat(40),
     policySha: 'e'.repeat(64),
     version: '1.4.239-mercurai.3',
-    series: [`patch/first:${'f'.repeat(40)}`, `patch/second:${'1'.repeat(40)}`]
+    series: [`patch/first:${'f'.repeat(40)}`, `patch/second:${'1'.repeat(40)}`],
+    upstream: {
+      repository: 'stablyai/orca',
+      mainSha: '2'.repeat(40),
+      stableTag: 'v1.4.239',
+      stableCommit: '3'.repeat(40)
+    }
   }
 }
 const policy = {
+  schemaVersion: 1,
   promotionEnabled: true,
   workflow: 'fork-qualify-release.yml',
   requiredChecks: ['test / tests node 24 2/5', 'PR checks passed'],
-  permittedSkips: []
+  permittedSkips: [],
+  review: {
+    workflowPath: '.github/workflows/fork-accept-release-review.yml',
+    controllerRef: 'refs/heads/mercurai',
+    owners: [OWNER]
+  }
+}
+
+function reviewContext() {
+  return {
+    expected: {
+      repository: expected.repository,
+      workflowId: 91,
+      controllerRef: policy.review.controllerRef,
+      runId: 101,
+      attempt: 2,
+      candidate: structuredClone(expected.candidate)
+    },
+    run: {
+      id: 101,
+      workflow_id: 91,
+      repository: { full_name: expected.repository },
+      path: policy.review.workflowPath,
+      event: 'workflow_dispatch',
+      head_branch: expected.branch,
+      head_sha: expected.candidate.controllerSha,
+      run_attempt: 2,
+      status: 'completed',
+      conclusion: 'success',
+      actor: { ...OWNER },
+      triggering_actor: { ...OWNER }
+    },
+    artifact: {
+      id: 303,
+      name: 'release-review-101-2',
+      expired: false,
+      expires_at: '2026-11-01T00:00:00Z',
+      size_in_bytes: 4096,
+      digest: `sha256:${'4'.repeat(64)}`,
+      workflow_run: {
+        id: 101,
+        head_branch: expected.branch,
+        head_sha: expected.candidate.controllerSha
+      }
+    },
+    archiveSha256: '4'.repeat(64)
+  }
+}
+
+function acceptance() {
+  return {
+    schemaVersion: 1,
+    scope: 'candidate-and-controller',
+    verdict: 'approved',
+    ownerAccepted: true,
+    openBlockers: [],
+    candidate: structuredClone(expected.candidate),
+    reviewer: {
+      identity: 'synthetic-independent-reviewer',
+      independent: true,
+      evidenceSummary: 'Reviewed full candidate and controller without blockers.',
+      evidenceSha256: '5'.repeat(64)
+    },
+    authentication: {
+      repository: expected.repository,
+      workflowId: 91,
+      workflowPath: policy.review.workflowPath,
+      controllerRef: policy.review.controllerRef,
+      controllerSha: expected.candidate.controllerSha,
+      runId: 101,
+      attempt: 2,
+      actor: { ...OWNER },
+      triggeringActor: { ...OWNER }
+    }
+  }
 }
 
 function run(overrides = {}) {
@@ -69,12 +152,7 @@ function receipt() {
       series: [...expected.candidate.series],
       checks: policy.requiredChecks.map((name) => ({ name, conclusion: 'success' }))
     },
-    review: {
-      verdict: 'approved',
-      reviewedSha: expected.candidate.commit,
-      controllerSha: expected.candidate.controllerSha,
-      reviewer: 'synthetic-reviewer'
-    }
+    review: acceptance()
   }
 }
 
@@ -83,7 +161,11 @@ function pages(...runs) {
 }
 
 function verify(changes = {}) {
-  return verifyQualificationRun({ receipt: receipt(), run: run(), expected, ...changes }, policy)
+  return verifyQualificationRun(
+    { receipt: receipt(), run: run(), expected, reviewContext: reviewContext(), ...changes },
+    policy,
+    () => NOW
+  )
 }
 
 function assertRefused(result) {
@@ -182,6 +264,33 @@ test('accepts a successful current run and receipt for the externally expected c
   assert.deepEqual(verify(), { ok: true, reasons: [] })
 })
 
+test('refuses qualification without separately fetched owner review context', () => {
+  const result = verify({ reviewContext: undefined })
+  assertRefused(result)
+  assert.match(result.reasons.join('\n'), /review.*external|external.*review/)
+})
+
+test('refuses a stale accepted review attempt after a newer review rerun starts', () => {
+  const context = reviewContext()
+  context.run.run_attempt += 1
+  context.run.status = 'in_progress'
+  context.run.conclusion = null
+  const result = verify({ reviewContext: context })
+  assertRefused(result)
+  assert.match(result.reasons.join('\n'), /review live run.*latest/)
+})
+
+test('refuses self-consistent review context from another repository', () => {
+  const changed = receipt()
+  const context = reviewContext()
+  context.expected.repository = 'another/orca'
+  context.run.repository.full_name = 'another/orca'
+  changed.review.authentication.repository = 'another/orca'
+  const result = verify({ receipt: changed, reviewContext: context })
+  assertRefused(result)
+  assert.match(result.reasons.join('\n'), /review context repository/)
+})
+
 for (const field of [
   'commit',
   'tree',
@@ -211,16 +320,44 @@ for (const field of [
     if (qualificationFields[field]) {
       changed.qualification[qualificationFields[field]] = replacement
     }
-    if (field === 'commit') {
-      changed.review.reviewedSha = replacement
-    }
+    changed.review.candidate[field] = structuredClone(replacement)
+    const context = reviewContext()
+    context.expected.candidate[field] = structuredClone(replacement)
     if (field === 'controllerSha') {
-      changed.review.controllerSha = replacement
+      changed.review.authentication.controllerSha = replacement
+      context.run.head_sha = replacement
+      context.artifact.workflow_run.head_sha = replacement
     }
 
-    assertRefused(verify({ receipt: changed }))
+    const result = verify({ receipt: changed, reviewContext: context })
+    assertRefused(result)
+    assert.match(result.reasons.join('\n'), /receipt candidate|receipt ordered series/)
   })
 }
+
+test('refuses an internally consistent acceptance for a different external upstream tuple', () => {
+  for (const [key, replacement] of [
+    ['repository', 'another/orca'],
+    ['mainSha', '6'.repeat(40)],
+    ['stableTag', 'v1.4.240'],
+    ['stableCommit', '7'.repeat(40)]
+  ]) {
+    const changed = receipt()
+    const context = reviewContext()
+    changed.candidate.upstream[key] = replacement
+    changed.review.candidate.upstream[key] = replacement
+    context.expected.candidate.upstream[key] = replacement
+    const result = verify({ receipt: changed, reviewContext: context })
+    assertRefused(result)
+    assert.match(result.reasons.join('\n'), /upstream.*external expectation/)
+  }
+})
+
+test('refuses missing upstream identity in the externally expected candidate', () => {
+  const incomplete = structuredClone(expected)
+  delete incomplete.candidate.upstream
+  assertRefused(verify({ expected: incomplete }))
+})
 
 for (const [field, value] of [
   ['id', 82],
@@ -253,8 +390,9 @@ test('refuses absent receipt evidence even when the watched run succeeded', () =
 
 test('preserves the disabled production promotion policy', () => {
   const result = verifyQualificationRun(
-    { receipt: receipt(), run: run(), expected },
-    { ...policy, promotionEnabled: false }
+    { receipt: receipt(), run: run(), expected, reviewContext: reviewContext() },
+    { ...policy, promotionEnabled: false },
+    () => NOW
   )
 
   assertRefused(result)
@@ -269,15 +407,24 @@ function cliFixture(t) {
     policy,
     expected,
     run: run(),
+    reviewContext: reviewContext(),
     pages: pages(run())
   })) {
     paths[name] = join(root, `${name}.json`)
     writeFileSync(paths[name], JSON.stringify(value))
   }
+  const clockPath = join(root, 'clock.cjs')
+  writeFileSync(clockPath, `Date.now = () => ${NOW}\n`)
   const invoke = (command, files) =>
     spawnSync(
       process.execPath,
-      [join(import.meta.dirname, 'qualification-run.mjs'), command, ...files],
+      [
+        '--require',
+        clockPath,
+        join(import.meta.dirname, 'qualification-run.mjs'),
+        command,
+        ...files
+      ],
       { cwd: root, encoding: 'utf8', windowsHide: true }
     )
   return { paths, invoke }
@@ -307,7 +454,8 @@ test('verification CLI accepts the matching expected candidate', (t) => {
     paths.policy,
     paths.expected,
     paths.run,
-    String(expected.runId)
+    String(expected.runId),
+    paths.reviewContext
   ])
 
   assert.equal(result.status, 0, result.stderr)
@@ -324,9 +472,23 @@ test('verification CLI exits nonzero for a receipt from another dispatch', (t) =
     paths.policy,
     paths.expected,
     paths.run,
-    String(expected.runId)
+    String(expected.runId),
+    paths.reviewContext
   ])
 
   assert.equal(result.status, 1)
   assertRefused(JSON.parse(result.stdout))
+})
+
+test('verification CLI refuses a legacy invocation without external review context', (t) => {
+  const { paths, invoke } = cliFixture(t)
+  const result = invoke('verify', [
+    paths.receipt,
+    paths.policy,
+    paths.expected,
+    paths.run,
+    String(expected.runId)
+  ])
+  assert.equal(result.status, 1)
+  assert.match(result.stderr, /review-context/)
 })

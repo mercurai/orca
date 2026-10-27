@@ -8,15 +8,18 @@
 # The release branch then starts from that commit, the manifest base and every active patch base
 # must equal it, and every active patch carries a `commit:` pin equal to its fetched branch head.
 # TAG stays the version floor and the release name; it need not be an ancestor of main.
+# Prepared promotion verifies the same composition, then reuses the reviewed commit and reserved tag.
 #
 # In: TAG, optional UPSTREAM_MAIN_SHA, MANIFEST (in the checked-out workflow revision),
-#     MANIFEST_WORK, GITHUB_OUTPUT.
+#     MANIFEST_WORK, GITHUB_OUTPUT, optional paired PREPARED_CANDIDATE_SHA/PREPARED_RELEASE_TAG.
 # Out: HEAD on the release branch; <state>/active; outputs release_branch, release_tag, tree and,
 #      in main mode, upstream_main_sha and series (`patch/<name>:<sha>,...` in manifest order).
 # <state> is FORK_STATE_DIR, /tmp by default.
 set -euo pipefail
 state=${FORK_STATE_DIR:-/tmp}
 main_sha=${UPSTREAM_MAIN_SHA:-}
+prepared_sha=${PREPARED_CANDIDATE_SHA:-}
+prepared_tag=${PREPARED_RELEASE_TAG:-}
 official_main_ref=refs/upstream-main/main
 # Spelled out, not a range: a range can match capitals in some locales.
 full_sha='^[0123456789abcdef]{40}$'
@@ -33,17 +36,48 @@ prove_official_main() {
     fail "UPSTREAM_MAIN_SHA is not a commit of stablyai/orca main; nothing was assembled"
 }
 
-# Main mode: one active patch is recorded on the frozen commit, pinned, unmoved and built on it.
-vet_main_patch() {  # vet_main_patch <patch/name>
-  local patch=$1 recorded pin head
+# Main/prepared mode pins every active patch to its fetched head and declared base.
+vet_pinned_patch() {  # vet_pinned_patch <patch/name>
+  local patch=$1 recorded pin head expected_base=${main_sha:-$TAG} base_label=TAG
+  [ -z "$main_sha" ] || base_label=UPSTREAM_MAIN_SHA
   recorded=$(P=$patch yq -r '.patches[] | select(.branch == strenv(P)) | .base // ""' "$MANIFEST_WORK")
-  [ "$recorded" = "$main_sha" ] || fail "$patch is not recorded on UPSTREAM_MAIN_SHA; it was not rebased"
+  [ "$recorded" = "$expected_base" ] || fail "$patch is not recorded on $base_label; it was not rebased"
   pin=$(P=$patch yq -r '.patches[] | select(.branch == strenv(P)) | .commit // ""' "$MANIFEST_WORK")
   [[ "$pin" =~ $full_sha ]] || fail "$patch has no lowercase 40-character commit pin in the manifest; nothing was assembled"
   head=$(git rev-parse --verify -q "refs/remotes/origin/$patch^{commit}") || fail "the fork has no branch $patch; nothing was assembled"
   [ "$head" = "$pin" ] || fail "$patch is at $head, not its pinned $pin; the branch moved after it was pinned"
-  git merge-base --is-ancestor "$main_sha" "$pin" || fail "$patch does not contain UPSTREAM_MAIN_SHA; it was not rebased onto it"
+  git merge-base --is-ancestor "$start" "$pin" || fail "$patch does not contain $base_label; it was not rebased onto it"
   series+="${series:+,}$patch:$pin"
+}
+
+vet_prepared_inputs() {
+  [ -n "$prepared_sha" ] && [ -n "$prepared_tag" ] ||
+    fail "PREPARED_CANDIDATE_SHA and PREPARED_RELEASE_TAG must be supplied together"
+  [[ "$prepared_sha" =~ $full_sha ]] || fail "PREPARED_CANDIDATE_SHA is not a lowercase 40-character commit sha"
+  [[ "$prepared_tag" == "${TAG}-mercurai."* && "${prepared_tag#"${TAG}-mercurai."}" =~ ^[1-9][0-9]*$ ]] ||
+    fail "PREPARED_RELEASE_TAG must be an explicit ${TAG}-mercurai.N release tag"
+  if git show-ref --verify --quiet "refs/tags/$prepared_tag"; then
+    fail "PREPARED_RELEASE_TAG is already used; reserve a new version explicitly"
+  fi
+  [ "$(git cat-file -t "$prepared_sha" 2>/dev/null)" = commit ] ||
+    fail "PREPARED_CANDIDATE_SHA does not name an available commit"
+  [ -n "$(git for-each-ref --count=1 --format='%(refname)' --contains="$prepared_sha" refs/remotes/origin/patch/)" ] ||
+    fail "PREPARED_CANDIDATE_SHA is not reachable from a fetched fork patch branch"
+  git merge-base --is-ancestor "$start" "$prepared_sha" ||
+    fail "PREPARED_CANDIDATE_SHA does not contain the pinned base"
+}
+
+restore_prepared_checkout() {
+  local result=$?
+  trap - EXIT
+  if [ "$result" -ne 0 ]; then
+    if [ -n "$original_branch" ]; then
+      git checkout -q "$original_branch" || echo "::error::could not restore the original checkout" >&2
+    else
+      git checkout -q --detach "$original_head" || echo "::error::could not restore the original detached checkout" >&2
+    fi
+  fi
+  exit "$result"
 }
 
 git config user.name 'mercurai-fork-bot'
@@ -73,21 +107,31 @@ branch=$(yq -r '.release_branch' "$MANIFEST_WORK")
 while read -r patch; do
   [ -z "$patch" ] && continue
   [[ "$patch" =~ ^patch/[A-Za-z0-9._-]+$ && "$patch" != *..* ]] || { echo "::error::patch branch '$patch' is not patch/<name>; nothing was assembled"; exit 1; }
-  if [ -n "$main_sha" ]; then
-    vet_main_patch "$patch"
+  if [ -n "$main_sha" ] || [ -n "$prepared_sha" ] || [ -n "$prepared_tag" ]; then
+    vet_pinned_patch "$patch"
     continue
   fi
   pb=$(yq -r ".patches[] | select(.branch == \"$patch\") | .base // \"\"" "$MANIFEST_WORK")
   [ "$pb" = "$TAG" ] || { echo "::error::$patch is recorded on $pb, not $TAG; it was not rebased"; exit 1; }
   git merge-base --is-ancestor "refs/tags/$TAG" "origin/$patch" || { echo "::error::$patch does not contain $TAG; it was not rebased onto it"; exit 1; }
 done < "$state/active"
+if [ -n "$prepared_sha" ] || [ -n "$prepared_tag" ]; then
+  vet_prepared_inputs
+fi
 echo "series: $(tr '\n' ' ' < "$state/active")"
 if [ -n "$main_sha" ]; then
   echo "upstream main: $main_sha"
   echo "pinned: $series"
 fi
 
-git checkout -q -B "$branch" "$start"
+if [ -n "$prepared_sha" ]; then
+  original_branch=$(git symbolic-ref --quiet --short HEAD || true)
+  original_head=$(git rev-parse HEAD)
+  trap restore_prepared_checkout EXIT
+  git checkout -q --detach "$start"
+else
+  git checkout -q -B "$branch" "$start"
+fi
 while read -r patch; do
   [ -z "$patch" ] && continue
   # Patches are rebased onto the base, so base..branch is the patch's commits. A patch stacked on an
@@ -100,16 +144,28 @@ while read -r patch; do
   # A CR in a commit subject must not reach the job log, where it could inject workflow commands.
   git cherry-pick -x --empty=drop "$start..origin/$patch" 2>&1 | tr -d '\r' || { echo "::error::$patch does not apply on ${start#refs/tags/}"; git cherry-pick --abort; exit 1; }
 done < "$state/active"
-version=${TAG#v}
-last=$(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1)
-n=$(( ${last:-0} + 1 ))
+if [ -n "$prepared_sha" ]; then
+  [ "$(git rev-parse 'HEAD^{tree}')" = "$(git rev-parse "$prepared_sha^{tree}")" ] ||
+    fail "PREPARED_CANDIDATE_SHA tree does not match the pinned base and ordered patch series"
+  release_tag=$prepared_tag
+else
+  version=${TAG#v}
+  last=$(git tag -l "v${version}-mercurai.*" | sed 's/.*mercurai\.//' | sort -n | tail -1)
+  n=$(( ${last:-0} + 1 ))
+  release_tag="v${version}-mercurai.${n}"
+fi
 {
   echo "release_branch=$branch"
-  echo "release_tag=v${version}-mercurai.${n}"
+  echo "release_tag=$release_tag"
   echo "tree=$(git rev-parse 'HEAD^{tree}')"
   if [ -n "$main_sha" ]; then
     echo "upstream_main_sha=$main_sha"
     echo "series=$series"
   fi
 } >> "$GITHUB_OUTPUT"
-git log --oneline "$start..HEAD" | tr -d '\r'
+git log --oneline "$start..${prepared_sha:-HEAD}" | tr -d '\r'
+if [ -n "$prepared_sha" ]; then
+  # Keep the original branch tip intact until every fallible output operation is done.
+  git checkout -q -B "$branch" "$prepared_sha"
+  trap - EXIT
+fi

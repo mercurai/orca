@@ -23,7 +23,9 @@ export async function checkOrcadTemplate({ repoRoot, resourcesDir, targets, requ
   const listed = new Set(artifacts.ORCAD_ARTIFACTS.map((artifact) => artifact.filename))
   for (const filename of required) {
     if (!listed.has(filename)) {
-      problems.push(`ORCAD_ARTIFACTS does not list ${filename}; the tag lacks the patch that ships it`)
+      problems.push(
+        `ORCAD_ARTIFACTS does not list ${filename}; the tag lacks the patch that ships it`
+      )
     }
   }
   try {
@@ -94,7 +96,10 @@ export function parseArguments(argv) {
   const options = { required: [] }
   for (let index = 0; index < argv.length; index += 2) {
     const [name, value] = [argv[index], argv[index + 1]]
-    if (value === undefined || !['--repo', '--resources', '--targets', '--require'].includes(name)) {
+    if (
+      value === undefined ||
+      !['--repo', '--resources', '--targets', '--require'].includes(name)
+    ) {
       throw new Error(`unexpected argument ${name}`)
     }
     if (name === '--require') {
@@ -116,9 +121,7 @@ export function parseArguments(argv) {
 /** Compared as real paths: a drive-letter case or symlink difference must not skip the check. */
 function runsAsScript() {
   try {
-    return (
-      realpathSync.native(import.meta.filename) === realpathSync.native(process.argv[1])
-    )
+    return realpathSync.native(import.meta.filename) === realpathSync.native(process.argv[1])
   } catch {
     return false
   }
@@ -135,7 +138,9 @@ if (runsAsScript()) {
       process.exit(1)
     }
     const requires = options.required.length ? `; requires ${options.required.join(',')}` : ''
-    console.log(`orcad template ok: ${options.targets.join(',')} under ${options.resourcesDir}${requires}`)
+    console.log(
+      `orcad template ok: ${options.targets.join(',')} under ${options.resourcesDir}${requires}`
+    )
   } catch (error) {
     console.error(`::error::${error instanceof Error ? error.message : String(error)}`)
     process.exit(2)

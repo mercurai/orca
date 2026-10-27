@@ -3,19 +3,20 @@
 # Jobs act only on upstream-open and ours-only patches; planned entries document the series.
 # PREPARATION ONLY: the active entry below is provisional and must not be merged or used
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
-# Audited preparation candidate on frozen main 98690db2. Full qualification is pending.
-# Latest observed main 44d2fcb637f7736f66a9d3e7fee26516bf31daa8 and stable v1.4.241
-# remain queued; this pin does not claim to include that later upstream target.
+# Preparation candidate on frozen main 823ca687; stable floor v1.4.241.
+# This is an intentional regression baseline, not a qualified release candidate.
 version: 1
 upstream: stablyai/orca
-base: 98690db2ab1d53d7e67eae296dc061c000c2ea2f
+base: 823ca6870fd46bc979ee073ee0731516a0607daa
+upstream_release_tag: v1.4.241
+upstream_release_sha: 041baf356b368d773f333e76375ce860fba2481b
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-98690
-    branch: patch/current-main-release-98690
+  - slug: current-main-release-823ca
+    branch: patch/current-main-release-823ca
     status: ours-only
-    base: 98690db2ab1d53d7e67eae296dc061c000c2ea2f
-    commit: b31ced0216480a4f1dceeb11d21a918865234164
+    base: 823ca6870fd46bc979ee073ee0731516a0607daa
+    commit: c777bcfcfdfb463cd2b6b337c3e3de1eb18955db
     owner: harness
     added: 2026-10-25
     tests:
@@ -244,24 +245,30 @@ patches:
       - src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
+      - src/main/wsl/wsl-host-service-wake.test.ts
+      - src/main/wsl/wsl-host-early-wake.test.ts
+      - src/shared/native-chat-session-option-defaults.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
     notes: >-
-      Candidate b31ced0216480a4f1dceeb11d21a918865234164 is a 23-commit linear
-      series on official main 98690db2ab1d53d7e67eae296dc061c000c2ea2f, tree
-      75384be34c9b9d7695c621eeee4b75e4e962a9fc. It corrects renderer relocation,
-      canonical speed precedence, stale-request rollback and Windows test fixtures
-      found by the completion audit. The source branch is visible on the fork.
-      The frozen stable version floor is v1.4.239 (peeled commit
-      47f77cf7018ebc0d046b82c6dde31cf704909162). The later v1.4.241/main44d2 target
-      is queued. Predecessor 423176798d passed targeted CI40401238493 (1232 tests,
-      16 skipped) and both cost jobs. This pin additionally corrects eight type errors
-      and three size violations exposed by full PR CI. Fresh PR79 run40405108355
-      and targeted run40405108314 are pending; full CI,
-      assembly/tree equality, packaging and final review remain required.
-      No prior release receipt approves this pin; the controller gate audit is changes-requested.
-      Registered tests retain the predecessor union and new per-message speed,
-      async credential, pairing serialization and partial-template compaction regressions.
-      CI-only dry-run assembly may use this pin. Default registration/publication remain
-      blocked until exact-candidate gates pass. See release-notes-v1.4.239.md.
+      Candidate c777bcfcfdfb463cd2b6b337c3e3de1eb18955db is one linear commit
+      directly on official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
+      5a1e6e854f002888994691a5fbf2cb458cd2bf53. Source draft PR82 supersedes
+      the historical PR79 preparation. Its tree equals preserved merge
+      e4095165f1ba45b638c9c45aec3bce3ce22d5b68. The frozen stable floor is
+      v1.4.241, peeled commit 041baf356b368d773f333e76375ce860fba2481b;
+      its stable-only package version change requires controlled Mercurai injection.
+      Targeted hosted run40429242854 completed at this exact candidate:
+      Windows 1282 passed, 21 failed, 16 skipped. Twenty failures expose held/explicit
+      tier precedence, WSL revocation and synchronous focus persistence; one is a
+      missing test import from extraction. Both cost jobs passed, and all 25
+      full-qualification contract cases passed. Corrections are now in progress;
+      the merged WSL service size violation also remains open. No prior receipt approves this pin.
+      Independent reviews accepted bounded catalog, matrix and test-extraction
+      changes, while runtime/renderer review remains changes-requested.
+      Registered paths retain the predecessor union and add the new regressions.
+      CI-only preparation may use this pin; admission/publication remains disabled
+      until corrections, final exact-revision review and complete qualification pass.
+      See release-notes-v1.4.241.md and plans/2026-10-24-release-automation.md.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.

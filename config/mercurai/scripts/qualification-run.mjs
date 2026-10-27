@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { verifyPromotion } from './verify-promotion.mjs'
+import { sameReleaseReviewCandidate } from './release-review.mjs'
 
 const SHA40 = /^[0-9a-f]{40}$/
 const SHA64 = /^[0-9a-f]{64}$/
@@ -59,6 +60,9 @@ function validateExpected(expected) {
     )
   ) {
     throw new TypeError('expected candidate policy, version, or ordered series is invalid')
+  }
+  if (!sameReleaseReviewCandidate(candidate, candidate)) {
+    throw new TypeError('expected candidate full identity including upstream tuple is invalid')
   }
 }
 
@@ -123,13 +127,17 @@ export function selectQualificationRun(pages, expected) {
 }
 
 /** Compare external assembly identity before trusting the receipt's self-consistency. */
-export function verifyQualificationRun({ receipt, run, expected }, policy) {
+export function verifyQualificationRun(
+  { receipt, run, expected, reviewContext },
+  policy,
+  now = Date.now
+) {
   try {
     validateExpected(expected)
   } catch (error) {
     return { ok: false, reasons: [error.message] }
   }
-  const { reasons } = verifyPromotion(receipt, policy)
+  const { reasons } = verifyPromotion(receipt, policy, reviewContext, now)
   for (const key of CANDIDATE_FIELDS) {
     if (receipt?.candidate?.[key] !== expected.candidate[key]) {
       reasons.push(`receipt candidate ${key} does not match the external expectation`)
@@ -137,6 +145,22 @@ export function verifyQualificationRun({ receipt, run, expected }, policy) {
   }
   if (JSON.stringify(receipt?.candidate?.series) !== JSON.stringify(expected.candidate.series)) {
     reasons.push('receipt ordered series does not match the external expectation')
+  }
+  for (const key of ['repository', 'mainSha', 'stableTag', 'stableCommit']) {
+    if (receipt?.candidate?.upstream?.[key] !== expected.candidate.upstream[key]) {
+      reasons.push(`receipt upstream ${key} does not match the external expectation`)
+    }
+  }
+  if (!sameReleaseReviewCandidate(reviewContext?.expected?.candidate, expected.candidate)) {
+    reasons.push('review context candidate does not match the external qualification expectation')
+  }
+  if (
+    reviewContext?.expected?.repository !== expected.repository ||
+    reviewContext?.expected?.controllerRef !== `refs/heads/${expected.branch}`
+  ) {
+    reasons.push(
+      'review context repository or controller ref does not match the qualification expectation'
+    )
   }
   if (!matchesExpectedRun(run, expected)) {
     reasons.push(
@@ -176,11 +200,16 @@ if (process.argv[1] && import.meta.filename === process.argv[1]) {
       if (id !== null) {
         console.log(id)
       }
-    } else if (command === 'verify' && paths.length === 5) {
-      const [receipt, policy, expectation, run, runId] = paths
+    } else if (command === 'verify' && paths.length === 6) {
+      const [receipt, policy, expectation, run, runId, reviewContext] = paths
       const expected = { ...readJson(expectation), runId: Number(runId) }
       const result = verifyQualificationRun(
-        { receipt: readJson(receipt), run: readJson(run), expected },
+        {
+          receipt: readJson(receipt),
+          run: readJson(run),
+          expected,
+          reviewContext: readJson(reviewContext)
+        },
         readJson(policy)
       )
       console.log(JSON.stringify(result))
@@ -189,7 +218,7 @@ if (process.argv[1] && import.meta.filename === process.argv[1]) {
       }
     } else {
       throw new Error(
-        'usage: qualification-run.mjs select <pages> <expectation> | verify <receipt> <policy> <expectation> <run> <run-id>'
+        'usage: qualification-run.mjs select <pages> <expectation> | verify <receipt> <policy> <expectation> <run> <run-id> <review-context.json>'
       )
     }
   } catch (error) {

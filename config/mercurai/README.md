@@ -5,44 +5,41 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
 
 ## Current candidate registration
 
-The preparation manifest freezes official `main` at
-`98690db2ab1d53d7e67eae296dc061c000c2ea2f`, retaining `v1.4.239` as its
-historical stable floor. The remote patch `patch/current-main-release-98690`
-is pinned to `b31ced0216480a4f1dceeb11d21a918865234164`, tree
-`75384be34c9b9d7695c621eeee4b75e4e962a9fc`. This is 23 linear commits after
-that official ancestor, including completion-audit corrections.
+The preparation manifest freezes official main at
+`823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
+(`041baf356b368d773f333e76375ce860fba2481b`). The remote patch
+`patch/current-main-release-823ca` is pinned to
+`c777bcfcfdfb463cd2b6b337c3e3de1eb18955db`, one commit directly on that official
+parent, with tree `5a1e6e854f002888994691a5fbf2cb458cd2bf53`. Its tree matches the
+preserved reconciliation merge exactly. Draft [#82](https://github.com/mercurai/orca/pull/82)
+supersedes historical preparation #79.
 
-The source audit found broken relocation imports, speed-precedence and
-late-rejection defects, and outdated Windows fixtures. The corrected candidate
-passed 1,232 targeted tests at predecessor `423176798d`, with 16 skipped;
-deterministic cost checks passed on Linux and Windows. Full PR verification then
-found eight type errors and three size violations. The current pin corrects
-those findings and is under fresh CI in [#79](https://github.com/mercurai/orca/pull/79).
-No full qualification receipt exists. Both-rejected overlapping starts preserve
-subsequent picker intent, including same-value picks, with independent delta review.
+This pin is an intentional regression baseline. Targeted hosted
+[40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) completed
+at its exact SHA: 1,282 passed, 21 failed and 16 skipped on Windows. Both cost jobs
+and all 25 full-qualification contract cases passed. Held/tier-only speed precedence, stale WSL reconnects and
+synchronous early-wake persistence still need RED/repair/GREEN; a service size
+violation remains too. Prior targeted success at the old official base does
+not qualify this candidate. Stable's sole commit absent from frozen main changes
+package version metadata; controlled release injection must reconcile that floor.
 
-Independent release-gate review found four HIGH issues. Exact qualification-run
-matching and pre-tag receipt validation are corrected and independently reviewed;
-controller CI passed 222 Node and nine template tests. Incomplete qualification
-coverage, unauthenticated reviewer text, and unsafe publication retries remain
-open. The release policy stays disabled. See the
-[authoritative plan](plans/2026-10-24-release-automation.md).
-
-The latest observed official target is `main`
-`44d2fcb637f7736f66a9d3e7fee26516bf31daa8` and stable `v1.4.241`.
-Those newer inputs remain queued; this frozen preparation candidate does not
-claim to include them. Full CI, independent review, protected packaging,
-publication, installation, and loaded-runtime acceptance remain separate gates.
+Four release-gate audit findings remain under repair: partial qualification,
+unauthenticated review, incorrect run correlation, and mutable/non-monotonic
+publication. The proposed controller now wires authenticated owner acceptance,
+immutable prepared inputs and the shared full required matrix. These local edits
+still need complete CI and independent review. Admission remains disabled.
+See the [authoritative plan](plans/2026-10-24-release-automation.md) for exact
+source/CI evidence, open regressions, ownership, and rollout gates.
 
 ## Branches
 
-| Branch | Content | Who writes it |
-|---|---|---|
-| `main` | exact mirror of `upstream/main`, fast-forward only | `fork-sync-upstream` (hourly) |
-| `mercurai` (default) | `main` + this directory and the `fork-*` workflows, merged forward | `fork-sync-upstream`, reviewed PRs |
-| `patch/<slug>` | one patch of the series, rebased onto the manifest `base:` tag | lanes, `fork-rebase-patches` |
-| `release/mercurai` | assembled: an upstream release tag (or a frozen official `main` commit) + the active patches, never hand-edited | `fork-assemble-release` |
-| `upstream/*` | optional mirror of upstream branches (off by default) | `fork-sync-upstream` with `mirror_branches=true` |
+| Branch               | Content                                                                                                         | Who writes it                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `main`               | exact mirror of `upstream/main`, fast-forward only                                                              | `fork-sync-upstream` (hourly)                    |
+| `mercurai` (default) | `main` + this directory and the `fork-*` workflows, merged forward                                              | `fork-sync-upstream`, reviewed PRs               |
+| `patch/<slug>`       | one patch of the series, rebased onto the manifest `base:` tag                                                  | lanes, `fork-rebase-patches`                     |
+| `release/mercurai`   | assembled: an upstream release tag (or a frozen official `main` commit) + the active patches, never hand-edited | `fork-assemble-release`                          |
+| `upstream/*`         | optional mirror of upstream branches (off by default)                                                           | `fork-sync-upstream` with `mirror_branches=true` |
 
 Tags: upstream's tags are mirrored as they are; mercurai releases are `v<upstream>-mercurai.N`.
 Upstream cuts its tags on release branches, not on `main`, so "merged upstream" is always judged
@@ -107,7 +104,7 @@ series.
   `fork-sync` issue (paged, not just the first 30) by an exact title prefix of their own. To
   release a reviewed range, merge it
   through a reviewed PR, or dispatch the workflow from `mercurai` with `allow_guarded_merge_sha=<the
-  full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
+full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
   commit lands even if upstream moved on (newer commits wait for the next run); any other value, a
   short sha, or a sha not inside `upstream/main` allows nothing (the schedule never sets it). An exact
   sha also releases a result-guard refusal, even when the range itself was clean.
@@ -161,7 +158,10 @@ series.
   qualification receipt, tags only that immutable candidate, and dispatches `fork-release-win-build`
   with the tag and qualification run ID. A missing reviewer receipt, moved candidate branch, failed
   qualification, or stale run ID stops before tagging. `dry_run=true` never pushes or dispatches a
-  publishing build.
+  publishing build. Promotion additionally requires `prepared_candidate_sha`,
+  `prepared_release_tag` and `review_run_id`; assembly recomposes and compares the tree, then
+  preserves that exact reviewed commit and reserved tag. A secretless owner-review job precedes
+  canonical branch mutation. Owner evidence is refetched after qualification and before packaging.
   **Main snapshot:** the optional `upstream_main_sha` input (`UPSTREAM_MAIN_SHA` to
   `scripts/assemble-release.sh`) assembles on a frozen commit of official `stablyai/orca` `main`
   instead of the tag, for a release that must carry upstream changes no tag has yet. The value is a
@@ -177,12 +177,19 @@ series.
   (`patch/<name>:<sha>,...` in manifest order) as outputs and in the release tag message. The test
   and push jobs both check out the dispatched commit (`github.sha`), not the branch name, and the push
   job pushes only when its tree, base and pinned patch commits equal the tested ones. Leave the input
-  empty for the unchanged tag assembly. The owner registers the sha and pins in the manifest;
-  recurring snapshots are not automated.
-- `fork-qualify-release`: manual, default-branch-only, read-only qualification of one exact
-  candidate SHA. It checks the candidate tree and trusted controller inputs, installs without a
-  cache, and runs `pnpm run test:node`, `pnpm run lint`, and `pnpm run typecheck`. The aggregate
-  check is named `PR checks passed`; selected-test or partial runs cannot create a promotion receipt.
+  empty only for tag-based dry-run preparation. Promotion requires a frozen main snapshot.
+  The owner registers the SHA and pins in the manifest before review.
+- `fork-accept-release-review`: proposed manual, default-branch-only owner intake. A bounded
+  independent-review attestation must match candidate/tree/controller/manifest/policy/version,
+  ordered patch pins and frozen upstream inputs. Live actor and rerun actor IDs must match the
+  trusted owner policy. The exact-run artifact and digest authenticate owner acceptance; reviewer
+  text alone grants no authority. Submit it only after real independent review of the final revision.
+- `fork-qualify-release`: proposed default-branch-only, read-only qualification of one exact
+  candidate SHA. Admission validates owner acceptance before calling the existing shared PR
+  matrix with full discovery, exact checkouts and caches off. It records actual required jobs and
+  every planned unit/layout shard. The shared PR verifier alone owns `PR checks passed`.
+  Four existing advisory lanes are explicitly excluded; ordinary source PRs still exercise them.
+  This replacement is source-only and remains unqualified until hosted CI and rehearsal pass.
 - `fork-release-win-build`: builds the Windows installer for a `v<upstream>-mercurai.N` tag and
   publishes it to the release channel (below). A real build must receive the qualification run ID
   and receipt; preflight verifies the receipt against the resolved tag commit, version, controller,
@@ -222,15 +229,15 @@ series.
   only for a real build dispatched from the default branch and a verified qualification receipt;
   its condition reads the dispatch inputs and preflight output, which no build step can change.
   `config/mercurai/scripts/release-workflow-token-scope.test.mjs` pins all of this.
-Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
-CLI/hook native assets through `build:release`. After the script-free dependency install, the Windows
-build links the manifest-pinned Bun package with `pnpm rebuild bun`, matching the official install action;
-current CLI compilation requires that local binary. The workflow refuses refs that still contain
-`config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
-Use an existing published installer for an older release rather than rebuilding a relay-era ref
-through this workflow. Installed-profile downgrade compatibility still requires separate verification.
-The packaged-template checker uses the release's own shared-ripgrep resolver for compacted layouts;
-canonical hash/inventory checks and the required remote worker remain mandatory.
+  Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
+  CLI/hook native assets through `build:release`. After the script-free dependency install, the Windows
+  build links the manifest-pinned Bun package with `pnpm rebuild bun`, matching the official install action;
+  current CLI compilation requires that local binary. The workflow refuses refs that still contain
+  `config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
+  Use an existing published installer for an older release rather than rebuilding a relay-era ref
+  through this workflow. Installed-profile downgrade compatibility still requires separate verification.
+  The packaged-template checker uses the release's own shared-ripgrep resolver for compacted layouts;
+  canonical hash/inventory checks and the required remote worker remain mandatory.
 
 - `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer
   and keeps it as a run artifact; the run has no publish job. The artifact holds the installer

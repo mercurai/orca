@@ -1,17 +1,99 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "promotionEnabled": false,
   "workflow": "fork-qualify-release.yml",
   "requiredJobs": [
     {
-      "id": "tests-node-24-2-5",
-      "checks": ["test / tests node 24 2/5"]
+      "id": "code_paths"
     },
     {
-      "id": "qualification-aggregate",
-      "checks": ["PR checks passed"]
+      "id": "preflight"
+    },
+    {
+      "id": "git_compatibility"
+    },
+    {
+      "id": "codex_index_heal_contract"
+    },
+    {
+      "id": "xterm_patch_sync"
+    },
+    {
+      "id": "shell_contracts"
+    },
+    {
+      "id": "test"
+    },
+    {
+      "id": "mobile_web_app"
+    },
+    {
+      "id": "cross-version-wire"
+    },
+    {
+      "id": "managed_hook_node18"
+    },
+    {
+      "id": "package"
+    },
+    {
+      "id": "package_windows"
+    },
+    {
+      "id": "layout_oracle"
+    },
+    {
+      "id": "dependency_isolation"
     }
   ],
-  "requiredChecks": ["test / tests node 24 2/5", "PR checks passed"],
-  "permittedSkips": []
+  "requiredChecks": [
+    "detect changes and check repository guards",
+    "static analysis and typecheck",
+    "Git compatibility",
+    "Codex index-heal contract",
+    "xterm patch sync",
+    "shell contracts",
+    "mobile web app bundle",
+    "cross-version wire compatibility",
+    "managed hooks on Node 18",
+    "package",
+    "package (windows)",
+    "dependency isolation under the global virtual store",
+    "relay integration node 24",
+    "build e2e app",
+    "orca serve Electron/orcad mode switch (D7)",
+    "PR checks passed"
+  ],
+  "permittedSkips": [],
+  "review": {
+    "workflowPath": ".github/workflows/fork-accept-release-review.yml",
+    "controllerRef": "refs/heads/mercurai",
+    "owners": [
+      {
+        "login": "ph47s74x",
+        "id": 32150884
+      }
+    ]
+  },
+  "requiredMatrix": {
+    "jobIds": [
+      "code_paths",
+      "preflight",
+      "git_compatibility",
+      "codex_index_heal_contract",
+      "xterm_patch_sync",
+      "shell_contracts",
+      "test",
+      "mobile_web_app",
+      "cross-version-wire",
+      "managed_hook_node18",
+      "package",
+      "package_windows",
+      "layout_oracle",
+      "dependency_isolation"
+    ],
+    "nodeVersions": [24],
+    "jobNamePrefix": "matrix / ",
+    "advisoryExclusions": ["e2e", "terminal_ime_native", "windows_wsl", "unit_selection_evidence"]
+  }
 }

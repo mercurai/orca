@@ -48,8 +48,6 @@ it.each([
         git(commit)
       }
       const sourceSha = git(['rev-parse', 'HEAD'])
-      const eventPath = join(root, 'event.json')
-      writeFileSync(eventPath, JSON.stringify({ pull_request: { draft: true } }))
       const result = runProcessSync({
         program: process.execPath,
         args: [fileURLToPath(new URL('./ci-unit-plan.mjs', import.meta.url))],
@@ -59,7 +57,7 @@ it.each([
           ORCA_BACKGROUND_LAUNCH: '1',
           ORCA_UNIT_SELECTION_MODE: 'selected',
           GITHUB_EVENT_NAME: 'pull_request',
-          GITHUB_EVENT_PATH: eventPath,
+          ORCA_PULL_REQUEST_DRAFT: 'true',
           GITHUB_SHA: sourceSha,
           ORCA_SHARD_SOURCE_SHA: sourceSha,
           GITHUB_OUTPUT: join(root, 'outputs'),
@@ -88,15 +86,13 @@ it.each([
   }
 )
 
-it.each(['5', '10', 'invalid'])(
+it.each(['5', '6', '10', 'invalid', '11'])(
   'validates the requested full shard count and keeps fallback coverage: %s',
   (requestedCount) => {
     const root = mkdtempSync(join(tmpdir(), 'orca-unit-count-'))
     try {
       mkdirSync(join(root, 'src'))
       writeFileSync(join(root, 'src/retained.test.ts'), 'export const retained = true')
-      const eventPath = join(root, 'event.json')
-      writeFileSync(eventPath, '{}')
       const result = runProcessSync({
         program: process.execPath,
         args: [fileURLToPath(new URL('./ci-unit-plan.mjs', import.meta.url))],
@@ -106,13 +102,14 @@ it.each(['5', '10', 'invalid'])(
           ORCA_BACKGROUND_LAUNCH: '1',
           ORCA_UNIT_FULL_SHARD_COUNT: requestedCount,
           GITHUB_EVENT_NAME: 'workflow_dispatch',
-          GITHUB_EVENT_PATH: eventPath,
           ORCA_SHARD_SOURCE_SHA: 'full-count-fixture'
         }
       })
-      if (requestedCount === 'invalid') {
+      if (['invalid', '11'].includes(requestedCount)) {
         expect(result.code).not.toBe(0)
-        expect(result.stderr).toContain('ORCA_UNIT_FULL_SHARD_COUNT must be 5 or 10')
+        expect(result.stderr).toContain(
+          'ORCA_UNIT_FULL_SHARD_COUNT must be an integer from 2 to 10'
+        )
         return
       }
       expect(result.code, result.stderr).toBe(0)
@@ -124,6 +121,80 @@ it.each(['5', '10', 'invalid'])(
           index: index + 1,
           count: Number(requestedCount)
         }))
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+)
+
+it.each([
+  { event: 'pull_request', unresolvedPackage: false },
+  { event: 'workflow_dispatch', unresolvedPackage: false },
+  { event: 'pull_request', unresolvedPackage: true }
+])(
+  'explicit qualification full mode cannot select a draft subset: %j',
+  ({ event, unresolvedPackage }) => {
+    const root = mkdtempSync(join(tmpdir(), 'orca-unit-qualification-'))
+    const git = (args) => {
+      const result = runProcessSync({ program: 'git', args, cwd: root })
+      expect(result.code, result.stderr).toBe(0)
+      return result.stdout.trim()
+    }
+    try {
+      mkdirSync(join(root, 'src'))
+      writeFileSync(join(root, 'src/value.ts'), 'export const value = 1')
+      writeFileSync(
+        join(root, 'src/consumer.test.ts'),
+        unresolvedPackage ? "import '@orca/missing-package'" : "import './value'"
+      )
+      writeFileSync(join(root, 'src/unrelated.test.ts'), 'export const unrelated = true')
+      git(['init', '--quiet'])
+      const commit = [
+        '-c',
+        'user.name=CI Test',
+        '-c',
+        'user.email=ci-test@example.invalid',
+        '-c',
+        'commit.gpgsign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'fixture'
+      ]
+      git(['add', 'src'])
+      git(commit)
+      writeFileSync(join(root, 'src/value.ts'), 'export const value = 2')
+      git(['add', 'src'])
+      git(commit)
+      const sourceSha = git(['rev-parse', 'HEAD'])
+      const result = runProcessSync({
+        program: process.execPath,
+        args: [fileURLToPath(new URL('./ci-unit-plan.mjs', import.meta.url))],
+        cwd: root,
+        env: {
+          ...process.env,
+          ORCA_BACKGROUND_LAUNCH: '1',
+          ORCA_UNIT_FULL_MODE: 'true',
+          ORCA_UNIT_SELECTION_MODE: 'selected',
+          ORCA_UNIT_FULL_SHARD_COUNT: '5',
+          ORCA_PULL_REQUEST_DRAFT: 'true',
+          GITHUB_EVENT_NAME: event,
+          GITHUB_SHA: sourceSha,
+          ORCA_SHARD_SOURCE_SHA: sourceSha,
+          GITHUB_OUTPUT: join(root, 'outputs'),
+          GITHUB_STEP_SUMMARY: join(root, 'summary')
+        }
+      })
+      expect(result.code, result.stderr).toBe(0)
+      const plan = JSON.parse(readFileSync(join(root, 'ci-shards/unit-selection.json'), 'utf8'))
+      expect(plan.sourceSha).toBe(sourceSha)
+      expect(plan.mode).toBe('full')
+      expect(plan.selectedTests).toEqual([])
+      expect(plan.files).toEqual(['src/consumer.test.ts', 'src/unrelated.test.ts'])
+      expect(plan.executionFiles).toEqual(plan.files)
+      expect(plan.shards).toEqual(
+        Array.from({ length: 5 }, (_, index) => ({ index: index + 1, count: 5 }))
       )
     } finally {
       rmSync(root, { recursive: true, force: true })

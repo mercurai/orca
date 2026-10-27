@@ -32,10 +32,13 @@ const FAMILY_RULES = [
 ]
 
 function familyFor(path) {
-  return FAMILY_RULES.find((family) => family.pattern.test(path)) ?? {
-    id: 'other',
-    objective: 'Reconcile the remaining upstream conflict with focused tests and no unrelated changes.'
-  }
+  return (
+    FAMILY_RULES.find((family) => family.pattern.test(path)) ?? {
+      id: 'other',
+      objective:
+        'Reconcile the remaining upstream conflict with focused tests and no unrelated changes.'
+    }
+  )
 }
 
 function validateInventory(inventory) {
@@ -92,7 +95,9 @@ if (process.argv[1]?.endsWith('release-conflict-task-plan.mjs')) {
   } else {
     try {
       const { readFileSync } = await import('node:fs')
-      console.log(JSON.stringify(buildConflictTaskPlan(JSON.parse(readFileSync(input, 'utf8'))), null, 2))
+      console.log(
+        JSON.stringify(buildConflictTaskPlan(JSON.parse(readFileSync(input, 'utf8'))), null, 2)
+      )
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error))
       process.exitCode = 2

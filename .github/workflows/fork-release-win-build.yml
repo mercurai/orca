@@ -72,7 +72,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Re-dispatching one tag must not race two uploads into one release; different tags are independent.
+  # Builds may overlap across tags; the publish job separately locks the shared channel.
   # A dry run uploads to no release, so it never waits on, or blocks, a real build of the same tag.
   group: fork-release-win-build-${{ inputs.tag }}${{ (inputs.dry_run || github.ref != format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai')) && '-dry-run' || '' }}
   cancel-in-progress: false
@@ -94,6 +94,7 @@ jobs:
       qualified: ${{ steps.promotion.outputs.qualified || steps.vet.outputs.qualified }}
       build_ref: ${{ steps.vet.outputs.build_ref }}
       build_sha: ${{ steps.vet.outputs.build_sha }}
+      promotion_provenance: ${{ steps.promotion.outputs.promotion_provenance }}
     steps:
       - name: Vet the dispatch
         id: vet
@@ -178,6 +179,13 @@ jobs:
           sparse-checkout: config/mercurai
           persist-credentials: false
 
+      - name: Setup trusted verifier Node.js
+        if: steps.vet.outputs.publish == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
       - name: Verify promotion receipt
         id: promotion
         if: steps.vet.outputs.publish == 'true'
@@ -194,23 +202,66 @@ jobs:
             echo "::error::qualification run did not publish promotion-receipt.json"
             exit 1
           }
-          node .controller/config/mercurai/scripts/verify-promotion.mjs \
-            promotion-receipt/promotion-receipt.json .controller/config/mercurai/release-policy.json
+          [ "$(git -C .controller rev-parse HEAD)" = "$CONTROLLER_SHA" ] || exit 1
+          BUILD_TREE=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$BUILD_SHA" --jq .tree.sha)
+          MANIFEST_SHA=$(git -C .controller rev-parse HEAD:config/mercurai/patches.yaml)
+          POLICY_SHA=$(sha256sum .controller/config/mercurai/release-policy.json | cut -d ' ' -f 1)
+          export BUILD_TREE MANIFEST_SHA POLICY_SHA
+          yq -o=json .controller/config/mercurai/patches.yaml > "$RUNNER_TEMP/build-manifest.json"
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QUALIFICATION_RUN_ID" > qualification-run.json
-          node --input-type=module - "$BUILD_SHA" "$TAG" promotion-receipt/promotion-receipt.json qualification-run.json <<'NODE'
-          import { readFileSync } from 'node:fs'
-          const [buildSha, tag, receiptPath, runPath] = process.argv.slice(2)
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/fork-qualify-release.yml" > "$RUNNER_TEMP/qualification-workflow.json"
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const env = process.env
+          const read = (path) => JSON.parse(readFileSync(path, 'utf8'))
+          const manifest = read(`${env.RUNNER_TEMP}/build-manifest.json`)
+          const run = read('qualification-run.json')
+          const workflow = read(`${env.RUNNER_TEMP}/qualification-workflow.json`)
+          if (!run.display_title?.startsWith('qualify ') || workflow.path !== '.github/workflows/fork-qualify-release.yml') throw new Error('qualification workflow identity is invalid')
+          const expected = {
+            repository: env.GITHUB_REPOSITORY, workflowId: workflow.id, workflowPath: workflow.path,
+            branch: env.GITHUB_REF_NAME, dispatchId: run.display_title.slice('qualify '.length), startedAt: run.created_at,
+            candidate: {
+              commit: env.BUILD_SHA, tree: env.BUILD_TREE, controllerSha: env.CONTROLLER_SHA,
+              manifestSha: env.MANIFEST_SHA, policySha: env.POLICY_SHA, version: env.TAG.slice(1),
+              series: manifest.patches.filter((row) => ['ours-only', 'upstream-open'].includes(row.status)).map((row) => `${row.branch}:${row.commit}`),
+              upstream: { repository: manifest.upstream, mainSha: manifest.base, stableTag: manifest.upstream_release_tag, stableCommit: manifest.upstream_release_sha }
+            }
+          }
+          writeFileSync(`${env.RUNNER_TEMP}/build-expected.json`, `${JSON.stringify(expected)}\n`)
+          NODE
+          review_run=$(jq -er '.review.authentication.runId' promotion-receipt/promotion-receipt.json)
+          bash .controller/config/mercurai/scripts/fetch-release-review.sh "$RUNNER_TEMP/build-expected.json" \
+            .controller/config/mercurai/release-policy.json "$review_run" "$RUNNER_TEMP/build-owner-review"
+          cmp -s <(jq -S '.review' promotion-receipt/promotion-receipt.json) \
+            <(jq -S '.' "$RUNNER_TEMP/build-owner-review/release-review.json") || { echo '::error::build receipt review differs from current owner acceptance'; exit 1; }
+          node .controller/config/mercurai/scripts/verify-promotion.mjs \
+            promotion-receipt/promotion-receipt.json .controller/config/mercurai/release-policy.json \
+            "$RUNNER_TEMP/build-owner-review/review-context.json"
+          node .controller/config/mercurai/scripts/qualification-run.mjs verify \
+            promotion-receipt/promotion-receipt.json .controller/config/mercurai/release-policy.json \
+            "$RUNNER_TEMP/build-expected.json" qualification-run.json "$QUALIFICATION_RUN_ID" \
+            "$RUNNER_TEMP/build-owner-review/review-context.json"
+          node --input-type=module - "$BUILD_SHA" "$TAG" promotion-receipt/promotion-receipt.json <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs'
+          import { createHash } from 'node:crypto'
+          const [buildSha, tag, receiptPath] = process.argv.slice(2)
           const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'))
-          const run = JSON.parse(readFileSync(runPath, 'utf8'))
           const expectedVersion = tag.slice(1)
           if (receipt.candidate.commit !== buildSha) throw new Error('receipt candidate is not the resolved build commit')
           if (receipt.candidate.version !== expectedVersion) throw new Error('receipt version does not match the release tag')
           if (receipt.candidate.controllerSha !== process.env.CONTROLLER_SHA) throw new Error('build controller changed after qualification')
-          if (run.path !== '.github/workflows/fork-qualify-release.yml') throw new Error('qualification run used the wrong workflow')
-          if (run.event !== 'workflow_dispatch') throw new Error('qualification run was not manually dispatched')
-          if (run.head_sha !== receipt.candidate.controllerSha) throw new Error('qualification run controller changed')
-          if (run.run_attempt !== receipt.qualification.attempt) throw new Error('qualification receipt is not from the latest run attempt')
-          if (run.conclusion !== 'success') throw new Error(`qualification run concluded ${run.conclusion ?? 'unknown'}`)
+          const provenance = {
+            schemaVersion: 1, sourceRepository: process.env.GITHUB_REPOSITORY, tag,
+            candidate: receipt.candidate,
+            qualification: {
+              runId: receipt.qualification.runId, attempt: receipt.qualification.attempt,
+              dispatchId: receipt.qualification.dispatchId
+            },
+            review: receipt.review,
+            receiptSha256: createHash('sha256').update(readFileSync(receiptPath)).digest('hex')
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `promotion_provenance=${JSON.stringify(provenance)}\n`)
           NODE
           echo 'qualified=true' >> "$GITHUB_OUTPUT"
 
@@ -567,6 +618,10 @@ jobs:
     if: ${{ github.repository == 'mercurai/orca' && needs.preflight.outputs.qualified == 'true' && !inputs.dry_run && inputs.ref == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: mercurai-orca-mercurai-windows-stable-publication
+      cancel-in-progress: false
+      queue: max
     env:
       # The runner has no checkout here; name the repos outright.
       GH_REPO: ${{ github.repository }}
@@ -630,23 +685,13 @@ jobs:
             exit 1
           fi
 
-      # A repo with no commit cannot hold a release tag, so give an empty channel repo its first commit once.
-      - name: Make sure the channel repo has a commit
+      - name: Check channel repository access
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
           set -euo pipefail
-          deny() { echo "::error::The token cannot write to $CHANNEL_REPO. Add orca-mercurai to the FORK_BOT_TOKEN fine-grained token (Contents: read and write); see config/mercurai/README.md (Release channel)."; echo "$1"; exit 1; }
-          if out=$(gh api "repos/$CHANNEL_REPO/commits?per_page=1" 2>&1); then
-            echo "channel repo has history"
-          elif grep -qi "empty" <<<"$out"; then
-            content=$(printf '# orca-mercurai\n\nRelease assets for the mercurai Orca build channel, published by mercurai/orca CI only.\n' | base64 -w0)
-            out=$(gh api -X PUT "repos/$CHANNEL_REPO/contents/README.md" -f message='chore: initial commit' -f content="$content" 2>&1) || deny "$out"
-            echo "created the first commit"
-          else
-            deny "$out"
-          fi
+          gh api "repos/$CHANNEL_REPO" > /dev/null
 
       # Draft first, public last: the updater reads latest.yml from a published release, so it must never see one
       # whose installer is still uploading.
@@ -655,20 +700,123 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
           BUILD_SHA: ${{ needs.preflight.outputs.build_sha }}
+          PROMOTION_PROVENANCE: ${{ needs.preflight.outputs.promotion_provenance }}
+          QUALIFICATION_RUN_ID: ${{ inputs.qualification_run_id }}
         run: |
           set -euo pipefail
-          deny() { echo "::error::Upload to $CHANNEL_REPO was denied. Add orca-mercurai to the FORK_BOT_TOKEN fine-grained token (Contents: read and write); see config/mercurai/README.md (Release channel)."; echo "$1"; exit 1; }
-          files=(dist/orca-windows-setup.exe dist/orca-windows-setup.exe.blockmap dist/latest.yml)
-          if gh release view "$TAG" --repo "$CHANNEL_REPO" >/dev/null 2>&1; then
-            # Re-run on a published release: hide it while the assets are replaced, manifest last.
-            out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=true 2>&1) || deny "$out"
-            out=$(gh release upload "$TAG" "${files[@]:0:2}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
-            out=$(gh release upload "$TAG" "${files[2]}" --repo "$CHANNEL_REPO" --clobber 2>&1) || deny "$out"
-          else
-            out=$(gh release create "$TAG" "${files[@]}" --repo "$CHANNEL_REPO" --title "$TAG" --draft \
-              --notes "Mercurai build of $TAG. Unsigned Windows installer of commit ${BUILD_SHA}, built by mercurai/orca CI run ${GITHUB_RUN_ID}." 2>&1) || deny "$out"
+          refuse() { echo "::error::$1; preserve the release and allocate a new version or ask the release owner to recover its draft"; exit 1; }
+          work=$(mktemp -d "$RUNNER_TEMP/publication.XXXXXX")
+          expected="$work/expected.json"
+          jq -cen --argjson provenance "$PROMOTION_PROVENANCE" --arg tag "$TAG" \
+            --arg commit "$BUILD_SHA" --arg controller "$GITHUB_SHA" --arg qualification "$QUALIFICATION_RUN_ID" \
+            --arg run "$GITHUB_RUN_ID" '
+            $provenance | select(.schemaVersion == 1 and .sourceRepository == "mercurai/orca" and .tag == $tag
+              and .candidate.commit == $commit and .candidate.controllerSha == $controller
+              and .candidate.version == ($tag | ltrimstr("v"))
+              and (.candidate.tree | test("^[0-9a-f]{40}$"))
+              and (.candidate.manifestSha | test("^[0-9a-f]{40}$"))
+              and (.candidate.policySha | test("^[0-9a-f]{64}$")) and (.candidate.series | type == "array")
+              and (.receiptSha256 | test("^[0-9a-f]{64}$"))
+              and .qualification.runId == ($qualification | tonumber)
+              and .qualification.attempt > 0 and (.qualification.dispatchId | type == "string" and length > 0))
+            | . + {buildRunId: ($run | tonumber), assets: []}' > "$expected"
+          for name in orca-windows-setup.exe orca-windows-setup.exe.blockmap latest.yml; do
+            digest=$(sha256sum "dist/$name" | cut -d' ' -f1)
+            size=$(stat -c%s "dist/$name")
+            jq -c --arg name "$name" --arg sha256 "$digest" --argjson size "$size" \
+              '.assets += [{name: $name, size: $size, sha256: $sha256}]' "$expected" > "$work/next.json"
+            mv "$work/next.json" "$expected"
+          done
+          inventory() {
+            gh api --paginate --slurp "repos/$CHANNEL_REPO/releases?per_page=100" > "$work/pages.json"
+            jq -e 'type == "array" and length > 0 and all(.[]; type == "array")' "$work/pages.json" > /dev/null
+            jq 'add // []' "$work/pages.json" > "$work/releases.json"
+            jq -e --arg tag "$TAG" '
+              def version:
+                if test("^v[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}-mercurai\\.[0-9]{1,9}$") then
+                  capture("^v(?<a>[0-9]+)\\.(?<b>[0-9]+)\\.(?<c>[0-9]+)-mercurai\\.(?<d>[0-9]+)$")
+                  | [.a, .b, .c, .d] | map(tonumber)
+                else error("malformed channel version") end;
+              ($tag | version) as $wanted
+              | all(.[]; type == "object" and (.id | type == "number" and . > 0)
+                  and (.tag_name | type == "string") and (.draft | type == "boolean") and (.prerelease | type == "boolean"))
+                and (([.[].id] | unique | length) == length)
+                and (([.[].tag_name] | unique | length) == length)
+                and all(.[] | select(.draft == false and .prerelease == false);
+                  (.tag_name | version) as $published
+                  | $published < $wanted or ($published == $wanted and .tag_name == $tag))' \
+              "$work/releases.json" > /dev/null || refuse 'invalid inventory or a newer published version exists'
+          }
+          read_release() {
+            gh api "repos/$CHANNEL_REPO/releases/$release_id" > "$work/view.json"
+            jq -e --argjson id "$release_id" --arg tag "$TAG" --slurpfile expected "$expected" '
+              .id == $id and .tag_name == $tag and .prerelease == false and (.draft | type == "boolean")
+              and (.body | fromjson) == $expected[0]' "$work/view.json" > /dev/null \
+              || refuse 'release identity or publication provenance differs'
+          }
+          verify_assets() {
+            gh api --paginate --slurp "repos/$CHANNEL_REPO/releases/$release_id/assets?per_page=100" > "$work/asset-pages.json"
+            jq -e 'type == "array" and length > 0 and all(.[]; type == "array")' "$work/asset-pages.json" > /dev/null
+            jq 'add // []' "$work/asset-pages.json" > "$work/assets.json"
+            jq -e --slurpfile expected "$expected" '
+              (length <= 3) and (([.[].name] | unique | length) == length)
+              and (([.[].id] | unique | length) == length)
+              and all(.[]; . as $asset | any($expected[0].assets[];
+                .name == $asset.name and .size == $asset.size and $asset.state == "uploaded"
+                and ($asset.id | type == "number" and . > 0)
+                and ($asset.digest == null or $asset.digest == ("sha256:" + .sha256))))' \
+              "$work/assets.json" > /dev/null || refuse 'unexpected, incomplete, duplicate or changed release asset'
+            downloads=$(mktemp -d "$work/downloads.XXXXXX")
+            while IFS= read -r name; do
+              gh release download "$TAG" --repo "$CHANNEL_REPO" --pattern "$name" --dir "$downloads"
+              test -f "$downloads/$name" && test ! -L "$downloads/$name" || refuse 'downloaded asset is not a regular file'
+              cmp -s "dist/$name" "$downloads/$name" || refuse 'downloaded asset bytes differ'
+            done < <(jq -r '.[].name' "$work/assets.json")
+          }
+          inventory
+          release_id=$(jq -r --arg tag "$TAG" '.[] | select(.tag_name == $tag) | .id' "$work/releases.json")
+          if [ -z "$release_id" ]; then
+            # Only a verified first publication may initialize an empty channel.
+            if gh api --include "repos/$CHANNEL_REPO/commits?per_page=1" > "$work/history" 2> "$work/history-error"; then
+              echo 'channel repo has history'
+            elif grep -Eq '^HTTP/[0-9.]+ 409([[:space:]]|$)' "$work/history" \
+              && sed '1,/^[[:space:]]*$/d' "$work/history" | jq -e '.message == "Git Repository is empty."' > /dev/null \
+              && test "$(jq length "$work/releases.json")" = 0; then
+              content=$(printf '# orca-mercurai\n\nRelease assets for the mercurai Orca build channel, published by mercurai/orca CI only.\n' | base64 -w0)
+              gh api -X PUT "repos/$CHANNEL_REPO/contents/README.md" -f message='chore: initial commit' -f content="$content"
+            else
+              cat "$work/history-error" >&2
+              refuse 'channel history could not be established'
+            fi
+            gh release create "$TAG" --repo "$CHANNEL_REPO" --title "$TAG" --draft --notes-file "$expected"
+            inventory
+            release_id=$(jq -r --arg tag "$TAG" '.[] | select(.tag_name == $tag) | .id' "$work/releases.json")
           fi
-          out=$(gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --latest 2>&1) || deny "$out"
+          [[ "$release_id" =~ ^[1-9][0-9]*$ ]] || refuse 'release ID is missing or ambiguous'
+          read_release
+          verify_assets
+          draft=$(jq -r '.draft' "$work/view.json")
+          if [ "$draft" = true ]; then
+            for name in orca-windows-setup.exe orca-windows-setup.exe.blockmap latest.yml; do
+              if ! jq -e --arg name "$name" 'any(.[]; .name == $name)' "$work/assets.json" > /dev/null; then
+                gh release upload "$TAG" "dist/$name" --repo "$CHANNEL_REPO"
+              fi
+            done
+            read_release
+            verify_assets
+            test "$(jq length "$work/assets.json")" = 3 || refuse 'draft is missing release assets'
+            inventory
+            gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --latest
+          elif [ "$draft" != false ]; then
+            refuse 'release draft state is unknown'
+          fi
+          read_release
+          test "$(jq -r '.draft' "$work/view.json")" = false || refuse 'release was not published'
+          verify_assets
+          test "$(jq length "$work/assets.json")" = 3 || refuse 'published release is missing assets'
+          gh api "repos/$CHANNEL_REPO/releases/latest" > "$work/latest.json"
+          jq -e --argjson id "$release_id" --arg tag "$TAG" '.id == $id and .tag_name == $tag and .draft == false and .prerelease == false' \
+            "$work/latest.json" > /dev/null || refuse 'latest does not resolve to the verified release'
 
       - name: Verify the update manifest is public
         shell: bash

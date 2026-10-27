@@ -132,6 +132,38 @@ test('no publish step carries its own condition or may fail quietly', () => {
   assert.doesNotMatch(publish, /continue-on-error/)
 })
 
+test('all real releases share one queued channel publication lock', () => {
+  const publish = code(releaseJobs.get('publish'))
+  assert.match(
+    publish,
+    /^ {4}concurrency:\n {6}group: mercurai-orca-mercurai-windows-stable-publication\n {6}cancel-in-progress: false\n {6}queue: max$/m
+  )
+  assert.doesNotMatch(publish, /group:.*\$\{\{/)
+})
+
+test('publication retains byte and provenance checks without destructive retry commands', () => {
+  const publish = code(releaseJobs.get('publish'))
+  assert.doesNotMatch(publish, /--clobber|--draft=true|gh release delete|gh api.*-X DELETE/)
+  assert.match(publish, /gh api -X PUT "repos\/\$CHANNEL_REPO\/contents\/README\.md"/)
+  assert.match(publish, /test "\$\(jq length "\$work\/releases\.json"\)" = 0/)
+  assert.match(
+    publish,
+    /PROMOTION_PROVENANCE: \$\{\{ needs\.preflight\.outputs\.promotion_provenance \}\}/
+  )
+  assert.match(publish, /gh api --paginate --slurp "repos\/\$CHANNEL_REPO\/releases\?per_page=100"/)
+  assert.match(
+    publish,
+    /gh api --paginate --slurp "repos\/\$CHANNEL_REPO\/releases\/\$release_id\/assets\?per_page=100"/
+  )
+  assert.match(publish, /cmp -s "dist\/\$name" "\$downloads\/\$name"/)
+  assert.match(publish, /\(\.body \| fromjson\) == \$expected\[0\]/)
+  assert.match(publish, /gh api "repos\/\$CHANNEL_REPO\/releases\/latest"/)
+  assert.match(
+    releaseJobs.get('preflight'),
+    /promotion_provenance: \$\{\{ steps\.promotion\.outputs\.promotion_provenance \}\}/
+  )
+})
+
 test('the publish job runs no repository code: its steps are exactly these', () => {
   const publish = code(releaseJobs.get('publish'))
   const steps = [...publish.matchAll(/^ {6}- (name|uses): (.+)$/gm)].map((match) => match[2])
@@ -140,7 +172,7 @@ test('the publish job runs no repository code: its steps are exactly these', () 
     'Vet the tag',
     'Download the release files',
     'Check the release files',
-    'Make sure the channel repo has a commit',
+    'Check channel repository access',
     'Publish the release',
     'Verify the update manifest is public'
   ])
