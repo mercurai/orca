@@ -28,13 +28,14 @@ restore readiness and run the complete final matrix before promotion.
 | Tag object / peeled commit | 0360ad49840ab10d6493aa6c26c7d066d641eb95 / 86ad9d95cac792f3d1359d886cef9fb9b0aadd47                               |
 | Frozen main                | cbbaa2d7635297916ea257a0287cc4ec6c12af25;115commits/2738changedfiles beyond823ca687                               |
 | Source repair input        | 8218bf9d2151b448cc1f1eaa97fc28662d64890f, tree3658a8b6077f446c1a99bb69131a7457141fd9d0;14linearcommits after823ca |
-| Controller                 | remote9bd7897cb7c6e180a2a33ee8f22cff623c370af8;local manifest registers e4ecd68                                   |
+| Controller                 | remote9bd7897cb7c6e180a2a33ee8f22cff623c370af8;local manifest registers 94c7a483                                  |
 
 Owner for all three workspaces is this session, designated release owner by the user.
 
 - Active integration: C:/Users/svere/orca/worktrees/orca-upstream-integration-cbbaa-20261027,
-  branch patch/current-main-release-cbbaa. Local e4ecd68ded64715f23b2e6f6d8ae88bc809012b5, tree3ea66ad66d26a51527dfefb5f14d017ae1ae02b7;
-  reviewed squash composition over frozen main, committed but not yet pushed/qualified. Related preparationPR82.
+  branch patch/current-main-release-cbbaa. Local 94c7a483d3a318c09cbea0b8d58126503f2aab46, tree3d5970f8fce1d2b99be3c738a0f737702b71ec63;
+  reviewed squash composition plus service-level removal regressions over frozen main,
+  committed but not yet pushed/qualified. Related preparationPR82.
 - Recovery source: C:/Users/svere/orca/worktrees/orca-upstream-integration-823ca-20261026,
   branch patch/current-main-release-823ca. Its241floor is repair input, not publishing target.
 - Controller: C:/Users/svere/orca/worktrees/release-registration-20261023,
@@ -72,7 +73,9 @@ exports and timing, and introduce no framework. The intentional upstream disposi
 deletion is retained; genuine move-projection tests remain explicitly selected.
 
 Two additional regressions precede their fixes: raw UNC fingerprint access must not wake
-stopped WSL, and stale-createdAt removal must not report a replacement removed. Capture
+stopped WSL, and stale-createdAt removal must preserve the replacement registration,
+service status, wake intent and removal callbacks. Helper and service entrypoints are
+covered by real registration replacement and a held stop; no production fix is applied. Capture
 meaningful hosted RED, apply narrow fixes and require fresh GREEN. Materialize/register the
 new source/floor, complete exact-candidate full CI/review, then publish through the protected
 release mechanism and verify installed/runtime identity. No performance, installed

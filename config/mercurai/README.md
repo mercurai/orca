@@ -8,14 +8,15 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-27.
 The local preparation manifest selects official main
 `cbbaa2d7635297916ea257a0287cc4ec6c12af25` and stable floor `v1.4.242`
 (`86ad9d95cac792f3d1359d886cef9fb9b0aadd47`). Candidate
-`patch/current-main-release-cbbaa@e4ecd68ded64715f23b2e6f6d8ae88bc809012b5`,
-tree `3ea66ad66d26a51527dfefb5f14d017ae1ae02b7`, is one reviewed linear
-integration commit over that main. Shared push admission is busy; it is not
+`patch/current-main-release-cbbaa@94c7a483d3a318c09cbea0b8d58126503f2aab46`,
+tree `3d5970f8fce1d2b99be3c738a0f737702b71ec63`, contains the reviewed integration
+and service-level removal regression commit over that main. Shared push admission is busy; it is not
 remote or qualified. The manifest registers 255 unique existing test paths.
-Later main `c98a2d639c764b0146c5dc902a6185c114432a85` is queued after the freeze.
+Latest observed main `53e6a7d4a948ff7c9bed422c975807b113fbe63a` is queued after the freeze.
 
 Twelve semantic conflicts are resolved. New raw-UNC fingerprint and
-stale-registration removal tests intentionally precede their extra fixes; obtain
+stale-registration removal tests intentionally precede their extra fixes, including
+service status, wake-intent and removal-callback ownership; obtain
 hosted RED/GREEN, then complete the exact final matrix before promotion.
 The recovery source `8218bf9d21` passed
 [40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows

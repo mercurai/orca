@@ -14,10 +14,10 @@ the final inputs; preserve that identity through review, CI, tagging and publica
 
 - Official main snapshot: `cbbaa2d7635297916ea257a0287cc4ec6c12af25`.
 - Stable floor: `v1.4.242`, peeled `86ad9d95cac792f3d1359d886cef9fb9b0aadd47`.
-- Local candidate: `e4ecd68ded64715f23b2e6f6d8ae88bc809012b5`, branch
+- Local candidate: `94c7a483d3a318c09cbea0b8d58126503f2aab46`, branch
   `patch/current-main-release-cbbaa`.
-- Tree: `3ea66ad66d26a51527dfefb5f14d017ae1ae02b7`; one linear commit over main.
-- Later observed main `c98a2d639c764b0146c5dc902a6185c114432a85` is queued
+- Tree: `3d5970f8fce1d2b99be3c738a0f737702b71ec63`; two linear commits over main.
+- Later observed main `53e6a7d4a948ff7c9bed422c975807b113fbe63a` is queued
   after this freeze; report freshness as observed lag.
 
 This snapshot adds 115 official commits and 2,738 changed files beyond the previous
@@ -35,6 +35,8 @@ version through the canonical packaging override.
 - Combine official WSL pending-stop, kept-host and holder semantics with async
   persistence and current-owner checks after awaits. Raw UNC fingerprint access
   and stale-registration removal have explicit regressions before their extra fixes.
+  Service-level coverage requires a stale stop to preserve replacement status,
+  wake intent and removal callbacks; helper-only success is insufficient.
 - Preserve full qualification, authenticated owner acceptance of independent review,
   immutable assembly and monotonic publication. No partial run authorizes release.
 - Keep recurring automation disabled until the release and recovery rehearsals pass.
