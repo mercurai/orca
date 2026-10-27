@@ -44,7 +44,8 @@ Stable-only CI commit37331ade00 is classified: the macOS updater workflow is byt
 in242/main/candidate; all three removed browser-route refs are absent from main/candidate.
 Use ORCA_MERCURAI_BUILD_VERSION for release package metadata; preserve main dependencies.
 No suffix is reserved. Later arrivals stay queued after this freeze; report observed lag.
-Fresh official main c98a2d639c764b0146c5dc902a6185c114432a85 is queued after cbbaa.
+Latest observed official main 53e6a7d4a948ff7c9bed422c975807b113fbe63a supersedes
+the previously queued c98a2d639c764b0146c5dc902a6185c114432a85 after cbbaa.
 The local manifest registers 255 unique existing tests; no new generation CI is claimed.
 
 | Revision / hosted run           | Observed result                                                                                                |
@@ -87,8 +88,11 @@ not establish authoritative remote claims or crash recovery.
 Finish one trusted state writer with expected-parent updates, unconditional candidate/task/
 lease admission, exact writable scopes and intent before external CLI mutations. Reconcile
 actual run/task/dispatch receipts; ambiguous workers are unverifiable and never duplicated.
-new-child is supported; retry-request is not assumed idempotent. Reuse existing Orca CLI
-primitives. Durability requires state and receipts, not a permanently open chat.
+new-child is supported. Native caller-scoped mutation replay and atomic accepted
+Dispatch receipts already exist; prove first-call UUID preallocation in fixtures.
+Repair actual RPC-envelope parsing, required task specs and nonzero receipt handling.
+The inline trusted writer still lacks adapter claim/intent/receipt inputs. Reuse
+these existing primitives; durability requires state and receipts, not an open chat.
 
 After release, rehearse clean/conflict/offline/crash/duplicate recovery without publisher
 credentials, register the repository-targeted Orca automation disabled through its owner CLI,
