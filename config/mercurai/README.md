@@ -5,56 +5,37 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-27.
 
 ## Current candidate registration
 
-The preparation manifest freezes official main at
-`823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
-(`041baf356b368d773f333e76375ce860fba2481b`). The preparation patch
-`patch/current-main-release-823ca` is provisionally pinned to
-`ad46260b3da8929d0c1e13c49fd6d7a8577172a6`, twelve commits after that official
-ancestor, tree `4449d00fc7c51ffb00a733fbb57850f3f67091f6`. This latest pin is local; shared push admission is busy. PR
-[#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
+The local preparation manifest selects official main
+`cbbaa2d7635297916ea257a0287cc4ec6c12af25` and stable floor `v1.4.242`
+(`86ad9d95cac792f3d1359d886cef9fb9b0aadd47`). Candidate
+`patch/current-main-release-cbbaa@e4ecd68ded64715f23b2e6f6d8ae88bc809012b5`,
+tree `3ea66ad66d26a51527dfefb5f14d017ae1ae02b7`, is one reviewed linear
+integration commit over that main. Shared push admission is busy; it is not
+remote or qualified. The manifest registers 255 unique existing test paths.
+Later main `c98a2d639c764b0146c5dc902a6185c114432a85` is queued after the freeze.
 
-The initial baseline reproduced speed, WSL and journal integration defects.
-Source `065d0b6103` cleared all 99 Windows files: 1,349 tests passed and 16 skipped.
-Both deterministic cost jobs and 25 contracts passed. Source `6941c6cd4a` also
-passed real WSL, dependency isolation/typecheck, mobile bundle, lint, formatting
-and flaky-test ratchet checks; its full PR stopped at one duplicate-import warning.
-Source `d83942ea1a` passed all 99 Windows files again, both cost jobs and 25
-contracts. Its full PR [40447857412](https://github.com/mercurai/orca/actions/runs/40447857412)
-failed on two runtime-test type assertions. Independently reviewed `eba9a02316`
-replaces them with Zod response validation and a direct property-absence check.
-Source `eba9a02316` is pushed: targeted run
-[40453877785](https://github.com/mercurai/orca/actions/runs/40453877785) passed all
-1,349 Windows tests (16 skipped), both cost jobs and 25 contracts. Full source run
-[40453877833](https://github.com/mercurai/orca/actions/runs/40453877833) has passed
-static analysis/typecheck, changed-code quality, compatibility, real WSL and Windows
-packaging, but all five full unit shards failed (29 assertions) and fake-WSL
-E2E failed. The current `cd3e51b6c3` boundary adds reviewed regression coverage,
-fixture cleanup and CI-contract repairs; targeted
-[40466899243](https://github.com/mercurai/orca/actions/runs/40466899243) and full
-[40466899212](https://github.com/mercurai/orca/actions/runs/40466899212) failed.
-The former passed all 1,349 Windows tests (16 skipped) and both cost suites,
-but 99 Linux contract tests failed and persistence was skipped. Full CI stopped
-at the stale required-context guard. Reviewed local `ad46260b3d` corrects the
-synthetic contexts, real observer export and guard, and exposes persistence tests
-after earlier failures. Its wrapped push returned `TEST_SLOT=BUSY` before Git ran.
-Official `v1.4.242` and newer main are queued for an isolated next generation;
-this 241 preparation is retained as its repair source, not the publishing target.
-No earlier receipt qualifies this revision. The canonical build-version override
-must reconcile the stable floor and the reserved Mercurai version during packaging.
+Twelve semantic conflicts are resolved. New raw-UNC fingerprint and
+stale-registration removal tests intentionally precede their extra fixes; obtain
+hosted RED/GREEN, then complete the exact final matrix before promotion.
+The recovery source `8218bf9d21` passed
+[40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows
+tests passed, 16 skipped; both cost suites, 610 contracts and 143 persistence
+tests passed. Seven accepted repair blobs are byte-identical in this generation.
+Recovery PR [#82](https://github.com/mercurai/orca/pull/82) remains draft and
+preserved. It does not qualify the new source.
 
-The controller script suite passed 387 tests plus nine template checks at
-`92cb523b68`, but platform checks exposed incomplete dependencies from copying
-modern workflows onto an older checkout. The reviewed coherent controller merge
-now brings in the complete frozen official snapshot while preserving Mercurai
-policy/token boundaries. Its dedicated suite passed 387 Node tests and nine template checks at `38eb9af8b1`.
-The reviewed tag-only correction passed all 412 Node tests and nine template checks
-at `bbb2c308ad`, after reproducing 15 new routing failures. The manual-admission policy
-change and full controller matrix still require fresh exact-head CI. The fork lint pin follows
-that snapshot's lockfile version. The controller candidate enables manual promotion only through authenticated review,
-complete qualification and protected publication; its default landing remains gated
-by CI/review. Recurring coordination and local automation remain disabled.
-See the [authoritative plan](plans/2026-10-24-release-automation.md) for exact
-source/CI evidence, ownership and remaining rollout gates.
+Controller `9bd7897cb7` passed 412 Node tests plus nine template checks in
+[40470764646](https://github.com/mercurai/orca/actions/runs/40470764646). Proposed
+manual promotion retains authenticated review, complete qualification and
+protected publication; default landing and full exact-head gates remain open.
+Controller PR [#80](https://github.com/mercurai/orca/pull/80) is temporarily draft.
+Recurring coordination and local automation stay disabled and unregistered;
+trusted dispatcher claiming and crash recovery remain incomplete.
+
+No version suffix, tag, publication, installation or loaded-runtime acceptance is
+claimed. See the [242 draft notes](release-notes-v1.4.242.md) and
+[authoritative plan](plans/2026-10-24-release-automation.md). Preserve the superseded
+241 worktrees as recovery sources and use the existing version allocator.
 
 ## Branches
 

@@ -6,11 +6,11 @@ stability: draft
 
 # Mercurai release based on Orca 1.4.241
 
-Recovery/preparation draft only. Official 242 and newer main are queued as the
-next publishing target in the authoritative plan. Preserve this boundary as a
-patch source. No version suffix, qualified candidate, published package or loaded
-runtime is claimed. The release owner must reserve an unused `mercurai.N` version
-before final independent review and preserve it through qualification and tagging.
+Superseded preparation; this floor will not be published by the current plan.
+Retain the source worktree as recovery/patch input. Cumulative source8218bf9d21
+passed targeted40472710805, but the current publishing target is the
+[242 draft](release-notes-v1.4.242.md). No241version was reserved or published.
+The historical boundary below records an earlier preparation, not current state.
 
 ## Source boundary
 
@@ -19,7 +19,7 @@ before final independent review and preserve it through qualification and taggin
   `041baf356b368d773f333e76375ce860fba2481b`.
 - Provisional linear candidate: `ad46260b3da8929d0c1e13c49fd6d7a8577172a6`,
   [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `4449d00fc7c51ffb00a733fbb57850f3f67091f6`; reviewed CI correction is local after BUSY push admission; qualification pending.
+- Tree: `4449d00fc7c51ffb00a733fbb57850f3f67091f6`; historical baseline, superseded by source8218 and the242 draft.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its

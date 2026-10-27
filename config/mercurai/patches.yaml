@@ -3,22 +3,22 @@
 # Jobs act only on upstream-open and ours-only patches; planned entries document the series.
 # PREPARATION ONLY: the active entry below is provisional and must not be merged or used
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
-# Preparation candidate on frozen main 823ca687; stable floor v1.4.241.
+# Preparation candidate on frozen main cbbaa2d7; stable floor v1.4.242.
 # This remains a preparation candidate pending complete qualification.
 version: 1
 upstream: stablyai/orca
-base: 823ca6870fd46bc979ee073ee0731516a0607daa
-upstream_release_tag: v1.4.241
-upstream_release_sha: 041baf356b368d773f333e76375ce860fba2481b
+base: cbbaa2d7635297916ea257a0287cc4ec6c12af25
+upstream_release_tag: v1.4.242
+upstream_release_sha: 86ad9d95cac792f3d1359d886cef9fb9b0aadd47
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-823ca
-    branch: patch/current-main-release-823ca
+  - slug: current-main-release-cbbaa
+    branch: patch/current-main-release-cbbaa
     status: ours-only
-    base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: ad46260b3da8929d0c1e13c49fd6d7a8577172a6
+    base: cbbaa2d7635297916ea257a0287cc4ec6c12af25
+    commit: e4ecd68ded64715f23b2e6f6d8ae88bc809012b5
     owner: harness
-    added: 2026-10-25
+    added: 2026-10-27
     tests:
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
@@ -266,52 +266,35 @@ patches:
       - src/main/runtime/device-registry-file-read.test.ts
       - src/main/runtime/rpc/methods/agent-launch-at-rest.test.ts
       - src/renderer/src/components/tab-bar/cli-chat-resume-run.test.ts
-      - src/shared/wsl-move/wsl-move-dispositions.test.ts
       - tests/e2e/wsl-host-fake-transport.spec.ts
+      - src/main/ai-vault/runtime-session-search-lifetime.test.ts
+      - src/main/ipc/ai-vault-search.test.ts
+      - src/main/ipc/runtime-environments/runtime-environment-session-reconcile.test.ts
+      - src/main/ipc/worktrees/listing/detected-worktree-scan-listing-distro.test.ts
+      - src/main/runtime/runtime-rpc-device-key-dispatch.test.ts
+      - src/main/wsl/wsl-host-pending-removal.test.ts
+      - src/main/wsl/wsl-orphan-holder-release.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-state-projection-scope.test.ts
     notes: >-
-      Candidate ad46260b3da8929d0c1e13c49fd6d7a8577172a6 is twelve linear commits
-      after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      4449d00fc7c51ffb00a733fbb57850f3f67091f6. Source PR82 supersedes
-      historical PR79 preparation. Initial linear c777bcfc had the identical tree
-      as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
-      The frozen stable floor is v1.4.241, peeled commit
-      041baf356b368d773f333e76375ce860fba2481b; controlled Mercurai version
-      injection must reconcile its stable-only package metadata change.
-      Predecessor run40429242854 observed Windows1282pass/21fail/16skip, both
-      cost jobs passed, and25full-qualification contracts passed. This pin applies
-      the held/tier-only speed and WSL async/revocation repairs plus missing test
-      imports. Prior source918ee0ca run40432803045 observed Windows1304pass/2fail/16skip;
-      source3ddf run40436646873 cleared that to1317pass/16skip. FullPR40436716086
-      then exposed type/lint integration errors. Journal regression baseline03094fa
-      run40439842064 observed1340pass/8fail/16skip, including six intended new
-      journal-ordering failures and two existing idempotency failures. This pin adds
-      independently reviewed typing/lint repairs and awaited serialized journal intent
-      and acknowledgment updates. Source065d run40442414377 passed1349tests/16skip across99Windowsfiles, with
-      both cost jobs and 25 contracts green. Prior6941 fixed formatting in five files;
-      sourced839 combines two catalog imports and passed targeted40447857538:
-      1349Windows tests/16skip, both cost jobs and25contracts. Full40447857412
-      failed on two runtime-test type assertions. Currenteba9 replaces them with
-      Zod response validation and a direct property-absence check; independently
-      reviewed and scoped formatting passed. At eba9, targeted40453877785 passed
-      1349Windows tests/16skip and both cost jobs; full40453877833 passed static
-      checks but exposed29assertion failures across five unit shards plus fake-WSL
-      E2E and persistence cleanup errors. Current cd3e51 adds reviewed real-file
-      persistence regressions, awaited fixture cleanup and current Actions-expression
-      contracts. Production connector and port-CAS fixes are intentionally pending
-      hosted RED. At cd3e51, targeted40466899243 passed1349Windows tests/16skip
-      and both cost suites, but Linux contracts failed99tests (98missing-input fixture
-      errors, one real-child observer identity failure). Full40466899212 stopped at
-      the stale required-context guard. Independently reviewed ad46260 repairs those
-      contexts, instruments the real CJS leaf and aligns the exact guard expression;
-      the persistence step now runs despite earlier contract failure. Shared push
-      admission returnedBUSY, so this pin is local and unqualified; no pass claimed.
-      No prior receipt approves this pin. Independent bounded reviews accepted the
-      WSL, speed/model-binding and journal corrections; final qualification remains open.
-      Registered paths retain the predecessor union and new regressions.
-      CI-only preparation may use this pin. Manual admission in the controller remains
-      subject to fresh exact-revision CI/review before default landing, and authenticated
-      owner acceptance plus complete qualification before publication. Recurring automation stays off.
-      See release-notes-v1.4.241.md and plans/2026-10-24-release-automation.md.
+      Local preparation e4ecd68ded64715f23b2e6f6d8ae88bc809012b5 is one linear
+      commit after official main cbbaa2d7635297916ea257a0287cc4ec6c12af25,
+      tree3ea66ad66d26a51527dfefb5f14d017ae1ae02b7. Stable floor242 peels to
+      86ad9d95cac792f3d1359d886cef9fb9b0aadd47. Twelve conflicts were
+      independently reviewed as semantic unions; no wholesale side selection.
+      Seven accepted source8218 repair blobs are byte-identical; hosted40472710805
+      passed Windows1351tests/16skip, both cost jobs,610contracts and143persistence
+      tests at that recovery source, not this new candidate.
+      Current preparation contains intentional raw-UNC fingerprint and stale-createdAt
+      removal regressions before their narrow fixes; hosted RED/GREEN and complete
+      exact-candidate qualification/review are still required. Shared push admission
+      is busy; this pin is not remote or qualified. Controller9bd script412+9passed.
+      New official main c98a2d639c764b0146c5dc902a6185c114432a85 is queued
+      after the cbbaa freeze; no moving-main or current-runtime claim is made.
+      Release-only242 CI changes are already represented in frozen main; preserve
+      current dependencies and use the canonical build-version override.
+      Source/default landing, version allocation, tag, publication, installation and
+      runtime acceptance remain incomplete. Recurring automation stays disabled.
+      See release-notes-v1.4.242.md and the authoritative release automation plan.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.
