@@ -15,9 +15,9 @@ before final independent review and preserve it through qualification and taggin
 - Frozen official main: `823ca6870fd46bc979ee073ee0731516a0607daa`.
 - Stable floor: `v1.4.241`, peeled commit
   `041baf356b368d773f333e76375ce860fba2481b`.
-- Provisional linear candidate: `918ee0ca3148358d43f2cadb86ad259a6d298886`,
+- Provisional linear candidate: `3ddf868540ca44ec66809d486654810d8308a62c`,
   draft [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `913420edb70c9ca8b2e451ad2d2e6e25550bfbc7`; final review and qualification pending.
+- Tree: `f02149b7e71533d1b7eb01e72d4423e7c7185722`; final review and qualification pending.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its
@@ -41,9 +41,10 @@ must reconcile the stable floor explicitly before packaging.
 
 ## Release evidence required
 
-1. Finish the saved-model binding correction and register the final linear
-   candidate on the frozen main. The latest targeted run passed 1,304 tests,
-   failed two saved-model cases and skipped 16; it does not qualify the release.
+1. Verify the independently reviewed saved-model binding correction in fresh CI.
+   The previous source passed 1,304 tests, failed two saved-model cases and skipped
+   16; current run40436646873 and full PR CI are pending. Neither source registration
+   nor independent source review alone qualifies the release.
 2. Pass targeted behavioral checks and the complete required matrix at the exact
    candidate, including every planned unit/layout shard. Record advisory results
    separately; Windows D7 is outside the required layout call.

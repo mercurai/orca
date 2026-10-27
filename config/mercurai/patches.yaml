@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: 918ee0ca3148358d43f2cadb86ad259a6d298886
+    commit: 3ddf868540ca44ec66809d486654810d8308a62c
     owner: harness
     added: 2026-10-25
     tests:
@@ -250,9 +250,9 @@ patches:
       - src/shared/native-chat-session-option-defaults.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
     notes: >-
-      Candidate 918ee0ca3148358d43f2cadb86ad259a6d298886 is two linear commits
+      Candidate 3ddf868540ca44ec66809d486654810d8308a62c is three linear commits
       after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      913420edb70c9ca8b2e451ad2d2e6e25550bfbc7. Source draft PR82 supersedes
+      f02149b7e71533d1b7eb01e72d4423e7c7185722. Source PR82 supersedes
       historical PR79 preparation. Initial linear c777bcfc had the identical tree
       as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
       The frozen stable floor is v1.4.241, peeled commit
@@ -261,11 +261,11 @@ patches:
       Predecessor run40429242854 observed Windows1282pass/21fail/16skip, both
       cost jobs passed, and25full-qualification contracts passed. This pin applies
       the held/tier-only speed and WSL async/revocation repairs plus missing test
-      imports. Targeted run40432803045 at its exact SHA observed Windows1304pass/2fail/16skip;
-      both cost jobs succeeded. The two unlisted saved-model binding cases remain RED
-      and their source correction still needs independent review and fresh CI.
+      imports. Prior source918ee0ca run40432803045 observed Windows1304pass/2fail/16skip;
+      both cost jobs succeeded. This pin adds independently reviewed saved-model and
+      requested-speed metadata corrections; run40436646873 and full PR CI are pending.
       No prior receipt approves this pin. Independent source reviews accepted the
-      WSL and release-boundary corrections; the unlisted-model issue remains open.
+      WSL, release-boundary and unlisted-model corrections; final qualification remains open.
       Registered paths retain the predecessor union and new regressions.
       CI-only preparation may use this pin; admission/publication remains disabled
       until final corrections, exact-revision review and complete qualification pass.

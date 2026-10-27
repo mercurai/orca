@@ -9,8 +9,8 @@ The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
 (`041baf356b368d773f333e76375ce860fba2481b`). The remote patch
 `patch/current-main-release-823ca` is provisionally pinned to
-`918ee0ca3148358d43f2cadb86ad259a6d298886`, two commits after that official
-ancestor, tree `913420edb70c9ca8b2e451ad2d2e6e25550bfbc7`. Draft
+`3ddf868540ca44ec66809d486654810d8308a62c`, three commits after that official
+ancestor, tree `f02149b7e71533d1b7eb01e72d4423e7c7185722`. PR
 [#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
 The initial `c777bcfc` baseline reproduced the reviewed defects in hosted
@@ -19,7 +19,8 @@ passed, 21 failed and 16 skipped on Windows. Both cost jobs and all 25
 full-qualification contracts passed. Current source applies the speed and WSL
 repairs; [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045)
 completed with 1,304 passed, two failed and 16 skipped. The two saved-model
-binding failures remain under correction. These are
+binding corrections passed independent review at `3ddf868540`; fresh targeted run
+[40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) and full PR CI are pending. These are
 preparation pins, not release approval. Controlled package-version injection
 must reconcile the stable floor explicitly.
 

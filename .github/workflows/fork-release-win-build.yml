@@ -734,7 +734,7 @@ jobs:
           authorize_publication() {
             jq -e --arg repository "$GH_REPO" --arg controller "$GITHUB_SHA" '
               def positive: type == "number" and . > 0 and . == floor and . <= 9007199254740991;
-              . as $provenance | .review.authentication as $auth
+              (.) as $provenance | .review.authentication as $auth
               | .sourceRepository == $repository and $auth.repository == $repository
                 and $auth.controllerSha == $controller and .candidate.controllerSha == $controller
                 and $auth.workflowPath == ".github/workflows/fork-accept-release-review.yml"
@@ -780,7 +780,7 @@ jobs:
             gh api "repos/$GH_REPO/actions/runs/$review_run" > "$work/review-run.json" \
               || refuse 'owner review run authorization read failed'
             jq -e --slurpfile expected "$expected" --arg branch "$branch" '
-              . as $run | $expected[0].review.authentication as $auth
+              (.) as $run | $expected[0].review.authentication as $auth
               | .id == $auth.runId and .workflow_id == $auth.workflowId and .run_attempt == $auth.attempt
                 and .repository.full_name == $auth.repository and .event == "workflow_dispatch"
                 and .head_branch == $branch and .head_sha == $auth.controllerSha
@@ -795,7 +795,7 @@ jobs:
             gh api "repos/$GH_REPO/actions/runs/$qualification_run" > "$work/qualification-run.json" \
               || refuse 'qualification run authorization read failed'
             jq -e --slurpfile expected "$expected" --arg branch "$branch" '
-              . as $run | $expected[0] as $provenance | $provenance.qualification as $qualification
+              (.) as $run | $expected[0] as $provenance | $provenance.qualification as $qualification
               | .id == $qualification.runId and .workflow_id == $qualification.workflowId
                 and .run_attempt == $qualification.attempt
                 and .repository.full_name == $provenance.sourceRepository and .event == "workflow_dispatch"

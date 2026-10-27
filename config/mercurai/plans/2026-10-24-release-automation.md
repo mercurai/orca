@@ -64,15 +64,15 @@ Evidence below records the last completed inspections and hosted runs, rather th
 GitHub read during the fleet quiet order. No source or controller landing, tag, package publication,
 installation, runtime acceptance, or schedule activation is complete.
 
-| Item                                             | Last verified identity or status                                                                                                                                                                                                        |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Official main, inspected 2026-10-26 23:30:54 UTC | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                                                                              |
-| Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                              |
-| Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                                  |
-| Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                                         |
-| New linear candidate                             | `patch/current-main-release-823ca@918ee0ca3148358d43f2cadb86ad259a6d298886`, draft [#82](https://github.com/mercurai/orca/pull/82); targeted run [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045) completed RED |
-| Controller preparation                           | `codex/release-registration-20261023@ea3a3b9a1681fa0ebb895c0a8940e8d17b9e6b7b`, PR [#80](https://github.com/mercurai/orca/pull/80); correction and current evidence below                                                               |
-| Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                                        |
+| Item                                             | Last verified identity or status                                                                                                                                                                                            |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Official main, inspected 2026-10-26 23:30:54 UTC | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                                                                  |
+| Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                  |
+| Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                      |
+| Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                             |
+| New linear candidate                             | `patch/current-main-release-823ca@3ddf868540ca44ec66809d486654810d8308a62c`, [#82](https://github.com/mercurai/orca/pull/82); targeted run [40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) pending |
+| Controller preparation                           | `codex/release-registration-20261023@ea3a3b9a1681fa0ebb895c0a8940e8d17b9e6b7b`, PR [#80](https://github.com/mercurai/orca/pull/80); correction and current evidence below                                                   |
+| Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                            |
 
 Official main adds 91 commits beyond `98690db2ab1d53d7e67eae296dc061c000c2ea2f`.
 The new merge produced 21 content conflicts. All conflict contents are resolved and committed as
@@ -98,21 +98,22 @@ recovery alongside fork exact tiers, async persistence and host fences.
 | `c777bcfc`, [40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) | Windows: 97 files, 1,282 passed, 21 failed, 16 skipped. Twenty product regressions and one extraction import error. Linux costs: 237 passed; Windows: 232 passed, five skipped. Qualification contracts: 25 passed. |
 | `918ee0ca`, [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045) | Windows: 95 files passed, two failed; 1,304 tests passed, two failed, 16 skipped. Both cost jobs succeeded. Only saved unlisted-model binding cases remain RED.                                                     |
 
-Current source `918ee0ca3148358d43f2cadb86ad259a6d298886`, tree
-`913420edb70c9ca8b2e451ad2d2e6e25550bfbc7`, has two linear commits after the frozen base.
+Current source `3ddf868540ca44ec66809d486654810d8308a62c`, tree
+`f02149b7e71533d1b7eb01e72d4423e7c7185722`, has three linear commits after the frozen base.
 The WSL correction serializes complete bounded async focus writes, drains them on quit, revokes pending
 intent on disable/removal, preserves unrelated pending hosts, and fences post-await reconnects by owner
 and generation. Independent review accepted it. Startup reads and immediate revocation retain bounded
 synchronous operations; no measured UI latency or memory improvement is claimed.
 
 Speed corrections preserve newer held legacy choices and explicit Standard over a saved paid tier.
-A follow-up defect remains: tier-only intent can replace an unlisted saved model A with catalog default B.
-The five-file working correction preserves A and its explicit speed in picker/send projection without
+The follow-up saved-model defect reproduced at 918ee0ca: tier-only intent could replace A with default B.
+The five-file committed correction preserves A and its explicit speed in picker/send projection without
 borrowing B's paid-tier metadata. Unknown support, loading and older-host restrictions must remain explicit.
 Shared and modern/legacy launch fixtures cover saved Standard and absent saved tier. Independent review
 requested accurate requested-tier and unknown/loading/processing metadata on the new synthetic control.
-That bounded correction is in progress. Final review
-and fresh hosted GREEN remain required; no installed-app acceptance is claimed.
+That bounded correction passed independent review. Fresh targeted run
+[40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) and full PR CI are pending;
+no installed-app acceptance is claimed.
 
 The provisional manifest pins this committed source and 229 test paths. Replace the pin only after the
 final source commit; source branch-head drift must fail assembly. Full required CI, version reservation,
@@ -130,7 +131,10 @@ current revision is not qualified:
 | `042e72b2`, [40431480557](https://github.com/mercurai/orca/actions/runs/40431480557) | Lint and series passed. Node: 360 passed, 19 failed; freshness and stale fetch-context regressions reproduced.                                                 |
 | `ea3a3b9a`, [40433980109](https://github.com/mercurai/orca/actions/runs/40433980109) | Node: 380 passed, one failed. Interpreter guard matches the word source in a temporary filename/error message. Template integration did not run after failure. |
 
-The publisher working correction renames those strings without weakening the guard. All behavioral
+The first correction at `dea4ea9227` cleared that match; run
+[40436428172](https://github.com/mercurai/orca/actions/runs/40436428172) again passed 380/381 Node tests.
+The guard next matched valid jq identity bindings as shell sourcing. The independently reviewed
+follow-up parenthesizes those identity filters without changing predicates or weakening the guard. All behavioral
 publication freshness and reused-destination fetch cases passed in the latter run. Complete controller
 GREEN still requires a fresh commit/run. Default `c5f11af2` is an ancestor of `ea3a3b9a`; the manifest-only
 merge exactly preserved reviewed correction tree `77b0e5ed37aba1681d6f6174a40d36b06b973496`.
