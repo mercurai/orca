@@ -168,20 +168,16 @@ export async function writeEnvironmentStoreAsync(
     if (onDisk.blankFile) {
       await backUpBlankEnvironmentStoreAsync(path, canPublish)
     }
-    await writeSecureFileAsync(
-      path,
-      serialized,
-      {
-        durable: true,
-        shouldPublish: () => {
-          if (!canPublish()) {
-            return false
-          }
-          bumpEnvironmentWriteGeneration()
-          return true
+    await writeSecureFileAsync(path, serialized, {
+      durable: true,
+      shouldPublish: () => {
+        if (!canPublish()) {
+          return false
         }
+        bumpEnvironmentWriteGeneration()
+        return true
       }
-    )
+    })
   } catch (error) {
     if (error instanceof JsonStringifyByteLimitError) {
       throw new RuntimeEnvironmentStoreError(

@@ -99,56 +99,62 @@ async function saveEnvironmentFromPairingCode(
 ): Promise<AddEnvironmentOutcome> {
   const offer = parseRemotePairingCode(userDataPath, args.pairingCode)
   const now = args.now ?? Date.now()
-  return mutateEnvironmentStore<AddEnvironmentOutcome>(userDataPath, (store) => {
-    const samePersisted = findEnvironmentWithHostKey(store.environments, offer.publicKeyB64)
-    // Why the overlaid entry: SSH access or a deployment lives only there, and the guard reads it.
-    const samePaired =
-      samePersisted &&
-      readEnvironmentStore(userDataPath).environments.find((entry) => entry.id === samePersisted.id)
-    if (samePersisted && !samePaired) {
-      throw new RuntimeEnvironmentStoreError(
-        'invalid_argument',
-        `This server is already paired as "${samePersisted.name}", whose saved settings this version of Orca cannot read.`
-      )
-    }
-    if (samePaired) {
-      assertPairingReplaceableByAdd(samePaired, args.source, refreshSameServer)
-      const sameSpelling = { ...offer, publicKeyB64: savedHostKeySpelling(samePaired, offer) }
-      const environment = replaceEnvironmentPairingInStore(store, samePaired.id, sameSpelling, {
-        now,
-        runtimeId: args.runtimeId,
-        connectionDependency: args.connectionDependency
-      })
-      return {
-        store: withReplacedEnvironment(store, environment),
-        result: { environment, updatedExisting: true }
+  return mutateEnvironmentStore<AddEnvironmentOutcome>(
+    userDataPath,
+    (store) => {
+      const samePersisted = findEnvironmentWithHostKey(store.environments, offer.publicKeyB64)
+      // Why the overlaid entry: SSH access or a deployment lives only there, and the guard reads it.
+      const samePaired =
+        samePersisted &&
+        readEnvironmentStore(userDataPath).environments.find(
+          (entry) => entry.id === samePersisted.id
+        )
+      if (samePersisted && !samePaired) {
+        throw new RuntimeEnvironmentStoreError(
+          'invalid_argument',
+          `This server is already paired as "${samePersisted.name}", whose saved settings this version of Orca cannot read.`
+        )
       }
-    }
-    const existing = findCollidingEnvironmentName(store.environments, args.name)
-    if (existing) {
-      throw new RuntimeEnvironmentStoreError(
-        'invalid_argument',
-        `A server named "${existing.name}" already exists.`
-      )
-    }
-    const environment = createEnvironmentFromPairingOffer({
-      id: randomUUID(),
-      name: args.name,
-      now,
-      offer,
-      runtimeId: null,
-      ...(args.source ? { source: args.source } : {}),
-      ...getPairingConnectionDependency(args.connectionDependency, offer)
-    })
-    const next = {
-      version: 1 as const,
-      environments: [
-        ...store.environments.filter((entry) => entry.id !== environment.id),
-        environment
-      ].sort((a, b) => a.name.localeCompare(b.name))
-    }
-    return { store: next, result: { environment, updatedExisting: false } }
-  }, { recoverBlankStore: true })
+      if (samePaired) {
+        assertPairingReplaceableByAdd(samePaired, args.source, refreshSameServer)
+        const sameSpelling = { ...offer, publicKeyB64: savedHostKeySpelling(samePaired, offer) }
+        const environment = replaceEnvironmentPairingInStore(store, samePaired.id, sameSpelling, {
+          now,
+          runtimeId: args.runtimeId,
+          connectionDependency: args.connectionDependency
+        })
+        return {
+          store: withReplacedEnvironment(store, environment),
+          result: { environment, updatedExisting: true }
+        }
+      }
+      const existing = findCollidingEnvironmentName(store.environments, args.name)
+      if (existing) {
+        throw new RuntimeEnvironmentStoreError(
+          'invalid_argument',
+          `A server named "${existing.name}" already exists.`
+        )
+      }
+      const environment = createEnvironmentFromPairingOffer({
+        id: randomUUID(),
+        name: args.name,
+        now,
+        offer,
+        runtimeId: null,
+        ...(args.source ? { source: args.source } : {}),
+        ...getPairingConnectionDependency(args.connectionDependency, offer)
+      })
+      const next = {
+        version: 1 as const,
+        environments: [
+          ...store.environments.filter((entry) => entry.id !== environment.id),
+          environment
+        ].sort((a, b) => a.name.localeCompare(b.name))
+      }
+      return { store: next, result: { environment, updatedExisting: false } }
+    },
+    { recoverBlankStore: true }
+  )
 }
 
 function parseRemotePairingCode(userDataPath: string, pairingCode: string): PairingOffer {

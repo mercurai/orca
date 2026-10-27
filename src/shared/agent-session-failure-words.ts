@@ -267,7 +267,6 @@ export function agentSessionFailureSentence(
   return sentence(context, fact, surface, say)
 }
 
-
 /** The words a status row reporting this fact records. */
 export function agentSessionFailureWords(
   fact: AgentSessionFailureFact,

@@ -76,46 +76,49 @@ describe('runProcessOnWorker', () => {
     expect(onChildTerminated).toHaveBeenCalledOnce()
   })
 
-  it.each([false, true])('revives cloned stderr bytes with stdout capture %s', async (captureBytes) => {
-    const { table, sent } = createTable()
-    const stderrBytes = Buffer.from([0xff, 0x00, ...Buffer.from('m=4242\n')])
-    const pending = runProcessOnWorker(
-      table,
-      { program: 'wsl.exe', captureStdoutAsBytes: captureBytes, captureStderrAsBytes: true },
-      'head',
-      () => Promise.resolve(LOCAL_RESULT)
-    )
-    expect(sent[0]).toMatchObject({
-      spec: { captureStdoutAsBytes: captureBytes, captureStderrAsBytes: true }
-    })
-    table.handle(
-      structuredClone({
-        type: 'run-result' as const,
-        id: 1,
-        error: null,
-        result: {
-          code: 1,
-          signal: null,
-          stdout: '',
-          stderr: '',
-          timedOut: false,
-          stderrBytes,
-          ...(captureBytes ? { stdoutBytes: Buffer.from([0x01, 0xfe]) } : {})
-        }
+  it.each([false, true])(
+    'revives cloned stderr bytes with stdout capture %s',
+    async (captureBytes) => {
+      const { table, sent } = createTable()
+      const stderrBytes = Buffer.from([0xff, 0x00, ...Buffer.from('m=4242\n')])
+      const pending = runProcessOnWorker(
+        table,
+        { program: 'wsl.exe', captureStdoutAsBytes: captureBytes, captureStderrAsBytes: true },
+        'head',
+        () => Promise.resolve(LOCAL_RESULT)
+      )
+      expect(sent[0]).toMatchObject({
+        spec: { captureStdoutAsBytes: captureBytes, captureStderrAsBytes: true }
       })
-    )
-    table.handle({ type: 'run-terminated', id: 1 })
-    const result = await pending
-    expect(Buffer.isBuffer(result?.stderrBytes)).toBe(true)
-    expect(result?.stderrBytes).toEqual(stderrBytes)
-    expect(result?.stderrBytes?.toString('latin1')).toBe('\u00ff\u0000m=4242\n')
-    if (captureBytes) {
-      expect(Buffer.isBuffer(result?.stdoutBytes)).toBe(true)
-      expect(result?.stdoutBytes).toEqual(Buffer.from([0x01, 0xfe]))
-    } else {
-      expect(result).not.toHaveProperty('stdoutBytes')
+      table.handle(
+        structuredClone({
+          type: 'run-result' as const,
+          id: 1,
+          error: null,
+          result: {
+            code: 1,
+            signal: null,
+            stdout: '',
+            stderr: '',
+            timedOut: false,
+            stderrBytes,
+            ...(captureBytes ? { stdoutBytes: Buffer.from([0x01, 0xfe]) } : {})
+          }
+        })
+      )
+      table.handle({ type: 'run-terminated', id: 1 })
+      const result = await pending
+      expect(Buffer.isBuffer(result?.stderrBytes)).toBe(true)
+      expect(result?.stderrBytes).toEqual(stderrBytes)
+      expect(result?.stderrBytes?.toString('latin1')).toBe('\u00ff\u0000m=4242\n')
+      if (captureBytes) {
+        expect(Buffer.isBuffer(result?.stdoutBytes)).toBe(true)
+        expect(result?.stdoutBytes).toEqual(Buffer.from([0x01, 0xfe]))
+      } else {
+        expect(result).not.toHaveProperty('stdoutBytes')
+      }
     }
-  })
+  )
 
   it('keeps a spec in-process when it holds a stdio layout or a barrier that cannot be rebuilt', () => {
     const { table, sent } = createTable()

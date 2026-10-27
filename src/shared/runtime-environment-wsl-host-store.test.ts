@@ -178,7 +178,9 @@ describe('WSL host environment store', () => {
       record,
       now: 100
     })
-    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.pairingPublicKeyB64).toBe(publicKeyB64)
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.pairingPublicKeyB64).toBe(
+      publicKeyB64
+    )
     const rotatedKey = Buffer.alloc(32, 9).toString('base64')
     const refreshed = await refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
       pairingCode: encodePairingOffer({
