@@ -19,7 +19,7 @@ const customMessage = z.object({
     details: z.unknown()
   })
 })
-const readyTools = ['harness_create', 'harness_read', 'harness_search', 'harness_write']
+const readyTools = ['harness_create', 'harness_read', 'harness_search', 'harness_write', 'harness_report']
 
 function sameHostPath(actual: string, expected: string): boolean {
   if (!isAbsolute(actual) || !isAbsolute(expected)) return false
