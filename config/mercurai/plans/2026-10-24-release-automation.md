@@ -78,15 +78,15 @@ Audited 2026-10-27. No default landing, version reservation, final qualification
 publication, installation, loaded-runtime acceptance or recurring activation is complete.
 Later upstream arrivals belong to a subsequent queued target; do not chase moving main during qualification.
 
-| Input or lane        | Current record                                                                                                                                                                                              |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frozen official main | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                                                  |
-| Stable floor         | `v1.4.241`, peeled `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                               |
-| Product source       | `patch/current-main-release-823ca@eba9a02316ac3dcb9056085aad9ab438af45aa35`, [#82](https://github.com/mercurai/orca/pull/82)                                                                                |
-| Controller           | `codex/release-registration-20261023@1963269057c7cedd87d052c05f2073c31e1b6d42`, draft [#80](https://github.com/mercurai/orca/pull/80); tag-only production correction independently accepted; GREEN pending |
-| Admission            | `promotionEnabled: false`; recurring coordinator remains off                                                                                                                                                |
+| Input or lane        | Current record                                                                                                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen official main | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                              |
+| Stable floor         | `v1.4.241`, peeled `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                           |
+| Product source       | `patch/current-main-release-823ca@eba9a02316ac3dcb9056085aad9ab438af45aa35`, [#82](https://github.com/mercurai/orca/pull/82)                                                            |
+| Controller           | `codex/release-registration-20261023`, [#80](https://github.com/mercurai/orca/pull/80), ready for review; manual-admission policy correction over tested `bbb2c308ad` requires fresh CI |
+| Admission            | Candidate sets `promotionEnabled: true` for protected manual admission after CI/review-gated landing; recurring coordinator remains off                                                 |
 
-Source has nine linear commits (the latest is local pending the shared push slot) after the frozen base, tree
+Pushed source has nine linear commits after the frozen base, tree
 `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`. The manifest registers 231 unique existing tests, including the retained runtime WebSocket regressions.
 Stable is not an ancestor of main: its sole stable-only change is package version metadata. Its functional
 parent is already included. The canonical release build binds `ORCA_MERCURAI_BUILD_VERSION` to the
@@ -114,7 +114,12 @@ passed 1,349 Windows tests (16 skipped), both cost jobs and 25 contracts. Full P
 [40447857412](https://github.com/mercurai/orca/actions/runs/40447857412) failed on two
 runtime-test type assertions. Independently reviewed `eba9a02316` replaces them with
 Zod response validation and a direct property-absence assertion; scoped formatting passed.
-The shared wrapper returned `TEST_SLOT=BUSY` before starting its push. Fresh exact-head CI is required.
+After shared-slot admission, exact `eba9a02316` targeted
+[40453877785](https://github.com/mercurai/orca/actions/runs/40453877785) passed all 99 Windows files:
+1,349 passed, 16 skipped; both cost jobs and 25 contracts passed. Full source
+[40453877833](https://github.com/mercurai/orca/actions/runs/40453877833) passed static analysis/typecheck,
+changed-code quality, dependency isolation, mobile bundle, compatibility, real WSL and Windows packaging.
+Full unit/layout and remaining contract jobs are pending; no full qualification receipt exists.
 No prior receipt qualifies it. Wait for draft-sync runs before marking ready to avoid stale event cancellation.
 
 A bounded audit covered 37 explicit async conversions and 16 Promise-returning store/journal APIs against
@@ -136,13 +141,24 @@ logic were preserved. Dedicated [40443210863](https://github.com/mercurai/orca/a
 passed 387 Node tests and nine modern-template checks, zero failures/skips. Whole-controller static
 formatting passed 38,447 files with two threads at the next test baseline; local builds/tests remain CI-only.
 
-Assembly requires the stable floor tag mirrored in the fork. It is currently absent. Existing approved-tag
-mirroring also rebases patches, which would omit frozen-main changes. The bounded manual tag-only correction
-is specified below. Test baseline `1963269057` passed 397 of 412 Node tests and failed 15 new mode/routing
-assertions in both [40447259196](https://github.com/mercurai/orca/actions/runs/40447259196) and
-[40447276087](https://github.com/mercurai/orca/actions/runs/40447276087). All 387 earlier tests and ten new
-controls/helper cases passed. The production workflow passed independent review; five existing structural
-expectations add the normal-mode guard without removing prior predicates. Complete GREEN is still required.
+Assembly requires the stable floor tag mirrored in the fork; it is currently absent.
+Existing approved-tag mirroring also rebases patches, which would omit frozen-main changes.
+The bounded tag-only correction reproduced 15 new mode/routing failures at `1963269057`
+in [40447259196](https://github.com/mercurai/orca/actions/runs/40447259196) and
+[40447276087](https://github.com/mercurai/orca/actions/runs/40447276087): 397 passed, 15 failed.
+Independent review accepted the production workflow and preserved structural guards.
+Exact `bbb2c308ad` then passed all 412 Node tests plus nine modern-template checks in
+[40453921765](https://github.com/mercurai/orca/actions/runs/40453921765), with zero failures/skips.
+PR #80 was marked ready only after that GREEN and its draft synchronization run settled.
+
+The current branch correction enables `promotionEnabled` for the protected manual path,
+because a disabled policy also blocks final qualification. This is an unlanded candidate
+configuration change, not production admission or a qualification waiver. Independent
+pre-change review confirmed all owner, exact-receipt, immutable composition and publisher
+gates remain mandatory; fresh exact-head review/CI must pass before default landing.
+The policy hash changes, so create owner intake only against the final landed controller
+and policy; reuse no earlier receipt. GitHub's coordinator opt-in is absent (404), and the
+local automation definition remains disabled. No recurring rollout is included in this switch.
 
 Owner intake authenticates account-controlled acceptance of an independent review, binding candidate,
 controller, manifest, policy, version and upstream/series identity to both GitHub actors, current attempt,
@@ -165,7 +181,8 @@ Artifact `12711056716` is a dry-run installer ZIP (194,244,233 bytes), SHA-256
 `f524a5368655fefa67ab8db78dd3d8071dfd39472f101616a7a7562bfb284738`.
 The label is not reserved, and dry admission is not full qualification.
 Real publication and installed-runtime evidence are unperformed.
-Promotion is disabled; recurring activation remains off. No Mercurai version suffix is reserved.
+Manual promotion is enabled only in the unlanded controller candidate; all release gates remain required.
+Recurring activation remains off. No Mercurai version suffix is reserved.
 See the [release-note draft](../release-notes-v1.4.241.md) for remaining native/account/server evidence.
 
 ## Requirements and acceptance criteria
@@ -218,7 +235,7 @@ existing pinned-tag mirror may write: skip main/bulk-tag/branch/default merges, 
 issue-writing side effects. Preserve schedule, dry-run, protected-default-branch and token boundaries;
 normal mode retains existing behavior. Test actual workflow routing plus invalid-mode refusal in hosted
 RED/GREEN, independently review, and update the existing runbook. This is a prerequisite for this release's
-stable floor, not activation of the recurring coordinator. Promotion remains disabled.
+stable floor, not activation of the recurring coordinator. Production promotion remains disabled until reviewed, CI-gated default landing.
 
 ### Candidate identity and evidence
 
@@ -502,7 +519,7 @@ earlier overlap count. Tasks are bounded per session, and the first release does
   and `src/main/automations/headless-dispatch-runner.ts`.
 
 The completion audit above records exact hosted evidence. Historical passing runs qualify only their
-own revisions. Full source CI and complete controller tag-only GREEN remain outstanding. No release tag,
+own revisions. Full source CI and fresh complete controller CI at the manual-admission revision remain outstanding. No release tag,
 package publication, installation, loaded-runtime acceptance or schedule enablement has occurred.
 Next complete those exact-head checks, then land the reviewed controller through PR #80 and continue
 immutable candidate/version/intake/full-qualification/release gates.

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "promotionEnabled": false,
+  "promotionEnabled": true,
   "workflow": "fork-qualify-release.yml",
   "requiredJobs": [
     {

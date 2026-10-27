@@ -66,14 +66,16 @@ and an attempt limit, so a resumed agent cannot silently expand its scope.
 
 ## Promotion boundary
 
-The proposed controller's `release-policy.json` sets `promotionEnabled: false`.
-Assembly checks the boolean before release-ref mutation, qualification refuses
-to issue a receipt, and the trusted publisher verifier rejects promotion while
-that policy remains disabled. This contains the current audit findings; it does
-not resolve the incomplete verification matrix, review authentication,
-qualification correlation, or immutable monotonic publication requirements.
-Those gates need implementation, independent review, and CI before admission
-can be enabled. Older controller revisions are outside this proposed guard.
+The reviewed controller candidate sets `promotionEnabled: true` to admit the
+owner-controlled qualification and promotion path after default-branch landing.
+This switch removes the audit containment veto; it does not replace authenticated
+independent-review acceptance, complete exact-candidate qualification, immutable
+composition, or monotonic publication. Fresh exact-head CI and independent review
+remain required before this controller lands. No candidate is qualified or released
+by enabling this switch. Owner intake must be created against the final landed
+controller and policy hash; records from the disabled policy cannot be reused.
+Recurring GitHub coordination and local Orca automation remain separately disabled.
+Older controller revisions are outside this proposed guard.
 
 The proposed assembly separates five jobs: candidate tests, read-only owner-review
 admission, credentialed push/dispatch, read-only qualification verification, and
@@ -85,9 +87,11 @@ the read-only job compares the downloaded receipt against external candidate,
 tree, controller, manifest, policy, version, ordered series, and dispatch IDs.
 The tag job rechecks refs and the successful run attempt, then explicitly tags
 the verified candidate commit. Neither credentialed job executes Node or
-candidate code. Independent review accepted this correction; controller run
-40404591475 passed 222 Node tests and nine modern-template integration tests.
-A hosted end-to-end assembly rehearsal remains pending, and admission is false.
+candidate code. Independent review accepted these boundaries. Before the manual-admission change,
+controller `bbb2c308ad` passed all 412 Node tests and nine modern-template checks
+in [40453921765](https://github.com/mercurai/orca/actions/runs/40453921765).
+The enabled-policy revision requires fresh CI; full qualification, publication and
+a hosted end-to-end assembly rehearsal remain pending.
 
 The local intake and validators now bind authenticated owner and rerun actors to
 complete candidate/controller/upstream identity and an exact artifact digest.

@@ -7,7 +7,7 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-27.
 
 The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
-(`041baf356b368d773f333e76375ce860fba2481b`). The patch
+(`041baf356b368d773f333e76375ce860fba2481b`). The pushed patch
 `patch/current-main-release-823ca` is provisionally pinned to
 `eba9a02316ac3dcb9056085aad9ab438af45aa35`, nine commits after that official
 ancestor, tree `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`. PR
@@ -22,7 +22,12 @@ Source `d83942ea1a` passed all 99 Windows files again, both cost jobs and 25
 contracts. Its full PR [40447857412](https://github.com/mercurai/orca/actions/runs/40447857412)
 failed on two runtime-test type assertions. Independently reviewed `eba9a02316`
 replaces them with Zod response validation and a direct property-absence check.
-This source commit is local pending the shared push slot; fresh CI remains required.
+Source `eba9a02316` is pushed: targeted run
+[40453877785](https://github.com/mercurai/orca/actions/runs/40453877785) passed all
+1,349 Windows tests (16 skipped), both cost jobs and 25 contracts. Full source run
+[40453877833](https://github.com/mercurai/orca/actions/runs/40453877833) has passed
+static analysis/typecheck, changed-code quality, compatibility, real WSL and Windows
+packaging; remaining required jobs are pending.
 No earlier receipt qualifies this revision. The canonical build-version override
 must reconcile the stable floor and the reserved Mercurai version during packaging.
 
@@ -31,9 +36,12 @@ The controller script suite passed 387 tests plus nine template checks at
 modern workflows onto an older checkout. The reviewed coherent controller merge
 now brings in the complete frozen official snapshot while preserving Mercurai
 policy/token boundaries. Its dedicated suite passed 387 Node tests and nine template checks at `38eb9af8b1`.
-The reviewed tag-only addition has an expected RED baseline (397 passed, 15 failed);
-complete GREEN and full controller CI remain required. The fork lint pin follows
-that snapshot's lockfile version. Promotion and recurring activation remain disabled.
+The reviewed tag-only correction passed all 412 Node tests and nine template checks
+at `bbb2c308ad`, after reproducing 15 new routing failures. The manual-admission policy
+change and full controller matrix still require fresh exact-head CI. The fork lint pin follows
+that snapshot's lockfile version. The controller candidate enables manual promotion only through authenticated review,
+complete qualification and protected publication; its default landing remains gated
+by CI/review. Recurring coordination and local automation remain disabled.
 See the [authoritative plan](plans/2026-10-24-release-automation.md) for exact
 source/CI evidence, ownership and remaining rollout gates.
 

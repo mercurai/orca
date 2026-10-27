@@ -17,7 +17,7 @@ before final independent review and preserve it through qualification and taggin
   `041baf356b368d773f333e76375ce860fba2481b`.
 - Provisional linear candidate: `eba9a02316ac3dcb9056085aad9ab438af45aa35`,
   [#82](https://github.com/mercurai/orca/pull/82).
-- Tree: `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`; latest test-only correction is local; final qualification pending.
+- Tree: `dacfbec5ce4e6a8efdaed4e804c15dcaba480a64`; latest test-only correction is pushed; final qualification pending.
 
 The frozen main adds 91 commits beyond the previous `98690db2` preparation.
 Stable's sole commit absent from main changes package version metadata. Its
@@ -39,7 +39,8 @@ must reconcile the stable floor explicitly before packaging.
   acknowledgements without resurrecting concurrently cleared automation intent.
 - Admit publication through the complete required PR matrix, authenticated
   owner acceptance of independent review, and immutable monotonic publication.
-  These controller repairs remain unqualified and disabled.
+  The controller candidate enables manual admission through those gates; fresh CI,
+  default landing and actual release qualification remain pending. Recurring automation stays off.
 
 ## Release evidence required
 
@@ -48,8 +49,9 @@ must reconcile the stable floor explicitly before packaging.
    errors. Source065d includes those repairs and durable migration journal corrections.
    Source065d targeted run40442414377 passed 1,349 tests with 16 skipped. Source
    d839 repeated that result in40447857538; its full40447857412 failed two runtime-test
-   type assertions. Reviewed localeba9 replaces those assertions with checked parsing
-   and a direct absence check; fresh exact-head CI is required. Source registration
+   type assertions. Reviewed eba9 replaces those assertions with checked parsing
+   and a direct absence check; its targeted run40453877785 passed 1,349 tests with16skipped and full static/typecheck
+   gates passed. Remaining full-matrix jobs are pending. Source registration
    and independent review alone do not qualify the release.
 2. Pass targeted behavioral checks and the complete required matrix at the exact
    candidate, including every planned unit/layout shard. Record advisory results
