@@ -49,48 +49,66 @@ describe('WslHostService pending removal', () => {
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  it('does not report a replacement registration removed by an older server stop', async () => {
-    const connector = makeConnector([UBUNTU])
-    const service = makeService(connector)
-    await service.add({ distro: 'Ubuntu' })
-    const original = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
-    if (!original) {
-      throw new Error('missing original registration')
-    }
-    const entered = Promise.withResolvers<void>()
-    const stopped = Promise.withResolvers<{ stopped: true }>()
-    connector.stopServer.mockImplementationOnce(() => {
-      entered.resolve()
-      return stopped.promise
-    })
-    const removing = removeWslHostServer(userDataPath, connector, original)
-    try {
-      await expect(Promise.race([entered.promise, removing])).resolves.toBeUndefined()
-      await removeWslHostEnvironment(userDataPath, 'wsl:ubuntu')
-      await addWslHostEnvironment(userDataPath, {
-        id: 'wsl:ubuntu',
-        name: 'Ubuntu (WSL)',
-        pairingCode: pairing(42001),
-        now: original.createdAt + 1,
-        record: {
-          kind: 'wsl',
-          distro: 'Ubuntu',
-          distroId: UBUNTU_ID,
-          localPort: 42001,
-          remotePort: 6768
+  it.each(['helper', 'service'] as const)(
+    'preserves a replacement registration when an older stop finishes through the %s',
+    async (entrypoint) => {
+      const connector = makeConnector([UBUNTU])
+      const service = makeService(connector)
+      await service.add({ distro: 'Ubuntu' })
+      const original = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
+      if (!original) {
+        throw new Error('missing original registration')
+      }
+      const entered = Promise.withResolvers<void>()
+      const stopped = Promise.withResolvers<{ stopped: true }>()
+      connector.stopServer.mockImplementationOnce(() => {
+        entered.resolve()
+        return stopped.promise
+      })
+      const removing =
+        entrypoint === 'helper'
+          ? removeWslHostServer(userDataPath, connector, original)
+          : service.remove('wsl:ubuntu')
+      try {
+        await expect(Promise.race([entered.promise, removing])).resolves.toBeUndefined()
+        await removeWslHostEnvironment(userDataPath, 'wsl:ubuntu')
+        await addWslHostEnvironment(userDataPath, {
+          id: 'wsl:ubuntu',
+          name: 'Ubuntu (WSL)',
+          pairingCode: pairing(42001),
+          now: original.createdAt + 1,
+          record: {
+            kind: 'wsl',
+            distro: 'Ubuntu',
+            distroId: UBUNTU_ID,
+            localPort: 42001,
+            remotePort: 6768
+          }
+        })
+        await rememberWslHostsToWake(userDataPath, ['Ubuntu'])
+        const statusesBefore = service.getStatuses()
+        const publishedBefore = published.length
+        expect(statusesBefore).toMatchObject([{ environmentId: 'wsl:ubuntu', state: 'ready' }])
+        expect(wakeRememberedWslHosts(userDataPath, vi.fn())).toEqual(['Ubuntu'])
+        stopped.resolve({ stopped: true })
+        const result = await removing
+        if (entrypoint === 'helper') {
+          expect.soft(result).toMatchObject({ removed: false })
         }
-      })
-      stopped.resolve({ stopped: true })
-      expect((await removing).removed).toBe(false)
-      expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toMatchObject({
-        createdAt: original.createdAt + 1,
-        localPort: 42001
-      })
-    } finally {
-      stopped.resolve({ stopped: true })
-      await Promise.allSettled([removing])
+        expect.soft(removed).not.toHaveBeenCalled()
+        expect.soft(service.getStatuses()).toEqual(statusesBefore)
+        expect.soft(published).toHaveLength(publishedBefore)
+        expect.soft(wakeRememberedWslHosts(userDataPath, vi.fn())).toEqual(['Ubuntu'])
+        expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toMatchObject({
+          createdAt: original.createdAt + 1,
+          localPort: 42001
+        })
+      } finally {
+        stopped.resolve({ stopped: true })
+        await Promise.allSettled([removing])
+      }
     }
-  })
+  )
 
   it('does not finish a pending Remove before its marker is durable', async () => {
     const connector = makeConnector([UBUNTU])
