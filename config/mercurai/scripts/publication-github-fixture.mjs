@@ -408,6 +408,7 @@ export function fixture(t, { requestedTag = tag } = {}) {
     pageSize: 1,
     writes: [],
     authorization: {
+      'repos/mercurai/orca': { full_name: 'mercurai/orca', default_branch: 'mercurai' },
       'repos/mercurai/orca/git/ref/heads/mercurai': {
         ref: 'refs/heads/mercurai',
         object: { sha: candidate.controllerSha, type: 'commit' }

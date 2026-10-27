@@ -30,6 +30,27 @@ function jobsOf(workflow) {
   return jobs
 }
 
+function yamlOutsideRunBlocks(text) {
+  let runIndent = null
+  return text
+    .split('\n')
+    .filter((line) => {
+      const indent = line.search(/\S/)
+      if (runIndent !== null) {
+        if (indent === -1 || indent > runIndent) {
+          return false
+        }
+        runIndent = null
+      }
+      const run = /^(\s*)(?:-\s+)?run:\s*[|>][-+]?\s*$/.exec(line)
+      if (run) {
+        runIndent = run[1].length
+      }
+      return true
+    })
+    .join('\n')
+}
+
 /** Text with whole-line comments removed, so a comment that names a secret is not a reference. */
 const code = (text) =>
   text
@@ -67,11 +88,18 @@ test('every job is a plain block key: none hides inside another', () => {
   const topLevel = body.split('\n').filter((line) => /^ {2}\S/.test(line) && !/^ {2}#/.test(line))
   assert.deepEqual(topLevel, ['  preflight:', '  orcad-template:', '  build-win:', '  publish:'])
   // No flow-style mapping or sequence anywhere under jobs: (`${{` is an expression, not a mapping).
-  for (const line of code(body).split('\n')) {
+  for (const line of yamlOutsideRunBlocks(code(body)).split('\n')) {
     // `needs: [a, b]` names jobs and is the one flow sequence allowed.
     const stripped = line.replaceAll(/\$\{\{.*?\}\}/g, '').replace(/^\s+needs: \[[\w, -]+\]$/, '')
     assert.doesNotMatch(stripped, /:\s*[{[]|^\s*-\s*[{[]/, `flow style in: ${line.trim()}`)
   }
+})
+
+test('script object literals cannot hide a subsequent YAML flow mapping', () => {
+  const source = '      - run: |\n          candidate: {\n      - env: { HIDDEN: true }\n'
+  const declarations = yamlOutsideRunBlocks(source)
+  assert.doesNotMatch(declarations, /candidate:/)
+  assert.match(declarations, /env: \{ HIDDEN: true \}/)
 })
 
 test('no YAML anchor or alias can carry a value from one job into another', () => {

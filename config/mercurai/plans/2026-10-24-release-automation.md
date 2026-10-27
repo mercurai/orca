@@ -64,15 +64,15 @@ Evidence below records the last completed inspections and hosted runs, rather th
 GitHub read during the fleet quiet order. No source or controller landing, tag, package publication,
 installation, runtime acceptance, or schedule activation is complete.
 
-| Item                                             | Last verified identity or status                                                                                                                                                                                                      |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Official main, inspected 2026-10-26 23:30:54 UTC | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                                                                            |
-| Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                            |
-| Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                                |
-| Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                                       |
+| Item                                             | Last verified identity or status                                                                                                                                                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Official main, inspected 2026-10-26 23:30:54 UTC | `823ca6870fd46bc979ee073ee0731516a0607daa`                                                                                                                                                                                              |
+| Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                              |
+| Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                                  |
+| Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                                         |
 | New linear candidate                             | `patch/current-main-release-823ca@c777bcfcfdfb463cd2b6b337c3e3de1eb18955db`, draft [#82](https://github.com/mercurai/orca/pull/82); targeted run [40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) completed RED |
-| Controller preparation                           | `codex/release-registration-20261023@5651284ad6`, PR [#80](https://github.com/mercurai/orca/pull/80); further edits uncommitted                                                                                                       |
-| Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                                      |
+| Controller preparation                           | `codex/release-registration-20261023@5651284ad6`, PR [#80](https://github.com/mercurai/orca/pull/80); further edits uncommitted                                                                                                         |
+| Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                                        |
 
 Official main adds 91 commits beyond `98690db2ab1d53d7e67eae296dc061c000c2ea2f`.
 The new merge produced 21 content conflicts. All conflict contents are resolved and committed as
@@ -129,6 +129,22 @@ Speed and WSL corrections now have separate writable owners and independent revi
 Controller lint exposed an oversized prepared-candidate test module; it is split into general assembly,
 prepared promotion and shared fixture files with a real independent source review. Controller lint
 now passes, while authenticated intake, preparation and final publication behavior still need hosted CI.
+
+The next source head is `918ee0ca3148358d43f2cadb86ad259a6d298886`, tree
+`913420edb70c9ca8b2e451ad2d2e6e25550bfbc7`, with two linear commits after the
+frozen base. WSL and speed repairs passed scoped independent review; an additional unlisted-seed
+model binding defect is explicitly tested in [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045),
+currently running. Source formatting, scoped lint and whitespace checks passed before this push.
+The active provisional manifest now records this head and 229 existing test paths.
+
+Controller baseline `042e72b22366db2151ae39162d16e378db771ab8` passed lint and
+series checks in [40431480557](https://github.com/mercurai/orca/actions/runs/40431480557).
+Its Node run completed 379 tests: 360 passed and 19 failed. Sixteen failures prove the missing final
+publication freshness guard, one proves stale accepted evidence after refetch failure, and two expose
+stale structural test assumptions. All are corrected in working files with scoped independent review;
+hosted GREEN is still required. A read-only merge probe against current default `c5f11af2` reports
+one manifest conflict; retain the new frozen pin and planned entries while preserving other default
+changes before final controller qualification.
 
 ### Release-gate audit
 

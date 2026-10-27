@@ -7,14 +7,14 @@ policy=${2:?trusted release policy is required}
 review_run=${3:?owner-intake run id is required}
 destination=${4:?evidence destination is required}
 scripts=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+mkdir -p -- "$destination"
+rm -f -- "$destination/review-context.json" "$destination/bundle.json" "$destination/release-review.json"
 [[ "$review_run" =~ ^[1-9][0-9]*$ ]] || { echo '::error::review run id is invalid'; exit 1; }
 repository=${GITHUB_REPOSITORY:?GitHub repository is required}
 [[ "$repository" =~ ^[A-Za-z0-9-]+/[A-Za-z0-9_.-]+$ ]] || exit 1
 [[ "$(jq -r '.repository' "$expected")" = "$repository" ]] || exit 1
 workflow=$(jq -r '.review.workflowPath' "$policy")
 [[ "$workflow" = '.github/workflows/fork-accept-release-review.yml' ]] || exit 1
-mkdir -p -- "$destination"
-
 gh api "repos/$repository/actions/workflows/fork-accept-release-review.yml" > "$destination/workflow.json"
 workflow_id=$(jq -er --arg path "$workflow" 'select(.path == $path) | .id' "$destination/workflow.json")
 [[ "$workflow_id" =~ ^[1-9][0-9]*$ ]] || exit 1

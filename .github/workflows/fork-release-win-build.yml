@@ -247,6 +247,9 @@ jobs:
           import { createHash } from 'node:crypto'
           const [buildSha, tag, receiptPath] = process.argv.slice(2)
           const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'))
+          const qualificationRun = JSON.parse(readFileSync('qualification-run.json', 'utf8'))
+          const reviewContext = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/build-owner-review/review-context.json`, 'utf8'))
+          const { id, name, expired, expires_at, size_in_bytes, digest, workflow_run } = reviewContext.artifact
           const expectedVersion = tag.slice(1)
           if (receipt.candidate.commit !== buildSha) throw new Error('receipt candidate is not the resolved build commit')
           if (receipt.candidate.version !== expectedVersion) throw new Error('receipt version does not match the release tag')
@@ -256,9 +259,10 @@ jobs:
             candidate: receipt.candidate,
             qualification: {
               runId: receipt.qualification.runId, attempt: receipt.qualification.attempt,
-              dispatchId: receipt.qualification.dispatchId
+              workflowId: qualificationRun.workflow_id, dispatchId: receipt.qualification.dispatchId
             },
             review: receipt.review,
+            reviewArtifact: { id, name, expired, expires_at, size_in_bytes, digest, workflow_run },
             receiptSha256: createHash('sha256').update(readFileSync(receiptPath)).digest('hex')
           }
           appendFileSync(process.env.GITHUB_OUTPUT, `promotion_provenance=${JSON.stringify(provenance)}\n`)
@@ -727,6 +731,93 @@ jobs:
               '.assets += [{name: $name, size: $size, sha256: $sha256}]' "$expected" > "$work/next.json"
             mv "$work/next.json" "$expected"
           done
+          authorize_publication() {
+            jq -e --arg repository "$GH_REPO" --arg controller "$GITHUB_SHA" '
+              def positive: type == "number" and . > 0 and . == floor and . <= 9007199254740991;
+              . as $provenance | .review.authentication as $auth
+              | .sourceRepository == $repository and $auth.repository == $repository
+                and $auth.controllerSha == $controller and .candidate.controllerSha == $controller
+                and $auth.workflowPath == ".github/workflows/fork-accept-release-review.yml"
+                and ($auth.runId | positive) and ($auth.attempt | positive) and ($auth.workflowId | positive)
+                and (.qualification.runId | positive) and (.qualification.attempt | positive)
+                and (.qualification.workflowId | positive)
+                and (.reviewArtifact.id | positive)
+                and .reviewArtifact.name == ("release-review-" + ($auth.runId | tostring) + "-" + ($auth.attempt | tostring))
+                and .reviewArtifact.expired == false
+                and (.reviewArtifact.digest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+                and (.reviewArtifact.size_in_bytes | positive) and .reviewArtifact.size_in_bytes <= 1048576
+                and .reviewArtifact.workflow_run.id == $auth.runId
+                and .reviewArtifact.workflow_run.head_sha == $controller
+                and ("refs/heads/" + .reviewArtifact.workflow_run.head_branch) == $auth.controllerRef
+                and .review.ownerAccepted == true and .review.verdict == "approved"
+                and .review.scope == "candidate-and-controller" and .review.openBlockers == []
+                and .review.candidate == $provenance.candidate' "$expected" > /dev/null \
+              || refuse 'publication authorization provenance is invalid'
+            local branch review_run qualification_run artifact_id
+            branch=$(jq -er '.review.authentication.controllerRef | select(startswith("refs/heads/")) | ltrimstr("refs/heads/")' "$expected")
+            [[ "$branch" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || refuse 'reviewed controller branch is invalid'
+            review_run=$(jq -er '.review.authentication.runId' "$expected")
+            qualification_run=$(jq -er '.qualification.runId' "$expected")
+            artifact_id=$(jq -er '.reviewArtifact.id' "$expected")
+            gh api "repos/$GH_REPO" > "$work/source-repository.json" || refuse 'source repository authorization read failed'
+            jq -e --arg repository "$GH_REPO" --arg branch "$branch" \
+              '.full_name == $repository and .default_branch == $branch' "$work/source-repository.json" > /dev/null \
+              || refuse 'the current default controller branch differs from the accepted review'
+            gh api "repos/$GH_REPO/git/ref/heads/$branch" > "$work/controller-ref.json" || refuse 'controller ref authorization read failed'
+            jq -e --arg branch "$branch" --arg controller "$GITHUB_SHA" \
+              '.ref == ("refs/heads/" + $branch) and .object.type == "commit" and .object.sha == $controller' \
+              "$work/controller-ref.json" > /dev/null || refuse 'the default controller moved during packaging'
+            gh api "repos/$GH_REPO/actions/workflows/fork-accept-release-review.yml" > "$work/review-workflow.json" \
+              || refuse 'review workflow authorization read failed'
+            gh api "repos/$GH_REPO/actions/workflows/fork-qualify-release.yml" > "$work/qualification-workflow.json" \
+              || refuse 'qualification workflow authorization read failed'
+            jq -e --slurpfile expected "$expected" \
+              '.id == $expected[0].review.authentication.workflowId and .path == ".github/workflows/fork-accept-release-review.yml"' \
+              "$work/review-workflow.json" > /dev/null || refuse 'the owner review workflow was replaced'
+            jq -e --slurpfile expected "$expected" \
+              '.id == $expected[0].qualification.workflowId and .path == ".github/workflows/fork-qualify-release.yml"' \
+              "$work/qualification-workflow.json" > /dev/null || refuse 'the qualification workflow was replaced'
+            gh api "repos/$GH_REPO/actions/runs/$review_run" > "$work/review-run.json" \
+              || refuse 'owner review run authorization read failed'
+            jq -e --slurpfile expected "$expected" --arg branch "$branch" '
+              . as $run | $expected[0].review.authentication as $auth
+              | .id == $auth.runId and .workflow_id == $auth.workflowId and .run_attempt == $auth.attempt
+                and .repository.full_name == $auth.repository and .event == "workflow_dispatch"
+                and .head_branch == $branch and .head_sha == $auth.controllerSha
+                and (([ $auth.workflowPath, ($auth.workflowPath + "@" + $branch),
+                  ($auth.workflowPath + "@refs/heads/" + $branch) ] | index($run.path)) != null)
+                and .status == "completed" and .conclusion == "success"
+                and .actor.id == $auth.actor.id
+                and (.actor.login | ascii_downcase) == ($auth.actor.login | ascii_downcase)
+                and .triggering_actor.id == $auth.triggeringActor.id
+                and (.triggering_actor.login | ascii_downcase) == ($auth.triggeringActor.login | ascii_downcase)' \
+              "$work/review-run.json" > /dev/null || refuse 'latest owner review is unfinished, unsuccessful, or accepted by different owners'
+            gh api "repos/$GH_REPO/actions/runs/$qualification_run" > "$work/qualification-run.json" \
+              || refuse 'qualification run authorization read failed'
+            jq -e --slurpfile expected "$expected" --arg branch "$branch" '
+              . as $run | $expected[0] as $provenance | $provenance.qualification as $qualification
+              | .id == $qualification.runId and .workflow_id == $qualification.workflowId
+                and .run_attempt == $qualification.attempt
+                and .repository.full_name == $provenance.sourceRepository and .event == "workflow_dispatch"
+                and .head_branch == $branch and .head_sha == $provenance.candidate.controllerSha
+                and (([ ".github/workflows/fork-qualify-release.yml",
+                  (".github/workflows/fork-qualify-release.yml@" + $branch),
+                  (".github/workflows/fork-qualify-release.yml@refs/heads/" + $branch) ] | index($run.path)) != null)
+                and .display_title == ("qualify " + $qualification.dispatchId)
+                and .status == "completed" and .conclusion == "success"' \
+              "$work/qualification-run.json" > /dev/null || refuse 'latest qualification identity, attempt, or successful conclusion changed'
+            gh api "repos/$GH_REPO/actions/artifacts/$artifact_id" > "$work/review-artifact.json" \
+              || refuse 'owner review artifact authorization read failed'
+            jq -e --slurpfile expected "$expected" '
+              $expected[0].reviewArtifact as $artifact
+              | .id == $artifact.id and .name == $artifact.name and .expired == false
+                and .expires_at == $artifact.expires_at and (try (.expires_at | fromdateiso8601) catch 0) > now
+                and .digest == $artifact.digest and .size_in_bytes == $artifact.size_in_bytes
+                and .workflow_run.id == $artifact.workflow_run.id
+                and .workflow_run.head_sha == $artifact.workflow_run.head_sha
+                and .workflow_run.head_branch == $artifact.workflow_run.head_branch' \
+              "$work/review-artifact.json" > /dev/null || refuse 'owner review artifact was replaced, expired, or belongs to another run'
+          }
           inventory() {
             gh api --paginate --slurp "repos/$CHANNEL_REPO/releases?per_page=100" > "$work/pages.json"
             jq -e 'type == "array" and length > 0 and all(.[]; type == "array")' "$work/pages.json" > /dev/null
@@ -773,6 +864,7 @@ jobs:
               cmp -s "dist/$name" "$downloads/$name" || refuse 'downloaded asset bytes differ'
             done < <(jq -r '.[].name' "$work/assets.json")
           }
+          authorize_publication
           inventory
           release_id=$(jq -r --arg tag "$TAG" '.[] | select(.tag_name == $tag) | .id' "$work/releases.json")
           if [ -z "$release_id" ]; then
@@ -806,6 +898,7 @@ jobs:
             verify_assets
             test "$(jq length "$work/assets.json")" = 3 || refuse 'draft is missing release assets'
             inventory
+            authorize_publication
             gh release edit "$TAG" --repo "$CHANNEL_REPO" --draft=false --latest
           elif [ "$draft" != false ]; then
             refuse 'release draft state is unknown'

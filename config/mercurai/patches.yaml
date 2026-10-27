@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: c777bcfcfdfb463cd2b6b337c3e3de1eb18955db
+    commit: 918ee0ca3148358d43f2cadb86ad259a6d298886
     owner: harness
     added: 2026-10-25
     tests:
@@ -250,24 +250,24 @@ patches:
       - src/shared/native-chat-session-option-defaults.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
     notes: >-
-      Candidate c777bcfcfdfb463cd2b6b337c3e3de1eb18955db is one linear commit
-      directly on official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      5a1e6e854f002888994691a5fbf2cb458cd2bf53. Source draft PR82 supersedes
-      the historical PR79 preparation. Its tree equals preserved merge
-      e4095165f1ba45b638c9c45aec3bce3ce22d5b68. The frozen stable floor is
-      v1.4.241, peeled commit 041baf356b368d773f333e76375ce860fba2481b;
-      its stable-only package version change requires controlled Mercurai injection.
-      Targeted hosted run40429242854 completed at this exact candidate:
-      Windows 1282 passed, 21 failed, 16 skipped. Twenty failures expose held/explicit
-      tier precedence, WSL revocation and synchronous focus persistence; one is a
-      missing test import from extraction. Both cost jobs passed, and all 25
-      full-qualification contract cases passed. Corrections are now in progress;
-      the merged WSL service size violation also remains open. No prior receipt approves this pin.
-      Independent reviews accepted bounded catalog, matrix and test-extraction
-      changes, while runtime/renderer review remains changes-requested.
-      Registered paths retain the predecessor union and add the new regressions.
+      Candidate 918ee0ca3148358d43f2cadb86ad259a6d298886 is two linear commits
+      after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
+      913420edb70c9ca8b2e451ad2d2e6e25550bfbc7. Source draft PR82 supersedes
+      historical PR79 preparation. Initial linear c777bcfc had the identical tree
+      as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
+      The frozen stable floor is v1.4.241, peeled commit
+      041baf356b368d773f333e76375ce860fba2481b; controlled Mercurai version
+      injection must reconcile its stable-only package metadata change.
+      Predecessor run40429242854 observed Windows1282pass/21fail/16skip, both
+      cost jobs passed, and25full-qualification contracts passed. This pin applies
+      the held/tier-only speed and WSL async/revocation repairs plus missing test
+      imports. Targeted run40432803045 is in progress at its exact SHA and adds
+      an unlisted saved-model regression discovered during independent review.
+      No prior receipt approves this pin. Independent source reviews accepted the
+      WSL and release-boundary corrections; the unlisted-model issue remains open.
+      Registered paths retain the predecessor union and new regressions.
       CI-only preparation may use this pin; admission/publication remains disabled
-      until corrections, final exact-revision review and complete qualification pass.
+      until final corrections, exact-revision review and complete qualification pass.
       See release-notes-v1.4.241.md and plans/2026-10-24-release-automation.md.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;

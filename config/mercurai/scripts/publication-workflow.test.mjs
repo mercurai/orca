@@ -32,6 +32,12 @@ test('first publication uploads exactly the three update assets and exposes the 
 
 for (const [name, mutate] of [
   [
+    'a renamed default controller branch',
+    (rows) => {
+      rows['repos/mercurai/orca'].default_branch = 'replacement-controller'
+    }
+  ],
+  [
     'a controller changed during packaging',
     (rows) => {
       rows['repos/mercurai/orca/git/ref/heads/mercurai'].object.sha = '0'.repeat(40)

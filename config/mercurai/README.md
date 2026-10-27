@@ -8,20 +8,19 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-26.
 The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
 (`041baf356b368d773f333e76375ce860fba2481b`). The remote patch
-`patch/current-main-release-823ca` is pinned to
-`c777bcfcfdfb463cd2b6b337c3e3de1eb18955db`, one commit directly on that official
-parent, with tree `5a1e6e854f002888994691a5fbf2cb458cd2bf53`. Its tree matches the
-preserved reconciliation merge exactly. Draft [#82](https://github.com/mercurai/orca/pull/82)
-supersedes historical preparation #79.
+`patch/current-main-release-823ca` is provisionally pinned to
+`918ee0ca3148358d43f2cadb86ad259a6d298886`, two commits after that official
+ancestor, tree `913420edb70c9ca8b2e451ad2d2e6e25550bfbc7`. Draft
+[#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
-This pin is an intentional regression baseline. Targeted hosted
-[40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) completed
-at its exact SHA: 1,282 passed, 21 failed and 16 skipped on Windows. Both cost jobs
-and all 25 full-qualification contract cases passed. Held/tier-only speed precedence, stale WSL reconnects and
-synchronous early-wake persistence still need RED/repair/GREEN; a service size
-violation remains too. Prior targeted success at the old official base does
-not qualify this candidate. Stable's sole commit absent from frozen main changes
-package version metadata; controlled release injection must reconcile that floor.
+The initial `c777bcfc` baseline reproduced the reviewed defects in hosted
+[40429242854](https://github.com/mercurai/orca/actions/runs/40429242854): 1,282
+passed, 21 failed and 16 skipped on Windows. Both cost jobs and all 25
+full-qualification contracts passed. Current source applies the speed and WSL
+repairs; [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045)
+is checking those repairs and an unlisted saved-model regression. These are
+preparation pins, not release approval. Controlled package-version injection
+must reconcile the stable floor explicitly.
 
 Four release-gate audit findings remain under repair: partial qualification,
 unauthenticated review, incorrect run correlation, and mutable/non-monotonic
