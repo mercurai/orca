@@ -199,7 +199,7 @@ describe('create launch options and saved selections', () => {
         recordHostModelCatalogSnapshot(target, 'codex', null, {
           origin: 'probe',
           catalogState: 'available',
-          fetchedAt: Date.now(),
+          fetchedAt: 1,
           listingNamesConfiguredModel: true,
           defaultHoldsInEveryWorkspace: true,
           models: [
@@ -277,7 +277,7 @@ describe('create launch options and saved selections', () => {
       recordHostModelCatalogSnapshot(target, 'codex', null, {
         origin: 'probe',
         catalogState: 'available',
-        fetchedAt: Date.now(),
+        fetchedAt: 1,
         listingNamesConfiguredModel: true,
         defaultHoldsInEveryWorkspace: true,
         models: [

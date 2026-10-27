@@ -37,7 +37,9 @@ export function structuredAgentSessionOptionView(
       requested
     )
   }
-  const { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: heldPermission, ...heldSelection } = held
+  const heldPermission = held[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
+  const heldSelection: Record<string, string> = { ...held }
+  delete heldSelection[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
   if (state.record.agent === 'codex') {
     if (requested?.serviceTier !== undefined) {
       heldSelection.serviceTier = requested.serviceTier

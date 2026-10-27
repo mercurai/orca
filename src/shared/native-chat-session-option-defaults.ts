@@ -222,7 +222,7 @@ export function structuredLaunchRequestedOptions(selection: {
   const changed = held.model !== undefined && held.model !== explicit.model
   const permissionMode =
     explicit[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] ?? seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
-  const requested = {
+  const requested: Record<string, string> = {
     ...(permissionMode ? { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: permissionMode } : {}),
     ...(changed ? {} : explicit),
     ...held

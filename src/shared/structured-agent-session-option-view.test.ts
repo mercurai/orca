@@ -151,7 +151,7 @@ describe('explicit Codex speed without a replacement model', () => {
             current: {
               model: listedDefault,
               serviceTier: 'paid-only-for-default-B',
-              defaulted: ['model', 'serviceTier']
+              defaulted: ['model']
             },
             speed: {
               requested: { tierId: 'paid-only-for-default-B' },
