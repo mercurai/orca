@@ -261,8 +261,9 @@ patches:
       Predecessor run40429242854 observed Windows1282pass/21fail/16skip, both
       cost jobs passed, and25full-qualification contracts passed. This pin applies
       the held/tier-only speed and WSL async/revocation repairs plus missing test
-      imports. Targeted run40432803045 is in progress at its exact SHA and adds
-      an unlisted saved-model regression discovered during independent review.
+      imports. Targeted run40432803045 at its exact SHA observed Windows1304pass/2fail/16skip;
+      both cost jobs succeeded. The two unlisted saved-model binding cases remain RED
+      and their source correction still needs independent review and fresh CI.
       No prior receipt approves this pin. Independent source reviews accepted the
       WSL and release-boundary corrections; the unlisted-model issue remains open.
       Registered paths retain the predecessor union and new regressions.

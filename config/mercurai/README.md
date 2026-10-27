@@ -18,15 +18,17 @@ The initial `c777bcfc` baseline reproduced the reviewed defects in hosted
 passed, 21 failed and 16 skipped on Windows. Both cost jobs and all 25
 full-qualification contracts passed. Current source applies the speed and WSL
 repairs; [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045)
-is checking those repairs and an unlisted saved-model regression. These are
+completed with 1,304 passed, two failed and 16 skipped. The two saved-model
+binding failures remain under correction. These are
 preparation pins, not release approval. Controlled package-version injection
 must reconcile the stable floor explicitly.
 
 Four release-gate audit findings remain under repair: partial qualification,
 unauthenticated review, incorrect run correlation, and mutable/non-monotonic
 publication. The proposed controller now wires authenticated owner acceptance,
-immutable prepared inputs and the shared full required matrix. These local edits
-still need complete CI and independent review. Admission remains disabled.
+immutable prepared inputs and the shared full required matrix. These committed
+changes still need complete exact-head CI: the latest run passed 380 of 381
+Node tests and stopped before template integration. Admission remains disabled.
 See the [authoritative plan](plans/2026-10-24-release-automation.md) for exact
 source/CI evidence, open regressions, ownership, and rollout gates.
 

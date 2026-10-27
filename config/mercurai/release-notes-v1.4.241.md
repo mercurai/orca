@@ -1,6 +1,6 @@
 ---
 owner: Mercurai release owner
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 stability: draft
 ---
 
@@ -32,17 +32,18 @@ must reconcile the stable floor explicitly before packaging.
   mixed-version local/SSH execution. Actual processing tier remains unknown
   when the server does not report it.
 - Preserve async process/file persistence, bounded capture and host revocation
-  fences. The new WSL early-wake sync path and stale wake race remain open;
-  this draft makes no responsiveness or memory improvement claim.
+  fences. The new WSL focus path uses serialized async persistence and guarded
+  reconnects; targeted CI cleared the reproduced wake/revocation regressions.
+  This draft makes no measured responsiveness or memory improvement claim.
 - Admit publication through the complete required PR matrix, authenticated
   owner acceptance of independent review, and immutable monotonic publication.
   These controller repairs remain unqualified and disabled.
 
 ## Release evidence required
 
-1. Materialize and register the reviewed linear candidate on the frozen main;
-   resolve held-speed and model-less explicit-speed precedence, WSL reconnect
-   revocation, and synchronous focus-I/O findings.
+1. Finish the saved-model binding correction and register the final linear
+   candidate on the frozen main. The latest targeted run passed 1,304 tests,
+   failed two saved-model cases and skipped 16; it does not qualify the release.
 2. Pass targeted behavioral checks and the complete required matrix at the exact
    candidate, including every planned unit/layout shard. Record advisory results
    separately; Windows D7 is outside the required layout call.

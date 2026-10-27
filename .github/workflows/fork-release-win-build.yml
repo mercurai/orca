@@ -759,9 +759,9 @@ jobs:
             review_run=$(jq -er '.review.authentication.runId' "$expected")
             qualification_run=$(jq -er '.qualification.runId' "$expected")
             artifact_id=$(jq -er '.reviewArtifact.id' "$expected")
-            gh api "repos/$GH_REPO" > "$work/source-repository.json" || refuse 'source repository authorization read failed'
+            gh api "repos/$GH_REPO" > "$work/build-repository.json" || refuse 'build repository authorization read failed'
             jq -e --arg repository "$GH_REPO" --arg branch "$branch" \
-              '.full_name == $repository and .default_branch == $branch' "$work/source-repository.json" > /dev/null \
+              '.full_name == $repository and .default_branch == $branch' "$work/build-repository.json" > /dev/null \
               || refuse 'the current default controller branch differs from the accepted review'
             gh api "repos/$GH_REPO/git/ref/heads/$branch" > "$work/controller-ref.json" || refuse 'controller ref authorization read failed'
             jq -e --arg branch "$branch" --arg controller "$GITHUB_SHA" \
