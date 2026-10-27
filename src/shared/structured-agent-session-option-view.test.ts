@@ -107,6 +107,43 @@ describe('explicit Codex speed without a replacement model', () => {
     })
     expect(state.record).toEqual(record)
   })
+
+  it('retains an unlisted saved model when an explicit Standard choice names no replacement model', () => {
+    const savedModel = 'synthetic-saved-model-not-listed'
+    const listedDefault = 'synthetic-different-catalog-default'
+    const state = applyStructuredAgentSessionModelCatalog(
+      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+      CODEX_SESSION_OPTION_CATALOG,
+      {
+        origin: 'probe',
+        catalogState: 'available',
+        fetchedAt: 1,
+        listingNamesConfiguredModel: true,
+        models: [
+          {
+            id: listedDefault,
+            label: listedDefault,
+            isDefault: true,
+            efforts: [],
+            serviceTiers: [{ value: 'default', label: 'Standard' }]
+          }
+        ]
+      },
+      { newLaunch: true }
+    )
+    const record = structuredClone(state.record)
+    const view = structuredAgentSessionOptionView(
+      state,
+      { model: savedModel, serviceTier: 'default' },
+      {},
+      { serviceTier: 'default' }
+    )
+    expect(structuredAgentSessionSendSelection(view)).toMatchObject({
+      model: savedModel,
+      serviceTier: 'default'
+    })
+    expect(state.record).toEqual(record)
+  })
 })
 
 describe('a Claude model its CLI no longer lists', () => {

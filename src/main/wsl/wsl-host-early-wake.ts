@@ -3,12 +3,20 @@
  * so the boot (seconds on a slow PC) overlaps the app's own startup instead of following it. Only
  * the focused host is listed (E9: a launch boots the focused host, never others with saved tabs).
  */
-import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { spawnProcess } from '@orca/process-host'
-import { writeSecureJsonFileWithinLimit } from '../../shared/bounded-secure-json-file'
-import { readNodeFileSyncWithinLimit } from '../../shared/node-bounded-file-reader'
+import { writeSecureJsonFileWithinLimitAsync } from '../../shared/bounded-secure-json-file'
+import {
+  readNodeFileSyncWithinLimit,
+  readNodeFileWithinLimit
+} from '../../shared/node-bounded-file-reader'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import {
+  removeSecureFile,
+  SecureWriteDiscardedError,
+  SecureWriteSupersededError
+} from '../../shared/secure-file-async-write'
 import { readWslHostDeployments } from '../../shared/wsl-host-deployment-store'
 import { buildWslExecArgs } from '../../shared/wsl-login-shell-command'
 import { WslDistroNameSchema } from '../../shared/wsl-host-deployment-link'
@@ -34,48 +42,137 @@ function readWakeList(userDataPath: string): string[] {
   }
 }
 
-/** Saves the distro of the host the user is focused on (or none); called on each focus entry. */
-export function rememberWslHostsToWake(userDataPath: string, distros: readonly string[]): void {
-  const next = [...new Set(distros)].sort()
-  const current = readWakeList(userDataPath)
-  if (current.length === next.length && current.every((distro, i) => distro === next[i])) {
+type WakeIntent = {
+  desired: string[] | null
+  removed: Set<string>
+  disabled: boolean
+  deleted: boolean
+  revision: number
+  pending: number
+}
+
+// Only profiles with an unsettled mutation stay here; this is not a persisted-list cache.
+const activeIntents = new Map<string, WakeIntent>()
+
+async function readWakeListAsync(path: string): Promise<string[]> {
+  try {
+    const { buffer } = await readNodeFileWithinLimit(path, MAX_WAKE_FILE_BYTES)
+    return WakeListSchema.parse(JSON.parse(buffer.toString('utf8'))).distros
+  } catch {
+    return []
+  }
+}
+
+async function persistWakeIntent(
+  path: string,
+  intent: WakeIntent,
+  revision: number
+): Promise<void> {
+  const current = (): boolean => intent.revision === revision
+  if (!current() || (intent.disabled && intent.deleted)) {
     return
   }
-  try {
-    writeSecureJsonFileWithinLimit(
-      wakeFile(userDataPath),
-      { version: 1, distros: next },
-      MAX_WAKE_FILE_BYTES
-    )
-  } catch (error) {
-    console.warn('[wsl-hosts] Could not save the distros to wake at next launch:', error)
+  const saved = await readWakeListAsync(path)
+  if (!current()) {
+    return
   }
+  const next =
+    intent.desired ?? saved.filter((distro) => !intent.removed.has(wslDistroHolderKey(distro)))
+  if (
+    !intent.disabled &&
+    saved.length === next.length &&
+    saved.every((distro, index) => distro === next[index])
+  ) {
+    return
+  }
+  await writeSecureJsonFileWithinLimitAsync(
+    path,
+    { version: 1, distros: next },
+    MAX_WAKE_FILE_BYTES,
+    {
+      shouldPublish: current
+    }
+  )
 }
 
-/**
- * WSL hosts turned off: the file is the only thing the next launch reads (before settings load),
- * so it goes now, synchronously. If it can't be deleted it is emptied instead, and if that fails
- * too the failure is logged; a missing or unreadable file wakes nothing.
- */
-export function forgetWslHostsToWake(userDataPath: string): void {
-  try {
-    rmSync(wakeFile(userDataPath), { force: true })
-  } catch (error) {
-    console.warn('[wsl-hosts] Could not delete the early-wake list; emptying it:', error)
-    rememberWslHostsToWake(userDataPath, [])
+function updateWakeIntent(
+  userDataPath: string,
+  update: (intent: WakeIntent, path: string) => void
+): Promise<void> {
+  const path = wakeFile(userDataPath)
+  let intent = activeIntents.get(path)
+  if (!intent) {
+    intent = {
+      desired: null,
+      removed: new Set(),
+      disabled: false,
+      deleted: false,
+      revision: 0,
+      pending: 0
+    }
+    activeIntents.set(path, intent)
   }
+  update(intent, path)
+  const revision = ++intent.revision
+  intent.pending += 1
+  const owner = intent
+  // Register the whole read/compare/write before its first await so quit can drain it.
+  return serializePathWrite(`${path}#wake-mutation`, () => persistWakeIntent(path, owner, revision))
+    .catch((error: unknown) => {
+      if (
+        error instanceof SecureWriteDiscardedError ||
+        error instanceof SecureWriteSupersededError
+      ) {
+        return
+      }
+      console.warn('[wsl-hosts] Could not save the distros to wake at next launch:', error)
+    })
+    .finally(() => {
+      owner.pending -= 1
+      if (owner.pending === 0 && activeIntents.get(path) === owner) {
+        activeIntents.delete(path)
+      }
+    })
 }
 
-/** A removed host is never woken early, even before its record is gone. */
-export function forgetWslHostToWake(userDataPath: string, distro: string): void {
+/** Saves the focused host without blocking the IPC thread on its profile file. */
+export function rememberWslHostsToWake(
+  userDataPath: string,
+  distros: readonly string[]
+): Promise<void> {
+  return updateWakeIntent(userDataPath, (intent) => {
+    intent.desired = [...new Set(distros)].sort()
+    intent.removed.clear()
+    intent.disabled = false
+    intent.deleted = false
+  })
+}
+
+/** Revokes queued saves before deleting the next launch's early-wake intent. */
+export function forgetWslHostsToWake(userDataPath: string): Promise<void> {
+  return updateWakeIntent(userDataPath, (intent, path) => {
+    intent.desired = []
+    intent.removed.clear()
+    intent.disabled = true
+    try {
+      removeSecureFile(path)
+      intent.deleted = true
+    } catch (error) {
+      intent.deleted = false
+      console.warn('[wsl-hosts] Could not delete the early-wake list; emptying it:', error)
+    }
+  })
+}
+
+/** Removes only this host, including from a focused-host save that has not reached disk yet. */
+export function forgetWslHostToWake(userDataPath: string, distro: string): Promise<void> {
   const key = wslDistroHolderKey(distro)
-  const remembered = readWakeList(userDataPath)
-  if (remembered.some((entry) => wslDistroHolderKey(entry) === key)) {
-    rememberWslHostsToWake(
-      userDataPath,
-      remembered.filter((entry) => wslDistroHolderKey(entry) !== key)
-    )
-  }
+  return updateWakeIntent(userDataPath, (intent) => {
+    intent.removed.add(key)
+    if (intent.desired) {
+      intent.desired = intent.desired.filter((entry) => wslDistroHolderKey(entry) !== key)
+    }
+  })
 }
 
 export type WslWakeSpawn = (distro: string) => void
@@ -100,7 +197,12 @@ export function wakeRememberedWslHosts(
   userDataPath: string,
   spawn: WslWakeSpawn = spawnWake
 ): string[] {
-  const remembered = readWakeList(userDataPath)
+  const intent = activeIntents.get(wakeFile(userDataPath))
+  const remembered = intent?.disabled
+    ? []
+    : readWakeList(userDataPath).filter(
+        (distro) => !intent?.removed.has(wslDistroHolderKey(distro))
+      )
   if (remembered.length === 0) {
     return []
   }

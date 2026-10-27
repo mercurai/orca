@@ -141,11 +141,12 @@ function structuredLaunchCreateOptions(
   } = intent.seedOptions ?? {}
   const sent = structuredAgentSessionSendSelection(view)
   const { serviceTier: _drawnTier, fastMode: _drawnFast, ...nonSpeed } = sent ?? {}
+  const speedPicks = requested ?? held
   const speed =
-    held.serviceTier !== undefined
-      ? { serviceTier: held.serviceTier }
-      : held.fastMode !== undefined
-        ? { fastMode: held.fastMode }
+    speedPicks.serviceTier !== undefined
+      ? { serviceTier: speedPicks.serviceTier }
+      : speedPicks.fastMode !== undefined
+        ? { fastMode: speedPicks.fastMode }
         : seededTier !== undefined
           ? { serviceTier: seededTier }
           : seededFast !== undefined

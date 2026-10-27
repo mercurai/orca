@@ -38,6 +38,15 @@ export function structuredAgentSessionOptionView(
     )
   }
   const { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: heldPermission, ...heldSelection } = held
+  if (state.record.agent === 'codex') {
+    if (requested?.serviceTier !== undefined) {
+      heldSelection.serviceTier = requested.serviceTier
+      delete heldSelection.fastMode
+    } else if (requested?.fastMode !== undefined) {
+      heldSelection.fastMode = requested.fastMode
+      delete heldSelection.serviceTier
+    }
+  }
   const view = modelOptionView(state, seed, heldSelection)
   const permissionMode =
     heldPermission ??
@@ -87,6 +96,13 @@ function modelOptionView(
   }
   if (seeded) {
     view = commitStructuredAgentSessionOptionValues(view, seed)
+  }
+  if (state.record.agent === 'codex') {
+    if (held.serviceTier !== undefined) {
+      delete view.record.values.fastMode
+    } else if (held.fastMode !== undefined) {
+      delete view.record.values.serviceTier
+    }
   }
   return { ...commitStructuredAgentSessionOptionValues(view, held), pendingId: state.pendingId }
 }

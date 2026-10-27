@@ -662,8 +662,10 @@ describe('WslHostService', () => {
     service.setVisibleWork(['wsl:ubuntu'])
     expect(wakeRememberedWslHosts(userDataPath, spawn)).toEqual([])
     service.focusHost('wsl:ubuntu')
+    await drainPendingPathWrites()
     expect(wakeRememberedWslHosts(userDataPath, spawn)).toEqual(['Ubuntu'])
     service.focusHost(null)
+    await drainPendingPathWrites()
     expect(wakeRememberedWslHosts(userDataPath, spawn)).toEqual([])
     service.focusHost('wsl:ubuntu')
     enabled = false

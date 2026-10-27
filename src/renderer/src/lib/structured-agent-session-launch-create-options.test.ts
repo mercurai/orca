@@ -154,6 +154,103 @@ describe('create launch options and saved selections', () => {
     })
   })
 
+  it.each([true, false])(
+    'keeps an unlisted saved model above the catalog default for tier-only Standard (create-message=%s)',
+    async (createMessage) => {
+      const savedModel = 'synthetic-saved-model-not-listed'
+      const listedDefault = 'synthetic-different-catalog-default'
+      const priorSettings = mocks.settings
+      mocks.settings = {
+        nativeChatSessionOptions: {
+          codex: {
+            model: savedModel,
+            valuesByModel: { [savedModel]: { serviceTier: 'default' } }
+          }
+        }
+      }
+      resetHostModelCatalogSnapshotsForTests()
+      mocks.supports.mockResolvedValue(createMessage)
+      mocks.call.mockImplementation(async (_target, method, params) => {
+        if (method === 'agentSession.create') {
+          return created()
+        }
+        if (
+          method === 'agentSession.setOption' &&
+          params &&
+          typeof params === 'object' &&
+          'key' in params &&
+          typeof params.key === 'string' &&
+          'value' in params
+        ) {
+          return { ok: true, value: { options: { model: savedModel, [params.key]: params.value } } }
+        }
+        const send = SendParams.parse(params)
+        const clientMessageId = send.envelope.clientOperationId
+        return { ok: true, value: { clientMessageId, submission: submission(clientMessageId) } }
+      })
+      try {
+        recordHostModelCatalogSnapshot(target, 'codex', null, {
+          origin: 'probe',
+          catalogState: 'available',
+          fetchedAt: Date.now(),
+          listingNamesConfiguredModel: true,
+          defaultHoldsInEveryWorkspace: true,
+          models: [
+            {
+              id: listedDefault,
+              label: listedDefault,
+              isDefault: true,
+              efforts: [],
+              serviceTiers: [{ value: 'default', label: 'Standard' }]
+            }
+          ]
+        })
+        const launch = startStructuredAgentLaunch('workspace-1', 'codex', {
+          requestId: newAgentLaunchRequestId(),
+          executionHostId: 'local',
+          prompt: 'opening text',
+          launchOptions: { serviceTier: 'default' }
+        })
+        expect(
+          getStructuredLaunchStateBySessionId(launch.sessionId)?.intent.seedOptions
+        ).toMatchObject({
+          model: savedModel,
+          serviceTier: 'default'
+        })
+        mocks.inventory.mockResolvedValue([
+          {
+            worktree: 'workspace-1',
+            tabs: [{ type: 'agent-session', sessionId: launch.sessionId }]
+          }
+        ])
+        await launch.launchResult
+        await expect(launch.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+        if (createMessage) {
+          expect(createParams().options).toMatchObject({
+            model: savedModel,
+            serviceTier: 'default'
+          })
+          expect(mocks.call.mock.calls.map(([, method]) => method)).toEqual(['agentSession.create'])
+        } else {
+          expect(createParams().options).toBeUndefined()
+          const writes = mocks.call.mock.calls.filter(
+            ([, method]) => method === 'agentSession.setOption'
+          )
+          expect(writes.map(([, , params]) => params)).toEqual([
+            expect.objectContaining({ key: 'serviceTier', value: 'default' })
+          ])
+          const calls = mocks.call.mock.calls.map(([, method]) => method)
+          expect(calls.indexOf('agentSession.setOption')).toBeLessThan(
+            calls.indexOf('agentSession.send')
+          )
+        }
+      } finally {
+        mocks.settings = priorSettings
+        resetHostModelCatalogSnapshotsForTests()
+      }
+    }
+  )
+
   it.each([
     { host: 'modern', createMessage: true, saved: 'paid-speed-request-17', requested: 'default' },
     { host: 'modern', createMessage: true, saved: 'default', requested: 'paid-speed-request-17' },

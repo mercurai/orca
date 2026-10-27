@@ -71,10 +71,17 @@ import {
 } from './structured-agent-session-launch'
 import { holdStructuredAgentSessionLaunchOption } from './structured-agent-session-launch-options'
 import { recordHostModelCatalogSnapshot } from '@/runtime/host-model-catalog-snapshots'
-import { getStructuredLaunchStateBySessionId } from './agent-session/launch/structured-agent-session-launch-registry'
-import { readStructuredAgentLaunchRecord } from './agent-session/launch/structured-agent-session-launch-persistence'
+import {
+  getStructuredLaunchStateBySessionId,
+  resetStructuredAgentLaunchRegistryForTests
+} from './agent-session/launch/structured-agent-session-launch-registry'
+import {
+  readStructuredAgentLaunchRecord,
+  resetStructuredAgentLaunchPersistenceForTests
+} from './agent-session/launch/structured-agent-session-launch-persistence'
 import { newAgentLaunchRequestId } from './agent-launch-request-id'
 import { markStructuredAgentSessionLaunchPublished } from './agent-session/launch/structured-agent-session-launch-publication'
+import { resetStructuredAgentSessionSendsForTests } from '@/components/native-chat/structured-agent-session-message-sender'
 import { StructuredAgentSessionCreateRefusalError } from './structured-agent-session-launch-errors'
 import {
   getStructuredAgentSessionReadOwner,

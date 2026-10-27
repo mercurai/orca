@@ -6,7 +6,8 @@ import { WslHostConnectionChanges } from './wsl-host-connection-change'
  */
 import { errorMessage } from '../../shared/error-message'
 import { focusReachability } from './wsl-host-focus-reachability'
-import { rethrowRetryable, settlingConnectFailure } from './wsl-host-connect-failure'
+import { reconnectWslHostForRuntimeCall } from './wsl-host-runtime-reconnect'
+import type { WslHostServiceDependencies } from './wsl-host-service-contract'
 import { removeWslHostEnvironment } from '../../shared/runtime-environment-wsl-host-store'
 import type { WslHostDeploymentRecord } from '../../shared/wsl-host-deployment-store'
 import type {
@@ -25,8 +26,6 @@ import {
 } from './wsl-host-connection-record'
 import {
   sameWslDistro,
-  wslHostNotConnectedMessage,
-  wslHostStoppedMessage,
   WSL_HOST_REMOVING_MESSAGE,
   wslHostRunRefusal
 } from './wsl-host-add-admission'
@@ -41,18 +40,7 @@ import {
 
 export type { WslHostConnector, WslHostReachability } from './wsl-host-connector-contract'
 
-export type WslHostServiceDependencies = {
-  userDataPath: () => string
-  isEnabled: () => boolean
-  /** Whether this build ships the orcad template a WSL host deploys from. */
-  hasServerFiles: () => boolean
-  publish: (status: WslHostStatus) => void
-  /** The environment's pairing changed: transports that authenticate with the old one retire. */
-  pairingChanged: (environmentId: string) => void
-  /** A connection came up: verify the server now rather than on the status owner's backoff. */
-  ready: (environmentId: string) => void
-  removed: (environmentId: string) => Promise<void> | void
-}
+export type { WslHostServiceDependencies } from './wsl-host-service-contract'
 
 export class WslHostService {
   private connector: WslHostConnector | null = null
@@ -190,7 +178,7 @@ export class WslHostService {
         await connector.releaseHolder(record.distro)
       }
       await removeWslHostEnvironment(this.deps.userDataPath(), environmentId)
-      forgetWslHostToWake(this.deps.userDataPath(), record.distro)
+      await forgetWslHostToWake(this.deps.userDataPath(), record.distro)
       this.visible.delete(environmentId)
       this.parked.delete(environmentId)
     } finally {
@@ -217,12 +205,13 @@ export class WslHostService {
       return
     }
     this.disableGeneration += 1
-    forgetWslHostsToWake(this.deps.userDataPath())
+    const forgetting = forgetWslHostsToWake(this.deps.userDataPath())
     for (const record of this.records()) {
       await connector.disconnect(record.distro)
       await connector.releaseHolder(record.distro)
       this.setStatus(record, { state: 'closed' })
     }
+    await forgetting
   }
 
   /** The user asked for this host: may boot its distro. An intent retries or forces an update. */
@@ -248,34 +237,18 @@ export class WslHostService {
    * confirmed running and only for visible work; a confirmed stop parks the host.
    */
   async ensureForRuntimeCall(environmentId: string): Promise<void> {
-    const record = this.recordForEnvironment(environmentId)
     const connector = this.connector
-    if (!record || !connector) {
-      return
-    }
-    const reachability = await connector.reachability(record.distro, environmentId)
-    if (reachability === 'available') {
-      return
-    }
-    const refusal = wslHostRunRefusal(this.deps)
-    if (refusal || this.removing.has(environmentId)) {
-      throw new Error(refusal?.message ?? WSL_HOST_REMOVING_MESSAGE)
-    }
-    if (reachability === 'stopped') {
-      this.parked.add(environmentId)
-    }
-    if (this.parked.has(environmentId)) {
-      throw new Error(wslHostStoppedMessage(record.distro))
-    }
-    // Unconfirmed (running list unreadable, or possibly stale right after an exit) or not
-    // visible: refuse rather than risk a boot; liveness publishes the verdict.
-    if (reachability !== 'unreachable' || !this.visible.has(environmentId)) {
-      throw new Error(wslHostNotConnectedMessage(record.distro))
-    }
-    if (connector.isSettling(record.distro)) {
-      throw settlingConnectFailure(record.distro)
-    }
-    await connector.connect(record.distro, { noBoot: true }).catch(rethrowRetryable(record.distro))
+    const generation = this.disableGeneration
+    await reconnectWslHostForRuntimeCall(this.recordForEnvironment(environmentId), {
+      connector,
+      current: (record) =>
+        this.connector === connector && this.connectionIsCurrent(record, generation),
+      refusal: () =>
+        wslHostRunRefusal(this.deps)?.message ??
+        (this.removing.has(environmentId) ? WSL_HOST_REMOVING_MESSAGE : null),
+      visible: () => this.visible.has(environmentId),
+      parked: this.parked
+    })
   }
 
   /**
@@ -286,7 +259,7 @@ export class WslHostService {
     const record = environmentId ? this.recordForEnvironment(environmentId) : null
     const runnable = record !== null && this.mayWake(record)
     // The next launch starts booting only this distro, early (none when off WSL or not runnable).
-    rememberWslHostsToWake(this.deps.userDataPath(), record && runnable ? [record.distro] : [])
+    void rememberWslHostsToWake(this.deps.userDataPath(), record && runnable ? [record.distro] : [])
     if (record && runnable) {
       this.wake(record).catch((error: unknown) => {
         console.warn(`[wsl-hosts] Could not connect to ${record.distro}:`, error)
@@ -308,10 +281,18 @@ export class WslHostService {
 
   /** A focus entry or a due automation: lifts a park and may boot the distro. */
   private async wake(record: WslHostDeploymentRecord): Promise<void> {
+    const connector = this.connector
+    if (!connector) {
+      return
+    }
+    const generation = this.disableGeneration
     this.parked.delete(record.environmentId)
-    // No bridge in this process yet means nothing answers; skip the WSL round trip (#33110).
-    if (this.connector && (await focusReachability(this.connector, record)) !== 'available') {
-      await this.connector.connect(record.distro)
+    const reachability = await focusReachability(connector, record)
+    if (this.connector !== connector || !this.connectionIsCurrent(record, generation)) {
+      return
+    }
+    if (reachability !== 'available') {
+      await connector.connect(record.distro)
     }
   }
 
