@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getAppEnvironment, hasAppEnvironment, setAppEnvironment } from '../../../shared/app-environment'
 import { OrchestrationDb } from './db'
 
 async function packageApi() {
@@ -211,5 +212,50 @@ describe('Pi package composition at the reserved Dispatch', () => {
       modelsJsonPath: binding!.modelsJsonPath, modelsJsonSha256: binding!.modelsJsonSha256,
       expectedModel: { context_window: 1048576 }
     })
+  })
+
+  it('exposes the exact host-generated launch binding for native handoff without identity or credentials', async () => {
+    const f = fixture()
+    await f.prepare()
+    const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
+    bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_report_contract')
+    const platform = process.platform
+    const executable = join(f.privateRoot, platform === 'win32' ? 'orca-ide.exe' : 'orca-ide')
+    writeFileSync(executable, 'host-owned CLI fixture')
+    const previousEnvironment = hasAppEnvironment() ? getAppEnvironment() : null
+    setAppEnvironment({
+      getPath: () => f.privateRoot,
+      getAppPath: () => directory,
+      getVersion: () => '0.0.0-test',
+      isPackaged: () => true,
+      getCliLauncherPath: () => executable,
+      onWillQuit: () => {},
+      exit: () => {},
+      getAppMetrics: () => []
+    })
+    try {
+      const { resolvePiWorkerReportCli } = await import('../../pi/worker-report-bridge')
+      vi.stubEnv('ORCA_CLI_COMMAND', '/wrong/runtime --arbitrary-rpc')
+      vi.stubEnv('ORCA_AGENT_SESSION_SPAWN_TOKEN', 'test-only-seal')
+      vi.stubEnv('OPENROUTER_API_KEY', 'test-only-provider-value')
+      const trustedReportCli = resolvePiWorkerReportCli({ platform })
+      const binding = await preparePiWorkerAcquisition({
+        db, sessionId: 'session_report_contract', acquisitionId: 'acquisition_report_contract',
+        privateRoot: f.privateRoot, runBroker: f.runBroker
+      })
+      expect(binding).toBeDefined()
+      const serialized = JSON.parse(readFileSync(binding!.bindingPath, 'utf8')) as Record<string, unknown>
+      expect(serialized.reportCli).toEqual(trustedReportCli)
+      expect(serialized.reportCli).not.toHaveProperty('command')
+      expect(JSON.stringify(serialized)).not.toContain('/wrong/runtime')
+      expect(JSON.stringify(serialized)).not.toContain('test-only-seal')
+      expect(JSON.stringify(serialized)).not.toContain('test-only-provider-value')
+
+      vi.stubEnv('ORCA_CLI_COMMAND', '/another/runtime --not-trusted')
+      expect(JSON.parse(readFileSync(binding!.bindingPath, 'utf8')).reportCli).toEqual(trustedReportCli)
+    } finally {
+      vi.unstubAllEnvs()
+      if (previousEnvironment) setAppEnvironment(previousEnvironment)
+    }
   })
 })
