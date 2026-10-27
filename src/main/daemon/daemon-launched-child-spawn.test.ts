@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { spawnDaemonChildProcess } from './daemon-launched-child-spawn'
+import { DAEMON_V8_FLAGS, spawnDaemonChildProcess } from './daemon-launched-child-spawn'
 
 const { spawn, fork } = vi.hoisted(() => ({ spawn: vi.fn(), fork: vi.fn() }))
 vi.mock('@orca/process-host', () => ({ spawnProcess: spawn }))
@@ -44,7 +44,8 @@ describe('daemon launch scope ownership', () => {
     expect(spawn).not.toHaveBeenCalled()
     expect(fork).toHaveBeenCalledWith(
       expect.objectContaining({
-        args: expect.not.arrayContaining(['--fresh-daemon-scope'])
+        args: expect.not.arrayContaining(['--fresh-daemon-scope']),
+        execArgv: expect.arrayContaining([...DAEMON_V8_FLAGS])
       })
     )
   })
@@ -92,6 +93,31 @@ describe('daemon launch through the AppImage file', () => {
     spawnDaemonChildProcess(options, true)
     const { args } = spawn.mock.calls[0][0]
     expect(args[args.indexOf('--entry-path') + 1]).toBe('/app/daemon-entry.js')
+  })
+})
+
+describe('daemon launch on the extracted AppImage copy', () => {
+  const extractedGeneration = {
+    generationRoot: '/cache/ns/gen',
+    nodePath: '/cache/ns/gen/resources/node-runtime/bin/node',
+    entryPath: '/cache/ns/gen/resources/app.asar.unpacked/out/main/daemon-entry.js',
+    identityPath: '/apps/Orca.AppImage/resources/app.asar.unpacked/out/main/daemon-entry.js'
+  }
+
+  it.each([false, true])('runs the bundled Node on the copy (scoped=%s)', (scoped) => {
+    spawnDaemonChildProcess({ ...options, extractedGeneration }, scoped)
+    expect(fork).not.toHaveBeenCalled()
+    const { program, args, env, stdio } = spawn.mock.calls[0][0]
+    expect(program).toBe(scoped ? 'systemd-run' : extractedGeneration.nodePath)
+    const node = args.indexOf(extractedGeneration.nodePath)
+    // V8 flags must precede the entry, or Node hands them to the daemon script instead.
+    expect(args.slice(node + 1, node + 2 + DAEMON_V8_FLAGS.length)).toEqual([
+      ...DAEMON_V8_FLAGS,
+      extractedGeneration.entryPath
+    ])
+    expect(args[args.indexOf('--entry-path') + 1]).toBe(extractedGeneration.identityPath)
+    expect(env).not.toHaveProperty('ELECTRON_RUN_AS_NODE')
+    expect(stdio).toEqual(['ignore', 'ignore', 'pipe', 'ipc'])
   })
 })
 

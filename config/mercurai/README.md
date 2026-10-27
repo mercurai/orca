@@ -9,29 +9,27 @@ The preparation manifest freezes official main at
 `823ca6870fd46bc979ee073ee0731516a0607daa`, with stable floor `v1.4.241`
 (`041baf356b368d773f333e76375ce860fba2481b`). The remote patch
 `patch/current-main-release-823ca` is provisionally pinned to
-`3ddf868540ca44ec66809d486654810d8308a62c`, three commits after that official
-ancestor, tree `f02149b7e71533d1b7eb01e72d4423e7c7185722`. PR
+`065d0b6103af12d402bc7e8d09db577551960dce`, six commits after that official
+ancestor, tree `36303c8754ce8c087b745d8d8b7035b858c94c0c`. PR
 [#82](https://github.com/mercurai/orca/pull/82) supersedes historical preparation #79.
 
-The initial `c777bcfc` baseline reproduced the reviewed defects in hosted
-[40429242854](https://github.com/mercurai/orca/actions/runs/40429242854): 1,282
-passed, 21 failed and 16 skipped on Windows. Both cost jobs and all 25
-full-qualification contracts passed. Current source applies the speed and WSL
-repairs; [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045)
-completed with 1,304 passed, two failed and 16 skipped. The two saved-model
-binding corrections passed independent review at `3ddf868540`; fresh targeted run
-[40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) and full PR CI are pending. These are
-preparation pins, not release approval. Controlled package-version injection
-must reconcile the stable floor explicitly.
+The initial `c777bcfc` baseline reproduced the reviewed speed and WSL defects.
+Source `3ddf868540` cleared the targeted suite to 1,317 passed and 16 skipped,
+while full PR CI exposed type/lint integration failures. The migration baseline
+`03094fa753` then reproduced eight journal ordering/idempotency failures.
+Current `065d0b6103` includes independently reviewed type/lint and durable journal
+corrections. Targeted [40442414377](https://github.com/mercurai/orca/actions/runs/40442414377)
+and fresh full PR CI remain pending; no earlier receipt approves this pin.
+Controlled package-version injection must reconcile the stable floor explicitly.
 
-Four release-gate audit findings remain under repair: partial qualification,
-unauthenticated review, incorrect run correlation, and mutable/non-monotonic
-publication. The proposed controller now wires authenticated owner acceptance,
-immutable prepared inputs and the shared full required matrix. These committed
-changes still need complete exact-head CI: the latest run passed 380 of 381
-Node tests and stopped before template integration. Admission remains disabled.
+The controller script suite passed 387 tests plus nine template checks at
+`92cb523b68`, but platform checks exposed incomplete dependencies from copying
+modern workflows onto an older checkout. The reviewed coherent controller merge
+now brings in the complete frozen official snapshot while preserving Mercurai
+policy/token boundaries. Its CI remains required. The fork lint pin follows
+that snapshot's lockfile version. Promotion and recurring activation remain disabled.
 See the [authoritative plan](plans/2026-10-24-release-automation.md) for exact
-source/CI evidence, open regressions, ownership, and rollout gates.
+source/CI evidence, ownership and remaining rollout gates.
 
 ## Branches
 
@@ -106,7 +104,7 @@ series.
   `fork-sync` issue (paged, not just the first 30) by an exact title prefix of their own. To
   release a reviewed range, merge it
   through a reviewed PR, or dispatch the workflow from `mercurai` with `allow_guarded_merge_sha=<the
-full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
+  full sha from the issue>`: when that sha is inside `upstream/main` the run pins it, so the reviewed
   commit lands even if upstream moved on (newer commits wait for the next run); any other value, a
   short sha, or a sha not inside `upstream/main` allows nothing (the schedule never sets it). An exact
   sha also releases a result-guard refusal, even when the range itself was clean.

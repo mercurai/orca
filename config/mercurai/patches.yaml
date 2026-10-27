@@ -16,7 +16,7 @@ patches:
     branch: patch/current-main-release-823ca
     status: ours-only
     base: 823ca6870fd46bc979ee073ee0731516a0607daa
-    commit: 3ddf868540ca44ec66809d486654810d8308a62c
+    commit: 065d0b6103af12d402bc7e8d09db577551960dce
     owner: harness
     added: 2026-10-25
     tests:
@@ -189,6 +189,7 @@ patches:
       - src/main/ssh/orcad-migration-delta-snapshot.test.ts
       - src/main/ssh/orcad-migration-repository-link.test.ts
       - src/main/ssh/orcad-migration-source-retention.test.ts
+      - src/main/automations/automation-dispatch-host-fence.test.ts
       - src/main/ssh/orcad-retained-source-lists.test.ts
       - src/main/ssh/orcad-runtime-maintenance.test.ts
       - src/main/ssh/orcad-unreachable-setup-release.test.ts
@@ -250,9 +251,9 @@ patches:
       - src/shared/native-chat-session-option-defaults.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
     notes: >-
-      Candidate 3ddf868540ca44ec66809d486654810d8308a62c is three linear commits
+      Candidate 065d0b6103af12d402bc7e8d09db577551960dce is six linear commits
       after official main 823ca6870fd46bc979ee073ee0731516a0607daa, tree
-      f02149b7e71533d1b7eb01e72d4423e7c7185722. Source PR82 supersedes
+      36303c8754ce8c087b745d8d8b7035b858c94c0c. Source PR82 supersedes
       historical PR79 preparation. Initial linear c777bcfc had the identical tree
       as preserved merge e4095165f1ba45b638c9c45aec3bce3ce22d5b68.
       The frozen stable floor is v1.4.241, peeled commit
@@ -262,10 +263,14 @@ patches:
       cost jobs passed, and25full-qualification contracts passed. This pin applies
       the held/tier-only speed and WSL async/revocation repairs plus missing test
       imports. Prior source918ee0ca run40432803045 observed Windows1304pass/2fail/16skip;
-      both cost jobs succeeded. This pin adds independently reviewed saved-model and
-      requested-speed metadata corrections; run40436646873 and full PR CI are pending.
-      No prior receipt approves this pin. Independent source reviews accepted the
-      WSL, release-boundary and unlisted-model corrections; final qualification remains open.
+      source3ddf run40436646873 cleared that to1317pass/16skip. FullPR40436716086
+      then exposed type/lint integration errors. Journal regression baseline03094fa
+      run40439842064 observed1340pass/8fail/16skip, including six intended new
+      journal-ordering failures and two existing idempotency failures. This pin adds
+      independently reviewed typing/lint repairs and awaited serialized journal intent
+      and acknowledgment updates. Targeted run40442414377 and fullPR CI are pending.
+      No prior receipt approves this pin. Independent bounded reviews accepted the
+      WSL, speed/model-binding and journal corrections; final qualification remains open.
       Registered paths retain the predecessor union and new regressions.
       CI-only preparation may use this pin; admission/publication remains disabled
       until final corrections, exact-revision review and complete qualification pass.

@@ -1,3 +1,4 @@
+import { agentSessionRecordFixture } from '../native-chat/agent-session-record-test-fixture'
 import { createClaudeStructuredLaunchResolver } from '../runtime/structured-agent-launch-composition.test-support'
 import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -12,7 +13,6 @@ import {
   CLAUDE_STRUCTURED_BASE_OPTIONS,
   claudeSessionIdForOrcaSession
 } from './claude-structured-launch-resolution'
-import { claudeStructuredPermissionModeForSettings } from './claude-structured-permission-mode'
 import { CLAUDE_THINKING_DISPLAY_FLAG, type ClaudeCliFlag } from './claude-cli-flag-support'
 import { claudeProviderHandle } from '../../shared/agent-session-provider-handle-encoding'
 
@@ -22,7 +22,7 @@ const IDENTITY = { sessionId: SESSION_ID } as Parameters<
 >[0]['identity']
 
 function record(overrides: Partial<AgentSessionRecord> = {}): AgentSessionRecord {
-  return {
+  return agentSessionRecordFixture({
     sessionId: SESSION_ID,
     provider: 'claude',
     location: {
@@ -34,7 +34,7 @@ function record(overrides: Partial<AgentSessionRecord> = {}): AgentSessionRecord
     accountHome: { variable: 'CLAUDE_CONFIG_DIR', path: '/home/work/.claude' },
     providerHandleChain: [],
     ...overrides
-  } as AgentSessionRecord
+  })
 }
 
 function identityAt(leafUuid: string | null): typeof IDENTITY {
@@ -56,8 +56,6 @@ function resolverFor(
   value: AgentSessionRecord | null,
   resolveEnv?: () => Record<string, string>,
   account: 'managed' | 'system' = 'system',
-  // Manual by default so a test that is not about permissions is not silently about them.
-  agentDefaultArgs: Record<string, string> = { claude: '' },
   hasTranscript: () => Promise<boolean> = async () => true,
   resolveLaunchArgs?: () => string[],
   attachmentDirectory?: string
@@ -67,7 +65,6 @@ function resolverFor(
     resolveWorkspacePath: async (id) => `/repos/${id}`,
     resolveCommand: () => '/usr/local/bin/claude',
     resolveAuthPolicy: () => ({ account }),
-    resolvePermissionMode: () => claudeStructuredPermissionModeForSettings({ agentDefaultArgs }),
     hasTranscript,
     resolveLaunchArgs: resolveLaunchArgs ?? (() => value?.launchArgs ?? []),
     ...(resolveEnv ? { resolveEnv } : {}),
@@ -92,7 +89,6 @@ describe('claude structured launch resolution', () => {
 
     const launch = await resolverFor(floating)({ identity: IDENTITY })
 
-    // resolverFor answers `/repos/<id>` — the current setting — which a pinned resume must ignore.
     expect(launch.cwd).toBe(pinned)
   })
 
@@ -116,6 +112,7 @@ describe('claude structured launch resolution', () => {
       supportedDialogKinds: [],
       extraArgs: { 'replay-user-messages': null },
       systemPrompt: { type: 'preset', preset: 'claude_code' },
+      permissionMode: 'default',
       sessionId: first.providerSessionId
     })
     expect(first.options.resume).toBeUndefined()
@@ -136,7 +133,6 @@ describe('claude structured launch resolution', () => {
         value,
         undefined,
         'system',
-        undefined,
         hasTranscript
       )({ identity: identityAt('old-leaf') })
       const expected = claudeSessionIdForOrcaSession(SESSION_ID, boundary.operationId)
@@ -153,7 +149,6 @@ describe('claude structured launch resolution', () => {
         value,
         undefined,
         'system',
-        undefined,
         hasTranscript
       )({ identity: IDENTITY })
       expect(retry.providerSessionId).toBe(expected)
@@ -161,7 +156,6 @@ describe('claude structured launch resolution', () => {
         { ...value, providerContextBoundary: { ...boundary, operationId: 'clear-two' } },
         undefined,
         'system',
-        undefined,
         async () => false
       )({ identity: IDENTITY })
       expect(next.providerSessionId).not.toBe(expected)
@@ -194,7 +188,6 @@ describe('claude structured launch resolution', () => {
   })
 
   it('names the child by the Orca session id, over any id the configured overlay carries', async () => {
-    // The Orca-minted id, never the provider's: the provider id rotates on /clear.
     const launch = await resolverFor(record(), () => ({
       ORCA_AGENT_SESSION_ID: 'a0b1c2d3-0000-4000-8000-00000000abcd'
     }))({ identity: IDENTITY })
@@ -260,7 +253,6 @@ describe('claude structured launch resolution', () => {
       }),
       undefined,
       'system',
-      { claude: '' },
       hasTranscript
     )({ identity: identityAt(null) })
 
@@ -274,20 +266,14 @@ describe('claude structured launch resolution', () => {
       providerSessionId: 'provider-current',
       resumeLeafUuid: null,
       resumesTranscript: false,
-      // Launching the id fresh does not start a new conversation: the child continues the chain.
       continuesChain: true
     })
   })
 
-  // Agent Permissions is stored as the bypass flag inside the launch arguments, so presence of
-  // that flag — not the whole string — is what Yolo means, exactly as a terminal launch reads it.
-  it.each([
-    ['--dangerously-skip-permissions'],
-    ['--dangerously-skip-permissions --model Opus'],
-    ['--model Opus --dangerously-skip-permissions']
-  ])('starts a Yolo session in bypassPermissions for args %s', async (claude) => {
-    const launch = await resolverFor(record(), undefined, 'system', { claude })({
-      identity: IDENTITY
+  it('starts a Full access chat with the bypass flag and no permission mode', async () => {
+    const launch = await resolverFor(record())({
+      identity: IDENTITY,
+      permissionMode: 'full-access'
     })
 
     expect(launch.options.extraArgs).toEqual({
@@ -298,31 +284,29 @@ describe('claude structured launch resolution', () => {
     expect(launch.options.allowDangerouslySkipPermissions).toBeUndefined()
   })
 
-  // The common profile: the toggle has never been used, so it has written nothing, and the
-  // default for the key it did not write is the bypass flag — the posture the terminal has
-  // always given these users.
-  it('starts a session that never opened Agent settings in bypassPermissions', async () => {
-    const launch = await resolverFor(record(), undefined, 'system', {})({ identity: IDENTITY })
+  it.each([
+    ['ask', 'default'],
+    ['accept-edits', 'acceptEdits'],
+    ['auto', 'auto']
+  ] as const)('starts a %s chat in permission mode %s', async (permissionMode, expected) => {
+    const launch = await resolverFor(record())({ identity: IDENTITY, permissionMode })
 
-    expect(launch.options.extraArgs).toEqual({
-      'replay-user-messages': null,
-      'dangerously-skip-permissions': null
-    })
+    expect(launch.options.permissionMode).toBe(expected)
+    expect(launch.options.extraArgs).toEqual({ 'replay-user-messages': null })
   })
 
-  // Manual is stored as an empty string, which owns the key and so beats the shipped default.
-  it.each([[''], ['--model Opus']])(
-    'leaves a Manual session prompting for args %s',
-    async (claude) => {
-      const launch = await resolverFor(record(), undefined, 'system', { claude })({
-        identity: IDENTITY
-      })
+  it('ignores the bypass flag the agent Arguments carry', async () => {
+    const launch = await resolverFor(
+      record(),
+      undefined,
+      'system',
+      async () => true,
+      () => ['--dangerously-skip-permissions']
+    )({ identity: IDENTITY, permissionMode: 'ask' })
 
-      expect(launch.options.permissionMode).toBeUndefined()
-      expect(launch.options.extraArgs).toEqual({ 'replay-user-messages': null })
-      expect(launch.options.allowDangerouslySkipPermissions).toBeUndefined()
-    }
-  )
+    expect(launch.options.permissionMode).toBe('default')
+    expect(launch.options.extraArgs).toEqual({ 'replay-user-messages': null })
+  })
 
   it('passes configured arguments on start without taking over permission or session flags', async () => {
     const launch = await resolverFor(
@@ -343,7 +327,7 @@ describe('claude structured launch resolution', () => {
       model: 'claude-sonnet-4-5',
       'replay-user-messages': null
     })
-    expect(launch.options.permissionMode).toBeUndefined()
+    expect(launch.options.permissionMode).toBe('default')
     expect(launch.options.sessionId).toBe(launch.providerSessionId)
   })
 
@@ -353,7 +337,6 @@ describe('claude structured launch resolution', () => {
       record({ ...RESUMABLE, launchArgs: ['--model', 'stale'] }),
       undefined,
       'system',
-      { claude: '' },
       async () => true,
       () => args
     )
@@ -413,7 +396,6 @@ describe('claude structured launch resolution', () => {
       record(),
       undefined,
       'system',
-      { claude: '' },
       async () => true,
       undefined,
       '/state/agent-session-attachments'
@@ -428,7 +410,6 @@ describe('claude structured launch resolution', () => {
       record(),
       undefined,
       'system',
-      { claude: '' },
       async () => true,
       () => ['--add-dir', '/extra'],
       '/state/agent-session-attachments'
@@ -544,7 +525,11 @@ describe('claude structured launch resolution', () => {
       })
     })({ identity: IDENTITY })
 
-    expect((launch.env?.PATH ?? launch.env?.Path)?.split(delimiter)[0]).toBe(binDir)
+    // Right behind this app's CLI, so a runtime dir holding another `orca` cannot shadow it.
+    expect((launch.env?.PATH ?? launch.env?.Path)?.split(delimiter).slice(1)).toEqual([
+      binDir,
+      '/usr/bin'
+    ])
   })
 
   it('refuses other hosts, WSL, providers, and account-home variables', async () => {
@@ -588,8 +573,7 @@ describe('readable Claude thinking', () => {
       ...(cliFlags ? { cliFlags } : {})
     })({ identity: IDENTITY })
 
-  // Whether the CLI's directory holds a `node` decides if the runtime pairing puts that directory
-  // first on PATH (Linux CI's /usr/local/bin does, a Mac's usually does not), so both are pinned.
+  // Pin both runtime layouts instead of relying on the host's /usr/local/bin contents.
   it.each([
     ['without a sibling Node runtime', false],
     ['with a sibling Node runtime', true]
@@ -613,14 +597,12 @@ describe('readable Claude thinking', () => {
       expect(asked).toMatchObject({ command, cwd: '/repos/workspace-1' })
       const segments = (env: Record<string, string> | undefined) =>
         (env?.PATH ?? env?.Path ?? '').split(delimiter)
-      // The launch's PATH is the probe's plus Orca's own CLI directory, which holds no `claude` or
-      // runtime, so both resolve the same binary and the same shims in the same order.
+      // Orca's CLI directory is the only PATH difference between probe and launch.
       const orcaCliDir = launch.env?.ORCA_CLI_COMMAND ? dirname(launch.env.ORCA_CLI_COMMAND) : null
       expect(segments(launch.env).filter((dir) => dir !== orcaCliDir)).toEqual(segments(asked?.env))
       expect(segments(asked?.env)[0] === binDir).toBe(sibling)
       expect(asked?.env).toMatchObject({ PROJECT_SHIM: '1' })
       expect(asked?.env).not.toHaveProperty('ANTHROPIC_API_KEY')
-      // The launch keeps the credential the user gave it.
       expect(launch.env).toMatchObject({ ANTHROPIC_API_KEY: 'sk-user' })
       expect(launch.options.extraArgs).toEqual({
         'replay-user-messages': null,

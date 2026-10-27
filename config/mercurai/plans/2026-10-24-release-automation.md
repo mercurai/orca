@@ -70,7 +70,7 @@ installation, runtime acceptance, or schedule activation is complete.
 | Official stable                                  | `v1.4.241`, published 2026-10-26; peeled commit `041baf356b368d773f333e76375ce860fba2481b`                                                                                                                                  |
 | Existing public Mercurai release                 | `v1.4.237-mercurai.2`; installed runtime must be independently checked                                                                                                                                                      |
 | Old source preparation                           | `patch/current-main-release-98690@23fdb7e094814974722570e1ac696de6837bb78d`, PR [#79](https://github.com/mercurai/orca/pull/79)                                                                                             |
-| New linear candidate                             | `patch/current-main-release-823ca@3ddf868540ca44ec66809d486654810d8308a62c`, [#82](https://github.com/mercurai/orca/pull/82); targeted run [40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) pending |
+| New linear candidate                             | `patch/current-main-release-823ca@065d0b6103af12d402bc7e8d09db577551960dce`, [#82](https://github.com/mercurai/orca/pull/82); targeted run [40442414377](https://github.com/mercurai/orca/actions/runs/40442414377) pending |
 | Controller preparation                           | `codex/release-registration-20261023@ea3a3b9a1681fa0ebb895c0a8940e8d17b9e6b7b`, PR [#80](https://github.com/mercurai/orca/pull/80); correction and current evidence below                                                   |
 | Admission                                        | Proposed `promotionEnabled: false`; recurring coordinator activation remains off                                                                                                                                            |
 
@@ -98,8 +98,8 @@ recovery alongside fork exact tiers, async persistence and host fences.
 | `c777bcfc`, [40429242854](https://github.com/mercurai/orca/actions/runs/40429242854) | Windows: 97 files, 1,282 passed, 21 failed, 16 skipped. Twenty product regressions and one extraction import error. Linux costs: 237 passed; Windows: 232 passed, five skipped. Qualification contracts: 25 passed. |
 | `918ee0ca`, [40432803045](https://github.com/mercurai/orca/actions/runs/40432803045) | Windows: 95 files passed, two failed; 1,304 tests passed, two failed, 16 skipped. Both cost jobs succeeded. Only saved unlisted-model binding cases remain RED.                                                     |
 
-Current source `3ddf868540ca44ec66809d486654810d8308a62c`, tree
-`f02149b7e71533d1b7eb01e72d4423e7c7185722`, has three linear commits after the frozen base.
+Current source `065d0b6103af12d402bc7e8d09db577551960dce`, tree
+`36303c8754ce8c087b745d8d8b7035b858c94c0c`, has six linear commits after the frozen base.
 The WSL correction serializes complete bounded async focus writes, drains them on quit, revokes pending
 intent on disable/removal, preserves unrelated pending hosts, and fences post-await reconnects by owner
 and generation. Independent review accepted it. Startup reads and immediate revocation retain bounded
@@ -107,13 +107,13 @@ synchronous operations; no measured UI latency or memory improvement is claimed.
 
 Speed corrections preserve newer held legacy choices and explicit Standard over a saved paid tier.
 The follow-up saved-model defect reproduced at 918ee0ca: tier-only intent could replace A with default B.
-The five-file committed correction preserves A and its explicit speed in picker/send projection without
+The committed speed correction preserves A and its explicit speed in picker/send projection without
 borrowing B's paid-tier metadata. Unknown support, loading and older-host restrictions must remain explicit.
 Shared and modern/legacy launch fixtures cover saved Standard and absent saved tier. Independent review
 requested accurate requested-tier and unknown/loading/processing metadata on the new synthetic control.
-That bounded correction passed independent review. Fresh targeted run
-[40436646873](https://github.com/mercurai/orca/actions/runs/40436646873) and full PR CI are pending;
-no installed-app acceptance is claimed.
+That bounded correction passed independent review and targeted
+[40436646873](https://github.com/mercurai/orca/actions/runs/40436646873). Its subsequent full PR failure
+is recorded below; no installed-app acceptance is claimed.
 
 Full PR run [40436716086](https://github.com/mercurai/orca/actions/runs/40436716086) completed RED
 at source `3ddf868540` after targeted GREEN: eight TypeScript diagnostics, two file-size violations,
@@ -122,15 +122,26 @@ The mobile bundle passed; WSL startup failed on the same TypeScript errors befor
 and required package jobs were skipped.
 Local mutable-record typing repairs passed independent review. Prompt contracts were extracted unchanged,
 redundant current-value spreads removed, fixture timestamps fixed, and the baseline only reduced.
-These working corrections still need independent review and fresh complete CI.
+These corrections passed independent review and scoped lint before commit `94c200407f`, included in
+current source `065d0b6103`; fresh complete CI remains required.
 
 The missing migration-journal call also exposed two omitted awaits after the journal became async.
 Retained automation intent must persist before disable, and enable acknowledgment must finish before
 returning without resurrecting concurrently cleared IDs. Six deterministic real-store regressions and
-awaited seed fixtures are authored for hosted RED before those production corrections. The existing
-targeted workflow now includes the retention and host-fence suites. No automatic task launch is added.
+awaited seed fixtures produced the hosted RED recorded below before production correction. The
+existing targeted workflow includes the retention and host-fence suites. No automatic task launch is added.
 
-The provisional manifest pins this committed source and 229 test paths. Replace the pin only after the
+Source `065d0b6103` combines the reviewed type/lint repairs with awaited serialized migration intent and
+acknowledgement updates. Hosted RED [40439842064](https://github.com/mercurai/orca/actions/runs/40439842064)
+at `03094fa753` produced 1,340 passed, eight failed and 16 skipped across 99 files: six new ordering/failure
+cases and two existing idempotency cases. Independent review also required benign missing-journal handling
+after queued cleanup and deterministic gate cleanup. Those corrections are committed; targeted
+[40442414377](https://github.com/mercurai/orca/actions/runs/40442414377) and fresh full PR CI are pending.
+The exported-API/new-upstream-call audit covered 37 explicit async conversions and 16 Promise-returning
+store/journal APIs; it found only the two already corrected new journal calls. This is bounded evidence,
+not whole-program promise-flow proof or a measured UI/memory claim.
+
+The provisional manifest pins this committed source and 230 test paths. Replace the pin only after the
 final source commit; source branch-head drift must fail assembly. Full required CI, version reservation,
 combined review, package checks and runtime evidence remain outstanding. Prior source revisions and run
 counts remain in Git history; they do not qualify the current candidate.
@@ -160,6 +171,20 @@ preflight [40437124830](https://github.com/mercurai/orca/actions/runs/4043712483
 matrix actions lacked `setup-pnpm`. A closure audit also found `build-mobile-web-bundle` missing.
 Both actions are copied byte-for-byte from reviewed source `3ddf868540`; a recursive closure regression
 is under independent review. Script-suite GREEN alone does not authorize controller landing.
+
+The controller action-closure correction passed [40439776292](https://github.com/mercurai/orca/actions/runs/40439776292):
+387 Node tests plus nine template checks, zero failures/skips. Platform run40439782954 passed Linux/macOS
+but found a missing Windows bootstrap script. Full dependency inventory then found 15 directly missing
+scripts and a 49-file source-equivalent dependency gap: copied modern workflows were executing on an
+older controller tree. Copying individual files would leave incompatible tooling versions.
+
+Replace that partial-copy strategy with a coherent merge of frozen official `823ca` into the owned
+controller branch at `92cb523b68`. All 12 conflicts are within previously reviewed copied tooling;
+each retained controller blob exactly equals the reviewed source counterpart. Product code, mobile,
+package and lockfile in the resolved index match official `823ca` exactly. Preserve fork policy/token
+boundaries, update the fork lint pin to the actual lockfile oxlint1.89, and qualify the merged controller
+with independent review and fresh CI before default landing. This merge does not install or release the
+app; Mercurai product improvements remain in the separate registered patch candidate.
 
 Owner intake authenticates account-controlled acceptance of an independent review, binding full
 candidate/tree/controller/manifest/policy/version/ordered-series/upstream identity to both GitHub actors,

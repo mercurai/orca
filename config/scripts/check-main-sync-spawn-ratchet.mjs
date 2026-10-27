@@ -11,35 +11,20 @@ import {
 import { literalString, propertyName, unwrap } from './static-module-specifiers.mjs'
 import { isTestOnlySourcePath } from './test-only-source-path.mjs'
 
-// Ratchet for synchronous child-process launches in Electron main and shared code: each one
-// freezes every window until the child exits, and on Windows antivirus makes every launch slow.
-// Per file it counts uses of the launch APIs and of the repo's synchronous wrappers around them.
+// Synchronous launches freeze all Electron windows; Windows antivirus magnifies the delay. Count launch APIs and synchronous wrappers per file.
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..')
 const BASELINE_PATH = 'config/main-sync-spawn-baseline.txt'
 const SCAN_DIRECTORIES = ['src/main', 'src/shared']
 const PROCESS_ADVICE = 'use runProcess or spawnProcess from @orca/process-host'
-const SECURE_ADVICE = `no async secure writer exists yet; keep the synchronous one and raise this file's count in ${BASELINE_PATH} (or add a row), never a plain write (it loses the Windows ACL hardening)`
-const SECURE_WRITERS = [
-  'writeSecureFile',
-  'writeSecureJsonFile',
-  'writeDurableSecureJsonFile',
-  'writeSecureJsonFileWithinLimit'
-]
-// Gated modules (package names, or repo-relative paths without extension, re-exporters included)
-// and the advice for each gated function they export.
+const SECURE_ADVICE = `rewrites a DACL on the calling thread, and a directory rewrite blocks on its whole subtree; use restrictWindowsDirectory for a directory, or raise this file's count in ${BASELINE_PATH} (or add a row)`
+// Include package/repo re-exporters so moving an import cannot bypass the gate.
 const GATED_FAMILIES = [
   {
     modules: ['child_process', 'node:child_process'],
     advice: { execFileSync: PROCESS_ADVICE, spawnSync: PROCESS_ADVICE, execSync: PROCESS_ADVICE }
   },
   { modules: ['@orca/process-host'], advice: { runProcessSync: PROCESS_ADVICE } },
-  {
-    modules: ['src/shared/secure-file', 'src/shared/bounded-secure-json-file'],
-    advice: Object.fromEntries(
-      [...SECURE_WRITERS, 'hardenSecurePath'].map((name) => [name, SECURE_ADVICE])
-    )
-  },
   {
     modules: ['src/shared/secure-path-windows-acl'],
     advice: { restrictWindowsPathSync: SECURE_ADVICE }
@@ -64,13 +49,18 @@ const GATED_FAMILIES = [
   { modules: ['src/main/win32-utils'], advice: { grantDirAcl: 'use grantDirAclAsync' } }
 ]
 const ADVICE = new Map(GATED_FAMILIES.flatMap((family) => Object.entries(family.advice)))
-// Only spread-free calls with no options or a literal with absent/false `sync` are exempt.
-const SYNC_FLAG_SYMBOLS = new Set(['hardenSecurePath'])
+const GATED_MARKERS = [
+  ...ADVICE.keys(),
+  ...new Set(
+    GATED_FAMILIES.flatMap((family) => family.modules.map((module) => path.posix.basename(module)))
+  )
+]
 const FALLBACK_OPERATORS = new Set([ts.SyntaxKind.QuestionQuestionToken, ts.SyntaxKind.BarBarToken])
 const BASELINE_HEADER = [
   '# Synchronous child-process launches in production src/main and src/shared, per file: uses of',
   '# execFileSync/spawnSync/execSync, runProcessSync and the repo sync wrappers listed in',
-  '# config/scripts/check-main-sync-spawn-ratchet.mjs (secure writers run icacls on Windows).',
+  '# config/scripts/check-main-sync-spawn-ratchet.mjs (synchronous ACL rewrites and grants, which',
+  '# can block on a whole directory subtree).',
   '# Some entries run in the daemon or orcad process, or are test harnesses outside the test-path',
   '# conventions. This is a RATCHET: counts may only go DOWN.',
   '# Prune after removing launches: pnpm check:main-sync-spawn-ratchet --prune'
@@ -91,7 +81,6 @@ function symbolsOf(key) {
   return names.length > 0 ? new Set(names) : null
 }
 
-/** Gated functions a module specifier exports, or null when the module is not gated. */
 export function gatedSymbolsFor(file, specifier) {
   const normalizedSpecifier = normalized(specifier)
   if (!normalizedSpecifier.startsWith('.')) {
@@ -103,36 +92,6 @@ export function gatedSymbolsFor(file, specifier) {
         path.posix.join(path.posix.dirname(normalized(file)), normalizedSpecifier)
       )
     )
-  )
-}
-
-function isAsyncOnlyCall(callee) {
-  const call = callee.parent
-  if (
-    !ts.isCallExpression(call) ||
-    call.expression !== callee ||
-    call.arguments.some(ts.isSpreadElement)
-  ) {
-    return false
-  }
-  const options = unwrap(call.arguments[1])
-  return (
-    !options ||
-    (ts.isObjectLiteralExpression(options) &&
-      options.properties.every((property) => {
-        if (ts.isSpreadAssignment(property)) {
-          return false
-        }
-        const name = ts.isIdentifier(property.name)
-          ? property.name.text
-          : literalString(property.name)
-        return (
-          name !== null &&
-          (name !== 'sync' ||
-            (ts.isPropertyAssignment(property) &&
-              unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword))
-        )
-      }))
   )
 }
 
@@ -158,21 +117,23 @@ function isValueReference(node) {
   )
 }
 
-/**
- * Every value reference to a gated function counts (call, hand-off, alias initializer, each alias
- * use), plus each re-export and a gated module's own references; imports alone count nothing.
- * File-wide, not scope-aware; computed specifiers and member names are not resolved.
- * Counted by reference only: not traced through non-const holders or the file's own wrappers.
- */
+// Count each gated value reference, alias use and re-export; imports alone do not count.
+// File-wide, not scope-aware: computed specifiers/members and non-const holder flows are unresolved; local wrappers are not traced.
 export function collectSyncLaunchUses(file, contents) {
-  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, true)
+  // Escaped spellings and relative imports inside gated modules still need the full analysis.
+  const analyze =
+    contents.includes('\\') ||
+    GATED_MARKERS.some((marker) => contents.includes(marker) || file.includes(marker))
+  const source = ts.createSourceFile(file, contents, ts.ScriptTarget.Latest, analyze)
   if (source.parseDiagnostics.length > 0) {
     throw new Error(`Cannot parse ${file}; the sync-spawn ratchet must not skip it.`)
+  }
+  if (!analyze) {
+    return { count: 0, symbols: [] }
   }
   const used = new Set()
   let count = 0
   const namespaces = new Map()
-  // Local name -> gated function it refers to.
   const functions = new Map([...(symbolsOf(moduleKey(file)) ?? [])].map((name) => [name, name]))
   const aliases = []
   const members = []
@@ -214,10 +175,7 @@ export function collectSyncLaunchUses(file, contents) {
     }
     return null
   }
-  function recordUse(name, node) {
-    if (SYNC_FLAG_SYMBOLS.has(name) && isAsyncOnlyCall(node)) {
-      return
-    }
+  function recordUse(name) {
     used.add(name)
     count += 1
   }
@@ -326,13 +284,13 @@ export function collectSyncLaunchUses(file, contents) {
   for (const node of members) {
     const name = propertyName(node)
     if (moduleSymbols(node.expression)?.has(name)) {
-      recordUse(name, node)
+      recordUse(name)
     }
   }
   for (const node of identifiers) {
     const name = functions.get(node.text)
     if (name) {
-      recordUse(name, node)
+      recordUse(name)
     }
   }
   return { count, symbols: [...used].sort() }
@@ -346,7 +304,6 @@ export function isRatchetedSourcePath(file) {
   )
 }
 
-/** Per-file use counts and the gated functions each file uses. */
 export function countSyncSpawnUses(sources) {
   const counts = new Map()
   const symbols = new Map()
