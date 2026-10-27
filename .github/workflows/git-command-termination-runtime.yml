@@ -13,6 +13,9 @@ on:
       - 'src/main/managed-server/posix-host-op-byte-budget.test.ts'
       - 'src/main/ssh/ssh-remote-commands.ts'
       - 'src/main/ssh/ssh-remote-commands.test.ts'
+      - 'src/main/ssh/orcad-migration-source-retention*.ts'
+      - 'src/main/ssh/orcad-migration-moved-automations.ts'
+      - 'src/main/automations/automation-dispatch-host-fence.test.ts'
       - 'src/main/native-chat/agent-model-catalog/**'
       - 'src/packages/process-host/**'
       - 'src/main/codex/codex-structured-session-options.test.ts'
@@ -66,6 +69,8 @@ jobs:
           src/main/managed-server/install/remote-versioned-install.test.ts
           src/main/managed-server/posix-host-op-byte-budget.test.ts
           src/main/ssh/ssh-remote-commands.test.ts
+          src/main/ssh/orcad-migration-source-retention.test.ts
+          src/main/automations/automation-dispatch-host-fence.test.ts
           src/main/git/command-runner/exec-file-capture-worker-stderr.test.ts
           src/main/git/command-runner/git-spawn-worker-client.test.ts
           src/main/git/command-runner/git-spawn-worker-handler.test.ts

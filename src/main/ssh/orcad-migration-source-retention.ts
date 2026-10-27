@@ -10,7 +10,8 @@ import type { Store } from '../persistence'
 import { withRenamedOrcadMigrationDrafts } from '../persistence/migrating-orcad-catalog/orcad-source-draft-rename'
 import {
   listOrcadMigrationSourceCutovers,
-  updateOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover,
+  writeOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 
 type OrcadMigrationDraftRenameStore = Pick<

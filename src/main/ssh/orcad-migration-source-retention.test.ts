@@ -10,6 +10,7 @@ import { Store } from '../persistence/loading-store/store'
 import {
   listOrcadMigrationSourceCutovers,
   removeOrcadMigrationSourceCutover,
+  updateOrcadMigrationSourceCutover,
   writeOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 import { orcadMigrationCutoverFixture } from './orcad-migration-cutover-fixture'
@@ -23,6 +24,8 @@ import {
   enableMovedOrcadAutomationsForTarget
 } from './orcad-migration-moved-automations'
 import { createOrcadMigrationManifest } from './orcad-migration-manifest-export'
+import * as boundedWrites from '../../shared/bounded-secure-json-file'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 
 const TARGET_ID = 'ssh-1'
 const SOURCE_HOST = `ssh:${TARGET_ID}`
@@ -47,6 +50,8 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  await drainPendingPathWrites()
+  vi.restoreAllMocks()
   await closeTestStores()
   rmSync(userDataPath, { recursive: true, force: true })
 })
@@ -288,7 +293,7 @@ describe('renaming unsaved drafts to the server on commit', () => {
 describe('moving automations that ran on this desktop', () => {
   const TARGET = { id: TARGET_ID, label: 'Prod', host: 'h', port: 22, username: 'u', generation: 2 }
 
-  function committedWithAutomation() {
+  async function committedWithAutomation() {
     store.addSshTarget(TARGET)
     store.addRepo(REPO)
     const automation = store.createAutomation({
@@ -305,7 +310,7 @@ describe('moving automations that ran on this desktop', () => {
       migrationId: 'm-1',
       destinationEnvironmentId: 'env-1'
     })
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('m-1', TARGET_ID),
       phase: 'destination-committed',
       manifestSha256: manifest.manifestSha256,
@@ -314,8 +319,184 @@ describe('moving automations that ran on this desktop', () => {
     return automation
   }
 
+  function holdJournalWrite() {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const execute = boundedWrites.writeSecureJsonFileWithinLimitAsync
+    let held = false
+    const spy = vi
+      .spyOn(boundedWrites, 'writeSecureJsonFileWithinLimitAsync')
+      .mockImplementation(async (...args) => {
+        if (args[0] === join(userDataPath, 'orcad-migration-cutovers', 'm-1.json') && !held) {
+          held = true
+          entered.resolve()
+          await release.promise
+        }
+        return execute(...args)
+      })
+    return { entered: entered.promise, release: () => release.resolve(), spy }
+  }
+
+  async function retainedWithAutomation() {
+    const automation = await committedWithAutomation()
+    await updateOrcadMigrationSourceCutover(userDataPath, 'm-1', (current) => ({
+      ...current,
+      sourceRetainedAt: '2026-10-03T00:00:00.000Z',
+      automationsToEnableOnServer: [automation.id]
+    }))
+    store.disableAutomations(new Set([automation.id]))
+    return automation
+  }
+
+  it('saves enable intent durably before disabling a retained automation', async () => {
+    const automation = await committedWithAutomation()
+    const disable = vi.spyOn(store, 'disableAutomations')
+    const held = holdJournalWrite()
+    const operations: Promise<unknown>[] = []
+    try {
+      const retaining = retainOrcadMigrationSource(userDataPath, 'm-1', store)
+      operations.push(retaining)
+      await Promise.race([held.entered, retaining])
+      expect(disable).not.toHaveBeenCalled()
+      expect(store.listAutomations()[0]?.enabled).toBe(true)
+      expect(
+        listOrcadMigrationSourceCutovers(userDataPath)[0]?.automationsToEnableOnServer
+      ).toBeUndefined()
+      held.release()
+      await retaining
+      expect(disable).toHaveBeenCalledOnce()
+      expect(
+        listOrcadMigrationSourceCutovers(userDataPath)[0]?.automationsToEnableOnServer
+      ).toEqual([automation.id])
+      await restart()
+      expect(store.listAutomations()[0]?.enabled).toBe(false)
+    } finally {
+      held.release()
+      await Promise.allSettled(operations)
+    }
+  })
+
+  it('preserves the enabled source and unretained journal when saving enable intent fails', async () => {
+    await committedWithAutomation()
+    await store.flushPendingOrThrowAsync()
+    vi.spyOn(boundedWrites, 'writeSecureJsonFileWithinLimitAsync').mockRejectedValueOnce(
+      new Error('journal intent save refused')
+    )
+    await expect(retainOrcadMigrationSource(userDataPath, 'm-1', store)).rejects.toThrow(
+      'journal intent save refused'
+    )
+    const cutover = listOrcadMigrationSourceCutovers(userDataPath)[0]
+    expect(cutover?.automationsToEnableOnServer).toBeUndefined()
+    expect(cutover?.sourceRetainedAt).toBeUndefined()
+    await restart()
+    expect(store.listAutomations()[0]?.enabled).toBe(true)
+  })
+
+  it('keeps a queued journal update and its recorded enable intent during retention', async () => {
+    await committedWithAutomation()
+    const held = holdJournalWrite()
+    const operations: Promise<unknown>[] = []
+    try {
+      const updating = updateOrcadMigrationSourceCutover(userDataPath, 'm-1', (current) => ({
+        ...current,
+        linkedRepositoryIds: [REPO.id],
+        automationsToEnableOnServer: []
+      }))
+      operations.push(updating)
+      await held.entered
+      const retaining = retainOrcadMigrationSource(userDataPath, 'm-1', store)
+      operations.push(retaining)
+      held.release()
+      await Promise.all([updating, retaining])
+      expect(listOrcadMigrationSourceCutovers(userDataPath)[0]).toMatchObject({
+        linkedRepositoryIds: [REPO.id],
+        automationsToEnableOnServer: [],
+        sourceRetainedAt: expect.any(String)
+      })
+      expect(store.listAutomations()[0]?.enabled).toBe(false)
+    } finally {
+      held.release()
+      await Promise.allSettled(operations)
+    }
+  })
+
+  it('waits for the durable enable acknowledgement before reporting completion', async () => {
+    const automation = await retainedWithAutomation()
+    const held = holdJournalWrite()
+    const operations: Promise<unknown>[] = []
+    try {
+      let finished = false
+      const enabling = enableMovedOrcadAutomations(userDataPath, 'm-1', async () => true).then(
+        (result) => {
+          finished = true
+          return result
+        }
+      )
+      operations.push(enabling)
+      await Promise.race([held.entered, enabling])
+      expect(finished).toBe(false)
+      expect(
+        listOrcadMigrationSourceCutovers(userDataPath)[0]?.automationsToEnableOnServer
+      ).toEqual([automation.id])
+      held.release()
+      await expect(enabling).resolves.toBe(0)
+      expect(
+        listOrcadMigrationSourceCutovers(userDataPath)[0]?.automationsToEnableOnServer
+      ).toEqual([])
+    } finally {
+      held.release()
+      await Promise.allSettled(operations)
+    }
+  })
+
+  it('keeps pending enable intent when the acknowledgement cannot be journaled', async () => {
+    const automation = await retainedWithAutomation()
+    vi.spyOn(boundedWrites, 'writeSecureJsonFileWithinLimitAsync').mockRejectedValueOnce(
+      new Error('journal acknowledgement refused')
+    )
+    await expect(
+      enableMovedOrcadAutomations(userDataPath, 'm-1', async () => true)
+    ).rejects.toThrow('journal acknowledgement refused')
+    expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.automationsToEnableOnServer).toEqual([
+      automation.id
+    ])
+    expect(listOrcadMigrationSourceCutovers(userDataPath)[0]?.sourceRetainedAt).toBeDefined()
+  })
+
+  it('does not restore enable intent cleared while its request was in flight', async () => {
+    await retainedWithAutomation()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const operations: Promise<unknown>[] = []
+    try {
+      const enabling = enableMovedOrcadAutomations(userDataPath, 'm-1', async () => {
+        entered.resolve()
+        await release.promise
+        throw new Error('server became unreachable')
+      })
+      operations.push(enabling)
+      await entered.promise
+      await updateOrcadMigrationSourceCutover(userDataPath, 'm-1', (current) => ({
+        ...current,
+        linkedRepositoryIds: [REPO.id],
+        automationsToEnableOnServer: []
+      }))
+      release.resolve()
+      await enabling
+      await drainPendingPathWrites()
+      expect(listOrcadMigrationSourceCutovers(userDataPath)[0]).toMatchObject({
+        linkedRepositoryIds: [REPO.id],
+        automationsToEnableOnServer: []
+      })
+    } finally {
+      release.resolve()
+      await Promise.allSettled(operations)
+    }
+  })
+
   it('disables the retained copy at commit and re-enables it on the server once', async () => {
-    const automation = committedWithAutomation()
+    const automation = await committedWithAutomation()
 
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
     expect(store.listAutomations()[0]?.enabled).toBe(false)
@@ -332,7 +513,7 @@ describe('moving automations that ran on this desktop', () => {
   })
 
   it('retries a server it could not reach, but not one that refused', async () => {
-    committedWithAutomation()
+    await committedWithAutomation()
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
 
     const unreachable = vi.fn(async () => {
@@ -346,9 +527,9 @@ describe('moving automations that ran on this desktop', () => {
   })
 
   it('retries an earlier move a later delta move superseded', async () => {
-    committedWithAutomation()
+    await committedWithAutomation()
     await retainOrcadMigrationSource(userDataPath, 'm-1', store)
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...orcadMigrationCutoverFixture('m-2', TARGET_ID),
       phase: 'destination-committed',
       sourceRetainedAt: '2026-10-03T00:00:00.000Z',
@@ -363,7 +544,7 @@ describe('moving automations that ran on this desktop', () => {
   })
 
   it('leaves a copy the user had turned off alone, and asks the server for nothing', async () => {
-    const automation = committedWithAutomation()
+    const automation = await committedWithAutomation()
     store.disableAutomations(new Set([automation.id]))
     const before = store.listAutomations()[0]
 
