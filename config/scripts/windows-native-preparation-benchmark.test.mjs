@@ -170,7 +170,14 @@ test('preload observes the CJS process-host export imported by production ESM co
   const directory = mkdtempSync(join(tmpdir(), 'orca-native-observer-esm-test-'))
   try {
     const trace = join(directory, 'trace.json')
-    const program = `import { runProcessSync } from '@orca/process-host'; import { createRequire } from 'node:module'; if (createRequire(import.meta.url)('@orca/process-host').runProcessSync !== runProcessSync) process.exit(3); const value = runProcessSync({program:process.execPath,args:['-e','process.stdout.write("proof")']}); if(value.stdout !== 'proof') process.exit(2);`
+    const program = `
+      import processHost, { runProcessSync } from '@orca/process-host';
+      import { createRequire } from 'node:module';
+      const required = createRequire(import.meta.url)('@orca/process-host');
+      if (required !== processHost || required.runProcessSync !== runProcessSync) process.exit(3);
+      const value = runProcessSync({program:process.execPath,args:['-e','process.stdout.write("proof")']});
+      if (value.stdout !== 'proof') process.exit(2);
+    `
     const result = await runProcess({
       program: process.execPath,
       args: [

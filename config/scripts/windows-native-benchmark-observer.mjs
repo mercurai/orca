@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { basename } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { performance } from 'node:perf_hooks'
 
 export const compilerEnvironmentKey =
@@ -112,8 +112,7 @@ export function installNativeBenchmarkObserver(api, output, environment = proces
 if (process.env.ORCA_NATIVE_BENCHMARK_TRACE) {
   const require = createRequire(import.meta.url)
   const entry = require.resolve('@orca/process-host')
-  // Re-export getters are immutable; publish the observed facade before production ESM loads it.
-  const api = { ...require(entry) }
+  // Patch the writable leaf before ESM captures the root's getter re-export.
+  const api = require(join(dirname(entry), 'run-process-sync.js'))
   installNativeBenchmarkObserver(api, process.env.ORCA_NATIVE_BENCHMARK_TRACE)
-  require.cache[entry].exports = api
 }

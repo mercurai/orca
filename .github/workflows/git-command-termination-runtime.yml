@@ -234,7 +234,7 @@ jobs:
           config/scripts/pr-preflight-gates.test.mjs
 
       - name: Verify persistence and native-session caller contracts
-        if: matrix.os == 'ubuntu-22.04'
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-22.04' }}
         run: >-
           node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
           src/main/managed-server/lifecycle/orcad-managed-tunnel-local-port.test.ts

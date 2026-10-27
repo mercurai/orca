@@ -37,7 +37,7 @@ function evaluate(expression, context) {
     expression
       .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
       .replaceAll('.cross-version-wire', '["cross-version-wire"]'),
-    context
+    { inputs: {}, ...context }
   )
 }
 
