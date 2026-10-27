@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getAppEnvironment, hasAppEnvironment, setAppEnvironment } from '../../../shared/app-environment'
 import { OrchestrationDb } from './db'
@@ -258,4 +260,197 @@ describe('Pi package composition at the reserved Dispatch', () => {
       if (previousEnvironment) setAppEnvironment(previousEnvironment)
     }
   })
+
+  it.skipIf(process.env.ORCA_PI_NATIVE_CONTRACT !== '1')(
+    'consumes the actual Pi launch binding through pinned native runtime and report consumers',
+    async () => {
+      const consumerRoot = process.env.HARNESS_PI_CONSUMER_ROOT
+      const consumerSha = process.env.HARNESS_PI_CONSUMER_SHA
+      if (!consumerRoot || !isAbsolute(consumerRoot) || !consumerSha || !/^[a-f0-9]{40}$/.test(consumerSha)) {
+        throw new Error('The private native consumer root and exact commit pin are required.')
+      }
+      const runtimePath = join(consumerRoot, 'adapters', 'pi', 'runtime.mjs')
+      const reportPath = join(consumerRoot, 'adapters', 'pi', 'report.mjs')
+      const f = fixture()
+      await f.prepare()
+      const { bindPiWorkerPackageToSession, preparePiWorkerAcquisition } = await packageApi()
+      bindPiWorkerPackageToSession(db, f.started.dispatch.id, 'session_native_contract')
+      const executable = join(f.privateRoot, process.platform === 'win32' ? 'orca-ide.exe' : 'orca-ide')
+      writeFileSync(executable, 'host-owned CLI fixture')
+      const previousEnvironment = hasAppEnvironment() ? getAppEnvironment() : null
+      setAppEnvironment({
+        getPath: () => f.privateRoot,
+        getAppPath: () => directory,
+        getVersion: () => '0.0.0-test',
+        isPackaged: () => true,
+        getCliLauncherPath: () => executable,
+        onWillQuit: () => {},
+        exit: () => {},
+        getAppMetrics: () => []
+      })
+      const brokerCalls: Array<{ executable: string; args: string[]; request: Record<string, unknown> }> = []
+      const reportCalls: Array<{ executable: string; args: string[]; options: Record<string, unknown> }> = []
+      let verifiedReceipt: Record<string, unknown> | undefined
+      const spawnDouble = (spawnExecutable: string, args: string[], options: Record<string, unknown>) => {
+        const child = new EventEmitter()
+        const stdout = new EventEmitter()
+        const stderr = new EventEmitter()
+        const stdin = Object.assign(new EventEmitter(), {
+          end(input?: string | Buffer) {
+            if (args[0] !== 'pi-worker') return
+            const request = JSON.parse(String(input))
+            brokerCalls.push({ executable: spawnExecutable, args: [...args], request })
+            queueMicrotask(() => {
+              stdout.emit('data', JSON.stringify({ ok: true, result: verifiedReceipt }))
+              child.emit('close', 0)
+            })
+          }
+        })
+        Object.assign(child, {
+          stdin, stdout, stderr,
+          kill: () => {},
+        })
+        if (args[0] !== 'pi-worker') {
+          reportCalls.push({ executable: spawnExecutable, args: [...args], options: { ...options } })
+          queueMicrotask(() => {
+            stdout.emit('data', JSON.stringify({ accepted: true }))
+            child.emit('close', 0)
+          })
+        }
+        return child
+      }
+      vi.doMock('node:child_process', () => ({ spawn: spawnDouble }))
+      try {
+        const binding = await preparePiWorkerAcquisition({
+          db, sessionId: 'session_native_contract', acquisitionId: 'acquisition_native_contract',
+          privateRoot: f.privateRoot, runBroker: f.runBroker
+        })
+        expect(binding).toBeDefined()
+        const serialized = JSON.parse(readFileSync(binding!.bindingPath, 'utf8'))
+        const bindingShaBefore = sha(readFileSync(binding!.bindingPath))
+        const profile = JSON.parse(readFileSync(binding!.profilePath, 'utf8'))
+        const models = JSON.parse(readFileSync(binding!.modelsJsonPath, 'utf8'))
+        const provider = models.providers.openrouter
+        const catalogModel = provider.models[0]
+        const trustedReportCli = (await import('../../pi/worker-report-bridge')).resolvePiWorkerReportCli({
+          platform: process.platform
+        })
+        expect(serialized.owner).toEqual(f.owner)
+        expect(serialized.template_bytes_sha256).toBe(f.templateBytesSha256)
+        expect(serialized.final_profile_semantic_sha256).toBe(FINAL_SEMANTIC_HASH)
+        expect(serialized.manifest_bytes_sha256).toBe(binding!.manifestBytesSha256)
+        expect(serialized.broker_sha256).toBe(f.brokerBytesSha256)
+        expect(serialized.shared_source_commit).toBe(SOURCE_COMMIT)
+        expect(serialized.modelsJsonSha256).toBe(binding!.modelsJsonSha256)
+        expect(serialized.modelsJsonSha256).toBe(sha(readFileSync(binding!.modelsJsonPath)))
+        expect(serialized.readinessNonce).toBe(binding!.readinessNonce)
+        expect(provider.api).toBe('openai-completions')
+        expect(provider.baseUrl).toBe('https://openrouter.ai/api/v1')
+        expect(profile.model).toMatchObject({
+          harness: 'pi', gateway: 'openrouter', id: 'deepseek/deepseek-v4.1-flash-1017', context_window: 1048576
+        })
+        expect(catalogModel.id).toBe('deepseek/deepseek-v4.1-flash-1017')
+        expect(catalogModel.contextWindow).toBe(1048576)
+        expect(catalogModel.maxTokens).toBe(1000)
+        expect(serialized.expectedPiVersion).toBe('1.4.0')
+        expect(serialized.expectedModel).toEqual({
+          harness: 'pi', gateway: 'openrouter', id: 'deepseek/deepseek-v4.1-flash-1017', context_window: 1048576
+        })
+        expect(serialized.reportCli).toEqual(trustedReportCli)
+        expect(trustedReportCli).toMatchObject({ executable, argvPrefix: [], mode: 'native' })
+        verifiedReceipt = {
+          readiness: 'ready', owner: serialized.owner,
+          template_bytes_sha256: serialized.template_bytes_sha256,
+          final_profile_semantic_sha256: serialized.final_profile_semantic_sha256,
+          manifest_bytes_sha256: serialized.manifest_bytes_sha256,
+          broker_sha256: serialized.broker_sha256,
+          shared_source_commit: serialized.shared_source_commit
+        }
+
+        const context = {
+          cwd: profile.workspace,
+          mode: 'rpc',
+          model: {
+            id: catalogModel.id, provider: 'openrouter', api: provider.api,
+            baseUrl: provider.baseUrl, contextWindow: catalogModel.contextWindow,
+            maxTokens: catalogModel.maxTokens
+          }
+        }
+        const extension = join(f.privateRoot, f.started.dispatch.id, 'package', 'extensions', 'extension.mjs')
+        const toolNames = ['harness_create', 'harness_read', 'harness_search', 'harness_write', 'harness_report']
+        let activeTools: string[] = []
+        const pi = {
+          getAllTools: () => toolNames.map(name => ({ name, exposure: 'model-only', sourceInfo: { path: extension } })),
+          getMcpServers: () => [],
+          setActiveTools: (names: string[]) => { activeTools = [...names] },
+          getActiveTools: () => activeTools
+        }
+        vi.stubEnv('HARNESS_PI_PROFILE', binding!.profilePath)
+        vi.stubEnv('HARNESS_PI_BROKER', f.brokerPath)
+        vi.stubEnv('HARNESS_PI_BINDING', binding!.bindingPath)
+        vi.stubEnv('PI_CODING_AGENT_DIR', binding!.agentHomeDirectory)
+        const { createRuntime } = await import(pathToFileURL(runtimePath).href)
+        await import(pathToFileURL(reportPath).href)
+        const runtime = createRuntime(pi)
+        runtime.start(context, 'startup')
+        await expect(runtime.check(context)).resolves.toMatchObject({
+          modelsHash: binding!.modelsJsonSha256,
+          model: context.model
+        })
+        await expect(runtime.report({ operation: 'status', body: 'contract' }, context)).resolves.toEqual({ accepted: true })
+        expect(activeTools).toEqual(toolNames)
+        expect(brokerCalls).toHaveLength(2)
+        expect(brokerCalls[0]).toMatchObject({ executable: f.brokerPath, args: ['pi-worker', 'verify', '--profile', binding!.profilePath] })
+        expect(reportCalls).toHaveLength(1)
+        expect(reportCalls[0].executable).toBe(executable)
+        expect(reportCalls[0].args.slice(0, 2)).toEqual(['orchestration', 'send'])
+        expect(reportCalls[0].args).toContain(f.task.id)
+        expect(reportCalls[0].args).toContain(f.started.dispatch.id)
+        expect(reportCalls[0].options).toMatchObject({ shell: false })
+        expect(sha(readFileSync(binding!.bindingPath))).toBe(bindingShaBefore)
+
+        for (const [name, mutation, profileMutation, message] of [
+          ['owner', (value: Record<string, unknown>) => ({ ...value, owner: { ...Object(value.owner), task_id: 'task_other' } }), undefined, 'Worker identity mismatch'],
+          ['model', (value: Record<string, unknown>) => value, (value: Record<string, unknown>) => ({ ...value, model: { ...Object(value.model), id: 'other/model' } }), 'Worker identity mismatch'],
+          ['consumed-pin', (value: Record<string, unknown>) => ({ ...value, template_bytes_sha256: '0'.repeat(64) }), undefined, 'Worker verification mismatch']
+        ] as const) {
+          const negativePath = join(f.privateRoot, `${name}-launch-binding.json`)
+          writeFileSync(negativePath, JSON.stringify(mutation(serialized)))
+          const negativeProfilePath = join(f.privateRoot, `${name}-profile.json`)
+          if (profileMutation) writeFileSync(negativeProfilePath, JSON.stringify(profileMutation(profile)))
+          vi.stubEnv('HARNESS_PI_PROFILE', profileMutation ? negativeProfilePath : binding!.profilePath)
+          vi.stubEnv('HARNESS_PI_BINDING', negativePath)
+          brokerCalls.length = 0
+          reportCalls.length = 0
+          const negativeRuntime = createRuntime(pi)
+          negativeRuntime.start(context, 'startup')
+          await expect(negativeRuntime.report({ operation: 'status', body: 'contract' }, context)).rejects.toThrow(message)
+          expect(reportCalls).toHaveLength(0)
+          expect(brokerCalls).toHaveLength(name === 'consumed-pin' ? 1 : 0)
+        }
+        for (const [name, reportCli] of [
+          ['descriptor-native', { ...Object(serialized.reportCli), argvPrefix: ['unexpected'] }],
+          ['descriptor-nonnative', { ...Object(serialized.reportCli), argvPrefix: ['electron-entry'], mode: 'electron-cli' }]
+        ] as const) {
+          const negativePath = join(f.privateRoot, `${name}-launch-binding.json`)
+          writeFileSync(negativePath, JSON.stringify({ ...serialized, reportCli }))
+          vi.stubEnv('HARNESS_PI_PROFILE', binding!.profilePath)
+          vi.stubEnv('HARNESS_PI_BINDING', negativePath)
+          brokerCalls.length = 0
+          reportCalls.length = 0
+          const negativeRuntime = createRuntime(pi)
+          negativeRuntime.start(context, 'startup')
+          await expect(negativeRuntime.report({ operation: 'status', body: 'contract' }, context)).rejects.toThrow('Missing trusted report route')
+          expect(reportCalls).toHaveLength(0)
+          expect(brokerCalls).toHaveLength(0)
+        }
+        expect(sha(readFileSync(binding!.bindingPath))).toBe(bindingShaBefore)
+      } finally {
+        vi.unstubAllEnvs()
+        vi.doUnmock('node:child_process')
+        vi.resetModules()
+        if (previousEnvironment) setAppEnvironment(previousEnvironment)
+      }
+    }
+  )
 })
