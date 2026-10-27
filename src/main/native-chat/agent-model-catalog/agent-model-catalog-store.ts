@@ -1,5 +1,7 @@
-import { isAgentModelCatalogStale } from './agent-model-catalog-discovery'
-import { independentAgentModelCatalog } from './agent-model-catalog-discovery'
+import {
+  independentAgentModelCatalog,
+  isAgentModelCatalogStale
+} from './agent-model-catalog-discovery'
 export type { AgentModelCatalogProbe } from './agent-model-catalog-discovery'
 import type { AgentModelCatalogPersistence } from './agent-model-catalog-persistence'
 import {
