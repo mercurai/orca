@@ -365,8 +365,10 @@ describe('OrcaRuntimeRpcServer', () => {
         params: { worktree: 'id:repo-1::/tmp/worktree-a' }
       })
       const listResponse = await phoneResponses.next('phone_terminals')
-      const handle = (listResponse.result as { terminals: { handle: string }[] }).terminals[0]!
-        .handle
+      const { terminals } = z
+        .object({ terminals: z.array(z.object({ handle: z.string().min(1) })).min(1) })
+        .parse(listResponse.result)
+      const handle = terminals[0]!.handle
       expect(handle).toBeTruthy()
 
       sendEncryptedWsRequest(phone, {
@@ -477,10 +479,7 @@ describe('OrcaRuntimeRpcServer', () => {
       cancelMobileDictationForConnection: () => {},
       onClientDisconnected: () => {}
     } as unknown as OrcaRuntimeService
-    expect(
-      (runtimeProxy as { activateRecentPtyPathCandidateTracking?: unknown })
-        .activateRecentPtyPathCandidateTracking
-    ).toBeUndefined()
+    expect(Reflect.has(runtimeProxy, 'activateRecentPtyPathCandidateTracking')).toBe(false)
     const server = new OrcaRuntimeRpcServer({
       runtime: runtimeProxy,
       userDataPath,
