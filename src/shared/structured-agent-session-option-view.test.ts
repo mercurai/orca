@@ -108,42 +108,127 @@ describe('explicit Codex speed without a replacement model', () => {
     expect(state.record).toEqual(record)
   })
 
-  it('retains an unlisted saved model when an explicit Standard choice names no replacement model', () => {
-    const savedModel = 'synthetic-saved-model-not-listed'
-    const listedDefault = 'synthetic-different-catalog-default'
-    const state = applyStructuredAgentSessionModelCatalog(
-      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
-      CODEX_SESSION_OPTION_CATALOG,
-      {
-        origin: 'probe',
-        catalogState: 'available',
-        fetchedAt: 1,
-        listingNamesConfiguredModel: true,
-        models: [
-          {
-            id: listedDefault,
-            label: listedDefault,
-            isDefault: true,
-            efforts: [],
-            serviceTiers: [{ value: 'default', label: 'Standard' }]
-          }
+  it.each(
+    ['default', undefined].flatMap((savedTier) =>
+      [false, true].flatMap((listingInProgress) =>
+        [false, true].map((otherModelSpeed) => ({
+          savedTier,
+          listingInProgress,
+          otherModelSpeed
+        }))
+      )
+    )
+  )(
+    'retains unlisted model and Standard (saved=$savedTier, loading=$listingInProgress, other-speed=$otherModelSpeed)',
+    ({ savedTier, listingInProgress, otherModelSpeed }) => {
+      const savedModel = 'synthetic-saved-model-not-listed'
+      const listedDefault = 'synthetic-different-catalog-default'
+      const listedModel = {
+        id: listedDefault,
+        label: listedDefault,
+        isDefault: true,
+        efforts: [],
+        serviceTiers: [
+          { value: 'default', label: 'Standard' },
+          { value: 'paid-only-for-default-B', label: 'Fast' }
         ]
-      },
-      { newLaunch: true }
-    )
-    const record = structuredClone(state.record)
-    const view = structuredAgentSessionOptionView(
-      state,
-      { model: savedModel, serviceTier: 'default' },
-      {},
-      { serviceTier: 'default' }
-    )
-    expect(structuredAgentSessionSendSelection(view)).toMatchObject({
-      model: savedModel,
-      serviceTier: 'default'
-    })
-    expect(state.record).toEqual(record)
-  })
+      }
+      const listed = applyStructuredAgentSessionModelCatalog(
+        createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+        CODEX_SESSION_OPTION_CATALOG,
+        {
+          origin: 'probe',
+          catalogState: 'available',
+          fetchedAt: 1,
+          listingNamesConfiguredModel: true,
+          models: [listedModel]
+        },
+        { newLaunch: true }
+      )
+      const answered = otherModelSpeed
+        ? applyStructuredAgentSessionOptions(listed, CODEX_SESSION_OPTION_CATALOG, {
+            models: [listedModel],
+            current: {
+              model: listedDefault,
+              serviceTier: 'paid-only-for-default-B',
+              defaulted: ['model', 'serviceTier']
+            },
+            speed: {
+              requested: { tierId: 'paid-only-for-default-B' },
+              support: 'available',
+              applied: { tierId: 'paid-only-for-default-B', turnId: 'B-turn' },
+              processing: {
+                status: 'reported',
+                tierId: 'paid-only-for-default-B',
+                turnId: 'B-turn'
+              }
+            }
+          })
+        : listed
+      const state = { ...answered, listingInProgress }
+      const record = structuredClone(state.record)
+      const view = structuredAgentSessionOptionView(
+        state,
+        { model: savedModel, ...(savedTier === undefined ? {} : { serviceTier: savedTier }) },
+        {},
+        { serviceTier: 'default' }
+      )
+      expect(structuredAgentSessionSendSelection(view)).toMatchObject({
+        model: savedModel,
+        serviceTier: 'default'
+      })
+      const snapshot = structuredAgentSessionOptionSnapshot(view)
+      expect(snapshot.find(({ id }) => id === 'model')).toMatchObject({
+        kind: { currentValue: savedModel }
+      })
+      const descriptor = snapshot.find(({ id }) => id === 'serviceTier')
+      expect(descriptor?.kind).toMatchObject({ type: 'select', currentValue: 'default' })
+      expect(descriptor?.speed).toEqual({
+        requested: { tierId: 'default' },
+        support: listingInProgress ? 'loading' : 'unknown',
+        processing: { status: 'unknown' }
+      })
+      expect(descriptor?.settable).toBe(!listingInProgress)
+      const tier = descriptor?.kind
+      expect(tier?.type === 'select' ? tier.choices.map(({ value }) => value) : []).not.toContain(
+        'paid-only-for-default-B'
+      )
+      expect(state.record).toEqual(record)
+    }
+  )
+
+  it.each(['unavailable', 'loading'] as const)(
+    'preserves genuine %s evidence for the same unlisted model',
+    (support) => {
+      const model = 'synthetic-unlisted-own-model'
+      const speed = {
+        requested: { tierId: 'default' },
+        support,
+        processing: { status: 'unknown' as const }
+      }
+      const state = applyStructuredAgentSessionOptions(
+        createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+        CODEX_SESSION_OPTION_CATALOG,
+        {
+          models: [
+            { id: 'synthetic-other-listed-model', label: 'Other', efforts: [], isDefault: true }
+          ],
+          listedModelIds: ['synthetic-other-listed-model'],
+          current: { model, serviceTier: 'default', defaulted: [] },
+          speed
+        }
+      )
+      const view = structuredAgentSessionOptionView(
+        state,
+        undefined,
+        {},
+        { serviceTier: 'default' }
+      )
+      expect(
+        structuredAgentSessionOptionSnapshot(view).find(({ id }) => id === 'serviceTier')
+      ).toMatchObject({ kind: { currentValue: 'default' }, speed })
+    }
+  )
 })
 
 describe('a Claude model its CLI no longer lists', () => {

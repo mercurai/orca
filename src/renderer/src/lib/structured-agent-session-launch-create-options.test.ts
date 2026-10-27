@@ -154,9 +154,14 @@ describe('create launch options and saved selections', () => {
     })
   })
 
-  it.each([true, false])(
-    'keeps an unlisted saved model above the catalog default for tier-only Standard (create-message=%s)',
-    async (createMessage) => {
+  it.each([
+    { createMessage: true, savedTier: 'default' },
+    { createMessage: true, savedTier: undefined },
+    { createMessage: false, savedTier: 'default' },
+    { createMessage: false, savedTier: undefined }
+  ])(
+    'keeps an unlisted saved model for tier-only Standard (create-message=$createMessage, saved-tier=$savedTier)',
+    async ({ createMessage, savedTier }) => {
       const savedModel = 'synthetic-saved-model-not-listed'
       const listedDefault = 'synthetic-different-catalog-default'
       const priorSettings = mocks.settings
@@ -164,7 +169,9 @@ describe('create launch options and saved selections', () => {
         nativeChatSessionOptions: {
           codex: {
             model: savedModel,
-            valuesByModel: { [savedModel]: { serviceTier: 'default' } }
+            ...(savedTier === undefined
+              ? {}
+              : { valuesByModel: { [savedModel]: { serviceTier: savedTier } } })
           }
         }
       }
@@ -215,7 +222,7 @@ describe('create launch options and saved selections', () => {
           getStructuredLaunchStateBySessionId(launch.sessionId)?.intent.seedOptions
         ).toMatchObject({
           model: savedModel,
-          serviceTier: 'default'
+          ...(savedTier === undefined ? {} : { serviceTier: savedTier })
         })
         mocks.inventory.mockResolvedValue([
           {

@@ -153,8 +153,7 @@ function structuredLaunchCreateOptions(
             ? { fastMode: seededFast }
             : {}
   const keepsSeedModel =
-    intent.target.kind !== 'local' ||
-    (intent.agent === 'codex' && (seededTier !== undefined || seededFast !== undefined))
+    intent.target.kind !== 'local' || (intent.agent === 'codex' && Object.keys(speed).length > 0)
   const options = {
     ...independentSeed,
     ...(intent.agent !== 'codex' && seededTier !== undefined ? { serviceTier: seededTier } : {}),

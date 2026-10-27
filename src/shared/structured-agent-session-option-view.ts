@@ -73,6 +73,11 @@ function modelOptionView(
   const unconfirmedSeed =
     seed !== undefined && structuredAgentSessionModelId(state.record, 'own') === null
   const hasHeld = Object.keys(held).length > 0
+  const bindsCodexSpeed =
+    state.record.agent === 'codex' &&
+    seed?.model !== undefined &&
+    held.model === undefined &&
+    (held.serviceTier !== undefined || held.fastMode !== undefined)
   // A saved pick the host's list does not name would show its raw id or another model's label.
   if (
     unconfirmedSeed &&
@@ -82,11 +87,12 @@ function modelOptionView(
   ) {
     return { ...state, catalogSource: 'seed' }
   }
-  // Only a host's or the session's list names a saved pick: a built-in label may be replaced.
+  // A Codex speed choice stays bound to its saved model; other seeds still require a host listing.
   const seeded =
     unconfirmedSeed &&
-    (state.catalogSource === 'host' || state.catalogSource === 'live') &&
-    catalogListsSeedModel(state, seed)
+    (bindsCodexSpeed ||
+      ((state.catalogSource === 'host' || state.catalogSource === 'live') &&
+        catalogListsSeedModel(state, seed)))
   if (!state.catalog || (!seeded && !hasHeld)) {
     return state
   }
