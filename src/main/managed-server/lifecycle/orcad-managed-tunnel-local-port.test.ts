@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { encodePairingOffer } from '../../../shared/pairing'
+import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
 import { addManagedOrcadEnvironment } from '../../../shared/runtime-environment-managed-orcad-store'
+import * as managedStore from '../../../shared/runtime-environment-managed-orcad-store'
+import * as secureWrites from '../../../shared/secure-file-async-write'
+import { getRuntimeEnvironmentSidecarPath } from '../../../shared/runtime-environment-sidecar'
 import { resolveEnvironment } from '../../../shared/runtime-environment-store'
 import { getRuntimeSshAccess } from '../../../shared/runtime-environments'
 import type { SshTarget } from '../../../shared/ssh-types'
@@ -43,7 +47,7 @@ describe('managed tunnel on an unbindable saved local port', () => {
     // Stands in for a Windows excluded range or another app's listener on the saved port.
     occupied = await listen()
     savedPort = portOf(occupied)
-    addManagedOrcadEnvironment(userDataPath, {
+    await addManagedOrcadEnvironment(userDataPath, {
       id: 'environment-1',
       name: 'Builder',
       pairingCode: encodePairingOffer({
@@ -66,10 +70,12 @@ describe('managed tunnel on an unbindable saved local port', () => {
   afterEach(async () => {
     setManagedOrcadPairingRepairedListener(() => {})
     await new Promise((resolve) => occupied.close(resolve))
+    await drainPendingPathWrites()
+    vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  function setup(bindError?: Error, connectDelayMs = 0) {
+  function setup(bindError?: Error, connectionReady: Promise<void> = Promise.resolve()) {
     const target: SshTarget = {
       id: 'ssh-1',
       label: 'Builder',
@@ -102,7 +108,7 @@ describe('managed tunnel on an unbindable saved local port', () => {
         // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the tunnel manager reads only connect.
         ({
           connect: async () => {
-            await new Promise((resolve) => setTimeout(resolve, connectDelayMs))
+            await connectionReady
             return connection
           }
         }) as unknown as SshConnectionManager,
@@ -162,12 +168,51 @@ describe('managed tunnel on an unbindable saved local port', () => {
   })
 
   it('moves once and lets every concurrent caller build on the moved port', async () => {
-    const { ensure, resolve, retired } = setup(undefined, 50)
-
-    await expect(Promise.all([ensure(), ensure(), ensure()])).resolves.toHaveLength(3)
-
-    expect(getRuntimeSshAccess(resolve())?.localPort).not.toBe(savedPort)
-    expect(retired).toHaveBeenCalledOnce()
+    const connected = Promise.withResolvers<void>()
+    const saveEntered = Promise.withResolvers<void>()
+    const releaseSave = Promise.withResolvers<void>()
+    const secondMoveQueued = Promise.withResolvers<void>()
+    const { ensure, resolve, retired } = setup(undefined, connected.promise)
+    const write = secureWrites.writeSecureFileAsync
+    let held = false
+    vi.spyOn(secureWrites, 'writeSecureFileAsync').mockImplementation(async (...args) => {
+      if (args[0] === getRuntimeEnvironmentSidecarPath(userDataPath) && !held) {
+        held = true
+        saveEntered.resolve()
+        await releaseSave.promise
+      }
+      return write(...args)
+    })
+    const move = managedStore.moveManagedOrcadLocalPort
+    let moveCount = 0
+    const moving = vi
+      .spyOn(managedStore, 'moveManagedOrcadLocalPort')
+      .mockImplementation((...args) => {
+        const pending = move(...args)
+        moveCount += 1
+        if (moveCount === 2) {
+          secondMoveQueued.resolve()
+        }
+        return pending
+      })
+    const builds: Promise<void>[] = []
+    try {
+      builds.push(ensure(), ensure(), ensure())
+      connected.resolve()
+      await Promise.race([saveEntered.promise, ...builds])
+      expect(held).toBe(true)
+      expect(getRuntimeSshAccess(resolve())?.localPort).toBe(savedPort)
+      await Promise.race([secondMoveQueued.promise, ...builds])
+      expect(moving.mock.calls.length).toBeGreaterThanOrEqual(2)
+      releaseSave.resolve()
+      await expect(Promise.all(builds)).resolves.toHaveLength(3)
+      expect(getRuntimeSshAccess(resolve())?.localPort).not.toBe(savedPort)
+      expect(retired).toHaveBeenCalledOnce()
+    } finally {
+      connected.resolve()
+      releaseSave.resolve()
+      await Promise.allSettled(builds)
+    }
   })
 
   it('keeps the saved port when the bind fails for another reason', async () => {

@@ -222,11 +222,17 @@ export function structuredLaunchRequestedOptions(selection: {
   const changed = held.model !== undefined && held.model !== explicit.model
   const permissionMode =
     explicit[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] ?? seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID]
-  return {
+  const requested: Record<string, string> = {
     ...(permissionMode ? { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: permissionMode } : {}),
     ...(changed ? {} : explicit),
     ...held
   }
+  if (held.serviceTier !== undefined) {
+    delete requested.fastMode
+  } else if (held.fastMode !== undefined) {
+    delete requested.serviceTier
+  }
+  return requested
 }
 
 /** A create without model replacement overlays the remembered effort onto a named Claude/Codex

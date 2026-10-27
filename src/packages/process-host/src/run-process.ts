@@ -1,10 +1,13 @@
+export { runProcessSync } from './run-process-sync'
+import { routeRunProcess } from './run-process-route'
+export { setRunProcessRoute, type RunProcessRoute } from './run-process-route'
+import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
+import { resolveSpawn } from './spawn-resolution'
 import {
-  spawn as nodeSpawn,
-  spawnSync as nodeSpawnSync,
-  type ChildProcess
-} from 'node:child_process'
-import { resolveSpawn, type ResolvedSpawn } from './spawn-resolution'
-import { forceTerminateProcessTree, signalProcessTree } from './process-tree-termination'
+  forceTerminateProcessTree,
+  signalProcessTree,
+  killRoot as terminate
+} from './process-tree-termination'
 import { inFlightWindowsTreeKill } from './windows-tree-kill'
 
 import { hasSpawnObserver, notifySpawnObserver } from './spawn-observer'
@@ -48,6 +51,16 @@ export function runProcess(
     spec.onChildTerminated?.()
     return Promise.resolve({ code: null, signal: null, stdout: '', stderr: '', timedOut: false })
   }
+  // Why: libuv runs CreateProcess on the calling thread, so main hands the spawn to the worker.
+  const inProcess = (): Promise<ProcessResult> => runProcessInProcess(spec, outputCapture)
+  return routeRunProcess(spec, outputCapture, inProcess)
+}
+
+/** runProcess without the worker route: what the spawn worker itself runs, and main's fallback. */
+export function runProcessInProcess(
+  spec: ProcessSpec,
+  outputCapture: 'head' | 'tail'
+): Promise<ProcessResult> {
   const maxOutputBytes = spec.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES
 
   return new Promise<ProcessResult>((resolve, reject) => {
@@ -60,6 +73,7 @@ export function runProcess(
       reject(error)
       return
     }
+    spec.onSpawn?.(child)
 
     const stdout = createOutputSink(maxOutputBytes, outputCapture)
     const stderr = createOutputSink(maxOutputBytes, outputCapture)
@@ -82,7 +96,7 @@ export function runProcess(
       clearTimeout(timer)
       clearTimeout(graceTimer)
       clearTimeout(barrierDeadlineTimer)
-      spec.signal?.removeEventListener('abort', onAbort)
+      spec.signal?.removeEventListener('abort', stopAndSettle)
       act()
     }
 
@@ -245,11 +259,14 @@ export function runProcess(
           }, spec.timeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS)
     timer?.unref?.()
 
-    const onAbort = (): void => stopAndSettle()
-    spec.signal?.addEventListener('abort', onAbort, { once: true })
-    // Already-aborted signals emit no event; recheck after subscribing to close the race.
+    // Why the same escalation: an aborted caller has stopped waiting, so an
+    // unkillable child must not keep the promise alive on their behalf either.
+    spec.signal?.addEventListener('abort', stopAndSettle, { once: true })
+    // Why check after subscribing: a signal that was already aborted never
+    // fires the event, so the child would otherwise run to its full timeout on
+    // behalf of a caller who had already given up.
     if (spec.signal?.aborted) {
-      onAbort()
+      stopAndSettle()
     }
 
     child.once('error', (error) => {
@@ -262,9 +279,7 @@ export function runProcess(
       settle(() => reject(error))
     })
     child.once('exit', (code, signal) => {
-      if (!barrierStopping) {
-        rootExitedBeforeBarrier = true
-      }
+      rootExitedBeforeBarrier ||= !barrierStopping
       deferredExit = { code, signal }
       if (barrierStopping) {
         resolveBarrierIfSafe()
@@ -272,9 +287,7 @@ export function runProcess(
     })
     child.once('close', (code, signal) => {
       terminationReporter.report()
-      if (!barrierStopping) {
-        rootExitedBeforeBarrier = true
-      }
+      rootExitedBeforeBarrier ||= !barrierStopping
       if (barrierStopping) {
         deferredClose = { code, signal }
         resolveBarrierIfSafe()
@@ -286,56 +299,4 @@ export function runProcess(
     // Send EOF so stdin readers do not wait until timeout.
     child.stdin?.end(spec.input)
   })
-}
-
-// Best-effort root termination; tree termination is handled separately.
-function terminate(child: ChildProcess, signal?: NodeJS.Signals): void {
-  try {
-    child.kill(signal)
-  } catch {
-    /* already gone */
-  }
-}
-
-/** Prefer runProcess; reserve blocking execution for synchronous entry points and teardown. */
-export function runProcessSync(spec: ProcessSpec): ProcessResult {
-  const resolved = resolveSpawn(spec, process.platform)
-  // spawnSync blocks until exit; report that duration even if it throws.
-  const spawnStartedAt = hasSpawnObserver() ? performance.now() : null
-  try {
-    return runResolvedProcessSync(spec, resolved)
-  } finally {
-    if (spawnStartedAt !== null) {
-      notifySpawnObserver(resolved.file, resolved.args, performance.now() - spawnStartedAt)
-    }
-  }
-}
-
-function runResolvedProcessSync(spec: ProcessSpec, resolved: ResolvedSpawn): ProcessResult {
-  const result = nodeSpawnSync(resolved.file, [...resolved.args], {
-    ...resolved.options,
-    input: spec.input,
-    timeout: spec.timeoutMs === null ? undefined : (spec.timeoutMs ?? DEFAULT_PROCESS_TIMEOUT_MS),
-    maxBuffer: spec.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
-    // Keep raw output without applying the nonexistent 'buffer' encoding to string stdin.
-    encoding: null
-  })
-  const timedOut = result.error
-    ? 'code' in result.error && result.error.code === 'ETIMEDOUT'
-    : false
-  if (result.error && !timedOut) {
-    throw result.error
-  }
-  return {
-    code: result.status,
-    signal: result.signal,
-    stdout: spec.captureStdoutAsBytes ? '' : (result.stdout?.toString('utf8') ?? ''),
-    ...(spec.captureStdoutAsBytes ? { stdoutBytes: result.stdout ?? Buffer.alloc(0) } : {}),
-    stderr: spec.captureStderrAsBytes ? '' : (result.stderr?.toString('utf8') ?? ''),
-    ...(spec.captureStderrAsBytes ? { stderrBytes: result.stderr ?? Buffer.alloc(0) } : {}),
-    // ENOBUFS is rethrown above, so truncated output never reaches this result.
-    outputTruncated: false,
-    // SIGTERM can be deliberate; only ETIMEDOUT proves a timeout.
-    timedOut
-  }
 }

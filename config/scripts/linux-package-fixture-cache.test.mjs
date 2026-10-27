@@ -121,9 +121,21 @@ it('uses exact context/platform keys and the same restore-only action in package
     step.uses?.endsWith('/prepare-linux-package-fixture')
   )
   expect(prepared.map((step) => step.with)).toEqual([
-    { fixture: 'daemon-shutdown-descendants', load: 'false' },
-    { fixture: 'headless-serve-shutdown', load: 'false' },
-    { fixture: 'cli-launch-contract', load: 'false' }
+    {
+      'cache-mode': "${{ inputs.cache_mode || 'auto' }}",
+      fixture: 'daemon-shutdown-descendants',
+      load: 'false'
+    },
+    {
+      'cache-mode': "${{ inputs.cache_mode || 'auto' }}",
+      fixture: 'headless-serve-shutdown',
+      load: 'false'
+    },
+    {
+      'cache-mode': "${{ inputs.cache_mode || 'auto' }}",
+      fixture: 'cli-launch-contract',
+      load: 'false'
+    }
   ])
   const steps = workflow('pr').jobs.package.steps
   for (const restore of prepared) {
@@ -191,4 +203,12 @@ it.each([
     package: true,
     package_windows: false
   })
+})
+
+it('disables fixture restoration and saving for isolated qualification', () => {
+  expect(action.inputs['cache-mode'].default).toBe('auto')
+  for (const step of action.runs.steps.filter((entry) => entry.uses?.startsWith('actions/cache'))) {
+    const expression = step.if.replaceAll(/inputs\.([\w-]+)/g, 'inputs["$1"]')
+    expect(runInNewContext(expression, { inputs: { 'cache-mode': 'off' } })).toBe(false)
+  }
 })

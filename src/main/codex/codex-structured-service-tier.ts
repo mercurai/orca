@@ -38,6 +38,13 @@ export function readCodexServiceTiers(
   return Array.isArray(row.serviceTiers) || Array.isArray(row.additionalSpeedTiers) ? [] : undefined
 }
 
+/** Canonical speed replaces pending legacy intent and is the only speed sent on a turn. */
+export function setCodexServiceTier(options: Map<string, string>, tier: string): void {
+  options.set('serviceTier', tier)
+  options.delete('fastMode')
+}
+
+/** The tier an older client's Fast toggle stands for. */
 export function codexFastServiceTier(
   model: Pick<AgentSessionModelOption, 'serviceTiers'> | undefined
 ): string | undefined {
@@ -106,30 +113,11 @@ export function codexOffersServiceTier(
   )
 }
 
-/** Fall back to standard for unoffered tiers without changing saved intent. */
+/** Preserve requested intent; turn admission refuses unavailable tiers before dispatch. */
 export function codexTurnRequestOptions(
   session: Parameters<typeof codexSessionCapabilities>[0]
 ): Record<string, string> {
-  const options = Object.fromEntries(session.options)
-  const reportedOptions = session.reportedOptions ?? {}
-  const capabilities = codexSessionCapabilities(session)
-  const models = capabilities.models
-  const model = models.find((entry) => entry.id === (options.model ?? reportedOptions.model))
-  const tier = options.serviceTier
-  if (
-    tier &&
-    model?.serviceTiers &&
-    !codexOffersServiceTier(
-      { reportedOptions },
-      model,
-      models,
-      tier,
-      capabilities.listedServiceTiers
-    )
-  ) {
-    options.serviceTier = CODEX_DEFAULT_SERVICE_TIER
-  }
-  return options
+  return Object.fromEntries(session.options)
 }
 
 export function projectCodexSessionOptions(

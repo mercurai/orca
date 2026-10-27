@@ -2,21 +2,30 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
+import { verifyRequiredPrContext } from '../../.github/scripts/check-required-pr-context.mjs'
 
 const workflows = readdirSync('.github/workflows').flatMap((file) => {
   const workflow = parse(readFileSync(`.github/workflows/${file}`, 'utf8'))
   // The LoC reporter updates PR metadata rather than running CI.
   return Object.hasOwn(workflow.on ?? {}, 'pull_request') && file !== 'pr-test-loc.yml'
-    ? [{ file, workflow }]
+    ? [{ file, workflow, repository: file.startsWith('fork-') ? 'mercurai/orca' : 'stablyai/orca' }]
     : []
 })
 
-function admitted(condition, draft, needs = {}, eventName = 'pull_request') {
+function admitted(
+  condition,
+  draft,
+  needs = {},
+  eventName = 'pull_request',
+  repository = 'stablyai/orca'
+) {
   return (
     compileAggregateExpression(condition ?? 'true', ['github', 'needs', 'inputs'])({
       github: {
         event_name: eventName,
-        repository: 'stablyai/orca',
+        repository,
+        ref: 'refs/heads/non-default-candidate',
+        sha: 'a'.repeat(40),
         event: { pull_request: { draft } }
       },
       needs,
@@ -25,7 +34,7 @@ function admitted(condition, draft, needs = {}, eventName = 'pull_request') {
   )
 }
 
-it.each(workflows)('$file starts no CI jobs for a draft PR', ({ workflow }) => {
+it.each(workflows)('$file starts no CI jobs for a draft PR', ({ workflow, repository }) => {
   const needs = Object.fromEntries(
     Object.keys(workflow.jobs).map((id) => [id, { result: 'skipped', outputs: {} }])
   )
@@ -34,40 +43,64 @@ it.each(workflows)('$file starts no CI jobs for a draft PR', ({ workflow }) => {
     if (job.needs && !/\b(?:cancelled|always|success|failure)\(/.test(job.if ?? '')) {
       continue
     }
-    expect(admitted(job.if, true, needs), id).toBe(false)
+    expect(admitted(job.if, true, needs, 'pull_request', repository), id).toBe(false)
   }
 })
 
-it.each(workflows)('$file starts CI when ready and cancels it when drafted', ({ workflow }) => {
-  const types = workflow.on.pull_request.types
-  expect(types).toEqual(
-    expect.arrayContaining([
-      'opened',
-      'synchronize',
-      'reopened',
-      'ready_for_review',
-      'converted_to_draft'
-    ])
-  )
-  expect(Object.values(workflow.jobs).some((job) => !job.needs && admitted(job.if, false))).toBe(
-    true
-  )
-  const concurrency = workflow.concurrency['cancel-in-progress']
-  expect(typeof concurrency === 'boolean' ? concurrency : admitted(concurrency, true)).toBe(true)
-})
+it.each(workflows)(
+  '$file starts CI when ready and cancels it when drafted',
+  ({ workflow, repository }) => {
+    const types = workflow.on.pull_request.types
+    expect(types).toEqual(
+      expect.arrayContaining([
+        'opened',
+        'synchronize',
+        'reopened',
+        'ready_for_review',
+        'converted_to_draft'
+      ])
+    )
+    expect(
+      Object.values(workflow.jobs).some(
+        (job) => !job.needs && admitted(job.if, false, {}, 'pull_request', repository)
+      )
+    ).toBe(true)
+    const concurrency = workflow.concurrency['cancel-in-progress']
+    expect(
+      typeof concurrency === 'boolean'
+        ? concurrency
+        : admitted(concurrency, true, {}, 'pull_request', repository)
+    ).toBe(true)
+  }
+)
 
-it.each(workflows)('$file keeps its non-PR entry points eligible', ({ workflow }) => {
+it.each(workflows)('$file keeps its non-PR entry points eligible', ({ workflow, repository }) => {
   const needs = Object.fromEntries(
     Object.keys(workflow.jobs).map((id) => [id, { result: 'success', outputs: {} }])
   )
   for (const event of Object.keys(workflow.on).filter((name) => name !== 'pull_request')) {
     for (const [id, job] of Object.entries(workflow.jobs)) {
-      expect(admitted(job.if, true, needs, event), `${event}/${id}`).toBe(
-        admitted(job.if, false, needs, event)
+      expect(admitted(job.if, true, needs, event, repository), `${event}/${id}`).toBe(
+        admitted(job.if, false, needs, event, repository)
       )
     }
   }
 })
+
+for (const { file, workflow, repository } of workflows.filter(({ file }) =>
+  file.startsWith('fork-')
+)) {
+  it(`${file} keeps fork-only manual exact-head testing available`, () => {
+    for (const job of Object.values(workflow.jobs)) {
+      expect(admitted(job.if, true, {}, 'workflow_dispatch', repository)).toBe(true)
+      expect(admitted(job.if, false, {}, 'pull_request', 'stablyai/orca')).toBe(false)
+      const checkout = job.steps.find((step) => step.uses?.startsWith('actions/checkout@'))
+      expect(checkout.with['persist-credentials']).toBe(false)
+      expect(checkout.with.ref).toBeUndefined()
+    }
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+  })
+}
 
 it('keeps the root and README guards on ready docs-only PRs without another runner', () => {
   const { workflow: prWorkflow } = workflows.find(({ file }) => file === 'pr.yml')
@@ -91,4 +124,49 @@ it('keeps the root and README guards on ready docs-only PRs without another runn
     expect(step.if).toBeUndefined()
   }
   expect(prWorkflow.jobs.root_directory_guard).toBeUndefined()
+})
+
+it('validates the required context used by both PR and full-qualification entry points', () => {
+  expect(() => verifyRequiredPrContext(parse)).not.toThrow()
+  const { workflow } = workflows.find(({ file }) => file === 'pr.yml')
+  const evaluate = compileAggregateExpression(workflow.jobs.verify.if, ['github'])
+  for (const eventName of ['pull_request', 'workflow_dispatch', 'workflow_call']) {
+    for (const draft of [false, true]) {
+      const context = { github: { event_name: eventName, event: { pull_request: { draft } } } }
+      expect(evaluate(context).coerceString()).toBe(
+        eventName === 'pull_request' && draft ? 'false' : 'true'
+      )
+      expect(evaluate(context, true).coerceString()).toBe('false')
+    }
+  }
+})
+
+it.each([
+  '!cancelled()',
+  "github.event_name != 'pull_request' || github.event.pull_request.draft != true",
+  '!cancelled() && github.event.pull_request.draft != true'
+])('rejects a required context with incompatible admission: %s', (condition) => {
+  expect(() =>
+    verifyRequiredPrContext((raw) => {
+      const workflow = parse(raw)
+      if (workflow.jobs.verify?.name === 'PR checks passed') {
+        workflow.jobs.verify.if = condition
+      }
+      return workflow
+    })
+  ).toThrow('Required PR aggregate must run unless cancelled or the PR is a draft.')
+})
+
+it.each(['job', 'step'])('rejects ignored failures in the required aggregate %s', (location) => {
+  expect(() =>
+    verifyRequiredPrContext((raw) => {
+      const workflow = parse(raw)
+      const gate = workflow.jobs.verify
+      if (gate?.name === 'PR checks passed') {
+        const target = location === 'job' ? gate : gate.steps[0]
+        target['continue-on-error'] = true
+      }
+      return workflow
+    })
+  ).toThrow('Required PR aggregate must not ignore failures.')
 })

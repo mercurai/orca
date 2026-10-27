@@ -1,3 +1,4 @@
+import type { AgentSessionSpeed } from './agent-session-speed'
 import type { AgentJournalCursor, AgentJournalThreadGoal } from './agent-session-journal-types'
 import type { AgentSessionConversationCommand } from './agent-session/agent-session-conversation-command'
 import type { AgentSessionContextUsage } from './agent-session-context-usage'
@@ -10,6 +11,8 @@ import type {
 
 /** Additive read-only choices/effective next-turn values; older hosts may reject this without changing structured v1 writes. */
 export type AgentSessionOptionsResult = {
+  /** Optional for mixed-version hosts; absence keeps legacy speed controls. */
+  speed?: AgentSessionSpeed
   rewind?: AgentSessionRewindSupport
   conversationCommands?: readonly AgentSessionConversationCommand[]
   /** Offer goal controls only with threadGoal support; current spans the whole journal, including unloaded pages. */

@@ -1,3 +1,7 @@
+import { withStructuredSpeedSnapshot } from './structured-agent-session-speed'
+import type { AgentSessionSpeed } from './agent-session-speed'
+// A structured chat's picker: the chat's own values, drawn under the controls of the model they apply to.
+
 import type {
   AgentSessionOptionCatalog,
   CatalogModel,
@@ -106,6 +110,19 @@ export function structuredAgentSessionDrawnValues(
   return drawnModelControls(state)?.values ?? state.record.values
 }
 
+/** Preserve a requested tier under its own unlisted Codex model, without claiming support. */
+function unlistedCodexTier(state: StructuredAgentSessionOptionState): string | undefined {
+  const modelId = structuredAgentSessionModelId(state.record, 'own')
+  const tier = state.record.values.serviceTier?.value
+  return state.record.agent === 'codex' &&
+    state.olderHost !== true &&
+    modelId !== null &&
+    structuredAgentSessionDescribedModel(state, modelId) === undefined &&
+    typeof tier === 'string'
+    ? tier
+    : undefined
+}
+
 function drawnModelControls(state: StructuredAgentSessionOptionState) {
   const { catalog, record } = state
   if (!catalog || state.catalogSource === 'seed') {
@@ -114,16 +131,23 @@ function drawnModelControls(state: StructuredAgentSessionOptionState) {
   // A seeded default can name a model the static seed does not list yet.
   const models = withTrackedNativeChatModel(catalog, catalog.models, { model: record.values.model })
   const shown = structuredAgentSessionShownModel(catalog, models, record)
-  const controls = shown.controlsModelId
+  const modelControls = shown.controlsModelId
     ? (models.find((model) => model.id === shown.controlsModelId)?.options ?? [])
     : modellessControls(catalog, record)
   // Normalize only under the named model’s listed controls; stand-ins/unlisted models preserve host values.
   const normalises =
     shown.shown.currentId !== null &&
     structuredAgentSessionDescribedModel(state, shown.shown.currentId) !== undefined
-  const values = normalises
-    ? valuesUnderControls(catalog, controls, record.values, state.olderHost === true)
-    : record.values
+  // An unlisted Codex model can retain a requested tier, without borrowing another model’s offers.
+  const controls =
+    unlistedCodexTier(state) !== undefined &&
+    !modelControls.some((option) => option.id === 'serviceTier' || option.id === 'fastMode')
+      ? [...modelControls, serviceTierOption([])]
+      : modelControls
+  const values =
+    normalises && record.agent !== 'codex'
+      ? valuesUnderControls(catalog, controls, record.values, state.olderHost === true)
+      : record.values
   return { catalog, models, ...shown, controls, values }
 }
 
@@ -185,7 +209,21 @@ export function structuredAgentSessionOptionSnapshot(
   state: StructuredAgentSessionOptionState
 ): SessionOptionDescriptor[] {
   const permission = structuredAgentSessionPermissionDescriptor(state)
-  const options = modelOptionSnapshot(state).map((option) =>
+  const tierId = unlistedCodexTier(state)
+  const modelId = structuredAgentSessionModelId(state.record, 'own') ?? undefined
+  const needsOwnSpeed = tierId !== undefined && (!state.speed || state.speedModelId !== modelId)
+  const speed: AgentSessionSpeed | undefined = needsOwnSpeed
+    ? {
+        requested: { tierId },
+        support: state.listingInProgress ? 'loading' : 'unknown',
+        processing: { status: 'unknown' }
+      }
+    : state.speed
+  const options = withStructuredSpeedSnapshot(
+    modelOptionSnapshot(state),
+    speed,
+    needsOwnSpeed ? modelId : state.speedModelId
+  ).map((option) =>
     (state.listingInProgress && ['effort', 'serviceTier', 'fastMode'].includes(option.id)) ||
     (state.fastModeRestricted && option.id === 'fastMode')
       ? { ...option, settable: false }

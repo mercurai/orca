@@ -27,7 +27,6 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
     'refusal',
     'unproven-exit',
     'lost-reply',
-    'lost-steer',
     'post-write-stop'
   ] as const)('bounds %s without replaying possibly written input', async (failure) => {
     const {
@@ -41,7 +40,6 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
       row,
       starts,
       turns,
-      began,
       assertInputRecoveredAfterSnapshot
     } = current()
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
@@ -50,9 +48,6 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
     const { sessions, runtimeState } = host.collaboratorsForTests()
     const journal = sessions.get(SESSION)!.journal
     const persisted = vi.spyOn(journal, 'resolveDispatch')
-    if (failure === 'lost-steer') {
-      await began(await permissionSend('running'))
-    }
     const paused = Promise.withResolvers<unknown>()
     codex.routes['config/read'] = () => paused.promise
     const id = await permissionSend('preserve me', { personality: 'friendly' })
@@ -65,8 +60,8 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
         throw new AgentSessionAcquisitionRefusal('missing Codex', 'cliMissing')
       }
     }
-    if (failure === 'lost-reply' || failure === 'lost-steer') {
-      codex.routes[failure === 'lost-steer' ? 'turn/steer' : 'turn/start'] = () => {
+    if (failure === 'lost-reply') {
+      codex.routes['turn/start'] = () => {
         throw new CodexAppServerTimeoutError('lost turn reply')
       }
     }
@@ -196,8 +191,58 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
     lost.resolve({})
     await responseObserved
     expect(codex.connections).toHaveLength(
-      failure === 'exit' ? 6 : failure === 'lost-steer' || failure === 'unproven-exit' ? 1 : 2
+      failure === 'exit' ? 6 : failure === 'unproven-exit' ? 1 : 2
     )
+  })
+
+  it('bounds lost-steer without replaying possibly written input', async () => {
+    const { host, codex, turns, permissionSend, pick, row, starts, began } = current()
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    await began(await permissionSend('running', { personality: 'friendly' }))
+    const journal = host.collaboratorsForTests().sessions.get(SESSION)!.journal
+    const persisted = vi.spyOn(journal, 'resolveDispatch')
+    const reply = Promise.withResolvers<unknown>()
+    const observedReply = reply.promise.catch(() => {})
+    codex.routes['turn/steer'] = () => reply.promise
+    try {
+      const configReads = codex.connections[0]!.calls.filter(
+        (call) => call.method === 'config/read'
+      ).length
+      const id = await permissionSend('preserve me', { personality: 'friendly' })
+      await vi.waitFor(() =>
+        expect(
+          codex.connections[0]!.calls.filter((call) => call.method === 'turn/steer')
+        ).toHaveLength(1)
+      )
+      expect(
+        codex.connections[0]!.calls.find((call) => call.method === 'turn/steer')?.params
+      ).toMatchObject({
+        clientUserMessageId: id,
+        expectedTurnId: turns.turnId
+      })
+      expect(
+        codex.connections[0]!.calls.filter((call) => call.method === 'config/read')
+      ).toHaveLength(configReads)
+      await pick('auto')
+      reply.reject(new CodexAppServerTimeoutError('lost turn reply'))
+      await vi.waitFor(() => expect(finalizingStructuredAgentSessionInput(journal, id)).toBe(false))
+      const writes = await Promise.allSettled(persisted.mock.results.map((result) => result.value))
+      expect(writes.filter((result) => result.status === 'rejected')).toEqual([])
+      await vi.waitFor(async () => expect((await row(id))?.dispatchState).toBe('unknown'))
+      expect(journal.submission(id)).toMatchObject({ options: { personality: 'friendly' } })
+      expect(journal.itemBody(agentJournalSubmissionKey(id))).toEqual(
+        hostTestMessage('preserve me')
+      )
+      expect(continuingStructuredAgentSessionInput(journal, id)).toBe(false)
+      expect(starts()).toHaveLength(1)
+      expect(codex.connections).toHaveLength(1)
+      expect(
+        codex.connections[0]!.calls.filter((call) => call.method === 'turn/steer')
+      ).toHaveLength(1)
+    } finally {
+      reply.reject(new CodexAppServerTimeoutError('lost turn reply'))
+      await observedReply
+    }
   })
 
   it.each(CODEX_INPUT_FINALIZATION_OWNER_OUTCOMES)(

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { CONNECTOR_CLIENT_LIMITS } from '../../shared/connector-cloud-contract'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { ConnectorTurnEvents } from './connector-turn-events'
 
 const conversation = { source: 'slack', externalId: 'T1:C9:1' } as const
@@ -32,8 +33,9 @@ beforeEach(() => {
   userDataPath = mkdtempSync(join(tmpdir(), 'orca-connector-events-'))
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.useRealTimers()
+  await drainPendingPathWrites()
   rmSync(userDataPath, { recursive: true, force: true })
 })
 
@@ -51,7 +53,7 @@ describe('ConnectorTurnEvents', () => {
     expect(head?.batch[0]).toEqual({ kind: 'snapshot', conversations: [] })
   })
 
-  it('keeps 200 turn ends in all, never trimming the head in flight', () => {
+  it('keeps 200 turn ends in all, never trimming the head in flight', async () => {
     const events = new ConnectorTurnEvents(userDataPath, 'ada')
     for (let turn = 1; turn <= 50; turn++) {
       events.observe(turnEnded(turn))
@@ -60,6 +62,7 @@ describe('ConnectorTurnEvents', () => {
     for (let turn = 51; turn <= 300; turn++) {
       events.observe(turnEnded(turn))
     }
+    await drainPendingPathWrites()
     const { account, turnEnds: stored } = z
       .object({ account: z.string(), turnEnds: z.array(z.unknown()) })
       .parse(JSON.parse(readFileSync(join(userDataPath, 'connector-turn-outbox.json'), 'utf8')))
@@ -81,8 +84,9 @@ describe('ConnectorTurnEvents', () => {
     expect(events.needsSnapshot).toBe(false)
   })
 
-  it('restores only the turn ends its own account left on disk', () => {
+  it('restores only the turn ends its own account left on disk', async () => {
     new ConnectorTurnEvents(userDataPath, 'ada').observe(turnEnded(1))
+    await drainPendingPathWrites()
     expect(new ConnectorTurnEvents(userDataPath, 'grace').next(1)).toBeNull()
     expect(new ConnectorTurnEvents(userDataPath, 'ada').next(1)?.batch).toEqual([
       expect.objectContaining({ kind: 'turn-ended', turnId: 1 })

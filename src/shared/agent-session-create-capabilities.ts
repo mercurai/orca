@@ -15,6 +15,9 @@ export const AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY =
 // Terminal create/ensure are strict: send accountEnv only to hosts advertising support.
 export const AGENT_SESSION_ACCOUNT_ENV_RUNTIME_CAPABILITY = 'agent-session.account-env.v1' as const
 
+/** Exact Codex speed IDs, next-turn admission, and safe legacy preference migration. */
+export const CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY =
+  'agent-session.codex-speed-selection.v1' as const
 // Why: `agentSession.create` is a strict object, so an older host refuses `optionsMode`. A host
 // advertising this replaces a chat's model selection with explicit launch options.
 export const AGENT_SESSION_CREATE_OPTIONS_MODE_RUNTIME_CAPABILITY =
@@ -32,6 +35,7 @@ export const AGENT_SESSION_SEND_USAGE_LIMIT_CONTINUATION_RUNTIME_CAPABILITY =
 
 export const AGENT_SESSION_CREATE_RUNTIME_CAPABILITIES = [
   AGENT_SESSION_SEND_USAGE_LIMIT_CONTINUATION_RUNTIME_CAPABILITY,
+  CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_TAB_ID_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_MESSAGE_RUNTIME_CAPABILITY,
   AGENT_SESSION_CREATE_OPTIONS_MODE_RUNTIME_CAPABILITY,

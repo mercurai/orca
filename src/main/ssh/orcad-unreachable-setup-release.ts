@@ -39,7 +39,7 @@ export async function releaseUnreachableOrcadSetup(args: {
     listEnvironments(args.userDataPath).some((entry) => entry.id === id)
   // Unregister first so an interrupted release leaves a recoverable undeployed fence.
   if (isRegistered(environmentId)) {
-    removeManagedOrcadEnvironment(args.userDataPath, environmentId)
+    await removeManagedOrcadEnvironment(args.userDataPath, environmentId)
   }
   await releaseUndeployedMigrationFence({
     userDataPath: args.userDataPath,

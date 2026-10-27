@@ -24,7 +24,7 @@ function sourceFiles(dir: string): string[] {
   })
     .filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
     .map((entry) => relative(REPO_ROOT, join(entry.parentPath, entry.name)).replaceAll('\\', '/'))
-    .filter((path) => !/\.(test|spec)\.tsx?$/.test(path))
+    .filter((path) => !/\.(test|spec|test-fixture)\.tsx?$/.test(path))
 }
 
 const ALL_ROWS: WslMoveFieldDisposition[] = [

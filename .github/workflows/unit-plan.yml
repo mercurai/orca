@@ -4,6 +4,18 @@ name: Unit plan
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Exact source commit; omitted for existing callers.
+        type: string
+        default: ''
+      cache_mode:
+        description: Use off to disable persistent dependency and build caches.
+        type: string
+        default: auto
+      full_mode:
+        description: Discover and run the complete qualification unit matrix.
+        type: boolean
+        default: false
       selection_mode:
         description: Shadow validates selection; selected applies it only to draft PRs.
         required: false
@@ -20,22 +32,35 @@ permissions:
 
 jobs:
   plan:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 2
           persist-credentials: false
       - uses: ./.github/actions/install-node-dependencies
+        with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
       - name: Plan unit selection
         id: plan
         env:
+          ORCA_UNIT_FULL_MODE: ${{ inputs.full_mode }}
+          CANDIDATE_SHA: ${{ inputs.ref }}
           ORCA_UNIT_SELECTION_MODE: ${{ inputs.selection_mode }}
           ORCA_PULL_REQUEST_DRAFT: ${{ github.event.pull_request.draft }}
-        run: node config/scripts/ci-unit-plan.mjs
+        run: |
+          set -euo pipefail
+          ORCA_SHARD_SOURCE_SHA="$(git rev-parse HEAD)"
+          export ORCA_SHARD_SOURCE_SHA
+          if [ "$ORCA_UNIT_FULL_MODE" = true ] && [ "$ORCA_SHARD_SOURCE_SHA" != "$CANDIDATE_SHA" ]; then
+            echo "::error::qualification unit-plan source changed" >&2
+            exit 1
+          fi
+          node config/scripts/ci-unit-plan.mjs
       - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:

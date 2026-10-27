@@ -28,7 +28,7 @@ describe('device registry load validation', () => {
     expect(registry.validateToken('good-token')?.deviceId).toBe('good')
   })
 
-  it('drops a row without a string deviceId and sets the file aside before rewriting', () => {
+  it('drops a row without a string deviceId and sets the file aside before rewriting', async () => {
     const { userDataPath, registry } = registryWith([
       goodRow,
       { ...goodRow, deviceId: 42, token: 'orphan-token' },
@@ -37,7 +37,7 @@ describe('device registry load validation', () => {
     expect(registry.listDevices().map((device) => device.deviceId)).toEqual(['good'])
     expect(registry.validateToken('orphan-token')).toBeNull()
     expect(registry.lookupDeviceKey('42')).toEqual({ kind: 'unavailable' })
-    registry.getOrCreatePendingDevice('Re-pair', 'mobile')
+    await registry.getOrCreatePendingDevice('Re-pair', 'mobile')
     expect(readdirSync(userDataPath).some((name) => name.includes('.corrupt-'))).toBe(true)
   })
 })

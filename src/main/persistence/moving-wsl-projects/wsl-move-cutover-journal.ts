@@ -1,4 +1,7 @@
-// Separate WSL journals prevent older builds from interpreting these records as SSH moves.
+/**
+ * The WSL move journal: `orcad-migration-cutovers-wsl/<migrationId>.json` beside the profile.
+ * A separate directory from the SSH journal, so an older build never reads a WSL record as SSH.
+ */
 import {
   WSL_MOVE_CUTOVER_PHASES,
   isWslMoveCutoverFinished,
@@ -25,7 +28,7 @@ export class WslMoveJournalUnreadableError extends Error {
 
 const changeListeners = new Set<(userDataPath: string) => void>()
 
-/** Subscribe after durable writes/removals; returns unsubscribe. */
+/** Runs after every durable write or removal; returns the unsubscribe. */
 export function onWslMoveJournalChange(listener: (userDataPath: string) => void): () => void {
   changeListeners.add(listener)
   return () => changeListeners.delete(listener)
@@ -33,7 +36,7 @@ export function onWslMoveJournalChange(listener: (userDataPath: string) => void)
 
 const journals = createMigrationJournalDirectory({
   directoryName: 'orcad-migration-cutovers-wsl',
-  // Journals embed catalog/session manifests; blobs use a separate channel.
+  // A manifest carries catalog rows and dormant session state; blobs travel on their own channel.
   maxFileBytes: 16 * 1024 * 1024,
   parse: parseVerifiedWslMoveCutover,
   unreadable: (detail) => new WslMoveJournalUnreadableError(detail),
@@ -48,25 +51,25 @@ export function wslMoveJournalDirectory(userDataPath: string): string {
   return journals.directory(userDataPath)
 }
 
-/** Detached copies prevent callers from changing future write comparisons. */
+/** Detached copies: a caller editing one must not change what the next write compares against. */
 export function listWslMoveCutovers(userDataPath: string): WslMoveCutover[] {
   return journals.list(userDataPath).map((cutover) => structuredClone(cutover))
 }
 
-/** Shared cache for hot read-only scans; never mutate. */
+/** Shared, not copied, for read-only scans on hot paths such as fence checks. Never mutate. */
 export function scanWslMoveCutovers(userDataPath: string): readonly Readonly<WslMoveCutover>[] {
   return journals.list(userDataPath)
 }
 
-/** Recompute the manifest digest to reject scope edits. */
+/** The record's own fields, plus the manifest's digest recomputed: a scope edit cannot pass. */
 function parseVerifiedWslMoveCutover(value: unknown): WslMoveCutover {
   const cutover = parseWslMoveCutover(value)
-  // Verify raw fields: parsing drops fields signed by newer builds.
+  // Raw, not parsed: parsing drops fields a newer build signed.
   assertOrcadMigrationManifestDigest(isRecord(value) ? value.manifest : undefined)
   return cutover
 }
 
-/** Oldest-first delta chain; forks and gaps fail closed. */
+/** Oldest first; throws unless the distro's journals form one chain of delta moves. */
 export function listWslMoveCutoverChain(
   userDataPath: string,
   journalKey: string
@@ -81,10 +84,47 @@ export function listWslMoveCutoverChain(
   )
 }
 
-/** Durably advance one phase at a time; only a finished chain head permits a new distro move. */
-export function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutover): void {
-  const parsed = parseVerifiedWslMoveCutover(cutover)
-  // Migration-ID filenames must never conflate two distros.
+/**
+ * Durable before it returns. A record starts at `prepared` and then advances one phase at a time
+ * from the one on disk. A new move into a distro must extend the head of its chain, and only
+ * once that head finished: one in-flight move per distro (design, section 4.3).
+ */
+export async function writeWslMoveCutover(
+  userDataPath: string,
+  cutover: WslMoveCutover
+): Promise<void> {
+  const parsed = parseVerifiedWslMoveCutover(structuredClone(cutover))
+  return journals.transact(userDataPath, async ({ write }) => {
+    assertWslMoveWrite(userDataPath, parsed)
+    await write(parsed)
+  })
+}
+
+/** Derive a ledger/phase update from the authoritative record while holding its directory lane. */
+export function updateWslMoveCutover<R>(
+  userDataPath: string,
+  migrationId: string,
+  update: (current: WslMoveCutover | undefined) => { cutover?: WslMoveCutover; result: R }
+): Promise<R> {
+  return journals.transact(userDataPath, async ({ write }) => {
+    const current = listWslMoveCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
+    const next = update(current)
+    if (next.cutover) {
+      const parsed = parseVerifiedWslMoveCutover(structuredClone(next.cutover))
+      if (parsed.migrationId !== migrationId) {
+        throw new Error('wsl_move_binding_changed')
+      }
+      assertWslMoveWrite(userDataPath, parsed)
+      await write(parsed)
+    }
+    return next.result
+  })
+}
+
+function assertWslMoveWrite(userDataPath: string, parsed: WslMoveCutover): void {
+  // Files are named by migration id alone: one id must never name moves of two distros.
   if (
     listWslMoveCutovers(userDataPath).some(
       (entry) => entry.migrationId === parsed.migrationId && entry.journalKey !== parsed.journalKey
@@ -95,7 +135,7 @@ export function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutove
   const chain = listWslMoveCutoverChain(userDataPath, parsed.journalKey)
   const existing = chain.find((entry) => entry.migrationId === parsed.migrationId)
   const head = chain.at(-1)
-  // A stale writer must not recreate a removed fence.
+  // Compare-and-swap: a writer whose record was lifted underneath it must not recreate the fence.
   if (!existing && parsed.phase !== 'prepared') {
     throw new Error('wsl_move_record_missing')
   }
@@ -116,10 +156,9 @@ export function writeWslMoveCutover(userDataPath: string, cutover: WslMoveCutove
       throw new Error('wsl_move_must_extend_its_chain')
     }
   }
-  journals.write(userDataPath, parsed)
 }
 
-/** Only the chain head advances; preserve its binding. */
+/** A record only moves forward, keeps its binding, and only the head of its chain still moves. */
 function assertWslMoveUpdate(
   existing: WslMoveCutover,
   next: WslMoveCutover,
@@ -144,7 +183,11 @@ function assertWslMoveUpdate(
   assertWslMoveLedgerUpdate(existing, next)
 }
 
-/** Append-only during destination-committed; leaving requires every store in a complete registry. */
+/**
+ * The rewrite ledger only grows, and only while the desktop rewrites (`destination-committed`):
+ * append-only and without duplicates, so a stale writer cannot drop another's entry. Leaving that
+ * phase needs a complete registry and every registered store recorded.
+ */
 function assertWslMoveLedgerUpdate(existing: WslMoveCutover, next: WslMoveCutover): void {
   const before = existing.rewrittenStores
   const after = next.rewrittenStores
@@ -168,23 +211,29 @@ function assertWslMoveLedgerUpdate(existing: WslMoveCutover, next: WslMoveCutove
   }
 }
 
-// Before quiesce, removing the fence cannot lose destination state.
+// Before quiesce nothing has reached the destination, so lifting the fence loses nothing.
 const REMOVABLE_IN_FLIGHT_PHASES: ReadonlySet<WslMoveCutover['phase']> = new Set([
   'prepared',
   'source-fenced'
 ])
 
-/** Retain unfinished fences after quiesce until resume or a cancel proves the destination empty. */
-export function removeWslMoveCutover(userDataPath: string, migrationId: string): void {
-  const record = listWslMoveCutovers(userDataPath).find(
-    (entry) => entry.migrationId === migrationId
-  )
-  if (
-    record &&
-    !REMOVABLE_IN_FLIGHT_PHASES.has(record.phase) &&
-    !isWslMoveCutoverFinished(record)
-  ) {
-    throw new Error('wsl_move_in_flight')
-  }
-  journals.remove(userDataPath, migrationId)
+/**
+ * Only a record whose move has touched nothing beyond the source goes, or one finished. A move
+ * further along keeps its fence until it resumes, or until a cancel proves the destination holds
+ * nothing.
+ */
+export function removeWslMoveCutover(userDataPath: string, migrationId: string): Promise<void> {
+  return journals.transact(userDataPath, async ({ remove }) => {
+    const record = listWslMoveCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
+    if (
+      record &&
+      !REMOVABLE_IN_FLIGHT_PHASES.has(record.phase) &&
+      !isWslMoveCutoverFinished(record)
+    ) {
+      throw new Error('wsl_move_in_flight')
+    }
+    await remove(migrationId)
+  })
 }

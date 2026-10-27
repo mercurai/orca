@@ -1,3 +1,4 @@
+import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -34,17 +35,17 @@ const record = {
 
 describe('WSL host environment store', () => {
   let userDataPath: string
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-wsl-host-store-'))
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
   })
 
-  it('registers a paired environment that reads back with its WSL deployment', () => {
-    addWslHostEnvironment(userDataPath, {
+  it('registers a paired environment that reads back with its WSL deployment', async () => {
+    await addWslHostEnvironment(userDataPath, {
       id: 'wsl:ubuntu',
       name: 'Ubuntu (WSL)',
       pairingCode: code(42000),
@@ -61,20 +62,21 @@ describe('WSL host environment store', () => {
     expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.createdAt).toBe(100)
   })
 
-  it('refuses a pairing that does not point at the bridge port', () => {
-    expect(() =>
-      addWslHostEnvironment(userDataPath, {
-        id: 'wsl:ubuntu',
-        name: 'Ubuntu (WSL)',
-        pairingCode: code(43000),
-        record
-      })
-    ).toThrow(/does not point at its bridge/)
+  it('refuses a pairing that does not point at the bridge port', async () => {
+    await expect(
+      async () =>
+        await addWslHostEnvironment(userDataPath, {
+          id: 'wsl:ubuntu',
+          name: 'Ubuntu (WSL)',
+          pairingCode: code(43000),
+          record
+        })
+    ).rejects.toThrow(/does not point at its bridge/)
     expect(listEnvironments(userDataPath)).toEqual([])
   })
 
-  it('persists a relaunch’s new device token and a moved bridge, and says so', () => {
-    addWslHostEnvironment(userDataPath, {
+  it('persists a relaunch’s new device token and a moved bridge, and says so', async () => {
+    await addWslHostEnvironment(userDataPath, {
       id: 'wsl:ubuntu',
       name: 'Ubuntu (WSL)',
       pairingCode: code(42000),
@@ -82,14 +84,16 @@ describe('WSL host environment store', () => {
       now: 100
     })
     expect(
-      refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
-        pairingCode: code(42000),
-        localPort: 42000,
-        remotePort: 6768
-      }).pairingChanged
+      (
+        await refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
+          pairingCode: code(42000),
+          localPort: 42000,
+          remotePort: 6768
+        })
+      ).pairingChanged
     ).toBe(false)
 
-    const refreshed = refreshWslHostPairing(
+    const refreshed = await refreshWslHostPairing(
       userDataPath,
       'wsl:ubuntu',
       { pairingCode: code(42001, 'token-2'), localPort: 42001, remotePort: 6770 },
@@ -104,8 +108,70 @@ describe('WSL host environment store', () => {
     })
   })
 
-  it('binds the record to the pairing key and follows a relaunch that changes it', () => {
-    addWslHostEnvironment(userDataPath, {
+  it('keeps a newer queued pairing when an older repair reaches the write lane', async () => {
+    await addWslHostEnvironment(userDataPath, {
+      id: 'wsl:ubuntu',
+      name: 'Ubuntu (WSL)',
+      pairingCode: code(42000),
+      record,
+      now: 100
+    })
+    const held = Promise.withResolvers<void>()
+    const entered = Promise.withResolvers<void>()
+    const blocker = withRuntimeEnvironmentMutation(userDataPath, async () => {
+      entered.resolve()
+      await held.promise
+    })
+    await entered.promise
+    const newer = refreshWslHostPairing(
+      userDataPath,
+      'wsl:ubuntu',
+      {
+        pairingCode: code(42001, 'newer-fixture-token'),
+        localPort: 42001,
+        remotePort: 6770
+      },
+      500
+    )
+    const stale = refreshWslHostPairing(
+      userDataPath,
+      'wsl:ubuntu',
+      {
+        pairingCode: code(42002, 'stale-fixture-token'),
+        localPort: 42002,
+        remotePort: 6771,
+        expectedPairingRevision: 100
+      },
+      600
+    )
+    held.resolve()
+    await blocker
+    await newer
+    const result = await stale
+    expect(result.superseded).toBe(true)
+    expect(result.pairingChanged).toBe(false)
+    expect(getPreferredPairingOffer(result.environment).deviceToken).toBe('newer-fixture-token')
+    expect(result.environment.pairingRevision).toBe(500)
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toMatchObject({
+      localPort: 42001,
+      remotePort: 6770
+    })
+  })
+
+  it('removes the environment and its record', async () => {
+    await addWslHostEnvironment(userDataPath, {
+      id: 'wsl:ubuntu',
+      name: 'Ubuntu (WSL)',
+      pairingCode: code(42000),
+      record
+    })
+    await removeWslHostEnvironment(userDataPath, 'wsl:ubuntu')
+    expect(listEnvironments(userDataPath)).toEqual([])
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toBeNull()
+  })
+
+  it('binds the record to the pairing key and follows a relaunch that changes it', async () => {
+    await addWslHostEnvironment(userDataPath, {
       id: 'wsl:ubuntu',
       name: 'Ubuntu (WSL)',
       pairingCode: code(42000),
@@ -116,7 +182,7 @@ describe('WSL host environment store', () => {
       publicKeyB64
     )
     const rotatedKey = Buffer.alloc(32, 9).toString('base64')
-    const refreshed = refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
+    const refreshed = await refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
       pairingCode: encodePairingOffer({
         v: 2,
         endpoint: 'ws://127.0.0.1:42000',
@@ -131,8 +197,8 @@ describe('WSL host environment store', () => {
     expect(listEnvironments(userDataPath)[0]?.orcadDeployment).toMatchObject({ kind: 'wsl' })
   })
 
-  it('writes nothing when a refreshed pairing does not point at the bridge', () => {
-    addWslHostEnvironment(userDataPath, {
+  it('writes nothing when a refreshed pairing does not point at the bridge', async () => {
+    await addWslHostEnvironment(userDataPath, {
       id: 'wsl:ubuntu',
       name: 'Ubuntu (WSL)',
       pairingCode: code(42000),
@@ -140,19 +206,19 @@ describe('WSL host environment store', () => {
       now: 100
     })
     const before = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
-    expect(() =>
+    await expect(
       refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
         pairingCode: code(43000, 'token-2'),
         localPort: 42001,
         remotePort: 6770
       })
-    ).toThrow(/does not point at its bridge/)
+    ).rejects.toThrow(/does not point at its bridge/)
     expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toEqual(before)
     expect(listEnvironments(userDataPath)[0]?.orcadDeployment).toMatchObject({ localPort: 42000 })
   })
 
-  it('stays a WSL host if a key rotation is interrupted between its two writes', () => {
-    addWslHostEnvironment(userDataPath, {
+  it('stays a WSL host if a key rotation is interrupted between its two writes', async () => {
+    await addWslHostEnvironment(userDataPath, {
       id: 'wsl:ubuntu',
       name: 'Ubuntu (WSL)',
       pairingCode: code(42000),
@@ -163,24 +229,11 @@ describe('WSL host environment store', () => {
     if (!stored) {
       throw new Error('record missing')
     }
-    // The record write landed; the pairing write that follows it did not.
-    writeWslHostDeployment(userDataPath, 'wsl:ubuntu', {
+    await writeWslHostDeployment(userDataPath, 'wsl:ubuntu', {
       ...stored,
       pairingPublicKeyB64: Buffer.alloc(32, 9).toString('base64'),
       previousPairingPublicKeyB64: publicKeyB64
     })
     expect(listEnvironments(userDataPath)[0]?.orcadDeployment).toMatchObject({ kind: 'wsl' })
-  })
-
-  it('removes the environment and its record', () => {
-    addWslHostEnvironment(userDataPath, {
-      id: 'wsl:ubuntu',
-      name: 'Ubuntu (WSL)',
-      pairingCode: code(42000),
-      record
-    })
-    removeWslHostEnvironment(userDataPath, 'wsl:ubuntu')
-    expect(listEnvironments(userDataPath)).toEqual([])
-    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toBeNull()
   })
 })

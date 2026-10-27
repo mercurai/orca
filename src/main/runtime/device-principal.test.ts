@@ -55,7 +55,7 @@ describe('device principal', () => {
     ).toMatchObject({ callerFingerprint: 'carried', credentialRevision: 3 })
   })
 
-  it('round-trips the optional principal fields and drops malformed values on load', () => {
+  it('round-trips the optional principal fields and drops malformed values on load', async () => {
     const { registry, path } = registryWith([
       legacyRow(),
       legacyRow({
@@ -81,7 +81,7 @@ describe('device principal', () => {
     expect(registry.getDevice('device-3')?.credentialRevision).toBeUndefined()
     expect(registry.getDevice('device-3')?.callerFingerprint).toBeUndefined()
 
-    registry.updateLastSeen('device-2')
+    await registry.updateLastSeen('device-2')
     const saved: unknown = JSON.parse(readFileSync(path, 'utf-8'))
     expect(saved).toContainEqual(expect.objectContaining({ deviceId: 'device-2' }))
     expect(Array.isArray(saved) ? saved[1] : null).toMatchObject({
@@ -91,13 +91,16 @@ describe('device principal', () => {
     })
   })
 
-  it('binds an authenticated socket to its device id, revision and token', () => {
+  it('binds an authenticated socket to its device id, revision and token', async () => {
     const { registry } = registryWith([legacyRow({ credentialRevision: 1 })])
     const bound = { deviceId: 'device-1', credentialRevision: 1, deviceToken: 'legacy-token' }
     expect(registry.resolveAuthenticatedPrincipal(bound)?.deviceId).toBe('device-1')
     expect(registry.resolveAuthenticatedPrincipal({ ...bound, credentialRevision: 0 })).toBeNull()
     expect(registry.resolveAuthenticatedPrincipal({ ...bound, deviceToken: 'other' })).toBeNull()
-    registry.removeDevice('device-1')
+    const removal = registry.removeDevice('device-1')
+    // Why: a revoke in flight already refuses the socket, before its write lands.
+    expect(registry.resolveAuthenticatedPrincipal(bound)).toBeNull()
+    await removal
     expect(registry.resolveAuthenticatedPrincipal(bound)).toBeNull()
   })
 
@@ -112,7 +115,7 @@ describe('device principal', () => {
     const server = new OrcaRuntimeRpcServer({ runtime, userDataPath, enableWebSocket: false })
     const registry = new DeviceRegistry(userDataPath)
     server['deviceRegistry'] = registry
-    const phone = registry.addDevice('phone', 'mobile')
+    const phone = await registry.addDevice('phone', 'mobile')
     const socket = socketFor(phone)
     const dispatch = vi.spyOn(server['dispatcher'], 'dispatchStreaming')
 

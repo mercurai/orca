@@ -1,5 +1,6 @@
 import type * as NodeChildProcess from 'node:child_process'
 import type * as NodeFs from 'node:fs'
+import type * as GitRunner from './git/runner'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,8 +8,13 @@ import type { Repo } from '../shared/repo-types'
 
 import { describe, expect, it, vi } from 'vitest'
 
-const { execFileSyncMock } = vi.hoisted(() => ({
-  execFileSyncMock: vi.fn()
+const { gitExecFileAsyncMock } = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn()
+}))
+
+vi.mock('./git/runner', async () => ({
+  ...(await vi.importActual<typeof GitRunner>('./git/runner')),
+  gitExecFileAsync: gitExecFileAsyncMock
 }))
 
 vi.mock('fs', () => ({
@@ -21,7 +27,9 @@ vi.mock('fs', () => ({
 
 vi.mock('child_process', () => ({
   exec: vi.fn(),
-  execFileSync: execFileSyncMock,
+  execFileSync: vi.fn(),
+  // runner.ts imports these from child_process; stubs prevent
+  // "missing export" errors when the mock is resolved transitively.
   execFile: vi.fn(),
   spawn: vi.fn()
 }))
@@ -40,7 +48,10 @@ describe('createSetupRunnerScript', () => {
     const fs = await import('node:fs')
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.cmd')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.cmd',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', {
       configurable: true,
       value: 'win32'
@@ -48,7 +59,7 @@ describe('createSetupRunnerScript', () => {
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         makeRepo(),
         'C:\\repo\\feature\\',
         'pnpm install\npnpm build'
@@ -88,12 +99,15 @@ describe('createSetupRunnerScript', () => {
     const fs = await import('node:fs')
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.sh')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.sh',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         { ...makeRepo(), path: 'C:\\Users\\jinwo\\git\\orca' },
         'C:\\repo\\feature',
         '#!/usr/bin/env bash\npnpm install',
@@ -131,14 +145,17 @@ describe('createSetupRunnerScript', () => {
   it('leaves non-path setup env values alone under a Git Bash runner', async () => {
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.sh')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.sh',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
       const { TERMINAL_GIT_CREDENTIAL_GUARD_POLICY_ENV } =
         await import('../shared/terminal-git-credential-guard')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         makeRepo(),
         'C:\\repo\\feature',
         'pnpm install',
@@ -155,12 +172,15 @@ describe('createSetupRunnerScript', () => {
   it('keeps native Windows env vars in Windows form for the default cmd runner', async () => {
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.cmd')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: 'C:\\repo\\.git\\worktrees\\feature\\orca\\setup-runner.cmd',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         { ...makeRepo(), path: 'C:\\Users\\jinwo\\git\\orca' },
         'C:\\repo\\feature',
         'pnpm install'
@@ -235,7 +255,10 @@ describe('createSetupRunnerScript', () => {
   it('derives ORCA_WORKSPACE_NAME from a POSIX worktree path', async () => {
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('/test/repo/.git/worktrees/feature/orca/setup-runner.sh')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: '/test/repo/.git/worktrees/feature/orca/setup-runner.sh',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', {
       configurable: true,
       value: 'linux'
@@ -243,7 +266,7 @@ describe('createSetupRunnerScript', () => {
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(makeRepo(), '/test/repo-feature', 'pnpm install')
+      const result = await createSetupRunnerScript(makeRepo(), '/test/repo-feature', 'pnpm install')
 
       expect(result.envVars).toEqual(
         expect.objectContaining({
@@ -263,7 +286,10 @@ describe('createSetupRunnerScript', () => {
     const fs = await import('node:fs')
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('/home/jin/.git/worktrees/feature/orca/setup-runner.sh')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: '/home/jin/.git/worktrees/feature/orca/setup-runner.sh',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', {
       configurable: true,
       value: 'win32'
@@ -271,7 +297,7 @@ describe('createSetupRunnerScript', () => {
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         {
           ...makeRepo(),
           path: 'C:\\Users\\jinwo\\git\\orca'
@@ -312,7 +338,10 @@ describe('createSetupRunnerScript', () => {
     const fs = await import('node:fs')
     const originalPlatform = process.platform
 
-    execFileSyncMock.mockReturnValue('/home/jin/repo/.git/worktrees/feature/orca/setup-runner.sh')
+    gitExecFileAsyncMock.mockResolvedValue({
+      stdout: '/home/jin/repo/.git/worktrees/feature/orca/setup-runner.sh',
+      stderr: ''
+    })
     Object.defineProperty(process, 'platform', {
       configurable: true,
       value: 'win32'
@@ -320,7 +349,7 @@ describe('createSetupRunnerScript', () => {
 
     try {
       const { createSetupRunnerScript } = await import('./worktree-runner-script')
-      const result = createSetupRunnerScript(
+      const result = await createSetupRunnerScript(
         makeRepo(),
         '\\\\wsl.localhost\\Ubuntu\\home\\jin\\repo\\feature',
         'pnpm install'

@@ -16,7 +16,14 @@ it('shares one setup and overlaps the compiler only after type-aware checks fini
   expect(workflow.jobs.static_analysis).toBeUndefined()
   expect(workflow.jobs.typecheck).toBeUndefined()
   expect(preflight.needs).toEqual(['code_paths'])
-  expect(preflight['runs-on']).toBe('blacksmith-8vcpu-ubuntu-2404')
+  for (const [repository, runner] of [
+    ['mercurai/orca', 'ubuntu-latest'],
+    ['stablyai/orca', 'blacksmith-8vcpu-ubuntu-2404']
+  ]) {
+    expect(
+      runInNewContext(preflight['runs-on'].slice(3, -2), { inputs: {}, github: { repository } })
+    ).toBe(runner)
+  }
   const installs = steps.filter(
     (step) => step.uses === './.github/actions/install-node-dependencies'
   )
@@ -33,10 +40,15 @@ it('shares one setup and overlaps the compiler only after type-aware checks fini
   expect(bunSetup.with['bun-version-file']).toBe('config/.bun-version')
   expect(bunSetup.if).toBeUndefined()
   expect(plan.background).toBe(true)
-  expect(plan.run.trim().split('\n')).toEqual([
-    'if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi',
-    'node config/scripts/ci-unit-plan.mjs'
-  ])
+  const planCommands = plan.run.trim().split('\n')
+  expect(planCommands.indexOf('ORCA_SHARD_SOURCE_SHA="$(git rev-parse HEAD)"')).toBeGreaterThan(
+    planCommands.indexOf(
+      'if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi'
+    )
+  )
+  expect(planCommands.indexOf('export ORCA_SHARD_SOURCE_SHA')).toBeLessThan(
+    planCommands.indexOf('node config/scripts/ci-unit-plan.mjs')
+  )
   expect(plan.env.ORCA_UNIT_SELECTION_MODE).toContain('vars.ORCA_UNIT_SELECTION_MODE')
   expect(plan.env.ORCA_UNIT_FULL_SHARD_COUNT).toBe("${{ vars.ORCA_UNIT_FULL_SHARD_COUNT || '5' }}")
   expect(steps.indexOf(plan)).toBeLessThan(compilerJoin)
@@ -103,6 +115,7 @@ it('requires physical preflight success before publishing shards and admitting c
   }
   for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
     const admitted = runInNewContext(workflow.jobs.test.if, {
+      inputs: {},
       cancelled: () => false,
       needs: { code_paths: { result: 'success', outputs: { test: 'true' } }, preflight: { result } }
     })
@@ -180,6 +193,7 @@ it.each([
   const [static_analysis, typecheck] = scenario.phases ?? ['true', 'true']
   expect(workflow.jobs.e2e.needs).toEqual(['code_paths', 'preflight'])
   const admitted = runInNewContext(workflow.jobs.e2e.if, {
+    inputs: {},
     cancelled: () => scenario.cancelled ?? false,
     needs: {
       code_paths: {
@@ -197,6 +211,7 @@ it.each(['true', 'false'])(
   (reused) => {
     const scope = classifyPrJobs(['src/main/runtime/orca-runtime.ts'])
     const context = {
+      inputs: {},
       steps: {
         readiness: { outputs: { reused } },
         filter: {
@@ -210,7 +225,12 @@ it.each(['true', 'false'])(
     const outputs = Object.fromEntries(
       ['static_analysis', 'typecheck', 'e2e_should_run'].map((name) => [
         name,
-        String(runInNewContext(workflow.jobs.code_paths.outputs[name].slice(3, -2), context))
+        String(
+          runInNewContext(workflow.jobs.code_paths.outputs[name].slice(3, -2), {
+            inputs: {},
+            ...context
+          })
+        )
       ])
     )
     expect(outputs).toEqual({
@@ -219,10 +239,10 @@ it.each(['true', 'false'])(
       e2e_should_run: 'true'
     })
     const needs = { code_paths: { result: 'success', outputs }, preflight: { result: 'skipped' } }
-    expect(runInNewContext(preflight.if, { needs })).toBe(reused !== 'true')
-    expect(runInNewContext(workflow.jobs.e2e.if, { needs, cancelled: () => false })).toBe(
-      reused === 'true'
-    )
+    expect(runInNewContext(preflight.if, { inputs: {}, needs })).toBe(reused !== 'true')
+    expect(
+      runInNewContext(workflow.jobs.e2e.if, { inputs: {}, needs, cancelled: () => false })
+    ).toBe(reused === 'true')
     expect(workflow.jobs.verify.needs).not.toContain('e2e')
   }
 )
@@ -267,12 +287,12 @@ it.each([
       outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)]))
     }
   }
-  expect(runInNewContext(preflight.if, { needs })).toBe(
+  expect(runInNewContext(preflight.if, { inputs: {}, needs })).toBe(
     expected.static_analysis || expected.typecheck
   )
-  expect(runInNewContext(compiler.env.PREFLIGHT_PHASE_SELECTED.slice(3, -2), { needs })).toBe(
-    expected.typecheck
-  )
+  expect(
+    runInNewContext(compiler.env.PREFLIGHT_PHASE_SELECTED.slice(3, -2), { inputs: {}, needs })
+  ).toBe(expected.typecheck)
   expect(scope.test).toBe(expected.typecheck)
 })
 
@@ -335,6 +355,7 @@ it('prepares an isolated Node 18 executable before the existing Node 24 dependen
   for (const outcome of ['success', 'failure', 'cancelled', 'skipped', '', undefined]) {
     expect(
       runInNewContext(capture.if, {
+        inputs: {},
         needs: { code_paths: { outputs: { managed_hook_node18: 'true' } } },
         steps: { node18_runtime: { outcome } }
       })
@@ -367,7 +388,14 @@ it('runs the unchanged Node 18 smoke after every Node 24 step and preserves its 
     expect(joined, background.id).toBeLessThan(steps.indexOf(smoke))
   }
   expect(receipt.name).toBe('managed hooks on Node 18')
-  expect(receipt['runs-on']).toBe('blacksmith-2vcpu-ubuntu-2404')
+  for (const [repository, runner] of [
+    ['mercurai/orca', 'ubuntu-latest'],
+    ['stablyai/orca', 'blacksmith-2vcpu-ubuntu-2404']
+  ]) {
+    expect(
+      runInNewContext(receipt['runs-on'].slice(3, -2), { inputs: {}, github: { repository } })
+    ).toBe(runner)
+  }
   expect(receipt.steps).toHaveLength(1)
   expect(receipt.steps[0].uses).toBeUndefined()
   expect(receipt.steps[0].env.MANAGED_HOOK_NODE18).toBe(

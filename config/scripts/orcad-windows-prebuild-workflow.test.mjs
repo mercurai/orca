@@ -22,7 +22,7 @@ function evaluate(expression, context) {
       .replaceAll('steps.orcad-prebuild-cache-identity', 'steps["orcad-prebuild-cache-identity"]')
       .replaceAll('steps.orcad-prebuild', 'steps["orcad-prebuild"]')
       .replace(
-        /\.(resolve-windows-cache|restore-windows-cache|cache-identity-outcome|cache-key)\b/g,
+        /\.(resolve-windows-cache|restore-windows-cache|cache-identity-outcome|cache-key|cache-mode)\b/g,
         (_match, name) => `["${name}"]`
       ),
     context
@@ -66,6 +66,13 @@ function context(os, arch, event, ref, template = false) {
 }
 
 describe('Windows server prebuild cache workflow', () => {
+  it('disables exact Windows prebuild restoration for isolated qualification', () => {
+    expect(action.inputs['cache-mode'].default).toBe('auto')
+    const ctx = actionContext(context('Windows', 'X64', 'push', 'refs/heads/main'))
+    ctx.inputs['cache-mode'] = 'off'
+    expect(evaluate(restore.if, ctx)).toBe(false)
+  })
+
   it.each([
     ['pull_request', 'refs/pull/1/merge', false, true, false],
     ['push', 'refs/heads/main', false, true, true],
