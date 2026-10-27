@@ -223,3 +223,28 @@ jobs:
           config/scripts/ci-draft-pr-admission.test.mjs
           config/scripts/pr-auxiliary-preflight-admission.test.mjs
           config/scripts/pr-e2e-route-contracts.test.mjs
+          config/scripts/wsl-e2e-lane-contract.test.mjs
+          config/scripts/ci-dependency-download-cache.test.mjs
+          config/scripts/windows-native-preparation-benchmark.test.mjs
+          config/scripts/orcad-terminal-smoke-change-scope.test.mjs
+          config/scripts/pr-code-change-scope.test.mjs
+          config/scripts/pr-code-change-scope-workflow.test.mjs
+          config/scripts/ci-unit-module-cache.test.mjs
+          config/scripts/pr-ready-check-reuse.test.mjs
+          config/scripts/pr-preflight-gates.test.mjs
+
+      - name: Verify persistence and native-session caller contracts
+        if: matrix.os == 'ubuntu-22.04'
+        run: >-
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/managed-server/lifecycle/orcad-managed-tunnel-local-port.test.ts
+          src/main/runtime/device-registry-file-read.test.ts
+          src/main/native-chat/agent-session-wire/structured-agent-session-codex-input-host.test.ts
+          src/main/runtime/rpc/methods/agent-launch-at-rest.test.ts
+          src/renderer/src/components/native-chat/NativeChatRewindAction.target.test.tsx
+          src/renderer/src/components/native-chat/use-structured-agent-session.rewind.test.tsx
+          src/renderer/src/components/tab-bar/cli-chat-resume-run.test.ts
+          src/shared/wsl-move/wsl-move-dispositions.test.ts
+          src/shared/secure-file-sync-writers-removed.test.ts
+          src/main/connector-cloud/connector-turn-events
+          src/main/connector-cloud/connector-poll-client.persistence.test.ts

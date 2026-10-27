@@ -143,8 +143,7 @@ describe('rewind target after send acceptance', () => {
       expect(mocks.call).toHaveBeenCalledWith(
         target,
         'agentSession.rewind',
-        expect.objectContaining({ itemId, expectedEpoch: 'epoch-1' }),
-        undefined
+        expect.objectContaining({ itemId, expectedEpoch: 'epoch-1' })
       )
     )
     expect(confirm).toHaveBeenCalledOnce()

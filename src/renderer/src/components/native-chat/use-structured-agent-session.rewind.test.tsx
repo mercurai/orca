@@ -137,25 +137,20 @@ describe('useStructuredAgentSession rewind RPC', () => {
     await act(() => view.result.current.rewind.request('user-1', async () => true))
     const { structuredAgentSessionPayloadFingerprint } =
       await import('../../../../shared/structured-agent-session-mutation')
-    expect(mocks.call).toHaveBeenCalledWith(
-      target,
-      'agentSession.rewind',
-      {
-        envelope: {
+    expect(mocks.call).toHaveBeenCalledWith(target, 'agentSession.rewind', {
+      envelope: {
+        sessionId: 'session-1',
+        clientOperationId: 'rewind-operation',
+        expectedRuntimeFence: 3,
+        payloadFingerprint: structuredAgentSessionPayloadFingerprint({
+          method: 'agentSession.rewind',
           sessionId: 'session-1',
-          clientOperationId: 'rewind-operation',
-          expectedRuntimeFence: 3,
-          payloadFingerprint: structuredAgentSessionPayloadFingerprint({
-            method: 'agentSession.rewind',
-            sessionId: 'session-1',
-            fields: { itemId: 'user-1', expectedEpoch: 'epoch-1' }
-          })
-        },
-        itemId: 'user-1',
-        expectedEpoch: 'epoch-1'
+          fields: { itemId: 'user-1', expectedEpoch: 'epoch-1' }
+        })
       },
-      undefined
-    )
+      itemId: 'user-1',
+      expectedEpoch: 'epoch-1'
+    })
     expect(view.result.current.send('stale composer text', [])).toBe(false)
     expect(mocks.toastMessage).toHaveBeenCalledWith(
       'Wait for the conversation to go back to the earlier message.'

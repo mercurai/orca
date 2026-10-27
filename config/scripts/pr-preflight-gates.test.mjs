@@ -385,7 +385,14 @@ it('runs the unchanged Node 18 smoke after every Node 24 step and preserves its 
     expect(joined, background.id).toBeLessThan(steps.indexOf(smoke))
   }
   expect(receipt.name).toBe('managed hooks on Node 18')
-  expect(receipt['runs-on']).toBe('blacksmith-2vcpu-ubuntu-2404')
+  for (const [repository, runner] of [
+    ['mercurai/orca', 'ubuntu-latest'],
+    ['stablyai/orca', 'blacksmith-2vcpu-ubuntu-2404']
+  ]) {
+    expect(runInNewContext(receipt['runs-on'].slice(3, -2), { github: { repository } })).toBe(
+      runner
+    )
+  }
   expect(receipt.steps).toHaveLength(1)
   expect(receipt.steps[0].uses).toBeUndefined()
   expect(receipt.steps[0].env.MANAGED_HOOK_NODE18).toBe(
