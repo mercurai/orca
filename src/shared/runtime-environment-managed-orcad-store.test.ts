@@ -171,6 +171,67 @@ describe('managed orcad environment store', () => {
     )
   })
 
+  it('reports only the winning revision when a stale reservation repeats the saved port', async () => {
+    const original = await add()
+    const onMoved = vi.fn()
+    const winner = await moveManagedOrcadLocalPort(userDataPath, original.id, 50_002, 600, {
+      expectedPairingRevision: original.pairingRevision ?? original.createdAt,
+      onMoved
+    })
+    expect(onMoved).toHaveBeenCalledOnce()
+    expect(getOrcadSshDeployment(winner)?.localPort).toBe(50_002)
+
+    const onStaleMove = vi.fn()
+    const write = vi.spyOn(secureWrites, 'writeSecureFileAsync')
+    try {
+      const stale = await moveManagedOrcadLocalPort(userDataPath, original.id, 50_002, 700, {
+        expectedPairingRevision: original.pairingRevision ?? original.createdAt,
+        onMoved: onStaleMove
+      })
+      expect(stale).toEqual(winner)
+      const unchanged = await moveManagedOrcadLocalPort(userDataPath, original.id, 50_002, 800, {
+        expectedPairingRevision: winner.pairingRevision ?? winner.createdAt,
+        onMoved: onStaleMove
+      })
+      expect(unchanged).toEqual(winner)
+      expect(onStaleMove).not.toHaveBeenCalled()
+      expect(write).not.toHaveBeenCalled()
+      expect(listEnvironments(userDataPath)).toEqual([winner])
+    } finally {
+      write.mockRestore()
+    }
+  })
+
+  it('does not report a port move superseded while its final sidecar save settles', async () => {
+    const original = await add()
+    const onMoved = vi.fn()
+    const execute = secureWrites.writeSecureFileAsync
+    let sidecarWrites = 0
+    const write = vi
+      .spyOn(secureWrites, 'writeSecureFileAsync')
+      .mockImplementation(async (...args) => {
+        const result = await execute(...args)
+        if (args[0] === getRuntimeEnvironmentSidecarPath(userDataPath) && ++sidecarWrites === 2) {
+          shippedBuildRewrite(userDataPath, (environments) => {
+            environments[0]!.pairingRevision = 900
+          })
+        }
+        return result
+      })
+    try {
+      const current = await moveManagedOrcadLocalPort(userDataPath, original.id, 50_002, 600, {
+        expectedPairingRevision: original.pairingRevision ?? original.createdAt,
+        onMoved
+      })
+      expect(sidecarWrites).toBe(2)
+      expect(current.pairingRevision).toBe(900)
+      expect(listEnvironments(userDataPath)[0]?.pairingRevision).toBe(900)
+      expect(onMoved).not.toHaveBeenCalled()
+    } finally {
+      write.mockRestore()
+    }
+  })
+
   it('leaves an unchanged pairing alone and re-binds the link when the offer rotates', async () => {
     const environment = await add()
     expect(await refreshManagedOrcadPairing(userDataPath, 'environment-1', pairingCode())).toEqual(

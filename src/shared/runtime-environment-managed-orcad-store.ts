@@ -157,7 +157,7 @@ async function refreshManagedOrcadPairingWithinMutation(
   return rebindManagedOrcadPairing(userDataPath, environmentId, () => offer, null, now, options)
 }
 
-/** Moves a managed server's tunnel to a new local port, keeping its pairing and identity. */
+/** Moves the tunnel without changing identity; onMoved confirms a committed, still-current change. */
 export function moveManagedOrcadLocalPort(
   ...args: Parameters<typeof moveManagedOrcadLocalPortWithinMutation>
 ): ReturnType<typeof moveManagedOrcadLocalPortWithinMutation> {
@@ -170,7 +170,8 @@ async function moveManagedOrcadLocalPortWithinMutation(
   userDataPath: string,
   environmentId: string,
   localPort: number,
-  now = Date.now()
+  now = Date.now(),
+  options: { expectedPairingRevision?: number; onMoved?: () => void } = {}
 ): Promise<KnownRuntimeEnvironment> {
   return rebindManagedOrcadPairing(
     userDataPath,
@@ -182,7 +183,8 @@ async function moveManagedOrcadLocalPortWithinMutation(
       return { ...offer, endpoint: endpoint.toString() }
     },
     localPort,
-    now
+    now,
+    options
   )
 }
 
@@ -192,7 +194,7 @@ async function rebindManagedOrcadPairing(
   nextOffer: (current: KnownRuntimeEnvironment) => PairingOffer,
   localPort: number | null,
   now: number,
-  options: { expectedPairingRevision?: number } = {}
+  options: { expectedPairingRevision?: number; onMoved?: () => void } = {}
 ): Promise<KnownRuntimeEnvironment> {
   const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
@@ -260,11 +262,16 @@ async function rebindManagedOrcadPairing(
     { version: 1, environments },
     { shouldPublish: isCurrent }
   )
+  const publicationIsCurrent = captureEnvironmentStoreVersion(userDataPath)
   await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, environments, next, {
     ...rest,
     orcadDeployment: nextDeployment
   })
-  return resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  const rebound = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  if (publicationIsCurrent()) {
+    options.onMoved?.()
+  }
+  return rebound
 }
 
 function samePairing(left: PairingOffer, right: PairingOffer): boolean {
