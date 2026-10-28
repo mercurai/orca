@@ -40,6 +40,10 @@ import {
 import { createKeyedTrailingEdgeCoalescer } from '../../keyed-trailing-edge-coalescer'
 import { createStructuredAgentSessionForWorktree } from './structured-agent-session-create'
 import { bindPiWorkerPackageToSession } from '../../orchestration/pi-worker-package'
+import {
+  readLocalPiCreateAttempt,
+  rememberStructuredCreateRefusal
+} from '../../orchestration/worker-create-outcome'
 
 type StructuredWorkerBinding = {
   sessionId: string
@@ -112,11 +116,15 @@ export async function createStructuredWorkerSession(args: {
     hostScope: { kind: 'local', hostId: 'local' }
   })
   let created: Awaited<ReturnType<typeof createStructuredAgentSessionForWorktree>> | undefined
+  const clientOperationId = mintAgentSessionOperationId(Date.now())
+  let createAttempt: ReturnType<typeof readLocalPiCreateAttempt> = undefined
   try {
     // The provider acquires during attach. Persist its reserved Dispatch association first so
     // initial launch and later acquisitions resolve the same host-owned grant without public options.
     if (args.agent === 'pi') {
-      bindPiWorkerPackageToSession(args.runtime.getOrchestrationDb(), args.dispatchId, sessionId)
+      const db = args.runtime.getOrchestrationDb()
+      bindPiWorkerPackageToSession(db, args.dispatchId, sessionId)
+      createAttempt = readLocalPiCreateAttempt(db, args.dispatchId)
     }
     created = await createStructuredAgentSessionForWorktree({
       runtime: args.runtime,
@@ -127,7 +135,7 @@ export async function createStructuredWorkerSession(args: {
       caller: { callerKey: structuredPointerCallerKey(args.dispatchId) },
       envelope: {
         sessionId,
-        clientOperationId: mintAgentSessionOperationId(Date.now()),
+        clientOperationId,
         expectedRuntimeFence: null,
         // Empty on purpose: `prepare` overwrites this with the host's own attach fingerprint, and
         // the create-intent conflict check it would otherwise feed guards the RPC boundary against
@@ -142,7 +150,15 @@ export async function createStructuredWorkerSession(args: {
       activate: false
     })
     if (!created.ok) {
-      throw new AgentSessionRefusalError(created.refusal)
+      const refusalError = new AgentSessionRefusalError(created.refusal)
+      if (createAttempt) {
+        rememberStructuredCreateRefusal(refusalError, {
+          ...createAttempt,
+          sessionId,
+          clientOperationId
+        })
+      }
+      throw refusalError
     }
     const host = requireInstalledHost()
     const record = host.deps.store.getRecord(sessionId)

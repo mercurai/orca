@@ -19,7 +19,7 @@ export function failWorkerStartWithReceipt(args: {
   const unknown = isUnknownWorkerStartOutcome(args.error, args.failedStage)
   const worker = unknown
     ? args.db.markWorkerStartUnknown(args.dispatchId, args.failedStage, reason)
-    : args.db.failWorkerStart(args.dispatchId, args.failedStage, reason)
+    : args.db.failWorkerStart(args.dispatchId, args.failedStage, reason, args.error)
   // Only name cleanup this start actually left behind: a terminal it created and still owns. A
   // structured session is discarded by the teardown, a pane the user typed into is theirs, and an
   // unknown outcome is not settled — none of the three has anything for `worker-release` to close.

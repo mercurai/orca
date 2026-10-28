@@ -2,6 +2,16 @@ import type { WorkerDispatchRow, WorkerDispatchState } from '../../types'
 import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
+import { assertWorkerEffectWritePreservesStructuredCreateRefusal } from '../../worker-create-outcome'
+
+function parseEffects(value: string): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 export function recordWorkerStage(
   this: OrchestrationDb,
@@ -22,6 +32,12 @@ export function recordWorkerStage(
     throw new OrchestrationError(
       'dispatch_not_found',
       `Dispatch ${params.dispatchId} was not found.`
+    )
+  }
+  if (params.effects && !this.getFederatedDispatch(params.dispatchId)) {
+    assertWorkerEffectWritePreservesStructuredCreateRefusal(
+      parseEffects(current.effects),
+      params.effects
     )
   }
   this.db.exec('SAVEPOINT worker_stage_transition')
@@ -69,6 +85,12 @@ export function updateWorkerSetupEvidence(
     )
   }
   const effects = JSON.stringify(params.effects)
+  if (!this.getFederatedDispatch(params.dispatchId)) {
+    assertWorkerEffectWritePreservesStructuredCreateRefusal(
+      parseEffects(current.effects),
+      params.effects
+    )
+  }
   if (current.setup_state === params.setupState && current.effects === effects) {
     return { worker: current, changed: false }
   }

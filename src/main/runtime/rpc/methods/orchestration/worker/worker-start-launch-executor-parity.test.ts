@@ -123,7 +123,9 @@ describe('a fresh worker through the launch executor', () => {
     sessionCreate.refusal = { code: 'structured_agent_session_unsupported' }
 
     await expect(place(f, { mode: STRUCTURED, existing: true })).rejects.toMatchObject({
-      code: 'agent_unconfigured'
+      name: 'AgentSessionRefusalError',
+      message: 'structured_agent_session_unsupported',
+      refusal: { code: 'structured_agent_session_unsupported', message: 'refused here' }
     })
     expect(f.runtime.createTerminal).not.toHaveBeenCalled()
     expect(f.stages).toEqual(['terminal_creating'])
@@ -134,7 +136,9 @@ describe('a fresh worker through the launch executor', () => {
     sessionCreate.refusal = { code: 'structured_agent_session_unsupported' }
 
     await expect(place(f, { mode: STRUCTURED })).rejects.toMatchObject({
-      code: 'agent_unconfigured'
+      name: 'AgentSessionRefusalError',
+      message: 'structured_agent_session_unsupported',
+      refusal: { code: 'structured_agent_session_unsupported', message: 'refused here' }
     })
     expect(f.runtime.createTerminal).not.toHaveBeenCalled()
     expect(f.failedStages).toEqual(['worktree_create', 'terminal_create', 'terminal_create'])

@@ -1040,7 +1040,11 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
   })
 
   it('refuses an implementation-only review graph before persisting Pi admission or launching', async () => {
-    const f = policy(harness.db, harness.activeRunId, 1, { causal: false })
+    const f = policy()
+    harness.db.db.prepare('UPDATE tasks SET deps = ? WHERE id = ?').run(
+      JSON.stringify([f.task.id]),
+      f.review.id
+    )
 
     await expect(harness.call('orchestration.piWorkerAdmissionConfigure', f.params)).rejects.toMatchObject({
       code: 'pi_admission_invalid',

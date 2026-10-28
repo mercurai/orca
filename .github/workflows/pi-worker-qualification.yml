@@ -60,6 +60,7 @@ jobs:
           src/main/runtime/rpc/methods/orchestration/worker/worker-start-launch-executor-parity.test.ts
           src/main/pi/worker-report-bridge.test.ts
           src/main/runtime/orchestration/preamble-pi.test.ts
+          src/main/runtime/orchestration/worker-create-outcome.test.ts
           src/main/runtime/rpc/methods/orchestration-structured-worker-session.test.ts
           src/main/runtime/rpc/methods/orchestration/worker/worker-start-outcome-classification.test.ts
           src/main/runtime/rpc/methods/structured-worker-tab-retirement.test.ts

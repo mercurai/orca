@@ -9,26 +9,18 @@ import {
   type OrchestrationCoordinatorKey
 } from '../../orchestration-caller-identity'
 import { OrchestrationError } from '../../orchestration-error'
-import type { DecisionGateRow, TaskRow } from '../../types'
+import type { DecisionGateRow, TaskRow, WorkerDispatchRow } from '../../types'
 import type { OrchestrationDb } from '../orchestration-db'
+import { hasEligibleStructuredCreateRefusal } from '../../worker-create-outcome'
 
 // Existing worker rows are the reservations. Abandonment and an unproven failure do not establish
 // exit. Terminal settlement also retains its slot until every owned resource is released.
 const ACTIVE_PI_WORKERS_SQL = `
-  SELECT COUNT(*) AS count FROM worker_dispatches worker
+  SELECT worker.*, dispatch.run_id, dispatch.task_id, dispatch.status AS dispatch_status
+  FROM worker_dispatches worker
   JOIN dispatch_contexts dispatch ON dispatch.id = worker.dispatch_id
   WHERE dispatch.run_id = ? AND json_extract(worker.start_options, '$.agent') = 'pi'
-    AND NOT (
-      (
-      (worker.state IN ('succeeded', 'failed') AND worker.stage = 'settled') OR
-      (worker.state = 'failed' AND worker.stage = 'process_exited') OR
-      (worker.state = 'stopped' AND worker.stage = 'process_stopped')
-      ) AND NOT EXISTS (
-        SELECT 1 FROM worker_terminal_resources resource
-        WHERE (resource.owner_dispatch_id = worker.dispatch_id OR resource.origin_dispatch_id = worker.dispatch_id)
-          AND (resource.ownership_state != 'released' OR resource.release_state != 'released')
-      )
-    )`
+`
 
 type StoredAdmission = {
   consumer_generation: number
@@ -56,9 +48,89 @@ function configDigest(runId: string, consumerGeneration: number, config: PiWorke
   return createHash('sha256').update(JSON.stringify({ runId, consumerGeneration, config })).digest('hex')
 }
 
+type AdmissionReservationRow = WorkerDispatchRow & {
+  run_id: string
+  task_id: string
+  dispatch_status: string
+}
+
+function hasUnreleasedCustody(db: OrchestrationDb, dispatchId: string): boolean {
+  return Boolean(
+    db.db
+      .prepare(
+        `SELECT 1 FROM worker_terminal_resources resource
+         WHERE (resource.owner_dispatch_id = ? OR resource.origin_dispatch_id = ?)
+           AND (resource.ownership_state != 'released' OR resource.release_state != 'released')
+         LIMIT 1`
+      )
+      .get(dispatchId, dispatchId)
+  )
+}
+
+function isSettledAndReleased(db: OrchestrationDb, row: AdmissionReservationRow): boolean {
+  const settled =
+    (['succeeded', 'failed'].includes(row.state) && row.stage === 'settled') ||
+    (row.state === 'failed' && row.stage === 'process_exited') ||
+    (row.state === 'stopped' && row.stage === 'process_stopped')
+  return settled && !hasUnreleasedCustody(db, row.dispatch_id)
+}
+
+function parseWorkerEffects(value: string): unknown[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function isEligiblePreChildRefusal(
+  db: OrchestrationDb,
+  row: AdmissionReservationRow,
+  runId: string
+): boolean {
+  if (
+    row.dispatch_status !== 'failed' ||
+    row.state !== 'failed' ||
+    row.stage !== 'terminal_create' ||
+    row.run_id !== runId ||
+    db.getFederatedDispatch(row.dispatch_id) ||
+    hasUnreleasedCustody(db, row.dispatch_id)
+  ) {
+    return false
+  }
+  let startOptions: unknown
+  try {
+    startOptions = JSON.parse(row.start_options)
+  } catch {
+    return false
+  }
+  if (
+    !startOptions ||
+    typeof startOptions !== 'object' ||
+    Array.isArray(startOptions) ||
+    !('agent' in startOptions) ||
+    startOptions.agent !== 'pi'
+  ) {
+    return false
+  }
+  const effects = parseWorkerEffects(row.effects)
+  if (!effects) {
+    return false
+  }
+  return hasEligibleStructuredCreateRefusal(effects, {
+    runId: row.run_id,
+    taskId: row.task_id,
+    dispatchId: row.dispatch_id,
+    runtimeEpoch: row.runtime_epoch ?? ''
+  })
+}
+
 function activeReservations(db: OrchestrationDb, runId: string): number {
-  const row = db.db.prepare(ACTIVE_PI_WORKERS_SQL).get(runId) as { count: number }
-  return row.count
+  const rows = db.db.prepare(ACTIVE_PI_WORKERS_SQL).all(runId) as AdmissionReservationRow[]
+  return rows.filter(
+    (row) => !isSettledAndReleased(db, row) && !isEligiblePreChildRefusal(db, row, runId)
+  ).length
 }
 
 function requireAcceptedGate(db: OrchestrationDb, runId: string, gateId: string, label: string) {

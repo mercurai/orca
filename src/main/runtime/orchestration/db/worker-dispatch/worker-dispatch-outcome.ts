@@ -3,6 +3,21 @@ import { OrchestrationError } from '../../orchestration-error'
 import type { OrchestrationDb } from '../orchestration-db'
 import { transitionLifecycleWithDb } from '../lifecycle-transition'
 import { recordFailedStartDispatchIdentity } from '../worker-terminal/failed-start-dispatch-identity'
+import {
+  assertWorkerEffectWritePreservesStructuredCreateRefusal,
+  isStructuredCreateRefusalEffect,
+  readStructuredCreateRefusal,
+  STRUCTURED_CREATE_REFUSAL_KIND
+} from '../../worker-create-outcome'
+
+function parseEffects(value: string): unknown[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export function markWorkerDispatchReady(
   this: OrchestrationDb,
@@ -15,6 +30,12 @@ export function markWorkerDispatchReady(
     const worker = this.getWorkerDispatch(dispatchId)
     if (!dispatch || dispatch.status !== 'pending' || worker?.state !== 'starting') {
       throw new OrchestrationError('dispatch_inactive', `Dispatch ${dispatchId} is not starting.`)
+    }
+    if (effects && !this.getFederatedDispatch(dispatchId)) {
+      assertWorkerEffectWritePreservesStructuredCreateRefusal(
+        parseEffects(worker.effects) ?? [],
+        effects
+      )
     }
     transitionLifecycleWithDb(this.db, {
       entity: 'dispatch',
@@ -44,7 +65,8 @@ export function failWorkerStart(
   this: OrchestrationDb,
   dispatchId: string,
   stage: string,
-  reason: string
+  reason: string,
+  createError?: unknown
 ): WorkerDispatchRow {
   this.db.exec('BEGIN IMMEDIATE')
   try {
@@ -53,6 +75,11 @@ export function failWorkerStart(
     if (!dispatch || !worker || worker.state !== 'starting') {
       throw new OrchestrationError('dispatch_inactive', `Dispatch ${dispatchId} is not starting.`)
     }
+    const createRefusal = readStructuredCreateRefusal(createError)
+    const currentEffects = parseEffects(worker.effects)
+    const effects = createRefusal
+      ? validateAndAppendStructuredCreateRefusal(this, dispatch, worker, currentEffects, createRefusal)
+      : undefined
     const now = new Date().toISOString()
     transitionLifecycleWithDb(this.db, {
       entity: 'dispatch',
@@ -70,7 +97,12 @@ export function failWorkerStart(
       id: dispatchId,
       from: 'starting',
       to: 'failed',
-      projection: { stage, last_error: reason, updated_at: now }
+      projection: {
+        stage,
+        last_error: reason,
+        updated_at: now,
+        ...(effects ? { effects: JSON.stringify(effects) } : {})
+      }
     })
     const hasActiveDispatch = Boolean(
       this.db
@@ -98,6 +130,56 @@ export function failWorkerStart(
     this.db.exec('ROLLBACK')
     throw error
   }
+}
+
+function validateAndAppendStructuredCreateRefusal(
+  db: OrchestrationDb,
+  dispatch: { id: string; run_id: string; task_id: string; status: string },
+  worker: { dispatch_id: string; runtime_epoch: string | null; state: string; start_options: string },
+  currentEffects: unknown[] | undefined,
+  refusal: ReturnType<typeof readStructuredCreateRefusal>
+): unknown[] {
+  if (
+    !refusal ||
+    !currentEffects ||
+    dispatch.id !== refusal.dispatchId ||
+    dispatch.status !== 'pending' ||
+    worker.dispatch_id !== refusal.dispatchId ||
+    worker.state !== 'starting' ||
+    worker.runtime_epoch !== refusal.runtimeEpoch ||
+    dispatch.run_id !== refusal.runId ||
+    dispatch.task_id !== refusal.taskId ||
+    db.getFederatedDispatch(refusal.dispatchId)
+  ) {
+    throw new Error('structured_create_refusal is not bound to the current local worker attempt')
+  }
+  let startOptions: unknown
+  try {
+    startOptions = JSON.parse(worker.start_options)
+  } catch {
+    throw new Error('structured_create_refusal requires valid worker start options')
+  }
+  if (
+    !startOptions ||
+    typeof startOptions !== 'object' ||
+    Array.isArray(startOptions) ||
+    !('agent' in startOptions) ||
+    startOptions.agent !== 'pi' ||
+    !isStructuredCreateRefusalEffect(refusal)
+  ) {
+    throw new Error('structured_create_refusal is only valid for a local Pi worker')
+  }
+  if (currentEffects.some(
+    (effect) =>
+      typeof effect === 'object' &&
+      effect !== null &&
+      !Array.isArray(effect) &&
+      'kind' in effect &&
+      effect.kind === STRUCTURED_CREATE_REFUSAL_KIND
+  )) {
+    throw new Error('structured_create_refusal proof already exists')
+  }
+  return [...currentEffects, refusal]
 }
 
 export function markWorkerStartUnknown(
