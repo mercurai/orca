@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
-import { admitSelfInitiatedTreeKill } from '../../own-chromium-tree-kill-guard'
+import { admitProcessTreeKill } from '../../../shared/child-process/process-tree-kill-gate'
 
 const WINDOWS_TREE_KILL_WAIT_MS = 2_000
 
@@ -14,9 +14,10 @@ export function killSpawnedCommandTree(child: ChildProcess): Promise<void> {
     child.kill()
     return Promise.resolve()
   }
-  if (
-    !admitSelfInitiatedTreeKill({ pid, site: 'git-command-tree-kill', scope: 'win-taskkill-tree' })
-  ) {
+  // Why the seam: the git spawn worker thread kills trees too and cannot import
+  // the own-Chromium guard; main installs the real gate, the worker installs one
+  // that answers with the verdict main sent.
+  if (!admitProcessTreeKill({ pid, site: 'git-command-tree-kill', scope: 'win-taskkill-tree' })) {
     // Refusal blocks the pid-addressed tree walk, never the termination: the
     // handle-addressed root kill cannot reach a recycled pid.
     child.kill()

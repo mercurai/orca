@@ -26,3 +26,11 @@ export function notifySpawnObserver(
 export function hasSpawnObserver(): boolean {
   return observer !== null
 }
+
+/**
+ * A spawn the worker thread performed: counted so per-command spawn totals stay complete, but
+ * attributed no block, because the main loop did not wait for it.
+ */
+export function notifyWorkerSpawn(command: string, args: readonly string[]): void {
+  observer?.(command, args, 0)
+}

@@ -1,13 +1,11 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { StringDecoder } from 'node:string_decoder'
 import { withGitSpan } from '../../observability/instrumentation'
-import { recordSubprocessSpawn } from '../../diagnostics/main-thread-churn-probe'
 import {
   isWslLinkedWorktreeGitRoutingCandidate,
   prepareWslLinkedWorktreeGitRouting
 } from '../wsl-linked-worktree-git-routing'
 import { createAbortError } from './abort-error'
-import { killSpawnedCommandTree } from './spawned-command-tree-kill'
+import { startStreamedGitProcess, type StreamedProcess } from './git-stream-process'
 import type { ResolvedCommand } from './wsl-command-resolution'
 import {
   DEFAULT_GIT_MAX_BUFFER,
@@ -23,8 +21,7 @@ import {
   resolveGitCommandWithoutProbe
 } from './git-command-resolution'
 import { prepareWindowsHostGitEnvironment } from './windows-host-git-environment'
-import { nonInteractiveGitEnv, untranslatedGitOutputEnv } from './git-process-env'
-import { gitSpawn } from './git-spawn'
+import { nonInteractiveGitEnv } from './git-process-env'
 import { acquireGitAdmission } from './git-subprocess-admission'
 import { GitCommandTimeoutError, gitCommandTimeoutMs } from './git-command-timeout'
 
@@ -107,44 +104,11 @@ export async function gitStreamStdout(
           reject(createAbortError())
           return
         }
-        const stdio: SpawnOptions['stdio'] = ['ignore', 'pipe', 'pipe']
-        const spawnOptions = {
-          cwd: options.cwd,
-          env: nonInteractiveGitEnv(gitOptions.env),
-          stdio,
-          wslDistro: options.wslDistro,
-          windowsHide: true
-        }
-        let child: ChildProcess
-        if (command.wslMode === 'direct-git') {
-          const spawnStartedAt = performance.now()
-          child = spawn(command.binary, command.args, {
-            cwd: command.cwd,
-            env: untranslatedGitOutputEnv(spawnOptions.env),
-            stdio: spawnOptions.stdio,
-            windowsHide: true
-          })
-          recordSubprocessSpawn(command.binary, command.args, performance.now() - spawnStartedAt)
-        } else {
-          child = gitSpawn(args, spawnOptions)
-        }
-        let terminationReported = false
+        let reportTermination: () => void = () => {}
         terminationState.current = new Promise<void>((resolveTermination) => {
-          const reportTermination = (): void => {
-            if (terminationReported) {
-              return
-            }
-            terminationReported = true
-            resolveTermination()
-          }
-          child.once('close', reportTermination)
-          child.once('error', () => {
-            if (!child.pid) {
-              reportTermination()
-            }
-          })
+          reportTermination = resolveTermination
         })
-
+        let streamed: StreamedProcess | null = null
         let settled = false
         let timeoutTimer: ReturnType<typeof setTimeout> | null = null
         let stoppedEarly = false
@@ -155,15 +119,15 @@ export async function gitStreamStdout(
         const stdoutDecoder = new StringDecoder('utf8')
         const stderrDecoder = new StringDecoder('utf8')
 
+        const killChild = (): void => {
+          void streamed?.killTree()
+        }
         const cleanup = (): void => {
           if (timeoutTimer) {
             clearTimeout(timeoutTimer)
             timeoutTimer = null
           }
-          child.stdout?.off('data', onStdoutData)
-          child.stderr?.off('data', onStderrData)
-          child.off('error', onError)
-          child.off('close', onClose)
+          streamed?.detach()
           options.signal?.removeEventListener('abort', onAbort)
           // Flush any bytes the decoders were holding for an incomplete sequence.
           stdoutDecoder.end()
@@ -185,7 +149,7 @@ export async function gitStreamStdout(
         function onStdoutData(chunk: Buffer): void {
           stdoutBytes += chunk.byteLength
           if (stdoutBytes > maxBuffer) {
-            void killSpawnedCommandTree(child)
+            killChild()
             finish(new Error('git stdout exceeded maxBuffer.'))
             return
           }
@@ -198,28 +162,25 @@ export async function gitStreamStdout(
           try {
             shouldStop = options.onStdout(decoded)
           } catch (error) {
-            void killSpawnedCommandTree(child)
+            killChild()
             finish(error instanceof Error ? error : new Error(String(error)))
             return
           }
           if (shouldStop === true) {
             // Parser hit its limit: kill git and resolve cleanly with the partial output.
             stoppedEarly = true
-            void killSpawnedCommandTree(child)
+            killChild()
             finish(null)
           }
         }
         function onStderrData(chunk: Buffer): void {
           stderrBytes += chunk.byteLength
           if (stderrBytes > maxBuffer) {
-            void killSpawnedCommandTree(child)
+            killChild()
             finish(new Error('git stderr exceeded maxBuffer.'))
             return
           }
           stderr += stderrDecoder.write(chunk)
-        }
-        function onError(error: Error): void {
-          finish(error)
         }
         function onClose(code: number | null): void {
           if (stoppedEarly || code === 0) {
@@ -229,23 +190,40 @@ export async function gitStreamStdout(
           finish(Object.assign(new Error(`git exited with ${code}: ${stderr}`), { code }))
         }
         function onAbort(): void {
-          if (!child.pid) {
-            // Why: failed spawn reports ENOENT after abort cleanup; retain a listener so it cannot crash main.
-            child.once('error', () => {})
-          }
-          void killSpawnedCommandTree(child)
+          killChild()
           finish(createAbortError())
         }
 
         function onTimeout(): void {
-          void killSpawnedCommandTree(child)
+          killChild()
           finish(new GitCommandTimeoutError(timeoutMs as number))
         }
 
-        child.stdout?.on('data', onStdoutData)
-        child.stderr?.on('data', onStderrData)
-        child.on('error', onError)
-        child.on('close', onClose)
+        try {
+          streamed = startStreamedGitProcess(
+            command,
+            args,
+            {
+              cwd: options.cwd,
+              env: nonInteractiveGitEnv(gitOptions.env),
+              ...(options.wslDistro ? { wslDistro: options.wslDistro } : {})
+            },
+            {
+              onStdout: onStdoutData,
+              onStderr: onStderrData,
+              onError: finish,
+              onClose,
+              onTerminated: reportTermination
+            }
+          )
+        } catch (error) {
+          reportTermination()
+          throw error
+        }
+        if (settled) {
+          // A loopback transport can fail the spawn before it returns.
+          return
+        }
         options.signal?.addEventListener('abort', onAbort, { once: true })
         if (timeoutMs !== undefined && timeoutMs > 0) {
           timeoutTimer = setTimeout(onTimeout, timeoutMs)
