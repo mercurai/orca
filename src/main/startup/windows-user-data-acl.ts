@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { getIcaclsExePath, resolveCurrentWindowsIdentity } from '../win32-utils'
+import { getIcaclsExePath, resolveCurrentWindowsIdentityAsync } from '../win32-utils'
 
 /**
  * Startup ACL grant for the win32 userData tree.
@@ -127,19 +127,21 @@ export function ensureWindowsUserDataAclGrant(
   options: EnsureOptions = {}
 ): void {
   const onDone = options.onDone ?? ((): void => undefined)
-  const identity =
-    options.identity !== undefined ? options.identity : resolveCurrentWindowsIdentity()
-  if (!identity) {
-    onDone({ mode: 'no-identity' })
-    return
-  }
-  const marker = readMarker(userDataPath)
-  if (marker && marker.identity === identity) {
-    onDone({ mode: 'marker-hit' })
-    return
-  }
-  const spawnFn = options.spawnFn ?? spawn
   void (async () => {
+    // Why awaited here: with USERNAME unset the identity comes from an async whoami, and the
+    // startup cache is always cold.
+    const identity =
+      options.identity !== undefined ? options.identity : await resolveCurrentWindowsIdentityAsync()
+    if (!identity) {
+      onDone({ mode: 'no-identity' })
+      return
+    }
+    const marker = readMarker(userDataPath)
+    if (marker && marker.identity === identity) {
+      onDone({ mode: 'marker-hit' })
+      return
+    }
+    const spawnFn = options.spawnFn ?? spawn
     // Immediate children first: those explicit ACEs are the durable fix
     // (Chromium replaces the root DACL on every BrowserWindow construction,
     // but never strips explicit ACEs from children). Root second so writes
