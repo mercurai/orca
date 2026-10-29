@@ -126,7 +126,7 @@ for (const [name, mutate] of [
     }
   ]
 ]) {
-  test(`refuses ${name} before any channel mutation`, (t) => {
+  test(`refuses ${String(name)} before any channel mutation`, (t) => {
     const fx = fixture(t)
     fx.state.releases = []
     fx.state.latest = null

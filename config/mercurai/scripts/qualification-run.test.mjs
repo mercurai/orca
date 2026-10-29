@@ -255,7 +255,7 @@ for (const [field, value] of [
   ['head_branch', 'another-branch'],
   ['head_sha', '2'.repeat(40)]
 ]) {
-  test(`does not select a matching title with the wrong ${field}`, () => {
+  test(`does not select a matching title with the wrong ${String(field)}`, () => {
     assert.equal(selectQualificationRun(pages(run({ [field]: value })), expected), null)
   })
 }
@@ -372,7 +372,7 @@ for (const [field, value] of [
   ['conclusion', 'failure'],
   ['run_attempt', 2]
 ]) {
-  test(`refuses promotion when current run ${field} does not match its receipt and expectation`, () => {
+  test(`refuses promotion when current run ${String(field)} does not match its receipt and expectation`, () => {
     assertRefused(verify({ run: run({ [field]: value }) }))
   })
 }

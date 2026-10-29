@@ -509,7 +509,7 @@ for (const [name, mutate] of [
     }
   ]
 ]) {
-  test(`rejects full qualification with ${name}`, () => {
+  test(`rejects full qualification with ${String(name)}`, () => {
     const input = fullMatrixInput()
     mutate(input)
     input.jobPages[0].total_count =

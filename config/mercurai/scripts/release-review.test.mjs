@@ -348,7 +348,7 @@ for (const [name, mutate] of [
     }
   ]
 ]) {
-  test(`refuses ${name}`, () => {
+  test(`refuses ${String(name)}`, () => {
     const value = input()
     mutate(value)
     refused(verifyReleaseReview(value, policy))

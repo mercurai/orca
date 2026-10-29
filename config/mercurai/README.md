@@ -77,7 +77,7 @@ single-tag mode. The `allow_tag` SHA is the peeled upstream commit recorded by r
 For the currently frozen floor:
 
 ```bash
-gh workflow run fork-sync-upstream.yml --repo mercurai/orca --ref mercurai   -f mirror_tag_only=true   -f allow_tag=v1.4.241@041baf356b368d773f333e76375ce860fba2481b
+gh workflow run fork-sync-upstream.yml --repo mercurai/orca --ref mercurai   -f mirror_tag_only=true   -f allow_tag=v1.4.242@86ad9d95cac792f3d1359d886cef9fb9b0aadd47
 ```
 
 This protected default-branch operation preserves the frozen patch basis. It runs the
