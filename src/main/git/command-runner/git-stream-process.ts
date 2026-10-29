@@ -120,7 +120,7 @@ function streamOnWorker(
         if (live) {
           listeners.onError(error)
         }
-        if (!hasPid) {
+        if (hasPid === false || hasPid === 'worker-reaped') {
           listeners.onTerminated()
         }
       },

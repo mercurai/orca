@@ -28,8 +28,7 @@ export type StreamSpec = Omit<StreamRequest, 'type' | 'id'>
 export type CaptureOutcome =
   | { kind: 'result'; error: Error | null; stdout: string | Buffer; stderr: string | Buffer }
   | { kind: 'killed'; reason: 'abort' | 'timeout' }
-  /** `spawned` false means the child never started, so the caller may retry in-process. */
-  | { kind: 'failed'; error: Error; spawned: boolean }
+  | { kind: 'failed'; error: Error }
 
 export type CaptureHandle = {
   outcome: Promise<CaptureOutcome>
@@ -39,7 +38,7 @@ export type CaptureHandle = {
 
 export type StreamEvents = {
   onChunk: (channel: 'stdout' | 'stderr', data: Buffer) => void
-  onError: (error: Error, hasPid: boolean) => void
+  onError: (error: Error, hasPid: boolean | 'unknown' | 'worker-reaped') => void
   onClose: (code: number | null, signal: string | null) => void
 }
 
@@ -60,8 +59,6 @@ type Entry = {
   closed: boolean
   /** A capture's outcome has been delivered; a `killed` after `close` still needs the entry. */
   settled: boolean
-  /** The worker reported the spawn, so a child may be running. */
-  spawned: boolean
   capture?: {
     settle: (outcome: CaptureOutcome) => void
     onTerminated: () => void
@@ -161,7 +158,6 @@ export class GitSpawnWorkerClient {
       unackedChunks: 0,
       ackScheduled: false,
       closed: false,
-      spawned: false,
       settled: false
     }
     this.active.set(entry.id, entry)
@@ -179,8 +175,10 @@ export class GitSpawnWorkerClient {
 
   private post(request: SpawnWorkerRequest): boolean {
     try {
-      this.host.current?.postMessage(request)
-      return this.host.current !== null
+      const worker = this.host.current
+      if (!worker) return false
+      worker.postMessage(request)
+      return true
     } catch {
       return false
     }
@@ -214,7 +212,6 @@ export class GitSpawnWorkerClient {
     switch (message.type) {
       case 'spawned':
         entry.pid = message.pid
-        entry.spawned = true
         entry.capture?.onSpawned?.(message.spawnMs)
         // Main did not block on this spawn; the entry keeps per-command spawn counts honest.
         recordSubprocessSpawn(entry.command, entry.args, 0)
@@ -333,19 +330,19 @@ export class GitSpawnWorkerClient {
     this.fail(error, SPAWN_WORKER_EXIT_CODE)
   }
 
-  // Every in-flight request is over: the worker and its children are gone.
+  // A posted request has an unknown outcome, even without a spawn acknowledgment.
   private fail(error: Error, code?: string): void {
     this.runs.failAll(error, code)
     for (const entry of this.active.values()) {
-      // A request that never spawned is retried in-process, so it must not release its grant yet.
-      if (entry.spawned || !entry.capture) {
-        this.markClosed(entry)
-      }
+      if (entry.pid !== undefined) this.markClosed(entry)
       // Why a copy per request: callers attach their own output to the error they receive.
-      const own = Object.assign(new Error(error.message), code ? { code } : {})
-      this.settle(entry, { kind: 'failed', error: own, spawned: entry.spawned })
+      const own = Object.assign(
+        new Error(`${error.message}; command outcome and child lifetime are unknown; reconciliation is required`),
+        code ? { code } : {}
+      )
+      this.settle(entry, { kind: 'failed', error: own })
       this.active.delete(entry.id)
-      entry.stream?.onError(own, false)
+      entry.stream?.onError(own, entry.pid === undefined ? 'unknown' : 'worker-reaped')
     }
   }
 }

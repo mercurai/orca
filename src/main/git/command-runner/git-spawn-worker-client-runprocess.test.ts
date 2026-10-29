@@ -206,13 +206,29 @@ describe('runProcessOnWorker', () => {
     expect(observer).toHaveBeenCalledExactlyOnceWith('wsl.exe', ['--status'], 0)
   })
 
-  it('runs a request in-process when the worker died before spawning it', async () => {
-    const { table } = createTable()
-    const inProcess = vi.fn(() => Promise.resolve(LOCAL_RESULT))
-    const pending = runProcessOnWorker(table, { program: 'x' }, 'head', inProcess)
-    table.failAll(new Error('worker exited'))
-    await expect(pending).resolves.toBe(LOCAL_RESULT)
-    expect(inProcess).toHaveBeenCalledOnce()
+  it('rejects an accepted run without a spawn acknowledgment instead of repeating it', async () => {
+    let sideEffects = 0
+    const table = new RunProcessTable({
+      allocateId: () => 1,
+      send: () => {
+        sideEffects += 1
+        return true
+      },
+      post: () => true,
+      onBusy: () => {},
+      onIdle: () => {}
+    })
+    const inProcess = vi.fn(() => {
+      sideEffects += 1
+      return Promise.resolve(LOCAL_RESULT)
+    })
+    const onChildTerminated = vi.fn()
+    const pending = runProcessOnWorker(table, { program: 'x', onChildTerminated }, 'head', inProcess)
+    table.failAll(new Error('worker exited'), 'EGITSPAWNWORKER')
+    await expect(pending).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
+    expect(sideEffects).toBe(1)
+    expect(inProcess).not.toHaveBeenCalled()
+    expect(onChildTerminated).not.toHaveBeenCalled()
   })
 
   it('fails a spawned run instead of repeating it, and reports the child terminated once', async () => {
@@ -225,7 +241,7 @@ describe('runProcessOnWorker', () => {
       'head',
       inProcess
     )
-    table.handle({ type: 'run-spawned', id: 1, pid: undefined })
+    table.handle({ type: 'run-spawned', id: 1, pid: 1234 })
     table.failAll(new Error('worker exited'), 'EGITSPAWNWORKER')
     await expect(pending).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
     expect(inProcess).not.toHaveBeenCalled()
@@ -248,7 +264,7 @@ describe('runProcessOnWorker', () => {
     expect(table.size).toBe(0)
   })
 
-  it('reports a settled run terminated when the worker dies before its child is gone', async () => {
+  it('does not report termination of a settled run with an unknown child lifetime', async () => {
     const { table } = createTable()
     const onChildTerminated = vi.fn()
     const pending = runProcessOnWorker(table, { program: 'x', onChildTerminated }, 'head', () =>
@@ -257,7 +273,7 @@ describe('runProcessOnWorker', () => {
     table.handle({ type: 'run-result', id: 1, error: null, result: LOCAL_RESULT })
     await pending
     table.failAll(new Error('worker exited'))
-    expect(onChildTerminated).toHaveBeenCalledOnce()
+    expect(onChildTerminated).not.toHaveBeenCalled()
     expect(table.size).toBe(0)
   })
 })

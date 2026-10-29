@@ -108,6 +108,15 @@ describe('git spawn worker on a real worker thread', () => {
     expect(result.stdout).toBe('hello worker')
   })
 
+  it('closes stdin when no input is provided', async () => {
+    const result = await execFileCapture(
+      process.execPath,
+      ['-e', "process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('eof'))"],
+      { encoding: 'utf8', timeout: 5_000 }
+    )
+    expect(result.stdout).toBe('eof')
+  })
+
   it('ends a child that outlives its deadline with the caller timeout error', async () => {
     const onChildTerminated = vi.fn()
     await expect(

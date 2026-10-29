@@ -176,9 +176,7 @@ export function createGitSpawnWorkerHandler(port: SpawnWorkerPort): {
         forwardChunk(entry, 'stderr', typeof chunk === 'string' ? Buffer.from(chunk) : chunk)
       )
     }
-    if (request.stdin !== undefined) {
-      endSubprocessStdin(child.stdin, request.stdin)
-    }
+    endSubprocessStdin(child.stdin, request.stdin ?? '')
     // Why: Node's timeout waits forever on signal-ignoring CLIs; enforce our own deadline with bounded tree cleanup.
     if (request.timeoutMs && request.timeoutMs > 0) {
       entry.timer = setTimeout(() => beginKill(entry, 'timeout'), request.timeoutMs)

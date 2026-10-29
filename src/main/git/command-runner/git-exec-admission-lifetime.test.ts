@@ -1,4 +1,8 @@
 import type { ChildProcess } from 'node:child_process'
+import { EventEmitter } from 'node:events'
+import { setRunProcessRoute } from '@orca/process-host'
+import { installRunProcessWorkerRoute } from './git-spawn-worker-access'
+import { gitStreamStdout } from './git-stream-stdout'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeSpawnedChild } from '../../../shared/__fixtures__/fake-spawned-child'
 import type * as GitFetchHeadLockModule from '../../../shared/git-fetch-head-lock'
@@ -411,4 +415,51 @@ describe.each(GIT_SPAWN_MODES)('git exec admission lifetime (%s spawn)', (mode) 
     await expect(interactive).resolves.toEqual({ stdout: '', stderr: '' })
     children.get('interactive')?.emit('close', 0, null)
   })
+})
+
+
+describe('unknown worker child lifetime', () => {
+  it.each(['capture', 'run', 'stream'] as const)(
+    'holds admission after an accepted %s request loses its worker without an acknowledgment',
+    async (kind) => {
+      class LostWorker extends EventEmitter {
+        readonly requests: string[] = []
+        postMessage(message: { type: string }): void {
+          this.requests.push(message.type)
+        }
+        unref(): void {}
+        terminate(): Promise<number> { return Promise.resolve(0) }
+      }
+      const worker = new LostWorker()
+      vi.useFakeTimers()
+      vi.stubEnv('ORCA_GIT_SPAWN_WORKER', '1')
+      vi.stubEnv('ORCA_SPAWN_WORKER', '1')
+      _resetGitAdmissionForTests(new GitAdmissionScheduler({ generalCap: 1, generalHeadroom: 0 }))
+      useGitSpawnMode('worker', () => worker)
+      if (kind === 'run') installRunProcessWorkerRoute()
+      const args = ['rebase', '--continue']
+      const pending = kind === 'stream'
+        ? gitStreamStdout(args, { cwd: '/unknown-fence', onStdout: () => {} })
+        : gitExecFileAsync(args, { cwd: '/unknown-fence', ...(kind === 'run' ? { terminationBarrier: true } : {}) })
+      const rejected = expect(pending).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
+      try {
+        await settleAdmissionGrant()
+        expect(worker.requests).toContain(kind === 'run' ? 'run' : kind)
+        worker.emit('exit', 1)
+        await rejected
+        expect(_gitAdmissionSnapshotForTests().budgets.general?.baseUsed).toBe(1)
+        if (kind !== 'stream') {
+          await expect(isGitWorktreeMutationInFlight('/unknown-fence', {})).resolves.toBe(true)
+        }
+        restoreGitSpawnMode()
+        expect(_gitAdmissionSnapshotForTests().budgets.general?.baseUsed).toBe(1)
+      } finally {
+        setRunProcessRoute(null)
+        restoreGitSpawnMode()
+        _resetGitAdmissionForTests()
+        vi.useRealTimers()
+        vi.unstubAllEnvs()
+      }
+    }
+  )
 })

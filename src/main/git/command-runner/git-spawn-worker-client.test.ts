@@ -6,6 +6,12 @@ vi.mock('../../own-chromium-tree-kill-guard', () => ({
 }))
 
 import { GitSpawnWorkerClient, MAX_CONSECUTIVE_DEATHS } from './git-spawn-worker-client'
+import { execFileCaptureOnWorker } from './exec-file-capture-worker'
+
+const workerAccess = vi.hoisted(() => ({ client: null as GitSpawnWorkerClient | null }))
+vi.mock('./git-spawn-worker-access', () => ({ getGitSpawnWorkerClient: () => workerAccess.client }))
+
+
 import type { SpawnWorkerRequest, SpawnWorkerResponse } from './git-spawn-worker-protocol'
 
 class FakeWorker extends EventEmitter {
@@ -115,20 +121,91 @@ describe('GitSpawnWorkerClient', () => {
     expect(workers[0]?.requests.at(-1)).toEqual({ type: 'verdict', id: 1, admit: true })
   })
 
-  it('hands a request the dead worker never spawned back to the caller without releasing it', async () => {
+  it('fails an accepted request without a spawn acknowledgment and retains its grant', async () => {
     const workers: FakeWorker[] = []
     const client = newClient(workers)
     const onTerminated = vi.fn()
     const handle = client.capture(SPEC, onTerminated)
     workers[0]?.emit('exit', 1)
 
-    await expect(handle?.outcome).resolves.toMatchObject({ kind: 'failed', spawned: false })
+    expect(workers[0]?.requests[0]).toMatchObject({ type: 'capture' })
+    await expect(handle?.outcome).resolves.toMatchObject({
+      kind: 'failed',
+      error: { code: 'EGITSPAWNWORKER' }
+    })
     expect(onTerminated).not.toHaveBeenCalled()
     expect(client.capture(SPEC, () => {})).not.toBeNull()
     expect(workers).toHaveLength(2)
   })
 
-  it('fails a spawned request with a distinct code and reports termination once', async () => {
+  it('does not replay an accepted capture if the worker dies before acknowledging spawn', async () => {
+    const workers: FakeWorker[] = []
+    const client = newClient(workers)
+    workerAccess.client = client
+    const retry = vi.fn(async () => ({ stdout: 'replayed', stderr: '' }))
+    const onChildTerminated = vi.fn()
+    try {
+      const result = execFileCaptureOnWorker('git', ['commit'], { onChildTerminated }, retry)
+      expect(workers[0]?.requests[0]).toMatchObject({ type: 'capture', args: ['commit'] })
+      workers[0]?.emit('exit', 1)
+      await expect(result).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
+      expect(retry).not.toHaveBeenCalled()
+      expect(onChildTerminated).not.toHaveBeenCalled()
+    } finally {
+      workerAccess.client = null
+      client.dispose()
+    }
+  })
+
+  it('does not replay a capture accepted before a synchronous worker exit', async () => {
+    let sideEffects = 0
+    const worker = new FakeWorker()
+    worker.postMessage = (request) => {
+      worker.requests.push(request)
+      if (request.type === 'capture') {
+        sideEffects += 1
+        worker.emit('exit', 1)
+      }
+    }
+    const client = new GitSpawnWorkerClient({ workerFactory: () => worker, log: () => {} })
+    workerAccess.client = client
+    const retry = vi.fn(async () => ({ stdout: 'replayed', stderr: '' }))
+    const onChildTerminated = vi.fn()
+    try {
+      const result = execFileCaptureOnWorker('git', ['commit'], { onChildTerminated }, retry)
+      await expect(result).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
+      expect(sideEffects).toBe(1)
+      expect(retry).not.toHaveBeenCalled()
+      expect(onChildTerminated).not.toHaveBeenCalled()
+    } finally {
+      workerAccess.client = null
+      client.dispose()
+    }
+  })
+
+  it('distinguishes unknown stream lifetime from a proven spawn failure', () => {
+    const workers: FakeWorker[] = []
+    const client = newClient(workers)
+    const unknown = vi.fn()
+    client.stream({ command: 'git', args: ['status'] }, {
+      onChunk: vi.fn(), onError: unknown, onClose: vi.fn()
+    })
+    workers[0]?.emit('exit', 1)
+    expect(unknown).toHaveBeenCalledWith(expect.objectContaining({ code: 'EGITSPAWNWORKER' }), 'unknown')
+
+    const proven = vi.fn()
+    client.stream({ command: 'git', args: ['status'] }, {
+      onChunk: vi.fn(), onError: proven, onClose: vi.fn()
+    })
+    workers[1]?.reply({
+      type: 'errored', id: 2, error: { message: 'missing', name: 'Error' },
+      hasPid: false, terminating: false
+    })
+    expect(proven).toHaveBeenCalledWith(expect.any(Error), false)
+    client.dispose()
+  })
+
+  it('fails an acknowledged request with no PID without reporting termination', async () => {
     const workers: FakeWorker[] = []
     const client = newClient(workers)
     const onTerminated = vi.fn()
@@ -137,9 +214,9 @@ describe('GitSpawnWorkerClient', () => {
     workers[0]?.emit('exit', 1)
 
     const outcome = await handle?.outcome
-    expect(outcome).toMatchObject({ kind: 'failed', spawned: true })
+    expect(outcome).toMatchObject({ kind: 'failed' })
     expect(outcome?.kind === 'failed' && outcome.error).toMatchObject({ code: 'EGITSPAWNWORKER' })
-    expect(onTerminated).toHaveBeenCalledOnce()
+    expect(onTerminated).not.toHaveBeenCalled()
   })
 
   it('stops using the worker after repeated consecutive deaths', () => {

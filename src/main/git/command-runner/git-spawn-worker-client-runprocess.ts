@@ -18,8 +18,6 @@ import {
 export type RunOutcome =
   | { kind: 'result'; result: ProcessResult }
   | { kind: 'rejected'; error: Error }
-  /** The child was never started, so the caller may run the same capture in-process. */
-  | { kind: 'unspawned' }
 
 export type RunHandle = {
   outcome: Promise<RunOutcome>
@@ -33,8 +31,6 @@ type RunEntry = {
   command: string
   args: readonly string[]
   pid: number | undefined
-  /** runProcess started the child (or failed trying), so retrying in-process would repeat it. */
-  spawned: boolean
   /** Its outcome was delivered; the entry stays until the child is also reported terminated. */
   settled: boolean
   terminated: boolean
@@ -94,7 +90,6 @@ export class RunProcessTable {
       command: spec.program,
       args: spec.args ?? [],
       pid: undefined,
-      spawned: false,
       settled: false,
       terminated: false,
       settle,
@@ -102,6 +97,7 @@ export class RunProcessTable {
     })
     if (!this.transport.send({ type: 'run', id, spec, capture })) {
       this.entries.delete(id)
+      if (this.entries.size === 0) this.transport.onIdle()
       return null
     }
     return {
@@ -123,7 +119,6 @@ export class RunProcessTable {
       return
     }
     if (message.type === 'run-spawned') {
-      entry.spawned = true
       entry.pid = message.pid
       // Main did not block on this spawn; the count keeps per-command totals honest.
       notifyWorkerSpawn(entry.command, entry.args)
@@ -144,20 +139,18 @@ export class RunProcessTable {
     }
   }
 
-  /** The worker is gone with these runs in flight: their children are reaped by pid. */
+  /** Posted runs have unknown outcomes; only acknowledged PIDs can be reaped. */
   failAll(error: Error, code?: string): void {
     for (const entry of this.entries.values()) {
-      if (entry.settled) {
-        this.reportTerminated(entry)
-      } else if (entry.spawned || entry.terminated) {
-        this.reportTerminated(entry)
-        // Why a copy per run: callers attach their own output to the error they receive.
+      if (entry.pid !== undefined) this.reportTerminated(entry)
+      if (!entry.settled) {
         entry.settle({
           kind: 'rejected',
-          error: Object.assign(new Error(error.message), code ? { code } : {})
+          error: Object.assign(
+            new Error(`${error.message}; command outcome and child lifetime are unknown; reconciliation is required`),
+            code ? { code } : {}
+          )
         })
-      } else {
-        entry.settle({ kind: 'unspawned' })
       }
     }
     this.entries.clear()
@@ -224,7 +217,7 @@ export function runProcessOnWorker(
   table: RunProcessTable,
   spec: ProcessSpec,
   capture: RunRequest['capture'],
-  inProcess: () => Promise<ProcessResult>
+  _inProcess: () => Promise<ProcessResult>
 ): Promise<ProcessResult> | null {
   const wire = toWireSpec(spec)
   const handle = wire ? table.start(wire, capture, () => spec.onChildTerminated?.()) : null
@@ -241,14 +234,6 @@ export function runProcessOnWorker(
     if (outcome.kind === 'rejected') {
       throw outcome.error
     }
-    if (outcome.kind === 'result') {
-      return outcome.result
-    }
-    // Why: a worker that died before spawning never ran the command, so run it here instead.
-    if (signal?.aborted) {
-      spec.onChildTerminated?.()
-      return { code: null, signal: null, stdout: '', stderr: '', timedOut: false }
-    }
-    return inProcess()
+    return outcome.result
   })
 }
