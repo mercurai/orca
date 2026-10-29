@@ -320,12 +320,12 @@ describe('what a send carries', () => {
 
   it('carries nothing before a model shows, or for another agent', () => {
     expect(carried(fresh())).toBeUndefined()
-    const codex = applyStructuredAgentSessionOptions(
-      createStructuredAgentSessionOptionState('codex', CLAUDE_SESSION_OPTION_CATALOG),
+    const otherAgent = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('grok', CLAUDE_SESSION_OPTION_CATALOG),
       CLAUDE_SESSION_OPTION_CATALOG,
       { models: [OPUS], current: { model: 'opus[1m]' } }
     )
-    expect(carried(codex)).toBeUndefined()
+    expect(carried(otherAgent)).toBeUndefined()
   })
 })
 
@@ -458,5 +458,50 @@ describe("a chat's model and effort, apart from the defaults filling them in", (
       model: 'opus',
       effort: 'xhigh'
     })
+  })
+})
+
+describe('Codex model and effort without speed controls', () => {
+  const model = 'synthetic-speedless-model'
+  const models = [{ id: model, label: 'Synthetic', isDefault: true, efforts: levels('low', 'high') }]
+  const state = (defaulted?: readonly ('model' | 'effort')[]) =>
+    applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+      CODEX_SESSION_OPTION_CATALOG,
+      {
+        models,
+        current: { model, effort: 'low', ...(defaulted ? { defaulted } : {}) }
+      }
+    )
+
+  it('carries an older host model and effort without inventing a speed request', () => {
+    const current = state()
+    expect(
+      structuredAgentSessionOptionSnapshot(current).filter(
+        ({ id }) => id === 'serviceTier' || id === 'fastMode'
+      )
+    ).toEqual([])
+    expect(carried(current)).toEqual({ model, effort: 'low' })
+  })
+
+  it('carries a pending effort above the older host effort without changing the host record', () => {
+    const current = state()
+    expect(carried(current, undefined, { effort: 'high' })).toEqual({ model, effort: 'high' })
+    expect(current.record.values.effort?.value).toBe('low')
+  })
+
+  it('keeps resumed defaults sparse while carrying a new effort pick', () => {
+    const current = state(['model', 'effort'])
+    expect(carried(current)).toBeUndefined()
+    expect(carried(current, undefined, { effort: 'high' })).toEqual({ effort: 'high' })
+  })
+
+  it('carries an own model when neither effort nor speed has a value', () => {
+    const current = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+      CODEX_SESSION_OPTION_CATALOG,
+      { models, current: { model } }
+    )
+    expect(carried(current)).toEqual({ model })
   })
 })

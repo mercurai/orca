@@ -96,7 +96,7 @@ function modelOptionView(
   return { ...commitStructuredAgentSessionOptionValues(view, held), pendingId: state.pendingId }
 }
 
-/** Claude sends its own values plus held picks. New chats/older hosts pin shown defaults on first send; resumed chats display defaults without sending them. */
+/** Sends carry own values plus held picks. New chats/older hosts pin shown defaults; resumed chats display defaults without sending them. */
 export function structuredAgentSessionSendSelection(
   view: StructuredAgentSessionOptionState
 ): Record<string, string> | undefined {
@@ -112,8 +112,12 @@ export function structuredAgentSessionSendSelection(
     const kind = snapshot.find((descriptor) => descriptor.id === id)?.kind
     return kind?.type === 'select' ? kind.currentValue : undefined
   }
-  const model = structuredAgentSessionOwnValue(view.record, 'model') ?? shown('model')
-  const effort = structuredAgentSessionOwnValue(view.record, 'effort') ?? shown('effort')
+  const model =
+    structuredAgentSessionOwnValue(view.record, 'model') ??
+    (view.defaultsUnsent ? undefined : shown('model'))
+  const effort =
+    structuredAgentSessionOwnValue(view.record, 'effort') ??
+    (view.defaultsUnsent ? undefined : shown('effort'))
   if (view.record.agent === 'codex') {
     const serviceTier = shown('serviceTier')
     const legacy = snapshot.find((descriptor) => descriptor.id === 'fastMode')
@@ -127,7 +131,7 @@ export function structuredAgentSessionSendSelection(
         : legacyIntent && legacy?.kind.type === 'boolean'
           ? { fastMode: String(legacy.kind.currentValue) }
           : undefined
-    return speed
+    return model || effort || speed
       ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed }
       : undefined
   }

@@ -7,7 +7,8 @@ import {
 } from '../../../../shared/agent-session-option-catalog-claude-codex'
 import {
   applyStructuredAgentSessionOptions,
-  createStructuredAgentSessionOptionState
+  createStructuredAgentSessionOptionState,
+  structuredAgentSessionOptionSnapshot
 } from '../../../../shared/structured-agent-session-options'
 import {
   beginStructuredOptionPick,
@@ -122,6 +123,36 @@ beforeEach(() => {
 })
 
 describe('Codex composer speed on the send path', () => {
+  it('carries a pending effort-only pick above an older host effort without speed controls', () => {
+    const c = composer('codex', true)
+    c.optionStateRef.current = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+      CODEX_SESSION_OPTION_CATALOG,
+      {
+        models: [
+          {
+            id: MODEL,
+            label: 'Synthetic',
+            isDefault: true,
+            efforts: [
+              { value: 'low', label: 'Low' },
+              { value: 'high', label: 'High' }
+            ]
+          }
+        ],
+        current: { model: MODEL, effort: 'low' }
+      }
+    )
+    expect(
+      structuredAgentSessionOptionSnapshot(c.optionStateRef.current).filter(
+        ({ id }) => id === 'serviceTier' || id === 'fastMode'
+      )
+    ).toEqual([])
+    beginStructuredOptionPick(c.optionPicks.current, 'effort', 'high', false)
+    expect(c.read()).toEqual({ model: MODEL, effort: 'high' })
+    expect(c.optionStateRef.current.record.values.effort?.value).toBe('low')
+  })
+
   it('carries the exact shown tier and its model through the actual composer hook', () => {
     expect(composer().read()).toMatchObject({ model: MODEL, effort: 'high', serviceTier: FAST })
   })
