@@ -244,6 +244,9 @@ jobs:
           config/scripts/pr-ready-check-reuse.test.mjs
           config/scripts/pr-preflight-gates.test.mjs
           config/scripts/check-flaky-test-pattern-ratchet.test.mjs
+          config/scripts/reclaim-vitest-module-caches.test.mjs
+          config/scripts/native-dependency-lock-digest.test.mjs
+          config/scripts/orcad-windows-prebuild-cache.test.mjs
 
       - name: Verify persistence and native-session caller contracts
         if: ${{ !cancelled() && matrix.os == 'ubuntu-22.04' }}
