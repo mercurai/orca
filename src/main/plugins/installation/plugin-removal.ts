@@ -4,6 +4,8 @@ import { isQualifiedPluginKey } from '../../../shared/plugins/manifest/plugin-ma
 import { removePluginLock } from '../../../shared/plugins/installation/plugin-install-lockfile'
 import { readPluginLockfile, writePluginLockfile } from './plugin-install-lockfile-store'
 import { serializePluginMutation } from './plugin-mutation-queue'
+import { pluginDataDir } from '../plugin-storage-store'
+import { retirePluginData } from '../plugin-data-mutation'
 
 export async function removeInstalledPlugin(input: {
   pluginsDir: string
@@ -46,12 +48,14 @@ async function removePluginFiles(input: {
   pluginsDataDir: string
   pluginKey: string
 }): Promise<void> {
-  await removeResolvedPluginDirectory(input.pluginsDir, input.pluginKey)
-  await removeResolvedPluginDirectory(input.pluginsDataDir, input.pluginKey)
-  await writePluginLockfile(
-    input.pluginsDir,
-    removePluginLock(await readPluginLockfile(input.pluginsDir), input.pluginKey)
-  )
+  await retirePluginData(pluginDataDir(input.pluginsDataDir, input.pluginKey), async () => {
+    await removeResolvedPluginDirectory(input.pluginsDir, input.pluginKey)
+    await removeResolvedPluginDirectory(input.pluginsDataDir, input.pluginKey)
+    await writePluginLockfile(
+      input.pluginsDir,
+      removePluginLock(await readPluginLockfile(input.pluginsDir), input.pluginKey)
+    )
+  })
 }
 
 async function removeResolvedPluginDirectory(rootDir: string, pluginKey: string): Promise<void> {

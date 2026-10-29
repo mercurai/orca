@@ -31,9 +31,19 @@ export type PluginRuntimeDelegate = {
 export function bindPluginHostServices(input: {
   delegate: PluginRuntimeDelegate
   pluginsDataDir: string
+  pluginKey: string
   invokePluginCommand?: PluginHostServices['invokePluginCommand']
 }): PluginHostServices {
-  const { delegate, pluginsDataDir } = input
+  const { delegate, pluginsDataDir, pluginKey } = input
+  const storage = new PluginKvStore(pluginsDataDir, pluginKey, 'storage.json')
+  const settings = new PluginKvStore(pluginsDataDir, pluginKey, 'settings.json')
+  const secrets = new PluginSecretsStore(pluginsDataDir, pluginKey)
+  const forPlugin = <T>(key: string, operation: () => T): T => {
+    if (key !== pluginKey) {
+      throw new Error('plugin data binding belongs to another plugin')
+    }
+    return operation()
+  }
   return {
     invokePluginCommand: input.invokePluginCommand,
     resolveActiveWorktreeContext: async () => {
@@ -64,22 +74,21 @@ export function bindPluginHostServices(input: {
     },
     dispatchPluginNotification: (notification) => delegate.dispatchPluginNotification(notification),
     storage: {
-      get: (key, itemKey) => new PluginKvStore(pluginsDataDir, key, 'storage.json').get(itemKey),
+      get: (key, itemKey) => forPlugin(key, () => storage.get(itemKey)),
       set: (key, itemKey, value) =>
-        new PluginKvStore(pluginsDataDir, key, 'storage.json').set(itemKey, value),
-      delete: (key, itemKey) =>
-        new PluginKvStore(pluginsDataDir, key, 'storage.json').delete(itemKey),
-      keys: (key) => new PluginKvStore(pluginsDataDir, key, 'storage.json').keys()
+        forPlugin(key, () => storage.set(itemKey, value)),
+      delete: (key, itemKey) => forPlugin(key, () => storage.delete(itemKey)),
+      keys: (key) => forPlugin(key, () => storage.keys())
     },
     secrets: {
-      get: (key, itemKey) => new PluginSecretsStore(pluginsDataDir, key).get(itemKey),
-      set: (key, itemKey, value) => new PluginSecretsStore(pluginsDataDir, key).set(itemKey, value),
-      delete: (key, itemKey) => new PluginSecretsStore(pluginsDataDir, key).delete(itemKey)
+      get: (key, itemKey) => forPlugin(key, () => secrets.get(itemKey)),
+      set: (key, itemKey, value) => forPlugin(key, () => secrets.set(itemKey, value)),
+      delete: (key, itemKey) => forPlugin(key, () => secrets.delete(itemKey))
     },
     settings: {
-      getAll: (key) => new PluginKvStore(pluginsDataDir, key, 'settings.json').getAll(),
+      getAll: (key) => forPlugin(key, () => settings.getAll()),
       set: (key, itemKey, value) =>
-        new PluginKvStore(pluginsDataDir, key, 'settings.json').set(itemKey, value)
+        forPlugin(key, () => settings.set(itemKey, value))
     }
   }
 }

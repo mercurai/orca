@@ -249,17 +249,22 @@ export class PluginService {
       pluginKey,
       request: { method, params },
       surface,
-      resolvePolicy: (boundPluginKey) => ({
-        grantedCapabilities: this.getGrantedCapabilities(boundPluginKey),
-        services: this.runtimeDelegate
-          ? bindPluginHostServices({
-              delegate: this.runtimeDelegate,
-              pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
-              invokePluginCommand: this.invokeCommand.bind(this)
-            })
-          : null,
-        audit: this.audit
-      })
+      resolvePolicy: (boundPluginKey) => {
+        const plugin = this.findValidPlugin(boundPluginKey)
+        const removing = plugin !== null && this.installed.isRemoving(plugin)
+        return {
+          grantedCapabilities: removing ? null : this.getGrantedCapabilities(boundPluginKey),
+          services: this.runtimeDelegate && !removing
+            ? bindPluginHostServices({
+                delegate: this.runtimeDelegate,
+                pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
+                pluginKey: boundPluginKey,
+                invokePluginCommand: this.invokeCommand.bind(this)
+              })
+            : null,
+          audit: this.audit
+        }
+      }
     })
   }
 

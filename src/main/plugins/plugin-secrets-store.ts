@@ -1,7 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { guardedSafeStorage as safeStorage } from '../host/safe-storage-availability'
-import { serializePathWrite } from '../../shared/path-write-serializer'
 import { isUnreadableError } from '../../shared/secure-file'
 import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import {
@@ -9,6 +8,7 @@ import {
   PLUGIN_STORAGE_TOTAL_MAX_BYTES
 } from '../../shared/plugins/workers/plugin-host-api'
 import { pluginDataDir } from './plugin-storage-store'
+import { createPluginDataMutation, PLUGIN_DATA_RETIRED_ERROR } from './plugin-data-mutation'
 
 // SafeStorage vault writes fail without OS encryption; never fall back to plaintext.
 
@@ -24,9 +24,12 @@ const UNREADABLE_VAULT_ERROR = 'secret vault exists but could not be read; refus
 
 export class PluginSecretsStore {
   private readonly filePath: string
+  private readonly mutation: ReturnType<typeof createPluginDataMutation>
 
   constructor(pluginsDataDir: string, qualifiedKey: string) {
-    this.filePath = join(pluginDataDir(pluginsDataDir, qualifiedKey), 'secrets.json.enc')
+    const directory = pluginDataDir(pluginsDataDir, qualifiedKey)
+    this.filePath = join(directory, 'secrets.json.enc')
+    this.mutation = createPluginDataMutation(directory)
   }
 
   /** Null means unreadable, never empty. */
@@ -65,6 +68,9 @@ export class PluginSecretsStore {
   }
 
   get(key: string): PluginSecretsResult<string | null> {
+    if (!this.mutation.current()) {
+      return { ok: false, error: PLUGIN_DATA_RETIRED_ERROR }
+    }
     const file = this.read()
     if (!file) {
       return { ok: false, error: UNREADABLE_VAULT_ERROR }
@@ -83,17 +89,15 @@ export class PluginSecretsStore {
     }
   }
 
-  // Why: read-modify-write spans an await, so two writers must not both read the same snapshot.
-  private serialized<T>(task: () => Promise<T>): Promise<T> {
-    return serializePathWrite(`${this.filePath}#read-modify-write`, task)
-  }
-
   set(key: string, value: string): Promise<PluginSecretsResult<true>> {
-    return this.serialized(() => this.setUnserialized(key, value))
+    return this.mutation.run(
+      () => this.setUnserialized(key, value),
+      () => ({ ok: false, error: PLUGIN_DATA_RETIRED_ERROR })
+    )
   }
 
   delete(key: string): Promise<void> {
-    return this.serialized(() => this.deleteUnserialized(key))
+    return this.mutation.run(() => this.deleteUnserialized(key), () => undefined)
   }
 
   private async setUnserialized(key: string, value: string): Promise<PluginSecretsResult<true>> {
@@ -115,7 +119,7 @@ export class PluginSecretsStore {
     if (Buffer.byteLength(nextFile, 'utf8') > PLUGIN_STORAGE_TOTAL_MAX_BYTES) {
       return { ok: false, error: `secret vault exceeds ${PLUGIN_STORAGE_TOTAL_MAX_BYTES} bytes` }
     }
-    await writeSecureFileAsync(this.filePath, nextFile)
+    await writeSecureFileAsync(this.filePath, nextFile, { shouldPublish: this.mutation.current })
     return { ok: true, value: true }
   }
 
@@ -127,7 +131,9 @@ export class PluginSecretsStore {
     }
     if (Object.hasOwn(file.ciphertexts, key)) {
       delete file.ciphertexts[key]
-      await writeSecureFileAsync(this.filePath, JSON.stringify(file, null, 2))
+      await writeSecureFileAsync(this.filePath, JSON.stringify(file, null, 2), {
+        shouldPublish: this.mutation.current
+      })
     }
   }
 }

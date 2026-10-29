@@ -1,9 +1,9 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { serializePathWrite } from '../../shared/path-write-serializer'
 import { isUnreadableError } from '../../shared/secure-file'
 import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import { isQualifiedPluginKey } from '../../shared/plugins/manifest/plugin-manifest'
+import { createPluginDataMutation, PLUGIN_DATA_RETIRED_ERROR } from './plugin-data-mutation'
 import {
   PLUGIN_STORAGE_KEY_LIMIT,
   PLUGIN_STORAGE_TOTAL_MAX_BYTES,
@@ -26,17 +26,23 @@ export type PluginKvWriteResult = { ok: true } | { ok: false; error: string }
 
 export class PluginKvStore {
   private readonly filePath: string
+  private readonly mutation: ReturnType<typeof createPluginDataMutation>
 
   constructor(
     pluginsDataDir: string,
     qualifiedKey: string,
     fileName: 'storage.json' | 'settings.json'
   ) {
-    this.filePath = join(pluginDataDir(pluginsDataDir, qualifiedKey), fileName)
+    const directory = pluginDataDir(pluginsDataDir, qualifiedKey)
+    this.filePath = join(directory, fileName)
+    this.mutation = createPluginDataMutation(directory)
   }
 
-  /** Null means unreadable, never empty. */
+  /** Null means unavailable, never empty. */
   private read(): Record<string, PluginJsonValue> | null {
+    if (!this.mutation.current()) {
+      return null
+    }
     try {
       if (!existsSync(this.filePath)) {
         return {}
@@ -70,17 +76,15 @@ export class PluginKvStore {
     return Object.keys(this.read() ?? {})
   }
 
-  // Why: separate instances must serialize their entire read-modify-write operation.
-  private serialized<T>(task: () => Promise<T>): Promise<T> {
-    return serializePathWrite(`${this.filePath}#read-modify-write`, task)
-  }
-
   set(key: string, value: PluginJsonValue): Promise<PluginKvWriteResult> {
-    return this.serialized(() => this.setUnserialized(key, value))
+    return this.mutation.run(
+      () => this.setUnserialized(key, value),
+      () => ({ ok: false, error: PLUGIN_DATA_RETIRED_ERROR })
+    )
   }
 
   delete(key: string): Promise<void> {
-    return this.serialized(() => this.deleteUnserialized(key))
+    return this.mutation.run(() => this.deleteUnserialized(key), () => undefined)
   }
 
   private async setUnserialized(key: string, value: PluginJsonValue): Promise<PluginKvWriteResult> {
@@ -108,7 +112,7 @@ export class PluginKvStore {
     if (Buffer.byteLength(nextFile, 'utf8') > PLUGIN_STORAGE_TOTAL_MAX_BYTES) {
       return { ok: false, error: `storage exceeds ${PLUGIN_STORAGE_TOTAL_MAX_BYTES} bytes` }
     }
-    await writeSecureFileAsync(this.filePath, nextFile)
+    await writeSecureFileAsync(this.filePath, nextFile, { shouldPublish: this.mutation.current })
     return { ok: true }
   }
 
@@ -120,7 +124,9 @@ export class PluginKvStore {
     }
     if (Object.hasOwn(settings, key)) {
       delete settings[key]
-      await writeSecureFileAsync(this.filePath, JSON.stringify(settings, null, 2))
+      await writeSecureFileAsync(this.filePath, JSON.stringify(settings, null, 2), {
+        shouldPublish: this.mutation.current
+      })
     }
   }
 }

@@ -139,6 +139,7 @@ function createTerminalHarness(terminalHandles: string[]): {
     delegate,
     services: bindPluginHostServices({
       delegate,
+      pluginKey: 'samples.demo',
       pluginsDataDir: join(tmpdir(), 'plugin-host-methods-test')
     })
   }
@@ -158,6 +159,15 @@ async function sendTerminalText(
     audit: { record: vi.fn().mockResolvedValue(undefined) }
   })
 }
+
+it('keeps eagerly bound data services inside their authenticated plugin namespace', () => {
+  const { services } = createTerminalHarness([])
+  expect(() => services.storage.get('samples.other', 'key')).toThrow('another plugin')
+  expect(() => services.storage.set('samples.other', 'key', 1)).toThrow('another plugin')
+  expect(() => services.storage.delete('samples.other', 'key')).toThrow('another plugin')
+  expect(() => services.secrets.set('samples.other', 'key', 'synthetic')).toThrow('another plugin')
+  expect(() => services.settings.set('samples.other', 'key', 1)).toThrow('another plugin')
+})
 
 describe('terminal.sendText panel surface', () => {
   it('refuses a sandboxed panel even with terminal:send granted', async () => {
