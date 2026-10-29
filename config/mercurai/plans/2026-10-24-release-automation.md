@@ -28,13 +28,13 @@ remains draft. Complete the exact final matrix before promotion.
 | Tag object / peeled commit | 0360ad49840ab10d6493aa6c26c7d066d641eb95 / 86ad9d95cac792f3d1359d886cef9fb9b0aadd47                               |
 | Frozen main                | cbbaa2d7635297916ea257a0287cc4ec6c12af25;115commits/2738changedfiles beyond823ca687                               |
 | Source repair input        | 8218bf9d2151b448cc1f1eaa97fc28662d64890f, tree3658a8b6077f446c1a99bb69131a7457141fd9d0;14linearcommits after823ca |
-| Controller                 | remote930c7e2541b18245a9a03c1afbc9ced4e203db20;local manifest registers 2ec508d3                                  |
+| Controller                 | remote64cd4a9969ca61403452ebe8b89924d7a50598d9;local manifest registers 6e21f986                                  |
 
 Owner for all three workspaces is this session, designated release owner by the user.
 
 - Active integration: C:/Users/svere/orca/worktrees/orca-upstream-integration-cbbaa-20261027,
-  branch patch/current-main-release-cbbaa. Remote2ec508d36b87499caadfc561bb3c6954b09ae47c,
-  tree095d127e797ed1588f0ce961252d513e75fd3ff4; six linear commits include reviewed
+  branch patch/current-main-release-cbbaa. Remote6e21f9861780a6dec1a55a20725a0e6cd284c503,
+  tree8b11466b1d58a66fb9ccf6e35c2130767c601f2b; seven linear commits include reviewed
   WSL fixes, pairing fixture isolation and the large-diff ratchet repair after real RED.
   Fresh GREEN and full qualification remain pending. Related recovery preparationPR82.
 - Recovery source: C:/Users/svere/orca/worktrees/orca-upstream-integration-823ca-20261026,
@@ -49,7 +49,7 @@ No suffix is reserved. Later arrivals stay queued after this freeze; report obse
 Latest observed official main7f4c8f606435d4ca90964e176e860626ffba918a andstablev1.4.244
 (published2026-10-29T03:55:29Z) supersede the previously queued observations aftercbbaa.
 Finish the frozen revision's verification before admitting another integration generation.
-The manifest registers256unique existing tests; no full qualification is claimed.
+The manifest registers258unique existing tests; no full qualification is claimed.
 
 | Revision / hosted run           | Observed result                                                                                                    |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -62,7 +62,9 @@ The manifest registers256unique existing tests; no full qualification is claimed
 | 6d57e1e /40846970058            | All3jobs passed after fixture-only isolation; Windows1360passed/16skip, costs and270persistence passed             |
 | 27b82a5 /40847371955            | Real-Git large-diff test reproduced ENOBUFS; contracts613passed/1failed; persistence270passed                      |
 | 930c7e2 /40845860124            | Controller412Node tests and9template checks passed; full40845916357 failed the large-diff ratchet before typecheck |
-| 2ec508d /40847881117            | Independent one-line buffer fix review accepted; fresh targeted hosted run pending                                 |
+| 2ec508d /40847881117            | All3targeted jobs passed: Windows1360/16skip, costs,614contracts,270persistence                                    |
+| 64cd4a9 /40848487591            | Controller412Node tests plus9templates passed; full40848487769 found5watcher ratchet violations before typecheck   |
+| 6e21f98 /40849629838            | Reviewed watcher test corrections; fresh targeted hosted verification includes both suites and is pending          |
 | eba9 /40453877833               | Earlier full matrix had29unit assertion failures plus fake-WSL E2E failure; not qualified                          |
 | d839+controller196 /40451794792 | Predecessor dry packaging passed; publish skipped; provisional241label unreserved                                  |
 
@@ -91,7 +93,11 @@ avoiding directory teardown races. All three targeted jobs passed at6d57.
 Full controller CI at930c7e exposed a1MiB buffer overflow in the changed-file reader.
 An isolated real-Git7000-path test reproduced ENOBUFS at27b8; the reviewed one-line
 64MiB allowance matches the existing tracked-file reader without changing ratchet scope.
-The test and fix are ported byte-exact into this controller. Fresh2ec5 GREEN is pending;
+The test and fix are ported byte-exact into this controller; all three targeted jobs
+passed at2ec5. Full controller64 CI then identified five watcher-test ratchet findings.
+The two upstream tests now use condition waiting and explain the model timeout;
+native assertions, wait bounds, seeds and timeout remain unchanged. Both files are
+ported byte-exact; fresh6e21 hosted verification includes them and is pending;
 then complete exact-candidate full CI/review and publish through the protected
 release mechanism and verify installed/runtime identity. No performance, installed
 picker/request or actual Ultrafast execution claim is made.

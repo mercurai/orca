@@ -14,9 +14,9 @@ the final inputs; preserve that identity through review, CI, tagging and publica
 
 - Official main snapshot: `cbbaa2d7635297916ea257a0287cc4ec6c12af25`.
 - Stable floor: `v1.4.242`, peeled `86ad9d95cac792f3d1359d886cef9fb9b0aadd47`.
-- Remote candidate: `2ec508d36b87499caadfc561bb3c6954b09ae47c`, branch
+- Remote candidate: `6e21f9861780a6dec1a55a20725a0e6cd284c503`, branch
   `patch/current-main-release-cbbaa`.
-- Tree: `095d127e797ed1588f0ce961252d513e75fd3ff4`; six linear commits over main.
+- Tree: `8b11466b1d58a66fb9ccf6e35c2130767c601f2b`; seven linear commits over main.
 - Later observed main `7f4c8f606435d4ca90964e176e860626ffba918a` and stable244
   are queued after this freeze; report freshness as observed lag.
 
@@ -48,8 +48,11 @@ and611contracts passed. Hosted40846970058 at6d57 passed all three targeted jobs 
 the pairing fixture's native-DACL teardown isolation. Full controller CI then exposed
 a1MiB changed-file output limit; real-Git regression40847371955 reproduced ENOBUFS
 with613contracts passing/1failing. The reader now matches the existing64MiB tracked-file
-bound without weakening scope. Fresh40847881117 at2ec5 is pending. These partial checks
-do not qualify the release.
+bound without weakening scope. Hosted40847881117 at2ec5 passed all three targeted jobs.
+Full controller CI then exposed five watcher-test ratchet findings. Native-event assertions
+and wait bounds remain intact while `vi.waitFor` replaces manual polling; the model
+explains its existing timeout without changing it or the1,000seeds. Fresh40849629838
+at6e21 includes these suites and is pending. These partial checks do not qualify the release.
 
 The recovery source `8218bf9d21` passed hosted
 [40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows

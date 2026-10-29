@@ -8,9 +8,9 @@ release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-29.
 The preparation manifest selects official main
 `cbbaa2d7635297916ea257a0287cc4ec6c12af25` and stable floor `v1.4.242`
 (`86ad9d95cac792f3d1359d886cef9fb9b0aadd47`). Candidate
-`patch/current-main-release-cbbaa@2ec508d36b87499caadfc561bb3c6954b09ae47c`,
-tree `095d127e797ed1588f0ce961252d513e75fd3ff4`, contains six reviewed commits
-over that main and is remote, with 256 registered existing test paths.
+`patch/current-main-release-cbbaa@6e21f9861780a6dec1a55a20725a0e6cd284c503`,
+tree `8b11466b1d58a66fb9ccf6e35c2130767c601f2b`, contains seven reviewed commits
+over that main and is remote, with 258 registered existing test paths.
 Latest observed main `7f4c8f606435d4ca90964e176e860626ffba918a` and stable
 `v1.4.244` are queued after this freeze; no current-upstream equality is claimed.
 
@@ -28,9 +28,14 @@ Full controller CI at `930c7e` exposed `ENOBUFS` in the changed-file reader. A r
 regression reproduced it at `27b8` in
 [40847371955](https://github.com/mercurai/orca/actions/runs/40847371955): 613 contracts
 passed and one failed. The reader now uses the adjacent tracked-file reader's 64 MiB
-bound, preserving every changed path and the ratchet's enforcement. Fresh
-[40847881117](https://github.com/mercurai/orca/actions/runs/40847881117) at `2ec5` is pending;
-complete the exact final matrix before promotion.
+bound, preserving every changed path and the ratchet's enforcement. At `2ec5`,
+[40847881117](https://github.com/mercurai/orca/actions/runs/40847881117) passed all three jobs:
+Windows 1,360 passed/16 skipped, costs, 614 contracts and 270 persistence tests passed.
+Full controller CI then identified five watcher-test ratchet findings. The real native
+watcher uses `vi.waitFor` with unchanged bounds/assertions, and the 1,000-seed model
+explains its unchanged timeout. Fresh
+[40849629838](https://github.com/mercurai/orca/actions/runs/40849629838) at `6e21` includes
+both suites and is pending. No baseline allowance, timeout or seed count changed.
 The recovery source `8218bf9d21` passed
 [40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows
 tests passed, 16 skipped; both cost suites, 610 contracts and 143 persistence
@@ -38,8 +43,8 @@ tests passed. Seven accepted repair blobs are byte-identical in this generation.
 Recovery PR [#82](https://github.com/mercurai/orca/pull/82) remains draft and
 preserved. It does not qualify the new source.
 
-Controller `930c7e2541` passed 412 Node tests plus nine template checks in
-[40845860124](https://github.com/mercurai/orca/actions/runs/40845860124). Proposed
+Controller `64cd4a9969` passed 412 Node tests plus nine template checks in
+[40848487591](https://github.com/mercurai/orca/actions/runs/40848487591). Proposed
 manual promotion retains authenticated review, complete qualification and
 protected publication; default landing and full exact-head gates remain open.
 Controller PR [#80](https://github.com/mercurai/orca/pull/80) is ready for review and full CI.
