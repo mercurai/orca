@@ -48,7 +48,11 @@ function expression(value, context) {
   const body = /^\$\{\{\s*([\s\S]*?)\s*\}\}$/.exec(value)?.[1]
   assert.ok(body, `Expected one complete workflow expression: ${value}`)
   assert.match(body, /^[\w\s.'()!<>=&|/-]+$/)
-  return runInNewContext(body, { ...context, cancelled: () => false }, { timeout: 1000 })
+  return runInNewContext(
+    body,
+    { ...context, cancelled: () => context.cancelled === true },
+    { timeout: 1000 }
+  )
 }
 
 function fields(block, indent, context) {
@@ -91,13 +95,13 @@ function fixture(inputs = {}, eventName = 'workflow_dispatch', refName = 'mercur
   return context
 }
 
-function runMode(context) {
+function runStep(block, context) {
   const script = /\n {8}run: \|\n([\s\S]*)$/
-    .exec(mode)?.[1]
+    .exec(block)?.[1]
     .split('\n')
     .map((line) => line.replace(/^ {10}/, ''))
     .join('\n')
-  assert.ok(script, 'The actual workflow mode step must contain its Bash decision.')
+  assert.ok(script, `The actual workflow step must contain its Bash decision: ${nameOf(block)}`)
   const rendered = script.replace(/\$\{\{[\s\S]*?\}\}/g, (value) =>
     String(expression(value, context) ?? '')
   )
@@ -112,7 +116,7 @@ function runMode(context) {
         GITHUB_EVENT_NAME: context.github.event_name,
         GITHUB_OUTPUT: output.replaceAll('\\', '/'),
         ...context.env,
-        ...fields(mode, 10, context)
+        ...fields(block, 10, context)
       },
       encoding: 'utf8',
       timeout: 10_000,
@@ -126,6 +130,8 @@ function runMode(context) {
     rmSync(root, { recursive: true, force: true })
   }
 }
+
+const runMode = (context) => runStep(mode, context)
 
 function condition(block, context, indent = 8) {
   const value = new RegExp(`^ {${indent}}if: (.+)$`, 'm').exec(block)?.[1]
@@ -270,3 +276,92 @@ test('normal schedules still mirror eligible main and tags and normal dry-run st
   assert.deepEqual(admittedWriters(dryRun), [MERGE])
   assert.equal(fields(step(MERGE), 10, dryRun).GH_TOKEN, '')
 })
+
+function resultFixture(dryRun = false) {
+  const context = fixture({ mirror_main_only: true, allow_guarded_merge_sha: SHA, dry_run: dryRun })
+  context.steps.mode.outputs = { main_only: 'true', push: dryRun ? 'false' : 'true' }
+  context.steps.guard.outcome = 'success'
+  context.steps.mainmirror.outcome = dryRun ? 'skipped' : 'success'
+  context.steps.merge.outcome = 'success'
+  return context
+}
+
+test('the tokenless main-only result check runs after merge, before issue reporting, unless cancelled', () => {
+  const result = step('Verify main-only result')
+  assert.ok(steps.indexOf(result) > steps.indexOf(step(MERGE)))
+  assert.ok(
+    steps.indexOf(result) < steps.indexOf(step('Report a guarded upstream range as an issue'))
+  )
+  assert.doesNotMatch(result, /\bsecrets\b|GH_TOKEN|GIT_CONFIG_|\bgit push\b|^\s+gh /m)
+  const context = resultFixture()
+  assert.equal(condition(result, context), true)
+  context.steps.mode.outputs.main_only = 'false'
+  assert.equal(condition(result, context), false)
+  context.steps.mode.outputs.main_only = 'true'
+  context.cancelled = true
+  assert.equal(condition(result, context), false)
+})
+
+test('main-only result accepts successful or unchanged merges and successful dry-run checks', () => {
+  for (const dryRun of [false, true]) {
+    const result = runStep(step('Verify main-only result'), resultFixture(dryRun))
+    assert.equal(result.status, 0, result.stderr)
+  }
+})
+
+for (const [name, changes] of [
+  [
+    'range refusal or guard failure',
+    [
+      ['guard', 'outputs', 'refused', 'true'],
+      ['guard', 'outcome', 'failure']
+    ]
+  ],
+  [
+    'main mirror failure',
+    [
+      ['mainmirror', 'outcome', 'failure'],
+      ['mainmirror', 'outcome', 'skipped'],
+      ['mainmirror', 'outcome', 'cancelled']
+    ]
+  ],
+  [
+    'merge failure',
+    [
+      ['merge', 'outcome', 'failure'],
+      ['merge', 'outcome', 'skipped'],
+      ['merge', 'outcome', 'cancelled']
+    ]
+  ],
+  ['guarded merge result', [['merge', 'outputs', 'guarded', 'true']]],
+  ['merge conflict', [['merge', 'outputs', 'conflict', 'true']]],
+  [
+    'missing results',
+    [
+      ['mode', 'outputs', 'push'],
+      ['guard', 'outcome'],
+      ['guard', 'outputs', 'refused'],
+      ['mainmirror', 'outcome'],
+      ['merge', 'outcome'],
+      ['merge', 'outputs', 'guarded'],
+      ['merge', 'outputs', 'conflict']
+    ]
+  ]
+]) {
+  test(`main-only result fails closed for ${String(name)}`, () => {
+    for (const change of changes) {
+      const context = resultFixture()
+      const keys = change.slice(0, -1)
+      const value = name === 'missing results' ? undefined : change.at(-1)
+      const path = name === 'missing results' ? change : keys
+      const target = path.slice(0, -1).reduce((current, key) => current[key], context.steps)
+      if (value === undefined) {
+        delete target[path.at(-1)]
+      } else {
+        target[path.at(-1)] = value
+      }
+      const result = runStep(step('Verify main-only result'), context)
+      assert.notEqual(result.status, 0, `${String(name)}: ${path.join('.')} was accepted`)
+    }
+  })
+}
