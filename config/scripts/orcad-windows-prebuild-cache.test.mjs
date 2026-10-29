@@ -298,6 +298,46 @@ describe('Windows server prebuild cache inputs', () => {
     }
   })
 
+  it.each(['integrity', 'tarball'])(
+    'invalidates same-version node-pty %s source metadata',
+    (field) => {
+      const repository = repositoryCopy()
+      const lockPath = join(repository, 'pnpm-lock.yaml')
+      const lock = readFileSync(lockPath, 'utf8')
+      const entry = /(\n {2}node-pty@[^\n]+:\n {4}resolution: )\{([^\n}]+)\}/
+      expect(lock).toMatch(entry)
+      const baseline = lock.replace(entry, (_match, prefix, body) =>
+        `${prefix}{${body}, tarball: 'https://example.invalid/node-pty-one.tgz'}`
+      )
+      writeFileSync(lockPath, baseline)
+      const before = windowsPrebuildCacheIdentity({ ...options, repository }).key
+      const changed = field === 'integrity'
+        ? baseline.replace(entry, (_match, prefix, body) =>
+            `${prefix}{${body.replace(/integrity: [^,\s]+/, 'integrity: sha512-Y2hhbmdlZA==')}}`
+          )
+        : baseline.replace('node-pty-one.tgz', 'node-pty-two.tgz')
+      expect(changed).not.toBe(baseline)
+      writeFileSync(lockPath, changed)
+      expect(windowsPrebuildCacheIdentity({ ...options, repository }).key).not.toBe(before)
+    }
+  )
+
+  it('keeps the cache identity stable when selected resolution field order changes', () => {
+    const repository = repositoryCopy()
+    const lockPath = join(repository, 'pnpm-lock.yaml')
+    const lock = readFileSync(lockPath, 'utf8')
+    const entry = /(\n {2}node-pty@[^\n]+:\n {4}resolution: )\{([^\n}]+)\}/
+    expect(lock).toMatch(entry)
+    writeFileSync(lockPath, lock.replace(entry, (_match, prefix, body) =>
+      `${prefix}{${body}, tarball: 'https://example.invalid/node-pty.tgz'}`
+    ))
+    const before = windowsPrebuildCacheIdentity({ ...options, repository }).key
+    writeFileSync(lockPath, lock.replace(entry, (_match, prefix, body) =>
+      `${prefix}{tarball: 'https://example.invalid/node-pty.tgz', ${body}}`
+    ))
+    expect(windowsPrebuildCacheIdentity({ ...options, repository }).key).toBe(before)
+  })
+
   it.each(cacheInputs)('invalidates a changed %s input', (file) => {
     const repository = repositoryCopy()
     const before = windowsPrebuildCacheIdentity({ ...options, repository }).key

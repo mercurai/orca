@@ -40,6 +40,7 @@ function versionOf(entry) {
 function readLockfile(contents) {
   const importers = {}
   const snapshots = {}
+  const packageRecords = new Map()
   for (const document of parseAllDocuments(contents)) {
     if (document.errors.length) {
       throw document.errors[0]
@@ -49,16 +50,24 @@ function readLockfile(contents) {
       importers[path] = { ...importers[path], ...importer }
     }
     Object.assign(snapshots, lockfile.snapshots)
+    for (const [id, record] of Object.entries(lockfile.packages ?? {})) {
+      const records = packageRecords.get(id) ?? []
+      records.push(record)
+      packageRecords.set(id, records)
+    }
   }
-  return { importers, snapshots }
+  return { importers, snapshots, packageRecords }
 }
 
 /** Sorted snapshot ids (versions and patch hashes) a set of native packages build from. */
-export function nativeDependencyClosure(
-  contents,
+export function nativeDependencyClosure(contents, selection = {}) {
+  return closureFromLockfile(readLockfile(contents), selection)
+}
+
+function closureFromLockfile(
+  { importers, snapshots },
   { packages, versionOnly = [], workspaces = [] } = {}
 ) {
-  const { importers, snapshots } = readLockfile(contents)
   const names = Object.keys(snapshots).map(snapshotName)
   const unlocked = [...packages, ...versionOnly].filter((name) => !names.includes(name))
   if (unlocked.length > 0) {
@@ -105,6 +114,66 @@ export function nativeDependencyClosure(
   return [...visited].sort()
 }
 
+function isPlainRecord(value) {
+  return (
+    value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
+  )
+}
+
+function canonical(value, active = new Set()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if ((!Array.isArray(value) && !isPlainRecord(value)) || active.has(value)) {
+    throw new Error('Native lock metadata contains unsupported non-JSON values')
+  }
+  active.add(value)
+  const result = Array.isArray(value)
+    ? value.map((entry) => canonical(entry, active))
+    : Object.fromEntries(
+        Object.keys(value).sort().map((key) => [key, canonical(value[key], active)])
+      )
+  active.delete(value)
+  return result
+}
+
+function lockedPackageMetadata(closure, packageRecords) {
+  const ids = [...new Set(closure.map((key) => key.replace(/\(.*$/, '')))].sort()
+  return ids.map((id) => {
+    const records = packageRecords.get(id)
+    if (!records?.length) {
+      throw new Error(`pnpm-lock.yaml has no package metadata for ${id}`)
+    }
+    const metadata = records.map((record) => {
+      if (!isPlainRecord(record) || !isPlainRecord(record.resolution)) {
+        throw new Error(`pnpm-lock.yaml has invalid package resolution metadata for ${id}`)
+      }
+      const resolution = record.resolution
+      const locators = ['integrity', 'tarball'].filter((key) => Object.hasOwn(resolution, key))
+      if (
+        locators.length === 0 ||
+        locators.some((key) =>
+          typeof resolution[key] !== 'string' || resolution[key].trim().length === 0
+        ) ||
+        Object.hasOwn(resolution, 'directory') ||
+        resolution.type === 'directory' ||
+        (Object.hasOwn(resolution, 'tarball') && !/^https?:\/\//.test(resolution.tarball))
+      ) {
+        throw new Error(`pnpm-lock.yaml has unsupported or empty package resolution metadata for ${id}`)
+      }
+      return canonical(record)
+    })
+    if (metadata.some((record) => JSON.stringify(record) !== JSON.stringify(metadata[0]))) {
+      throw new Error(`pnpm-lock.yaml has conflicting package metadata for ${id}`)
+    }
+    return { id, metadata: metadata[0] }
+  })
+}
+
 /** pnpm-workspace.yaml minus resolution-only settings, with build approvals for `closure` only. */
 export function nativeWorkspaceSettings(contents, closure) {
   const names = new Set(closure.map(snapshotName))
@@ -124,15 +193,16 @@ export function nativeDependencyLockDigest({
   repository = resolve(import.meta.dirname, '../..'),
   ...selection
 }) {
-  const closure = nativeDependencyClosure(
-    readFileSync(join(repository, 'pnpm-lock.yaml'), 'utf8'),
-    selection
-  )
+  const lockfile = readLockfile(readFileSync(join(repository, 'pnpm-lock.yaml'), 'utf8'))
+  const closure = closureFromLockfile(lockfile, selection)
   const settings = nativeWorkspaceSettings(
     readFileSync(join(repository, 'pnpm-workspace.yaml'), 'utf8'),
     closure
   )
-  const digest = createHash('sha256').update(JSON.stringify({ closure, settings })).digest('hex')
+  const lockedPackages = lockedPackageMetadata(closure, lockfile.packageRecords)
+  const digest = createHash('sha256')
+    .update(JSON.stringify(canonical({ closure, settings, lockedPackages })))
+    .digest('hex')
   return { digest, closure }
 }
 
