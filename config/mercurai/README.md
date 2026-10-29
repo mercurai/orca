@@ -1,23 +1,27 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-27.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-29.
 
 ## Current candidate registration
 
-The local preparation manifest selects official main
+The preparation manifest selects official main
 `cbbaa2d7635297916ea257a0287cc4ec6c12af25` and stable floor `v1.4.242`
 (`86ad9d95cac792f3d1359d886cef9fb9b0aadd47`). Candidate
-`patch/current-main-release-cbbaa@94c7a483d3a318c09cbea0b8d58126503f2aab46`,
-tree `3d5970f8fce1d2b99be3c738a0f737702b71ec63`, contains the reviewed integration
-and service-level removal regression commit over that main. Shared push admission is busy; it is not
-remote or qualified. The manifest registers 255 unique existing test paths.
-Latest observed main `53e6a7d4a948ff7c9bed422c975807b113fbe63a` is queued after the freeze.
+`patch/current-main-release-cbbaa@487142e6040c4183eb243e62ec8c1e1303760e40`,
+tree `a403779c6388dd6e9beeee3082bad8a841b962d0`, contains three reviewed commits
+over that main and is remote, with 255 registered existing test paths.
+Latest observed main `7f4c8f606435d4ca90964e176e860626ffba918a` and stable
+`v1.4.244` are queued after this freeze; no current-upstream equality is claimed.
 
-Twelve semantic conflicts are resolved. New raw-UNC fingerprint and
-stale-registration removal tests intentionally precede their extra fixes, including
-service status, wake-intent and removal-callback ownership; obtain
-hosted RED/GREEN, then complete the exact final matrix before promotion.
+Twelve semantic conflicts are resolved. Hosted
+[40844702585](https://github.com/mercurai/orca/actions/runs/40844702585) at `94c7`
+reproduced all four raw-UNC and stale-removal helper/service failures: 266 persistence
+tests passed and four failed. Windows coverage passed 1,360 tests with 16 skipped;
+both cost jobs and 611 qualification contracts passed. Independent review accepted
+the narrow ownership and UNC fixes without changing assertions. Fresh
+[40845602179](https://github.com/mercurai/orca/actions/runs/40845602179) at `4871`
+is pending; complete the exact final matrix before promotion.
 The recovery source `8218bf9d21` passed
 [40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows
 tests passed, 16 skipped; both cost suites, 610 contracts and 143 persistence
@@ -25,8 +29,8 @@ tests passed. Seven accepted repair blobs are byte-identical in this generation.
 Recovery PR [#82](https://github.com/mercurai/orca/pull/82) remains draft and
 preserved. It does not qualify the new source.
 
-Controller `9bd7897cb7` passed 412 Node tests plus nine template checks in
-[40470764646](https://github.com/mercurai/orca/actions/runs/40470764646). Proposed
+Controller `6c04784aa3` passed 412 Node tests plus nine template checks in
+[40844758383](https://github.com/mercurai/orca/actions/runs/40844758383). Proposed
 manual promotion retains authenticated review, complete qualification and
 protected publication; default landing and full exact-head gates remain open.
 Controller PR [#80](https://github.com/mercurai/orca/pull/80) is temporarily draft.

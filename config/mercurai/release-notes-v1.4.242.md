@@ -1,6 +1,6 @@
 ---
 owner: Mercurai release owner
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-29
 stability: draft
 ---
 
@@ -14,11 +14,11 @@ the final inputs; preserve that identity through review, CI, tagging and publica
 
 - Official main snapshot: `cbbaa2d7635297916ea257a0287cc4ec6c12af25`.
 - Stable floor: `v1.4.242`, peeled `86ad9d95cac792f3d1359d886cef9fb9b0aadd47`.
-- Local candidate: `94c7a483d3a318c09cbea0b8d58126503f2aab46`, branch
+- Remote candidate: `487142e6040c4183eb243e62ec8c1e1303760e40`, branch
   `patch/current-main-release-cbbaa`.
-- Tree: `3d5970f8fce1d2b99be3c738a0f737702b71ec63`; two linear commits over main.
-- Later observed main `53e6a7d4a948ff7c9bed422c975807b113fbe63a` is queued
-  after this freeze; report freshness as observed lag.
+- Tree: `a403779c6388dd6e9beeee3082bad8a841b962d0`; three linear commits over main.
+- Later observed main `7f4c8f606435d4ca90964e176e860626ffba918a` and stable244
+  are queued after this freeze; report freshness as observed lag.
 
 This snapshot adds 115 official commits and 2,738 changed files beyond the previous
 823ca preparation. Stable242's CI changes are already represented in this main
@@ -34,16 +34,18 @@ version through the canonical packaging override.
   changes. Concurrent port repair retires transports only for the accepted revision.
 - Combine official WSL pending-stop, kept-host and holder semantics with async
   persistence and current-owner checks after awaits. Raw UNC fingerprint access
-  and stale-registration removal have explicit regressions before their extra fixes.
-  Service-level coverage requires a stale stop to preserve replacement status,
-  wake intent and removal callbacks; helper-only success is insufficient.
+  and stale-registration removal now have independently reviewed narrow fixes after
+  meaningful hosted RED. A stale stop preserves replacement status, wake intent and
+  removal callbacks; the serialized store returns whether removal was accepted.
 - Preserve full qualification, authenticated owner acceptance of independent review,
   immutable assembly and monotonic publication. No partial run authorizes release.
 - Keep recurring automation disabled until the release and recovery rehearsals pass.
 
-Independent review accepted the integration/RED boundary, including its twelve
-semantic conflict resolutions. It remains deliberately unqualified while the new
-WSL regressions are reproduced and repaired.
+Independent review accepted the integration and WSL fix boundaries, including the
+twelve semantic conflict resolutions. Hosted40844702585 reproduced four WSL failures
+at94c7 with266persistence tests passing; Windows1360passed/16skipped, both cost jobs
+and611contracts passed. Fresh40845602179 at4871 is pending. These partial checks do
+not qualify the release.
 
 The recovery source `8218bf9d21` passed hosted
 [40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows

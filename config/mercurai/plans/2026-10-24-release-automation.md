@@ -1,6 +1,6 @@
 ---
 owner: Mercurai Orca release owner (Codex /root, delegated by the user)
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-29
 stability: draft
 status: current-main integration and regression repair; release held
 ---
@@ -24,18 +24,19 @@ restore readiness and run the complete final matrix before promotion.
 
 | Input                      | Current record                                                                                                    |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Official stable            | v1.4.242, published2026-10-27T00:09:03Z                                                                           |
+| Frozen stable floor        | v1.4.242, published2026-10-27T00:09:03Z                                                                           |
 | Tag object / peeled commit | 0360ad49840ab10d6493aa6c26c7d066d641eb95 / 86ad9d95cac792f3d1359d886cef9fb9b0aadd47                               |
 | Frozen main                | cbbaa2d7635297916ea257a0287cc4ec6c12af25;115commits/2738changedfiles beyond823ca687                               |
 | Source repair input        | 8218bf9d2151b448cc1f1eaa97fc28662d64890f, tree3658a8b6077f446c1a99bb69131a7457141fd9d0;14linearcommits after823ca |
-| Controller                 | remote9bd7897cb7c6e180a2a33ee8f22cff623c370af8;local manifest registers 94c7a483                                  |
+| Controller                 | remote6c04784aa3f21df1e57d9938efb18e3f758ea669;manifest registers 487142e6                                        |
 
 Owner for all three workspaces is this session, designated release owner by the user.
 
 - Active integration: C:/Users/svere/orca/worktrees/orca-upstream-integration-cbbaa-20261027,
-  branch patch/current-main-release-cbbaa. Local 94c7a483d3a318c09cbea0b8d58126503f2aab46, tree3d5970f8fce1d2b99be3c738a0f737702b71ec63;
-  reviewed squash composition plus service-level removal regressions over frozen main,
-  committed but not yet pushed/qualified. Related preparationPR82.
+  branch patch/current-main-release-cbbaa. Remote487142e6040c4183eb243e62ec8c1e1303760e40,
+  treea403779c6388dd6e9beeee3082bad8a841b962d0; reviewed composition, service-level
+  removal regressions and four-file WSL fixes over frozen main. Fresh GREEN and full
+  qualification remain pending. Related recovery preparationPR82.
 - Recovery source: C:/Users/svere/orca/worktrees/orca-upstream-integration-823ca-20261026,
   branch patch/current-main-release-823ca. Its241floor is repair input, not publishing target.
 - Controller: C:/Users/svere/orca/worktrees/release-registration-20261023,
@@ -45,15 +46,19 @@ Stable-only CI commit37331ade00 is classified: the macOS updater workflow is byt
 in242/main/candidate; all three removed browser-route refs are absent from main/candidate.
 Use ORCA_MERCURAI_BUILD_VERSION for release package metadata; preserve main dependencies.
 No suffix is reserved. Later arrivals stay queued after this freeze; report observed lag.
-Latest observed official main 53e6a7d4a948ff7c9bed422c975807b113fbe63a supersedes
-the previously queued c98a2d639c764b0146c5dc902a6185c114432a85 after cbbaa.
-The local manifest registers 255 unique existing tests; no new generation CI is claimed.
+Latest observed official main7f4c8f606435d4ca90964e176e860626ffba918a andstablev1.4.244
+(published2026-10-29T03:55:29Z) supersede the previously queued observations aftercbbaa.
+Finish the frozen revision's verification before admitting another integration generation.
+The manifest registers255unique existing tests; no full qualification is claimed.
 
 | Revision / hosted run           | Observed result                                                                                                |
 | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | ad46260 /40469222124            | Windows1349passed/16skipped; costs and610contracts passed; persistence128passed/15failed                       |
 | 8218bf9 /40472710805            | All3jobs passed: Windows99files/1351tests/16skip; costs237Linux,232Win/5skip;610contracts;143persistence tests |
 | 9bd7897 /40470764646            | Controller412Node tests and9template checks passed,0failures/skips                                             |
+| 94c7a48 /40844702585            | Windows1360passed/16skip; both cost jobs and611contracts passed; persistence266passed/4meaningful WSL failures |
+| 6c04784 /40844758383            | Controller412Node tests and9template checks passed,0failures/skips                                             |
+| 487142e /40845602179            | Independent four-file fix review accepted; fresh targeted hosted run pending                                   |
 | eba9 /40453877833               | Earlier full matrix had29unit assertion failures plus fake-WSL E2E failure; not qualified                      |
 | d839+controller196 /40451794792 | Predecessor dry packaging passed; publish skipped; provisional241label unreserved                              |
 
@@ -72,11 +77,11 @@ those APIs. Focused cache/connect/pending-stop extractions meet existing line li
 exports and timing, and introduce no framework. The intentional upstream dispositions suite
 deletion is retained; genuine move-projection tests remain explicitly selected.
 
-Two additional regressions precede their fixes: raw UNC fingerprint access must not wake
-stopped WSL, and stale-createdAt removal must preserve the replacement registration,
-service status, wake intent and removal callbacks. Helper and service entrypoints are
-covered by real registration replacement and a held stop; no production fix is applied. Capture
-meaningful hosted RED, apply narrow fixes and require fresh GREEN. Materialize/register the
+Hosted RED at94c7 reproduced both UNC aliases plus helper and service stale-removal
+failures. The independently reviewed4871 fix excludes UNC fingerprint reads, returns the
+serialized accepted-removal boolean and fences wake/status/retire effects around awaits.
+Helper and service assertions are unchanged. Scoped formatting/lint passed; fresh hosted
+GREEN is pending. Complete registration and the
 new source/floor, complete exact-candidate full CI/review, then publish through the protected
 release mechanism and verify installed/runtime identity. No performance, installed
 picker/request or actual Ultrafast execution claim is made.
@@ -108,8 +113,10 @@ Reconstruct all current global HOLD/LIFT orders before every push/ref mutation; 
 LEGS DONE lifted the03:23hold, but later orders and named queue priority remain authoritative.
 Each push uses the shared foreground test-slot runner. BUSY before ACQUIRED means Git did
 not run. Local tests/builds/typechecks remain CI-only; no waiters, hook bypass or serverone.
-The09:40conditional queue hold was corrected at15:07: hosted jobs did start and no
-budget action was needed. Read subsequent orders before admission; the slot is currently busy.
+The October27 memory hold was explicitly lifted at21:22 and the October28 restart queue
+reopened at22:28. On October29 both prepared branches and the reviewed fix pushed through
+the shared runner with ACQUIRED/exit0; no local tests/builds/typecheck ran. The later
+geekmode-rust dev landing freeze does not waive Orca's independent release gates.
 
 Use at most two bounded implementers plus one independent reviewer. Parent alone stages the
 shared index, updates manifest/controller and owns release/rollout. No app restart, provider
