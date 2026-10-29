@@ -238,6 +238,14 @@ jobs:
         if: ${{ !cancelled() && matrix.os == 'ubuntu-22.04' }}
         run: >-
           node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
+          src/main/plugins/plugin-host-methods.test.ts
+          src/main/plugins/plugin-secrets-store.test.ts
+          src/main/plugins/plugin-service-reconciliation.test.ts
+          src/main/plugins/plugin-storage-store.test.ts
+          src/main/managed-data-accounts/service.test.ts
+          src/main/managed-data-accounts/service-enrollment-persistence.test.ts
+          src/main/managed-data-accounts/profile-removal-recovery.test.ts
+          src/main/diagnostics/terminal-input-latency.test.ts
           src/main/managed-server/lifecycle/orcad-managed-tunnel-local-port.test.ts
           src/main/runtime/device-registry-file-read.test.ts
           src/main/ai-vault/runtime-session-search-lifetime.test.ts
