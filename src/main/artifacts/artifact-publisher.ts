@@ -213,17 +213,24 @@ export class ArtifactPublisher {
     pending: ArtifactCreateIntent | null
   ): Promise<ArtifactCreateOutcome> {
     const replaying = pending !== null
-    const intent =
-      pending ??
-      (await getOrCreateArtifactCreateIntent(
-        auth.profileId,
-        this.userDataPath,
-        request.sourceKey,
-        auth.scope,
-        idempotencyKey,
-        artifactWriteBody(request)
-      ))
+    let intent: ArtifactCreateIntent
+    try {
+      intent =
+        pending ??
+        (await getOrCreateArtifactCreateIntent(
+          auth.profileId,
+          this.userDataPath,
+          request.sourceKey,
+          auth.scope,
+          idempotencyKey,
+          artifactWriteBody(request)
+        ))
+    } catch (error) {
+      auth.assertCurrent()
+      throw error
+    }
     let response: ArtifactCreateResponse
+    auth.assertCurrent()
     try {
       response = await artifactRequest<ArtifactCreateResponse>(apiUrl, token, '', {
         method: 'POST',
