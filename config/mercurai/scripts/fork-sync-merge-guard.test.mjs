@@ -38,7 +38,8 @@ const ALLOWED_DISPATCH = 'Hand the owner-allowed tag to fork-rebase-patches'
 const SKIPPED_ISSUES = 'Open review issues for skipped release tags'
 const SHA_ENV = /^\s+UPSTREAM_SHA: \$\{\{ steps\.fetch\.outputs\.upstream_sha \}\}$/m
 const GATE = /steps\.guard\.outputs\.refused == 'false'/
-const LAST_STEPS_GATE = "!cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true'"
+const LAST_STEPS_GATE =
+  "!cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.mode.outputs.main_only == 'false'"
 
 test('the pin is made once, in the fetch step, and the guard runs before every push', () => {
   assert.match(step(FETCH), /upstream_sha=\$\(bash config\/mercurai\/scripts\/pin-upstream-sha\.sh upstream\/main\)/)
@@ -89,13 +90,16 @@ test('only a tag mirrored this run is handed to the rebase', () => {
   assert.doesNotMatch(code, /steps\.fetch\.outputs\.rebase_tag/)
 })
 
-test('the merge step runs only when the guard did not refuse; the issue steps fire on the outputs and fail the run', () => {
+test('the merge step runs only when the guard did not refuse; normal-mode issue steps fire on the outputs and fail the run', () => {
   assert.match(step(MERGE), /^\s+if: \$\{\{ steps\.guard\.outputs\.refused == 'false' \}\}$/m)
   assert.match(
     step(ISSUE),
-    /^\s+if: \$\{\{ steps\.guard\.outputs\.refused == 'true' \|\| steps\.merge\.outputs\.guarded == 'true' \}\}$/m
+    /^\s+if: \$\{\{ steps\.mode\.outputs\.main_only == 'false' && \(steps\.guard\.outputs\.refused == 'true' \|\| steps\.merge\.outputs\.guarded == 'true'\) \}\}$/m
   )
-  assert.match(step(CONFLICT), /^\s+if: \$\{\{ steps\.merge\.outputs\.conflict == 'true' \}\}$/m)
+  assert.match(
+    step(CONFLICT),
+    /^\s+if: \$\{\{ steps\.mode\.outputs\.main_only == 'false' && steps\.merge\.outputs\.conflict == 'true' \}\}$/m
+  )
   // The stage picks the text (a refusal pushed nothing; a reset merge came after the mirrors); the scripts run from /tmp.
   assert.match(step(ISSUE), /^\s+STAGE: \$\{\{ steps\.guard\.outputs\.refused == 'true' && 'guard' \|\| 'merge' \}\}$/m)
   assert.match(step(ISSUE), /^\s+run: bash \/tmp\/report-sync-issue\.sh "\$STAGE"$/m)
@@ -135,7 +139,7 @@ test('the merge runs from copies, before it is pushed, with one push per attempt
 test('privileged sync runs only from the protected default branch', () => {
   assert.match(
     code,
-    /^  mirror:\n    if: \$\{\{ github\.ref_name == \(github\.event\.repository\.default_branch \|\| 'mercurai'\) \}\}$/m
+    /^  mirror:\n    if: \$\{\{ github\.ref_type == 'branch' && github\.ref_name == \(github\.event\.repository\.default_branch \|\| 'mercurai'\) \}\}$/m
   )
   assert.match(code, /^    environment:\n      name: mercurai-sync$/m)
 })
@@ -186,7 +190,7 @@ test('the tag issues are the last step, run after a failure, and see the main mi
   const issues = step(SKIPPED_ISSUES)
   assert.match(
     issues,
-    /^\s+if: \$\{\{ !cancelled\(\) && steps\.fetch\.outcome == 'success' && steps\.mode\.outputs\.push == 'true' \}\}$/m
+    /^\s+if: \$\{\{ !cancelled\(\) && steps\.fetch\.outcome == 'success' && steps\.mode\.outputs\.push == 'true' && steps\.mode\.outputs\.main_only == 'false' \}\}$/m
   )
   assert.match(issues, /^\s+GUARD_REFUSED: \$\{\{ steps\.guard\.outputs\.refused \}\}$/m)
   assert.match(issues, /^\s+MAIN_MIRRORED: \$\{\{ steps\.mainmirror\.outcome \}\}$/m)
