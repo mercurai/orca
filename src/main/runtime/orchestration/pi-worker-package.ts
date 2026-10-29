@@ -287,7 +287,7 @@ export async function preparePiWorkerAcquisition(
   const readinessNonce = randomBytes(32).toString('hex')
   const reportCli = resolvePiWorkerReportCli()
   const binding = {
-    schema: 'harness.pi-launch.v1', owner: provenance(pkg).owner,
+    schema: 'harness.pi-launch.v1', ...provenance(pkg),
     templateBytesSha256: pkg.templateBytesSha256, finalProfileSemanticSha256: pkg.finalProfileSemanticSha256,
     manifestBytesSha256: pkg.manifestBytesSha256, brokerBytesSha256: pkg.broker.sha256,
     canonicalSourceCommit: pkg.canonicalSourceCommit, expectedPiVersion: pkg.piVersion,
