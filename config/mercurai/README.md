@@ -1,7 +1,7 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-23.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-29.
 
 ## Branches
 
@@ -116,6 +116,39 @@ series.
   diff locally (`git diff <trusted> <sha> -- .github config/mercurai config/scripts`) and never trusts the
   issue text: the issue is a pointer, anyone with write access can edit it, and the sha in the
   dispatch input is the only thing that is mirrored or merged.
+
+  **Main-only ingestion:** an owner-reviewed dispatch with `mirror_main_only=true`
+  mirrors the exact approved official main commit and merges it into `mercurai`,
+  preserving the frozen patch series. The flag defaults to false. It requires a
+  manual dispatch, a full lowercase 40-hex `allow_guarded_merge_sha`, no `allow_tag`
+  and no `mirror_branches`. Only the protected default **branch** may start the
+  token-bearing job; a same-named tag is rejected before checkout or token access.
+  Missing or nonancestor pins fail before the resolved pin is published. Normal
+  mode retains its existing tip fallback and scheduled behavior.
+
+  Before dispatch, obtain independent source-range security review and passing
+  hosted CI for the exact workflow revision. Recompute both guarded-path ranges
+  under `.github/`, `config/mercurai/` and `config/scripts/` from the trusted fork
+  refs to the approved official SHA, including renames and deletions. Record that
+  exact SHA in the review and set `REVIEWED_SHA` to it. Run the report-only check:
+
+  ```bash
+  gh workflow run fork-sync-upstream.yml --repo mercurai/orca --ref mercurai \
+    -f mirror_main_only=true \
+    -f "allow_guarded_merge_sha=${REVIEWED_SHA:?set the independently reviewed full main SHA}" \
+    -f dry_run=true
+  ```
+
+  After the owner accepts the dry-run evidence, repeat with `-f dry_run=false`.
+  Main-only runs suppress all tag pushes, both rebase handoffs, optional branch
+  mirrors and issue writes. Existing range and merge-result guards still apply;
+  the tokenless result check fails refusal, conflict, failed or missing outcomes
+  even while issue reporting is suppressed. Dry-run requires a skipped main
+  mirror and successful local merge checks. A successful no-op merge is valid.
+  The main mirror remains forward-only and refuses to rewind an advanced ref.
+  If merge-forward fails after the main mirror succeeds, inspect both remote
+  refs and the failed step; the workflow does not roll back the earlier mirror.
+
 - `fork-rebase-patches`: with `tag`, rebases every active patch from its recorded base onto the
   tag, runs its tests, then a token-free test job's result is re-derived and pushed in one atomic
   `--force-with-lease` push of every branch and the manifest, all or nothing (patch branches are the only branches where

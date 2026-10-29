@@ -14,6 +14,10 @@ on:
         description: Also mirror every upstream branch under upstream/* (tags are what the patch series rebases onto, so this is off by default)
         type: boolean
         default: false
+      mirror_main_only:
+        description: Mirror and merge only the exact reviewed main SHA; no tags, rebases, branch mirrors or issues
+        type: boolean
+        default: false
       dry_run:
         description: Fetch and compare only; push nothing and dispatch nothing
         type: boolean
@@ -56,7 +60,7 @@ jobs:
   mirror:
     # Never execute a workflow file from a feature branch with the fork write token. The
     # environment applies an additional branch policy to the token-bearing job.
-    if: ${{ github.ref_name == (github.event.repository.default_branch || 'mercurai') }}
+    if: ${{ github.ref_type == 'branch' && github.ref_name == (github.event.repository.default_branch || 'mercurai') }}
     environment:
       name: mercurai-sync
     runs-on: ubuntu-latest
@@ -80,8 +84,27 @@ jobs:
 
       - name: Decide whether this run may push
         id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MIRROR_MAIN_ONLY: ${{ inputs.mirror_main_only }}
+          MIRROR_BRANCHES: ${{ inputs.mirror_branches }}
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          set -euo pipefail
+          main_only=false
+          if [ "${MIRROR_MAIN_ONLY:-false}" = "true" ]; then
+            if [ "$EVENT_NAME" != "workflow_dispatch" ] || ! [[ "${ALLOWED_SHA:-}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::mirror_main_only requires an explicit manual dispatch with a reviewed full main SHA"
+              exit 1
+            fi
+            if [ -n "${ALLOW_TAG:-}" ] || [ "${MIRROR_BRANCHES:-false}" = "true" ]; then
+              echo "::error::mirror_main_only cannot allow a tag or mirror other branches"
+              exit 1
+            fi
+            main_only=true
+          fi
+          echo "main_only=$main_only" >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = "true" ]; then
             echo "push=false" >> "$GITHUB_OUTPUT"; echo "report-only run (dry_run)"
           else
             echo "push=true" >> "$GITHUB_OUTPUT"
@@ -89,6 +112,8 @@ jobs:
 
       - name: Fetch upstream main and tags
         id: fetch
+        env:
+          MAIN_ONLY: ${{ steps.mode.outputs.main_only }}
         run: |
           set -euo pipefail
           git config user.name 'mercurai-fork-bot'
@@ -97,6 +122,10 @@ jobs:
           git fetch --no-tags upstream main
           # The one commit this run guards, mirrors and merges; upstream/main can move meanwhile.
           upstream_sha=$(bash config/mercurai/scripts/pin-upstream-sha.sh upstream/main)
+          if [ "$MAIN_ONLY" = "true" ] && [ "$upstream_sha" != "$ALLOWED_SHA" ]; then
+            echo "::error::main-only sync could not resolve the exact reviewed main pin; it may be absent or outside official main"
+            exit 1
+          fi
           if [ "$upstream_sha" != "$(git rev-parse upstream/main)" ]; then
             echo "::notice::pinned to the commit the owner allowed ($upstream_sha); upstream/main is newer and waits for the next run"
           fi
@@ -140,7 +169,7 @@ jobs:
       - name: Mirror new tags
         id: tags
         # New names only, never forced, and only tags whose commit is in the pinned commit.
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
+        if: ${{ steps.mode.outputs.main_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
@@ -158,7 +187,7 @@ jobs:
         id: dispatch
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
         # Only a tag that was mirrored this run. The outputs name what was dispatched, written only once it was.
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && steps.tags.outputs.rebase_tag != '' }}
+        if: ${{ steps.mode.outputs.main_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && steps.tags.outputs.rebase_tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
@@ -171,7 +200,7 @@ jobs:
           { echo "dispatched_tag=$tag"; echo "dispatched_sha=$tag_sha"; } >> "$GITHUB_OUTPUT"
 
       - name: Mirror upstream branches under upstream/*
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && inputs.mirror_branches == true }}
+        if: ${{ steps.mode.outputs.main_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && inputs.mirror_branches == true }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
@@ -228,8 +257,40 @@ jobs:
             sleep 15
           done
 
+      - name: Verify main-only result
+        if: ${{ !cancelled() && steps.mode.outputs.main_only == 'true' }}
+        env:
+          PUSH: ${{ steps.mode.outputs.push }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+          GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
+          MAIN_OUTCOME: ${{ steps.mainmirror.outcome }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+          MERGE_GUARDED: ${{ steps.merge.outputs.guarded }}
+          MERGE_CONFLICT: ${{ steps.merge.outputs.conflict }}
+        run: |
+          set -euo pipefail
+          if [ "$GUARD_OUTCOME" != "success" ] || [ "$GUARD_REFUSED" != "false" ] || \
+             [ "$MERGE_OUTCOME" != "success" ] || [ "$MERGE_GUARDED" != "false" ] || [ "$MERGE_CONFLICT" != "false" ]; then
+            echo "::error::main-only sync did not complete: guard=$GUARD_OUTCOME refused=$GUARD_REFUSED merge=$MERGE_OUTCOME guarded=$MERGE_GUARDED conflict=$MERGE_CONFLICT"
+            exit 1
+          fi
+          case "$PUSH" in
+            true) expected_main=success ;;
+            false) expected_main=skipped ;;
+            *) echo "::error::main-only sync has no valid push decision"; exit 1 ;;
+          esac
+          if [ "$MAIN_OUTCOME" != "$expected_main" ]; then
+            echo "::error::main-only sync expected main mirror $expected_main, got $MAIN_OUTCOME"
+            exit 1
+          fi
+          if [ "$PUSH" = "true" ]; then
+            echo "main-only main mirror and merge completed"
+          else
+            echo "main-only dry-run checks passed; nothing pushed"
+          fi
+
       - name: Report a guarded upstream range as an issue
-        if: ${{ steps.guard.outputs.refused == 'true' || steps.merge.outputs.guarded == 'true' }}
+        if: ${{ steps.mode.outputs.main_only == 'false' && (steps.guard.outputs.refused == 'true' || steps.merge.outputs.guarded == 'true') }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           # The text differs by which output fired: a refused range pushed nothing; a reset merge came after the
@@ -241,7 +302,7 @@ jobs:
         run: bash /tmp/report-sync-issue.sh "$STAGE"
 
       - name: Report a merge conflict as an issue
-        if: ${{ steps.merge.outputs.conflict == 'true' }}
+        if: ${{ steps.mode.outputs.main_only == 'false' && steps.merge.outputs.conflict == 'true' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           PUSH: ${{ steps.mode.outputs.push }}
@@ -255,7 +316,7 @@ jobs:
       # and nothing else. A refused main range still pushes nothing else, and this does not release it.
       - name: Mirror the owner-allowed tag
         id: allowtag
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && env.ALLOW_TAG != '' }}
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.mode.outputs.main_only == 'false' && env.ALLOW_TAG != '' }}
         env:
           # Set only when the automatic hand-off dispatched; the script leaves the hand-off to it for that exact tag@sha.
           DISPATCHED_TAG: ${{ steps.dispatch.outputs.dispatched_tag }}
@@ -271,7 +332,7 @@ jobs:
           bash /tmp/mirror-allowed-tag.sh
 
       - name: Hand the owner-allowed tag to fork-rebase-patches
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.allowtag.outputs.tag != '' }}
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.mode.outputs.main_only == 'false' && steps.allowtag.outputs.tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
@@ -286,7 +347,7 @@ jobs:
         # Last, and run whatever failed before it (not when cancelled): upstream decides how many tags there are, so
         # this step must never be able to skip the pushes or the merge-forward. It caps what it opens per run, pages
         # through every issue (closed ones included) and trusts only the bot's own words (tag-issues.sh).
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}
+        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.mode.outputs.main_only == 'false' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           FORK_MAIN: ${{ steps.fetch.outputs.fork_main }}
