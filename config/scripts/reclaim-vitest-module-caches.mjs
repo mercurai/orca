@@ -2,7 +2,7 @@ import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { localRepositoryWorktrees } from './local-repository-worktrees.mjs'
 import { parseReclaimArguments } from './reclaim-worktree-command.mjs'
-import { localModuleCacheParent } from './vitest-local-module-cache.mjs'
+import { checkedLocalModuleCacheParent } from './vitest-local-module-cache.mjs'
 
 // Each run touches its directory, so an mtime this old means no recent test run used it.
 export const VITEST_MODULE_CACHE_MIN_AGE_DAYS = 7
@@ -21,17 +21,26 @@ export async function reclaimVitestModuleCaches({
   const cutoff = nowMs - minAgeDays * 86_400_000
   let removed = 0
   for (const worktree of new Set(roots)) {
+    const parent = checkedLocalModuleCacheParent(worktree)
+    if (!parent) {
+      continue
+    }
     const canonical = await realpath(worktree).catch(() => null)
     if (!canonical || canonical === excluded) {
       continue
     }
-    const parent = localModuleCacheParent(canonical)
+    if (checkedLocalModuleCacheParent(worktree) !== parent) {
+      continue
+    }
     const names = await readdir(parent).catch(() => [])
     for (const name of names) {
       const path = join(parent, name)
       const info = await lstat(path).catch(() => null)
       if (!info?.isDirectory() || info.mtimeMs > cutoff) {
         continue
+      }
+      if (checkedLocalModuleCacheParent(worktree) !== parent) {
+        break
       }
       if (apply) {
         await rm(path, { recursive: true, force: true, maxRetries: 3 })
