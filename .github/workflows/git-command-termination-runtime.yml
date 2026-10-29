@@ -214,6 +214,7 @@ jobs:
           src/main/credentials/credential-writers-win32-spawn.test.ts
           src/shared/secure-file-async-write-serialization.test.ts
           src/main/git/command-runner/git-spawn-admission-lifetime.test.ts
+          src/main/git/command-runner/git-exec-admission-lifetime.test.ts
           src/main/git/command-runner/git-spawn-worker.test.ts
           src/main/git/command-runner/git-spawn-worker-run-process.test.ts
           src/main/startup/main-process-quit-path-write-drain.test.ts
