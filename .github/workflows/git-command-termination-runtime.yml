@@ -253,6 +253,8 @@ jobs:
           src/main/runtime/rpc/methods/agent-launch-at-rest.test.ts
           src/renderer/src/components/native-chat/NativeChatRewindAction.target.test.tsx
           src/renderer/src/components/native-chat/use-structured-agent-session.rewind.test.tsx
+          src/renderer/src/components/settings/repository/source-control/repository-source-control-ai-global-ux.test.ts
+          src/renderer/src/components/sidebar/SidebarHeader.test.tsx
           src/renderer/src/components/tab-bar/cli-chat-resume-run.test.ts
           src/main/persistence/moving-wsl-projects/wsl-move-state-projection-scope.test.ts
           src/main/ipc/worktrees/listing/detected-worktree-scan-listing-distro.test.ts

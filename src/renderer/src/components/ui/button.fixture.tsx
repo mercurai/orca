@@ -55,3 +55,17 @@ export const sizes = defineFixture({
     </div>
   )
 })
+
+export const sidebarActivity = defineFixture({
+  width: 320,
+  render: () => (
+    <div className="flex items-center gap-3">
+      <Button variant="sidebar-activity" size="icon-xs" className="w-8" aria-pressed={false}>
+        Off
+      </Button>
+      <Button variant="sidebar-activity" size="icon-xs" className="w-8" aria-pressed={true}>
+        On
+      </Button>
+    </div>
+  )
+})
