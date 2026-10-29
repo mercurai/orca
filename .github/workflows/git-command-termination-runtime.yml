@@ -302,6 +302,9 @@ jobs:
           src/main/runtime/rpc/methods/host-capabilities.test.ts
           src/main/runtime/peer-desktops.integration.test.ts
           src/main/runtime/rpc/terminal-agent-prompt-socket.test.ts
+          src/main/plugins/plugin-data-removal.test.ts
+          src/main/plugins/plugin-service-host-call-lifetime.test.ts
+          src/main/artifacts/artifact-publisher-auth-admission.test.ts
 
   prepare-source:
     name: Diagnostic plugin-schema source preparation
