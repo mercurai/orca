@@ -194,13 +194,13 @@ for (const [name, inputs, event] of [
   ['repository dispatch', {}, 'repository_dispatch'],
   ['pull request', {}, 'pull_request']
 ]) {
-  test(`main-only rejects ${name} before advertising write permission`, () => {
+  test(`main-only rejects ${String(name)} before advertising write permission`, () => {
     const context = fixture(
       { mirror_main_only: true, allow_guarded_merge_sha: SHA, ...inputs },
       event
     )
     const decision = runMode(context)
-    assert.notEqual(decision.status, 0, `${name} was accepted: ${decision.stdout}`)
+    assert.notEqual(decision.status, 0, `${String(name)} was accepted: ${decision.stdout}`)
     assert.doesNotMatch(decision.output, /^push=true$/m)
   })
 }
