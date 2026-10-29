@@ -31,13 +31,9 @@ import { registerWslHost } from './wsl-host-registration'
 import { WslHostStatusBoard } from './wsl-host-status-board'
 import { withWslHostIds } from './wsl-host-records'
 import { wslHolderKeepPolicy } from './wsl-orphan-holder-release'
-import { readdPendingWslHost, removeWslHostServer } from './wsl-host-removal'
+import { readdPendingWslHost, removeWslHostAndPublish } from './wsl-host-removal'
 import type { WslOrcadConnectionStatus } from './wsl-orcad-connection-status'
-import {
-  forgetWslHostToWake,
-  forgetWslHostsToWake,
-  rememberWslHostsToWake
-} from './wsl-host-early-wake'
+import { forgetWslHostsToWake, rememberWslHostsToWake } from './wsl-host-early-wake'
 
 export type {
   WslHostConnector,
@@ -165,17 +161,16 @@ export class WslHostService {
     // must leave the host usable and allow another attempt.
     this.removing.add(environmentId)
     try {
-      const removal = await removeWslHostServer(this.deps.userDataPath(), this.connector, record)
-      await forgetWslHostToWake(this.deps.userDataPath(), record.distro)
-      if (!removal.removed) {
-        this.setStatus(this.recordForEnvironment(environmentId) ?? record, { state: 'closed' })
-        return removal.serverStop
-      }
-      this.visible.delete(environmentId)
-      this.parked.delete(environmentId)
-      this.board.delete(environmentId)
-      await this.deps.removed(environmentId)
-      return removal.serverStop
+      return await removeWslHostAndPublish(this.deps.userDataPath(), this.connector, record, {
+        currentRecord: () => this.recordForEnvironment(environmentId),
+        close: (current) => this.setStatus(current, { state: 'closed' }),
+        retire: async () => {
+          this.visible.delete(environmentId)
+          this.parked.delete(environmentId)
+          this.board.delete(environmentId)
+          await this.deps.removed(environmentId)
+        }
+      })
     } finally {
       this.removing.delete(environmentId)
     }

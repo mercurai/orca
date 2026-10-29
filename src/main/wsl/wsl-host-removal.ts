@@ -13,8 +13,40 @@ import type { WslHostAddResult, WslHostServerStop } from '../../shared/wsl-host-
 import { admitWslHostDistro, wslHostRemovalPendingMessage } from './wsl-host-add-admission'
 import type { WslHostDistroCandidate } from './wsl-host-distro-list'
 import type { WslHostConnector } from './wsl-host-service'
+import { forgetWslHostToWake } from './wsl-host-early-wake'
 
 export type WslHostRemoval = { serverStop: WslHostServerStop; removed: boolean }
+
+/** A stale stop cannot retire the status or wake intent of a replacement host. */
+export async function removeWslHostAndPublish(
+  userDataPath: string,
+  connector: WslHostConnector | null,
+  record: WslHostDeploymentRecord,
+  owner: {
+    currentRecord: () => WslHostDeploymentRecord | null
+    close: (record: WslHostDeploymentRecord) => void
+    retire: () => Promise<void>
+  }
+): Promise<WslHostServerStop> {
+  const removal = await removeWslHostServer(userDataPath, connector, record)
+  const stillOwnsRemoval = (): boolean => {
+    const current = owner.currentRecord()
+    return removal.removed ? current === null : current?.createdAt === record.createdAt
+  }
+  if (!stillOwnsRemoval()) {
+    return removal.serverStop
+  }
+  await forgetWslHostToWake(userDataPath, record.distro)
+  if (!stillOwnsRemoval()) {
+    return removal.serverStop
+  }
+  if (removal.removed) {
+    await owner.retire()
+  } else {
+    owner.close(owner.currentRecord() ?? record)
+  }
+  return removal.serverStop
+}
 
 export async function removeWslHostServer(
   userDataPath: string,
@@ -43,8 +75,12 @@ export async function removeWslHostServer(
     await connector.releaseHolder(record.distro)
   }
   if (serverStop.stopped) {
-    await removeWslHostEnvironment(userDataPath, record.environmentId, record.createdAt)
-    return { serverStop, removed: true }
+    const removed = await removeWslHostEnvironment(
+      userDataPath,
+      record.environmentId,
+      record.createdAt
+    )
+    return { serverStop, removed }
   }
   await setWslHostPendingStop(
     userDataPath,

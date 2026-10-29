@@ -270,12 +270,12 @@ async function removeWslHostEnvironmentWithinMutation(
   userDataPath: string,
   environmentId: string,
   expectedCreatedAt?: number
-): Promise<void> {
+): Promise<boolean> {
   if (
     expectedCreatedAt !== undefined &&
     findWslHostDeployment(userDataPath, environmentId)?.createdAt !== expectedCreatedAt
   ) {
-    return
+    return false
   }
   if (readWslHostDeployments(userDataPath).unreadableEnvironmentIds.has(environmentId)) {
     throw new WslHostDeploymentStoreInvalidError(
@@ -291,6 +291,7 @@ async function removeWslHostEnvironmentWithinMutation(
     })
   }
   await writeWslHostDeploymentWithinMutation(userDataPath, environmentId, null)
+  return true
 }
 
 function samePairing(left: PairingOffer, right: PairingOffer): boolean {

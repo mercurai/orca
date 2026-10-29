@@ -1,6 +1,7 @@
 import { getRepoSshConnectionId } from '../../../../shared/execution-host'
 import type { Repo } from '../../../../shared/repo-types'
 import { readRepoWorktreeAdminFingerprintShared } from '../../../runtime/repo-worktree-admin-fingerprint'
+import { wslDistroForPath } from '../../../wsl/wsl-unc-access-gate'
 
 // Why: the fingerprint reads HEAD and its ref tip exactly, but sparse-checkout edits are invisible to
 // it and a tip in packed-refs or reftable only gets an mtime + size stamp, so a real scan still runs
@@ -16,7 +17,11 @@ export function canFingerprintDetectedWorktreeScan(
   repo: Repo,
   localWorktreeGitOptions: { wslDistro?: string }
 ): boolean {
-  return !getRepoSshConnectionId(repo) && !localWorktreeGitOptions.wslDistro
+  return (
+    !getRepoSshConnectionId(repo) &&
+    !localWorktreeGitOptions.wslDistro &&
+    !wslDistroForPath(repo.path)
+  )
 }
 
 export function readDetectedWorktreeScanFingerprint(
