@@ -17,8 +17,8 @@ in the [README](../README.md), [manifest](../patches.yaml) and
 
 No default landing, final qualification, version reservation, tag, publication, installation,
 loaded-runtime acceptance or recurring activation is complete. Published Mercurai remains
-v1.4.237-mercurai.2. Preparation PR80/82 are temporarily draft for targeted RED/GREEN;
-restore readiness and run the complete final matrix before promotion.
+v1.4.237-mercurai.2. Controller PR80 is ready for review and full CI; recovery PR82
+remains draft. Complete the exact final matrix before promotion.
 
 ## Target, workspaces and evidence
 
@@ -28,15 +28,15 @@ restore readiness and run the complete final matrix before promotion.
 | Tag object / peeled commit | 0360ad49840ab10d6493aa6c26c7d066d641eb95 / 86ad9d95cac792f3d1359d886cef9fb9b0aadd47                               |
 | Frozen main                | cbbaa2d7635297916ea257a0287cc4ec6c12af25;115commits/2738changedfiles beyond823ca687                               |
 | Source repair input        | 8218bf9d2151b448cc1f1eaa97fc28662d64890f, tree3658a8b6077f446c1a99bb69131a7457141fd9d0;14linearcommits after823ca |
-| Controller                 | remote6c04784aa3f21df1e57d9938efb18e3f758ea669;manifest registers 487142e6                                        |
+| Controller                 | remote930c7e2541b18245a9a03c1afbc9ced4e203db20;local manifest registers 2ec508d3                                  |
 
 Owner for all three workspaces is this session, designated release owner by the user.
 
 - Active integration: C:/Users/svere/orca/worktrees/orca-upstream-integration-cbbaa-20261027,
-  branch patch/current-main-release-cbbaa. Remote487142e6040c4183eb243e62ec8c1e1303760e40,
-  treea403779c6388dd6e9beeee3082bad8a841b962d0; reviewed composition, service-level
-  removal regressions and four-file WSL fixes over frozen main. Fresh GREEN and full
-  qualification remain pending. Related recovery preparationPR82.
+  branch patch/current-main-release-cbbaa. Remote2ec508d36b87499caadfc561bb3c6954b09ae47c,
+  tree095d127e797ed1588f0ce961252d513e75fd3ff4; six linear commits include reviewed
+  WSL fixes, pairing fixture isolation and the large-diff ratchet repair after real RED.
+  Fresh GREEN and full qualification remain pending. Related recovery preparationPR82.
 - Recovery source: C:/Users/svere/orca/worktrees/orca-upstream-integration-823ca-20261026,
   branch patch/current-main-release-823ca. Its241floor is repair input, not publishing target.
 - Controller: C:/Users/svere/orca/worktrees/release-registration-20261023,
@@ -49,18 +49,22 @@ No suffix is reserved. Later arrivals stay queued after this freeze; report obse
 Latest observed official main7f4c8f606435d4ca90964e176e860626ffba918a andstablev1.4.244
 (published2026-10-29T03:55:29Z) supersede the previously queued observations aftercbbaa.
 Finish the frozen revision's verification before admitting another integration generation.
-The manifest registers255unique existing tests; no full qualification is claimed.
+The manifest registers256unique existing tests; no full qualification is claimed.
 
-| Revision / hosted run           | Observed result                                                                                                |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| ad46260 /40469222124            | Windows1349passed/16skipped; costs and610contracts passed; persistence128passed/15failed                       |
-| 8218bf9 /40472710805            | All3jobs passed: Windows99files/1351tests/16skip; costs237Linux,232Win/5skip;610contracts;143persistence tests |
-| 9bd7897 /40470764646            | Controller412Node tests and9template checks passed,0failures/skips                                             |
-| 94c7a48 /40844702585            | Windows1360passed/16skip; both cost jobs and611contracts passed; persistence266passed/4meaningful WSL failures |
-| 6c04784 /40844758383            | Controller412Node tests and9template checks passed,0failures/skips                                             |
-| 487142e /40845602179            | Independent four-file fix review accepted; fresh targeted hosted run pending                                   |
-| eba9 /40453877833               | Earlier full matrix had29unit assertion failures plus fake-WSL E2E failure; not qualified                      |
-| d839+controller196 /40451794792 | Predecessor dry packaging passed; publish skipped; provisional241label unreserved                              |
+| Revision / hosted run           | Observed result                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| ad46260 /40469222124            | Windows1349passed/16skipped; costs and610contracts passed; persistence128passed/15failed                           |
+| 8218bf9 /40472710805            | All3jobs passed: Windows99files/1351tests/16skip; costs237Linux,232Win/5skip;610contracts;143persistence tests     |
+| 9bd7897 /40470764646            | Controller412Node tests and9template checks passed,0failures/skips                                                 |
+| 94c7a48 /40844702585            | Windows1360passed/16skip; both cost jobs and611contracts passed; persistence266passed/4meaningful WSL failures     |
+| 6c04784 /40844758383            | Controller412Node tests and9template checks passed,0failures/skips                                                 |
+| 487142e /40845602179            | WSL persistence270passed; Windows pairing teardown3failed/1357passed/16skip; cost jobs passed                      |
+| 6d57e1e /40846970058            | All3jobs passed after fixture-only isolation; Windows1360passed/16skip, costs and270persistence passed             |
+| 27b82a5 /40847371955            | Real-Git large-diff test reproduced ENOBUFS; contracts613passed/1failed; persistence270passed                      |
+| 930c7e2 /40845860124            | Controller412Node tests and9template checks passed; full40845916357 failed the large-diff ratchet before typecheck |
+| 2ec508d /40847881117            | Independent one-line buffer fix review accepted; fresh targeted hosted run pending                                 |
+| eba9 /40453877833               | Earlier full matrix had29unit assertion failures plus fake-WSL E2E failure; not qualified                          |
+| d839+controller196 /40451794792 | Predecessor dry packaging passed; publish skipped; provisional241label unreserved                                  |
 
 ## Immediate release work
 
@@ -80,9 +84,15 @@ deletion is retained; genuine move-projection tests remain explicitly selected.
 Hosted RED at94c7 reproduced both UNC aliases plus helper and service stale-removal
 failures. The independently reviewed4871 fix excludes UNC fingerprint reads, returns the
 serialized accepted-removal boolean and fences wake/status/retire effects around awaits.
-Helper and service assertions are unchanged. Scoped formatting/lint passed; fresh hosted
-GREEN is pending. Complete registration and the
-new source/floor, complete exact-candidate full CI/review, then publish through the protected
+Helper and service assertions are unchanged. The pairing IPC fixture now reuses the
+existing fake native addon with real files, preserving production/native ACL tests while
+avoiding directory teardown races. All three targeted jobs passed at6d57.
+
+Full controller CI at930c7e exposed a1MiB buffer overflow in the changed-file reader.
+An isolated real-Git7000-path test reproduced ENOBUFS at27b8; the reviewed one-line
+64MiB allowance matches the existing tracked-file reader without changing ratchet scope.
+The test and fix are ported byte-exact into this controller. Fresh2ec5 GREEN is pending;
+then complete exact-candidate full CI/review and publish through the protected
 release mechanism and verify installed/runtime identity. No performance, installed
 picker/request or actual Ultrafast execution claim is made.
 

@@ -16,10 +16,11 @@ patches:
     branch: patch/current-main-release-cbbaa
     status: ours-only
     base: cbbaa2d7635297916ea257a0287cc4ec6c12af25
-    commit: 487142e6040c4183eb243e62ec8c1e1303760e40
+    commit: 2ec508d36b87499caadfc561bb3c6954b09ae47c
     owner: harness
     added: 2026-10-27
     tests:
+      - config/scripts/check-flaky-test-pattern-ratchet.test.mjs
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
       - src/main/diagnostics/main-loop-span.test.ts
@@ -276,9 +277,9 @@ patches:
       - src/main/wsl/wsl-orphan-holder-release.test.ts
       - src/main/persistence/moving-wsl-projects/wsl-move-state-projection-scope.test.ts
     notes: >-
-      Remote preparation 487142e6040c4183eb243e62ec8c1e1303760e40 has three linear
+      Remote preparation 2ec508d36b87499caadfc561bb3c6954b09ae47c has six linear
       commits after official main cbbaa2d7635297916ea257a0287cc4ec6c12af25,
-      treea403779c6388dd6e9beeee3082bad8a841b962d0. Stable floor242 peels to
+      tree095d127e797ed1588f0ce961252d513e75fd3ff4. Stable floor242 peels to
       86ad9d95cac792f3d1359d886cef9fb9b0aadd47. Twelve conflicts were
       independently reviewed as semantic unions; no wholesale side selection.
       Seven accepted source8218 repair blobs are byte-identical; hosted40472710805
@@ -286,11 +287,16 @@ patches:
       tests at that recovery source, not this new candidate.
       Hosted40844702585 at94c7 reproduced four meaningful WSL failures with266persistence
       passes; Windows1360passed/16skip, both cost jobs and611contracts passed.
-      Independent review accepted this four-file fix: skip raw-UNC fingerprint reads,
-      return the serialized accepted-removal boolean and fence service status/wake/retire
-      effects before and after awaits. Assertions are unchanged; hosted40845602179 at4871
-      is pending. Complete exact-candidate qualification/review is still required.
-      Controller6c04784a hosted40844758383 passed412Node tests and9template checks.
+      Independent review accepted the four-file WSL fix; hosted40846970058 at6d57
+      passed all three jobs including Windows1360passed/16skip and270persistence tests.
+      A pairing IPC fixture uses the existing fake native addon with real file writes,
+      avoiding DACL teardown races without changing production or native ACL coverage.
+      Full controller930 CI failed on the large-diff reader ENOBUFS; real-Git regression
+      at27b8 hosted40847371955 reproduced it with613contracts passed/1failed.
+      The reviewed one-line64MiB buffer matches the existing tracked-file reader;
+      scope/baselines/error propagation are unchanged. Fresh40847881117 at2ec5 is pending.
+      Complete exact-candidate qualification/review is still required.
+      Controller930 hosted40845860124 passed412Node tests and9template checks.
       Latest observed official main7f4c8f606435d4ca90964e176e860626ffba918a andstable244 are queued
       after the cbbaa freeze; no moving-main or current-runtime claim is made.
       Release-only242 CI changes are already represented in frozen main; preserve

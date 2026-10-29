@@ -14,9 +14,9 @@ the final inputs; preserve that identity through review, CI, tagging and publica
 
 - Official main snapshot: `cbbaa2d7635297916ea257a0287cc4ec6c12af25`.
 - Stable floor: `v1.4.242`, peeled `86ad9d95cac792f3d1359d886cef9fb9b0aadd47`.
-- Remote candidate: `487142e6040c4183eb243e62ec8c1e1303760e40`, branch
+- Remote candidate: `2ec508d36b87499caadfc561bb3c6954b09ae47c`, branch
   `patch/current-main-release-cbbaa`.
-- Tree: `a403779c6388dd6e9beeee3082bad8a841b962d0`; three linear commits over main.
+- Tree: `095d127e797ed1588f0ce961252d513e75fd3ff4`; six linear commits over main.
 - Later observed main `7f4c8f606435d4ca90964e176e860626ffba918a` and stable244
   are queued after this freeze; report freshness as observed lag.
 
@@ -44,8 +44,12 @@ version through the canonical packaging override.
 Independent review accepted the integration and WSL fix boundaries, including the
 twelve semantic conflict resolutions. Hosted40844702585 reproduced four WSL failures
 at94c7 with266persistence tests passing; Windows1360passed/16skipped, both cost jobs
-and611contracts passed. Fresh40845602179 at4871 is pending. These partial checks do
-not qualify the release.
+and611contracts passed. Hosted40846970058 at6d57 passed all three targeted jobs after
+the pairing fixture's native-DACL teardown isolation. Full controller CI then exposed
+a1MiB changed-file output limit; real-Git regression40847371955 reproduced ENOBUFS
+with613contracts passing/1failing. The reader now matches the existing64MiB tracked-file
+bound without weakening scope. Fresh40847881117 at2ec5 is pending. These partial checks
+do not qualify the release.
 
 The recovery source `8218bf9d21` passed hosted
 [40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows
