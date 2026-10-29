@@ -256,6 +256,8 @@ jobs:
           src/renderer/src/components/tab-bar/cli-chat-resume-run.test.ts
           src/main/persistence/moving-wsl-projects/wsl-move-state-projection-scope.test.ts
           src/main/ipc/worktrees/listing/detected-worktree-scan-listing-distro.test.ts
+          src/main/ipc/filesystem/watchers/filesystem-watcher-real.test.ts
+          src/main/ipc/filesystem/watchers/filesystem-watcher-lifecycle-model.test.ts
           src/shared/secure-file-sync-writers-removed.test.ts
           src/main/connector-cloud/connector-turn-events
           src/main/connector-cloud/connector-poll-client.persistence.test.ts
