@@ -53,15 +53,15 @@ const AUTOMATIC = { settleInterrupted: 'finish-at-restart' } as const
 
 // An app update or crash between sending the copy and the host's commit leaves this record; the
 // startup recovery has no host to ask, so the projects stay fenced until a move settles it.
-function seedInterruptedCommit(): string {
+async function seedInterruptedCommit(): Promise<string> {
   const stuck = wslMoveCutoverFixture('stuck', 'blobs-transferred', {}, { repoIds: ['repo-9'] })
-  seedWslMoveCutover(userDataPath, stuck)
+  await seedWslMoveCutover(userDataPath, stuck)
   return stuck.migrationId
 }
 
 describe('the automatic mover previewing after an interrupted commit', () => {
   it('a read-only preview leaves the record and stays refused, as the dialog needs', async () => {
-    seedInterruptedCommit()
+    await seedInterruptedCommit()
     expect(await previewWslMove(world.deps, request)).toEqual({
       outcome: 'refused',
       code: 'wsl_move_already_in_flight'
@@ -70,7 +70,7 @@ describe('the automatic mover previewing after an interrupted commit', () => {
   })
 
   it('resets a commit the host never made, lifting the fence, and previews the move', async () => {
-    world.catalog.set(seedInterruptedCommit(), 'staged')
+    world.catalog.set(await seedInterruptedCommit(), 'staged')
     expect(await previewWslMove(world.deps, request, AUTOMATIC)).toMatchObject({
       outcome: 'ready',
       distro: 'Ubuntu'
@@ -88,7 +88,7 @@ describe('the automatic mover previewing after an interrupted commit', () => {
       onLoadedOrGone: vi.fn(() => () => {})
     }
     setWslMoveReloadableWindow(() => window)
-    world.catalog.set(seedInterruptedCommit(), 'committed')
+    world.catalog.set(await seedInterruptedCommit(), 'committed')
     expect(await previewWslMove(world.deps, request, AUTOMATIC)).toEqual({
       outcome: 'refused',
       code: 'wsl_move_finished_earlier_move',
@@ -111,7 +111,7 @@ describe('the automatic mover previewing after an interrupted commit', () => {
   })
 
   it("lets the user's Move finish a commit the automatic settle left for a restart", async () => {
-    world.catalog.set(seedInterruptedCommit(), 'committed')
+    world.catalog.set(await seedInterruptedCommit(), 'committed')
     await previewWslMove(world.deps, request, AUTOMATIC)
     const finishOnDesktop = vi.spyOn(world.deps, 'finishOnDesktop')
 
@@ -128,7 +128,7 @@ describe('the automatic mover previewing after an interrupted commit', () => {
   })
 
   it('leaves settling to a move this process is already running', async () => {
-    seedInterruptedCommit()
+    await seedInterruptedCommit()
     const running = claimWslMoveRun('Ubuntu')
     try {
       expect(await previewWslMove(world.deps, request, AUTOMATIC)).toEqual({

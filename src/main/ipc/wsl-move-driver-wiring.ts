@@ -251,7 +251,7 @@ async function connectWslMoveHost(
   if (!service || !(await connectWslMoveHostService(service, userDataPath, distro, mode))) {
     return null
   }
-  const { environment, notCarried } = ensureWslMoveDestinationBrowserLogins({
+  const { environment, notCarried } = await ensureWslMoveDestinationBrowserLogins({
     resolveEnvironment: () => resolveEnvironment(userDataPath, environmentId),
     resaveConnection: () => service.resaveConnection(environmentId),
     orcaProfileId: activeBrowserRoutePartitionOrcaProfileId,

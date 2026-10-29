@@ -62,9 +62,11 @@ export function createLaneWslHost(userDataPath: string): LaneWslHost {
     removed: () => {}
   })
   const refuse = (): Promise<never> => Promise.reject(new Error('The lane never removes a host'))
-  const connector = createWslHostConnector({
+  let connector: WslHostConnector | null = null
+  const onChange = service.connectionChangeListener(() => connector)
+  connector = createWslHostConnector({
     userDataPath,
-    onChange: service.handleConnectionChange.bind(service),
+    onChange,
     hasUserVisibleWork: (distro) => service.hasUserVisibleWork(distro),
     isKnownDistro: (distro) => service.isKnownDistro(distro),
     runtime: { call: refuse, census: refuse }

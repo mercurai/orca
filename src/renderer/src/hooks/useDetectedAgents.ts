@@ -74,6 +74,14 @@ export function useDetectedAgents(
   )
   const localContextKey =
     completeLocalContextKey ?? (target?.kind === 'local' ? target.contextKey : undefined)
+  const localLaunchSettingsKey = useAppStore((s) =>
+    JSON.stringify([
+      s.settings?.agentCmdOverrides ?? null,
+      s.settings?.agentDefaultArgs ?? null,
+      s.settings?.agentDefaultEnv ?? null
+    ])
+  )
+  const previousLocalLaunchSettingsKey = useRef<string | null>(null)
   const remoteTargetKey =
     targetKind === 'ssh' && targetId
       ? `ssh:${targetId}`
@@ -196,6 +204,10 @@ export function useDetectedAgents(
       observedRemoteTargetKeysRef.current.add(remoteTargetKey)
     }
     const state = useAppStore.getState()
+    const localLaunchSettingsChanged =
+      previousLocalLaunchSettingsKey.current !== null &&
+      previousLocalLaunchSettingsKey.current !== localLaunchSettingsKey
+    previousLocalLaunchSettingsKey.current = localLaunchSettingsKey
     if (targetKind === 'ssh' && targetId) {
       const failedWhileOffline =
         sshConnected === false && state.remoteAgentInventoryOutcome(targetId) === 'failed'
@@ -231,6 +243,10 @@ export function useDetectedAgents(
         void (includeDisabled
           ? state.ensureAllDetectedAgents(localWorktreeId)
           : state.ensureDetectedAgents(localWorktreeId))
+      } else if (targetKind === 'local' && localLaunchSettingsChanged) {
+        void (includeDisabled
+          ? state.refreshAllDetectedAgents(localWorktreeId)
+          : state.refreshDetectedAgents(localWorktreeId))
       }
     }
   }, [
@@ -247,7 +263,8 @@ export function useDetectedAgents(
     localProbePending,
     localWorktreeId,
     runtimeWorktreeId,
-    localContextKey
+    localContextKey,
+    localLaunchSettingsKey
   ])
 
   return { detectedIds, isLoading, detectionFailed, isRefreshing, needsServerUpdate, refresh }

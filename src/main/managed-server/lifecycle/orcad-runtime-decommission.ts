@@ -158,16 +158,21 @@ async function unlinkEnvironmentLocally(
   deployment: OrcadSshDeploymentLink,
   policy: ManagedOrcadStopPolicy
 ): Promise<void> {
-  // Remove registration before releasing claims so crashes leave a resumable hidden target.
-  removeManagedOrcadEnvironment(userDataPath, environment.id)
+  // Environment first: a crash before the claim is released leaves a hidden target to resume,
+  // never a linked server whose SSH target was already handed back.
+  await removeManagedOrcadEnvironment(userDataPath, environment.id)
   await policy.retireLocalState(environment.id)
   await closeOrcadManagedTunnel(environment.id)
   const { claims } = requireManagedOrcadInfrastructure()
   claims.releaseForUserRemoval(deployment.sshTargetId, environment.id)
   clearManagedOrcadUpdateDeferral(environment.id)
   await claims.flush()
-  // Clear journals after the fence; stale leftovers are recoverable on later conversion.
-  removeOrcadMigrationJournalsForDestination(userDataPath, deployment.sshTargetId, environment.id)
+  // After the fence: a crash between leaves a stale journal a later conversion clears.
+  await removeOrcadMigrationJournalsForDestination(
+    userDataPath,
+    deployment.sshTargetId,
+    environment.id
+  )
 }
 
 export function cancelManagedOrcadStop(

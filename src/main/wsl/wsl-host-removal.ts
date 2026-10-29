@@ -6,6 +6,7 @@
 import { errorMessage } from '../../shared/error-message'
 import { wslHostServerStopReason } from '../../shared/wsl-host-failure-copy'
 import {
+  findWslHostDeployment,
   removeWslHostEnvironment,
   setWslHostPendingStop
 } from '../../shared/runtime-environment-wsl-host-store'
@@ -16,13 +17,52 @@ import type { WslHostDistroCandidate } from './wsl-host-distro-list'
 import type { WslHostConnector } from './wsl-host-service'
 import { noteWslHostUserAction } from './wsl-host-user-actions'
 import { forgetWslHostKeptForPeers, recordWslHostKeptForPeers } from './wsl-host-kept-for-peers'
+import { forgetWslHostToWake } from './wsl-host-early-wake'
 
 export type WslHostRemoval = { serverStop: WslHostServerStop; removed: boolean }
+
+/** A stale stop cannot retire the status or wake intent of a replacement host. */
+export async function removeWslHostAndPublish(
+  userDataPath: string,
+  connector: WslHostConnector | null,
+  record: WslHostDeploymentRecord,
+  owner: {
+    currentRecord: () => WslHostDeploymentRecord | null
+    close: (record: WslHostDeploymentRecord) => void
+    retire: () => Promise<void>
+  }
+): Promise<WslHostServerStop> {
+  const removal = await removeWslHostServer(userDataPath, connector, record, () => {
+    const current = owner.currentRecord()
+    return current?.createdAt === record.createdAt && current.distroId === record.distroId
+  })
+  const stillOwnsRemoval = (): boolean => {
+    const current = owner.currentRecord()
+    return removal.removed ? current === null : current?.createdAt === record.createdAt
+  }
+  if (!stillOwnsRemoval()) {
+    return removal.serverStop
+  }
+  await forgetWslHostToWake(userDataPath, record.distro)
+  if (!stillOwnsRemoval()) {
+    return removal.serverStop
+  }
+  if (removal.removed) {
+    await owner.retire()
+  } else {
+    owner.close(owner.currentRecord() ?? record)
+  }
+  return removal.serverStop
+}
 
 export async function removeWslHostServer(
   userDataPath: string,
   connector: WslHostConnector | null,
-  record: WslHostDeploymentRecord
+  record: WslHostDeploymentRecord,
+  isCurrent: () => boolean = () => {
+    const owner = findWslHostDeployment(userDataPath, record.environmentId)
+    return owner?.createdAt === record.createdAt && owner.distroId === record.distroId
+  }
 ): Promise<WslHostRemoval> {
   let serverStop: WslHostServerStop = { stopped: true }
   if (connector) {
@@ -30,6 +70,7 @@ export async function removeWslHostServer(
     const current = await connector
       .resolveDistroName(record.distro, record.distroId)
       .catch(() => null)
+    if (!isCurrent()) return { serverStop, removed: false }
     if (current !== false) {
       // Under its current name: a renamed distro never reads as running under the old one.
       // Never boots: a stopped distro is itself a proven stop.
@@ -41,52 +82,67 @@ export async function removeWslHostServer(
           reason: errorMessage(error)
         }))
     }
+    if (!isCurrent()) return { serverStop, removed: false }
     await connector.disconnect(record.distro)
     // Without its holder the distro idles out, pending or not.
+    if (!isCurrent()) return { serverStop, removed: false }
     await connector.releaseHolder(record.distro)
   }
-  serverStop = noteServerKeptForPeers(userDataPath, record.environmentId, serverStop)
+  if (!isCurrent()) return { serverStop, removed: false }
   if (serverStop.stopped) {
-    removeWslHostEnvironment(userDataPath, record.environmentId)
-    // Every Remove (sidebar or Settings) is the user's: the move orchestrator never removes a
-    // host. Only on the proven stop, and before the service's cleanup await can fail.
-    noteWslHostUserAction({ kind: 'removed', distro: record.distro })
-    return { serverStop, removed: true }
+    const stopped = serverStop
+    let markerFailed = false
+    let markerError: unknown
+    try {
+      const removed = await removeWslHostEnvironment(
+        userDataPath,
+        record.environmentId,
+        record.createdAt,
+        () => {
+          try {
+            noteServerKeptForPeers(userDataPath, record.environmentId, stopped)
+          } catch (error) {
+            markerFailed = true
+            markerError = error
+            throw error
+          }
+        }
+      )
+      if (removed && !findWslHostDeployment(userDataPath, record.environmentId)) {
+        noteWslHostUserAction({ kind: 'removed', distro: record.distro })
+      }
+      return { serverStop, removed }
+    } catch (error) {
+      if (!markerFailed) throw error
+      serverStop = {
+        stopped: false,
+        verdict: stopped.keptForOtherDesktops ? 'live' : 'unverifiable',
+        ...wslHostServerStopReason('removalUnrecorded', { detail: errorMessage(markerError) })
+      }
+    }
   }
+
   const { reason, reasonCode, reasonParams } = serverStop
-  setWslHostPendingStop(userDataPath, record.environmentId, {
+  await setWslHostPendingStop(userDataPath, record.environmentId, {
     since: Date.now(),
     reason,
     ...(reasonCode ? { reasonCode } : {}),
     ...(reasonCode && reasonParams ? { reasonParams } : {}),
     verdict: serverStop.verdict ?? 'unverifiable'
-  })
+  }, record.createdAt)
   return { serverStop: { ...serverStop, kept: true }, removed: false }
 }
 
-/** R39: undo of a move onto this host must not read a server kept for another Orca as stopped. */
+/** The marker is written before deletion so a crash cannot hide a peer-owned server. */
 function noteServerKeptForPeers(
   userDataPath: string,
   environmentId: string,
-  serverStop: WslHostServerStop
-): WslHostServerStop {
-  if (!serverStop.stopped) {
-    return serverStop
-  }
-  try {
-    if (serverStop.keptForOtherDesktops) {
-      recordWslHostKeptForPeers(userDataPath, environmentId)
-    } else {
-      forgetWslHostKeptForPeers(userDataPath, environmentId)
-    }
-    return serverStop
-  } catch (error) {
-    // Unrecorded, a later undo would take the kept server for stopped; keep the host listed instead.
-    return {
-      stopped: false,
-      verdict: serverStop.keptForOtherDesktops ? 'live' : 'unverifiable',
-      ...wslHostServerStopReason('removalUnrecorded', { detail: errorMessage(error) })
-    }
+  serverStop: Extract<WslHostServerStop, { stopped: true }>
+): void {
+  if (serverStop.keptForOtherDesktops) {
+    recordWslHostKeptForPeers(userDataPath, environmentId)
+  } else {
+    forgetWslHostKeptForPeers(userDataPath, environmentId)
   }
 }
 
@@ -117,16 +173,16 @@ export async function readdPendingWslHost(
 }
 
 /** A pending host connects only for the user's own Connect or Add, which withdraws its Remove. */
-export function admitConnectToPendingHost(
+export async function admitConnectToPendingHost(
   userDataPath: string,
   record: WslHostDeploymentRecord,
   withdraw: boolean
-): void {
+): Promise<void> {
   if (!record.pendingStop) {
     return
   }
   if (!withdraw) {
     throw new Error(wslHostRemovalPendingMessage(record.distro))
   }
-  setWslHostPendingStop(userDataPath, record.environmentId, null)
+  await setWslHostPendingStop(userDataPath, record.environmentId, null, record.createdAt)
 }

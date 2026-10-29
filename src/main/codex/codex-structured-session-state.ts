@@ -1,3 +1,4 @@
+import type { CodexSpeedRequestState } from './codex-structured-speed-state'
 import type { CodexAppliedSettings } from './codex-structured-applied-settings'
 import type { StructuredAgentSessionChildWorkProducer } from '../native-chat/agent-session-wire/structured-agent-session-subagent-rows'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
@@ -36,6 +37,7 @@ import type { CodexSandboxPolicy } from './codex-structured-sandbox-policy'
 import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 
 export type CodexSessionCatalogAccess = AgentModelCatalogSessionAccess & {
+  isListing?: () => boolean
   read?: (verifiedOnly?: boolean) => ReturnType<AgentModelCatalogStore['get']>
   demand?: (legacy?: boolean) => Promise<unknown>
 }
@@ -130,10 +132,11 @@ export type CodexStructuredSessionAdapterDeps = {
     sessionId: string,
     verifiedOnly?: boolean
   ) => ReturnType<AgentModelCatalogStore['get']>
+  isModelCatalogListing?: (sessionId: string) => boolean
   demandModelCatalog?: (sessionId: string, legacy?: boolean) => Promise<unknown>
 }
 
-export type CodexSession = {
+export type CodexSession = CodexSpeedRequestState & {
   events?: StructuredAgentSessionEventSink
   account?: AgentSessionAccountKind
   connection: CodexAppServerConnection

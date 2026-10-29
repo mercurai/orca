@@ -36,11 +36,11 @@ const MAIN_WINDOW_ID = 7
 const HOST = cutover('move-1', 'destination-committed').destinationEnvironmentId
 let userDataPath: string
 
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-undo-open-'))
   vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
   registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
   loadWslMoveFence(userDataPath)
 })
 afterEach(() => {

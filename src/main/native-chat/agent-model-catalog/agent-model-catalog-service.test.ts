@@ -75,6 +75,7 @@ describe('agent model catalog service', () => {
     })
     expect(await discover(service, { agent: 'grok', sessionId: 'session-1' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     // A second read while the probe is in flight must not start another, and a
@@ -112,7 +113,7 @@ describe('agent model catalog service', () => {
 
     expect(
       await service.read({ agent: 'grok', sessionId: 'session-1', waitForListing: true })
-    ).toEqual({ origin: 'unknown' })
+    ).toEqual({ origin: 'unknown', catalogState: 'unknown' })
 
     expect(drivesRecord).toHaveBeenCalledWith(agentSessionConversationView(pinned))
     expect(probe).not.toHaveBeenCalled()
@@ -135,6 +136,7 @@ describe('agent model catalog service', () => {
     // The record-less read follows the CURRENT selection: unknown, never gpt-old.
     expect(await discover(service, { agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce())
@@ -222,6 +224,7 @@ describe('agent model catalog service', () => {
     })
     expect(await discover(service, { agent: 'grok', sessionId: 'session-1' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1))
@@ -229,7 +232,8 @@ describe('agent model catalog service', () => {
     expect(
       await service.read({ agent: 'grok', sessionId: 'session-1', waitForListing: true })
     ).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     expect(probe).toHaveBeenCalledTimes(1)
   })
@@ -248,7 +252,8 @@ describe('agent model catalog service', () => {
       probes: { grok: probe }
     })
     expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     expect(probe).not.toHaveBeenCalled()
   })
@@ -285,6 +290,7 @@ describe('agent model catalog service', () => {
       const { service } = coldService(probe)
       expect(await discover(service, { agent: 'grok' })).toEqual({
         origin: 'unknown',
+        catalogState: 'loading',
         listingInProgress: true
       })
       const waited = service.read({ agent: 'grok', waitForListing: true })
@@ -322,7 +328,7 @@ describe('agent model catalog service', () => {
       const { service } = coldService(() => pending.promise)
       const waited = service.read({ agent: 'grok', waitForListing: true })
       pending.reject(new Error('spawn failed'))
-      expect(await waited).toEqual({ origin: 'unknown' })
+      expect(await waited).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     })
 
     it('does not wait or report a listing while a failure is inside its TTL', async () => {
@@ -334,10 +340,16 @@ describe('agent model catalog service', () => {
         Promise.reject(new Error('spawn failed'))
       )
       expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
       expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
+      })
+      expect(await service.read({ agent: 'grok' })).toEqual({
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
       expect(probe).not.toHaveBeenCalled()
     })
@@ -352,7 +364,8 @@ describe('agent model catalog service', () => {
         resolveAccountHome: async () => GROK_HOME('/homes/selected')
       })
       expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
     })
 
@@ -501,7 +514,8 @@ describe('agent model catalog service', () => {
       expect(
         await service.read({ agent: 'opencode', sessionId: 'session-1', waitForListing: true })
       ).toEqual({
-        origin: 'unknown'
+        origin: 'unknown',
+        catalogState: 'unknown'
       })
       expect(probe).not.toHaveBeenCalled()
     })
@@ -578,7 +592,7 @@ it.each(['cold', 'warm'] as const)(
       if (mode === 'warm') {
         expect(replies.at(-1)).toMatchObject({ models: [{ id: '/5' }] })
       } else {
-        expect(replies.at(-1)).toEqual({ origin: 'unknown' })
+        expect(replies.at(-1)).toEqual({ origin: 'unknown', catalogState: 'unknown' })
       }
       expect(run).toHaveBeenCalledTimes(mode === 'warm' ? 6 : 5)
       second()
@@ -632,7 +646,10 @@ it.each(['opencode', 'opencode2', 'omp'] as const)(
         await service.demand(params('w1'))
         expect(service.snapshot(params('w1'))).toMatchObject({ models: [{ id: '/w1' }] })
         if (inSessionWorkspace) {
-          expect(service.snapshot(params('w2'))).toEqual({ origin: 'unknown' })
+          expect(service.snapshot(params('w2'))).toEqual({
+            origin: 'unknown',
+            catalogState: 'unknown'
+          })
         } else {
           expect(service.snapshot(params('w2'))).toMatchObject({ models: [{ id: '/w2' }] })
         }
@@ -685,7 +702,7 @@ it('shares account rows while keeping workspace default provenance separate', as
     expect(await service.prepareSaved(one)).toMatchObject({
       models: [{ id: 'account-default', isDefault: true }]
     })
-    expect(service.snapshot(two)).toEqual({ origin: 'unknown' })
+    expect(service.snapshot(two)).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     expect(await service.prepareSaved(two)).toMatchObject({
       models: [{ id: 'account-default', isDefault: false }]
     })

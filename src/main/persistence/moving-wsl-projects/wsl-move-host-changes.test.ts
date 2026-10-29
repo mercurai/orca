@@ -235,7 +235,7 @@ describe('R38: the distro unregistered or renamed', () => {
     expect(rig.world.repos.map((repo) => repo.id)).toEqual(['repo-1'])
 
     // The escape hatch (#29833) drops the newest committed move locally.
-    removeWslMoveCutover(rig.userDataPath, cutover.migrationId)
+    await removeWslMoveCutover(rig.userDataPath, cutover.migrationId)
     await retain()
     expect(resolveWslMoveFence(rig.userDataPath).hidden.repoIds.size).toBe(0)
   })

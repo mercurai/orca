@@ -93,15 +93,15 @@ export function wslMoveReleaseRefusal(
 }
 
 /** Drops the committed move so its retained source rows list here again. */
-export function releaseWslMove(
+export async function releaseWslMove(
   userDataPath: string,
   move: WslMoveCutover
-): WslMoveUseLocallyResult {
+): Promise<WslMoveUseLocallyResult> {
   if (isWslMoveRunning(move.manifest.source.distro)) {
     return { released: false, reason: 'move-running' }
   }
   try {
-    removeCommittedWslMoveCutover(userDataPath, move.migrationId)
+    await removeCommittedWslMoveCutover(userDataPath, move.migrationId)
   } catch (error) {
     const detail = describe(error)
     return detail === 'wsl_move_superseded'
@@ -117,10 +117,10 @@ export function releaseWslMove(
   }
 }
 
-export function bringWslMovedProjectBack(
+export async function bringWslMovedProjectBack(
   userDataPath: string,
   ref: WslMoveProjectRef
-): WslMoveUseLocallyResult {
+): Promise<WslMoveUseLocallyResult> {
   const found = findWslMovedProjectMove(userDataPath, ref)
   return 'move' in found ? releaseWslMove(userDataPath, found.move) : found
 }

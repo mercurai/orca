@@ -159,7 +159,7 @@ test("a moved project's existing chats stay listed and openable on this computer
 
     seedMovedProjectTabs(session.userDataDir, worktreeId)
     await seedChatRecord(session.userDataDir, worktreeId)
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       session.userDataDir,
       wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: [repoId] })
     )
@@ -237,7 +237,7 @@ test('"Use on this computer again" brings a moved project back as it was before 
 
     seedMovedProjectTabs(session.userDataDir, worktreeId)
     await seedChatRecord(session.userDataDir, worktreeId)
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       session.userDataDir,
       wslMoveCutoverFixture('move-1', 'retained', {}, { repoIds: [repoId] })
     )

@@ -1,3 +1,5 @@
+import { resolveEnvironment } from '../../shared/runtime-environment-store'
+/** What a WSL host's connection change writes to its records, and how the UI sees its status. */
 import { refreshWslHostPairing } from '../../shared/runtime-environment-wsl-host-store'
 import {
   readWslHostDeployments,
@@ -14,32 +16,25 @@ import type { WslOrcadConnectionStatus } from './wsl-orcad-connection-status'
 import type { WslLivenessUnverifiableReason } from './wsl-orcad-liveness-verdict'
 
 /** Saves an explicit re-pair or a moved bridge; true when the pairing changed. */
-export function persistWslHostConnection(
+export async function persistWslHostConnection(
   userDataPath: string,
   record: WslHostDeploymentRecord,
-  connection: WslOrcadConnection
-): boolean {
+  connection: WslOrcadConnection,
+  shouldPublish: () => boolean
+): Promise<{ ok: true; pairingChanged: boolean } | { ok: false }> {
   try {
-    return refreshWslHostPairing(userDataPath, record.environmentId, {
+    const current = resolveEnvironment(userDataPath, record.environmentId)
+    const saved = await refreshWslHostPairing(userDataPath, record.environmentId, {
       pairingCode: connection.pairingOffer,
       localPort: connection.localPort,
-      remotePort: connection.remotePort
-    }).pairingChanged
+      remotePort: connection.remotePort,
+      shouldPublish,
+      expectedPairingRevision: current.pairingRevision ?? current.createdAt
+    })
+    return saved.superseded ? { ok: false } : { ok: true, pairingChanged: saved.pairingChanged }
   } catch (error) {
     console.warn(`[wsl-hosts] Could not save the new pairing for ${record.distro}:`, error)
-    return false
-  }
-}
-
-/** Saves the host's live connection's pairing and ports; transports on a changed pairing retire. */
-export function saveWslHostConnection(
-  deps: { userDataPath: () => string; pairingChanged: (environmentId: string) => void },
-  record: WslHostDeploymentRecord | null,
-  connections: { get(distro: string): WslOrcadConnection | null } | null
-): void {
-  const connection = record ? connections?.get(record.distro) : null
-  if (record && connection && persistWslHostConnection(deps.userDataPath(), record, connection)) {
-    deps.pairingChanged(record.environmentId)
+    return { ok: false }
   }
 }
 

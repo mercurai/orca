@@ -344,7 +344,6 @@
 2 test-no-real-time-wait:src/main/ipc/pty/pty-spawn-cwd-fallback-hung-folder.test.ts
 1 test-no-real-time-wait:src/main/ipc/rebinding-file-watch-noise.test.ts
 1 test-no-real-time-wait:src/main/ipc/rebinding-file-watch.test.ts
-3 test-no-real-time-wait:src/main/ipc/runtime-environments/runtime-environment-preference.test.ts
 5 test-no-real-time-wait:src/main/ipc/runtime-environments/runtime-environment-request-connections.test.ts
 2 test-no-real-time-wait:src/main/ipc/workspace-cleanup-snapshot-ipc.test.ts
 1 test-no-real-time-wait:src/main/ipc/worktree-base-directory-poller-marker-fanout.test.ts
@@ -922,7 +921,6 @@
 1 test-no-wall-clock:src/main/orca-profiles/profile-cloud-auth-status.test.ts
 1 test-no-wall-clock:src/main/orca-profiles/profile-cloud-org-members-service.test.ts
 1 test-no-wall-clock:src/main/orca-profiles/profile-cloud-service-auth-retry.test.ts
-4 test-no-wall-clock:src/main/orca-profiles/profile-cloud-service-connect-overlap.test.ts
 3 test-no-wall-clock:src/main/orca-profiles/profile-cloud-service-refresh.test.ts
 2 test-no-wall-clock:src/main/orca-profiles/profile-cloud-service-sign-out-connect-race.test.ts
 1 test-no-wall-clock:src/main/orca-profiles/profile-cloud-service.test.ts

@@ -212,7 +212,7 @@ async function moveQuiesced(
   // Still short of `blobs-transferred`: no commit can exist yet, so a refusal here always resets.
   await proveStillExited(deps, quiesced, prepared)
   stopIfCancelled()
-  const transferred = advanceWslMove(deps, staged, 'blobs-transferred')
+  const transferred = await advanceWslMove(deps, staged, 'blobs-transferred')
   deps.progress({
     distro,
     step: 'copying',

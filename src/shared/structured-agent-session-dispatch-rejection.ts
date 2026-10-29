@@ -18,6 +18,27 @@ export const DISPATCH_REJECTED_CODEX_QUEUE_FULL = 'codex structured dispatch que
 /** The provider confirmed a queued frame was withdrawn before execution. */
 export const DISPATCH_REJECTED_CANCELLED = 'provider_cancelled_before_start'
 
+/** The durable marker older clients hide, where this refusal historically had one. */
+export function legacyDispatchRejectionMarker(
+  kind: SubmissionRejectionKind,
+  provider?: string
+): string | undefined {
+  if (kind === 'cancelled') {
+    return DISPATCH_REJECTED_CANCELLED
+  }
+  if (kind === 'writeFailed') {
+    return DISPATCH_REJECTED_WRITE_FAILED
+  }
+  if (kind === 'queueFull') {
+    return provider === 'codex'
+      ? DISPATCH_REJECTED_CODEX_QUEUE_FULL
+      : provider === 'claude'
+        ? DISPATCH_REJECTED_QUEUE_FULL
+        : undefined
+  }
+  return undefined
+}
+
 /** Read-only restart marker; new hosts write a sentence because released clients print it raw. */
 export const DISPATCH_REJECTED_HOST_RESTARTED = 'host_restarted_before_delivery'
 
@@ -85,6 +106,8 @@ const KIND_CATEGORY = {
   conversationOpenInTerminal: 'startFailed',
   conversationOpenElsewhere: 'startFailed',
   restartFailed: 'startFailed',
+  speedSupportUnknown: 'content',
+  speedUnavailable: 'content',
   providerRejected: 'content',
   modelUnavailable: 'content',
   claudeEffortInvalid: 'content',
@@ -124,6 +147,8 @@ const KIND_VERDICT = {
   conversationOpenInTerminal: 'failure',
   conversationOpenElsewhere: 'failure',
   restartFailed: 'failure',
+  speedSupportUnknown: 'failure',
+  speedUnavailable: 'failure',
   providerRejected: 'failure',
   modelUnavailable: 'failure',
   claudeEffortInvalid: 'failure',

@@ -23,10 +23,10 @@ const accept = (worktreeId: string, sessionId?: string) =>
 const acceptCwd = (cwd: string | undefined, worktreeId?: string, sessionId?: string) =>
   Promise.resolve(assertWorkspaceAcceptsNewPty(undefined, worktreeId, sessionId, cwd))
 
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-spawn-'))
   loadWslMoveFence(userDataPath)
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
   listLiveDaemonPtyIds.mockReset()
 })
 afterEach(() => {

@@ -168,8 +168,6 @@ export async function readStructuredAgentSessionOptions(
       ...current,
       defaulted,
       confirmed,
-      ...(options.current.fastModeState ? { fastModeState: options.current.fastModeState } : {}),
-      ...(confirmed?.length ? { confirmed } : {}),
       ...(permissionMode ? { permissionMode } : {}),
       ...(live && options.current.reportedPermissionMode !== undefined
         ? { reportedPermissionMode: options.current.reportedPermissionMode }

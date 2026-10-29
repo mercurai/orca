@@ -1,5 +1,6 @@
 import { WslOrcadBridgeActivity, wslHostBridgeEvents } from './wsl-orcad-bridge-activity'
 import { listenWslOrcadStdioBridge } from './wsl-orcad-stdio-bridge'
+/** The production WSL side of `WslHostService`: one holder, connection manager and supervisor. */
 import { createWslOrcadPairingRecovery } from './wsl-orcad-pairing-repair'
 import {
   readSettledConfirmedRunningWslDistros,
@@ -13,7 +14,7 @@ import { findWslHostDeployment } from '../../shared/runtime-environment-wsl-host
 import { createWslDistroHolder, type WslDistroHolder } from './wsl-distro-holder'
 import { listWslHostDistros } from './wsl-host-distro-list'
 import { resolveWslDistroName } from './wsl-distro-registry-id'
-import type { WslHostConnector, WslHostReachability } from './wsl-host-service'
+import type { WslHostConnector, WslHostReachability } from './wsl-host-connector-contract'
 import { readWslDistroOrcadPublicKey } from './wsl-host-ssh-orcad-conflict'
 import {
   WslOrcadConnectionManager,
@@ -246,3 +247,5 @@ export function createWslHostConnector(options: {
     dispose: () => liveness.dispose()
   }
 }
+
+export type { WslHostConnector } from './wsl-host-connector-contract'

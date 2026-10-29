@@ -102,7 +102,7 @@ test("undo stops the host's copy first, so the project's terminal runs in one pl
       storePath,
       readFileSync(storePath, 'utf8').replaceAll(environmentId, move.destinationEnvironmentId)
     )
-    seedWslMoveCutover(session.userDataDir, move)
+    await seedWslMoveCutover(session.userDataDir, move)
     launched = await session.launch()
     const { page } = launched
     await waitForSessionReady(page)

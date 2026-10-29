@@ -112,8 +112,13 @@ export class AgentModelCatalogStore {
   }
 
   /** Live saves must not delay account-level discovery. */
-  isStale(entry: AgentModelCatalogEntry): boolean {
-    return agentModelCatalogEntryIsStale(entry, this.dueEntries.has(entry.fingerprint), this.now())
+  isStale(entry: AgentModelCatalogEntry, source: 'discovery' | 'latest' = 'discovery'): boolean {
+    return agentModelCatalogEntryIsStale(
+      entry,
+      this.dueEntries.has(entry.fingerprint),
+      this.now(),
+      source
+    )
   }
 
   failureDetail(fingerprint: string): string | null {
@@ -160,6 +165,7 @@ export class AgentModelCatalogStore {
     this.failures.expire(fingerprint)
   }
 
+  /** Account identity, command or environment changed; old work cannot certify the new account. */
   expireAgent(agent: string): void {
     this.retireListings(agent)
     retireAgentModelCatalogObservations(

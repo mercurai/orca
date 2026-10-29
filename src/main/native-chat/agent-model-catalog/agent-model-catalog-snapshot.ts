@@ -7,6 +7,7 @@ import { agentModelCatalogResultFromEntry } from './agent-model-catalog-entry'
 import { independentAgentModelCatalog } from './agent-model-catalog-discovery'
 import type {
   AgentModelCatalogReadParams,
+  AgentModelCatalogClaim,
   AgentModelCatalogServiceDeps
 } from './agent-model-catalog-service-contract'
 
@@ -149,6 +150,7 @@ export function createAgentModelCatalogSnapshot(
     if (stopped() || !bound) {
       return {
         origin: 'unknown',
+        catalogState: !params.savedOnly && resolving(params, false) ? 'loading' : 'unknown',
         ...(!params.savedOnly && resolving(params, false)
           ? { listingInProgress: true as const }
           : {})
@@ -170,10 +172,12 @@ export function projectAgentModelCatalogSnapshot(
     params.verifiedOnly &&
     (!listed || (independent && (!bound.exact || !deps.store.verified(listed))))
   ) {
-    return { origin: 'unknown' }
+    return { origin: 'unknown', catalogState: 'unknown' }
   }
   const display =
-    listed ?? (bound.exact && !params.verifiedOnly ? deps.store.observation(bound.base) : null)
+    listed ??
+    (!params.verifiedOnly && independent ? deps.store.get(bound.fingerprint) : null) ??
+    (bound.exact && !params.verifiedOnly ? deps.store.observation(bound.base) : null)
   const verified = bound.exact && listed !== null && deps.store.verified(listed)
   const result = display
     ? agentModelCatalogResultFromEntry(
@@ -187,8 +191,19 @@ export function projectAgentModelCatalogSnapshot(
         !independent || verified
       )
     : null
+  const unavailable = deps.store.failure(bound.fingerprint)?.unavailable
+  const available =
+    listed !== null &&
+    (!independent || deps.store.verified(listed)) &&
+    !deps.store.isStale(listed, 'latest') &&
+    !deps.store.hasActiveFailure(bound.fingerprint) &&
+    unavailable === undefined
+  const listing =
+    deps.store.isListing(bound.fingerprint) ||
+    (!params.savedOnly && resolving && deps.store.probeDue(bound.fingerprint))
   return {
     ...(result ?? { origin: 'unknown' }),
+    catalogState: available ? 'available' : listing ? 'loading' : 'unknown',
     ...(result?.listingNamesConfiguredModel &&
     deps.agentReadsProjectModelConfig?.(params.agent) === false
       ? { defaultHoldsInEveryWorkspace: true as const }
@@ -214,12 +229,8 @@ export function retireAgentModelCatalogRequests(
   bindings: Map<string, AgentModelCatalogBinding>,
   claims: Map<
     string,
-    {
-      identity: string
-      params: AgentModelCatalogReadParams
-      controller: AbortController
-      current?: () => boolean
-    }
+    Pick<AgentModelCatalogClaim, 'identity' | 'params' | 'controller'> &
+      Partial<Pick<AgentModelCatalogClaim, 'current'>>
   >,
   workspaceId?: string
 ): void {
@@ -276,5 +287,19 @@ export function agentModelCatalogSessionPeek(
     const bound = record && binding({ agent: record.provider, sessionId, inSessionWorkspace: true })
     const entry = bound ? deps.store.observation(bound.fingerprint) : null
     return entry && (!verifiedOnly || deps.store.verified(entry)) ? entry : null
+  }
+}
+
+export function agentModelCatalogSessionListing(
+  deps: AgentModelCatalogServiceDeps,
+  snapshot: (params: AgentModelCatalogReadParams) => AgentSessionModelCatalogResult
+) {
+  return (sessionId: string): boolean => {
+    const record = deps.getConversation(sessionId)
+    return (
+      record !== undefined &&
+      snapshot({ agent: record.provider, sessionId, inSessionWorkspace: true })
+        .listingInProgress === true
+    )
   }
 }

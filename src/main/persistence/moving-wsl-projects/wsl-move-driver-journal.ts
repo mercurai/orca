@@ -34,7 +34,7 @@ export async function journalSleptWslMove(
     if (exported.blockers.length > 0) {
       return refusal('wsl_move_export_incomplete', { reasons: [...exported.blockers] })
     }
-    return journalWslMove({
+    return await journalWslMove({
       userDataPath: deps.userDataPath,
       plan: prepared.plan,
       manifest: exported.manifest,

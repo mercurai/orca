@@ -63,7 +63,7 @@ it(
 
     await server.start()
     try {
-      const offer = server.createPairingOffer({ name: 'integration', scope: 'runtime' })
+      const offer = await server.createPairingOffer({ name: 'integration', scope: 'runtime' })
       if (!offer.available) {
         throw new Error('pairing unavailable')
       }

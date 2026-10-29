@@ -16,6 +16,7 @@ const {
   ORCAD_TEMPLATE_TARGETS_DIR
 } = require('../../src/shared/orcad-artifacts.ts')
 const { verifyPackagedOrcadTemplate } = require('./verify-packaged-orcad-template.cjs')
+const { packagedOrcadTemplateTargets } = require('./packaged-orcad-template-targets.cjs')
 const {
   compactPackagedOrcadRipgrep,
   resealSignedPackagedRipgrep
@@ -113,6 +114,8 @@ function resealOrcadTemplateManifest(templateDir, signedPaths) {
 // Notarization requires Developer ID on nested Mach-O: afterPack signs, reseals and verifies exact shipped bytes.
 async function finalizePackagedOrcadTemplate(resourcesDir, options) {
   const { platform, env = process.env, signMacBinary } = options
+  // Read first: a malformed target list must fail the build even when no template was built.
+  const targets = packagedOrcadTemplateTargets(env)
   const templateDir = join(resourcesDir, ORCAD_TEMPLATE_RESOURCE_DIR)
   if (!existsSync(templateDir)) {
     if (isOrcadTemplateRequired(env)) {
@@ -128,7 +131,7 @@ async function finalizePackagedOrcadTemplate(resourcesDir, options) {
     }
     resealOrcadTemplateManifest(templateDir, machO)
   }
-  compactPackagedOrcadRipgrep(resourcesDir)
+  compactPackagedOrcadRipgrep(resourcesDir, targets)
   referencePackagedOrcadBrowser(resourcesDir)
 }
 
@@ -155,7 +158,7 @@ function resealSignedWindowsApp(appDir, signedListFile) {
     .map((path) => path.slice(10))
   resealSignedPackagedRipgrep(resourcesDir, signedResources)
   resealSignedPackagedBrowser(resourcesDir, signedResources)
-  verifyPackagedOrcadTemplate(resourcesDir)
+  verifyPackagedOrcadTemplate(resourcesDir, packagedOrcadTemplateTargets())
   console.log(`[packaged-orcad-template] resealed ${signed.length} signed template file(s)`)
 }
 

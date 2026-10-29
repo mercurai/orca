@@ -15,6 +15,7 @@ import type { WslOrcadConnection } from './wsl-orcad-connection'
 export type WslHostRuntimeCallPort = {
   record: WslHostDeploymentRecord | null
   connector: WslHostConnector | null
+  current: (record: WslHostDeploymentRecord) => boolean
   deps: WslHostServiceDependencies
   removing: ReadonlySet<string>
   /** Hosts a confirmed stop parked: no runtime call reconnects them until the distro runs again. */
@@ -40,6 +41,9 @@ export async function ensureWslHostForRuntimeCall(
     return
   }
   const reachability = await connector.reachability(record.distro, environmentId)
+  if (!port.current(record)) {
+    throw new Error(wslHostRunRefusal(deps)?.message ?? wslHostNotConnectedMessage(record.distro))
+  }
   if (reachability === 'available') {
     return
   }
@@ -48,7 +52,8 @@ export async function ensureWslHostForRuntimeCall(
     throw new Error(refusal?.message ?? WSL_HOST_REMOVING_MESSAGE)
   }
   // A pending host never reconnects for a runtime call.
-  admitConnectToPendingHost(deps.userDataPath(), record, false)
+  await admitConnectToPendingHost(deps.userDataPath(), record, false)
+  if (!port.current(record)) throw new Error(wslHostNotConnectedMessage(record.distro))
   if (reachability === 'stopped') {
     parkStopped(record, port)
   }
@@ -75,7 +80,7 @@ function parkStopped(record: WslHostDeploymentRecord, port: WslHostRuntimeCallPo
   }
   const deferUntilRunning = port.deps.deferUntilRunning ?? deferUntilWslDistroRunning
   deferUntilRunning(distro, `wsl-host-parked:${environmentId}`, () => {
-    if (port.parked.delete(environmentId)) {
+    if (port.current(record) && port.parked.delete(environmentId)) {
       void resumeAfterStop(record, port).catch(() => {})
     }
   })
@@ -91,10 +96,11 @@ async function resumeAfterStop(
     connection &&
     (await port.connector?.reachability(record.distro, record.environmentId)) === 'available'
   ) {
+    if (!port.current(record)) return
     port.publishReady(record, connection)
     return
   }
-  if (port.isVisible()) {
+  if (port.current(record) && port.isVisible()) {
     await port.retry()
   }
 }

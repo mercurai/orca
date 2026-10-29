@@ -31,7 +31,9 @@ import type {
 
 // Bind key rotation to the authenticated socket so callers can re-key only themselves.
 export type DeviceSelfRpcContext = {
-  registerDeviceKey(params: RegisterDeviceKeyParams): RegisterDeviceKeyResult
+  registerDeviceKey(
+    params: RegisterDeviceKeyParams
+  ): RegisterDeviceKeyResult | Promise<RegisterDeviceKeyResult>
 }
 
 export type PairingRpcContext = {
@@ -153,7 +155,9 @@ export type RpcContext = {
   }
   // Authenticated runtime devices may manage only their own delegated phones.
   delegatedMobileDevices?: {
-    sync(phones: readonly DelegatedPhone[]): DelegatedMobileDeviceSyncResult
+    sync(
+      phones: readonly DelegatedPhone[]
+    ): DelegatedMobileDeviceSyncResult | Promise<DelegatedMobileDeviceSyncResult>
   }
   // Binary terminal transport is absent on Unix and non-E2EE WebSocket paths.
   sendBinary?: RpcBinarySender

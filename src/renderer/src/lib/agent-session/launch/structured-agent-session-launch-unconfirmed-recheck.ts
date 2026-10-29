@@ -21,6 +21,7 @@ export function recheckUnconfirmedStructuredAgentLaunches(executionHostId: Execu
       }
     }
   }
+  const rechecked = new Set<string>()
   for (const { worktreeId, sessionId } of launches) {
     if (
       getStructuredAgentSessionLaunchLifecycle(worktreeId, sessionId) !== 'visibility-unknown' ||
@@ -28,6 +29,11 @@ export function recheckUnconfirmedStructuredAgentLaunches(executionHostId: Execu
     ) {
       continue
     }
+    const key = JSON.stringify([executionHostId, worktreeId, sessionId])
+    if (rechecked.has(key)) {
+      continue
+    }
+    rechecked.add(key)
     try {
       retryStructuredAgentSessionLaunch(worktreeId, sessionId)
     } catch (error) {

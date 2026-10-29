@@ -3,7 +3,8 @@ import {
   applyNativeChatSessionOptionSettingsMutation,
   narrowStructuredLaunchSeedOptions,
   resolveNativeChatSessionOptionDefaults,
-  resolveStructuredLaunchSeedOptions
+  resolveStructuredLaunchSeedOptions,
+  structuredLaunchRequestedOptions
 } from './native-chat-session-option-defaults'
 import type { PersistedNativeChatSessionOptions } from './native-chat-session-options'
 
@@ -34,6 +35,46 @@ describe('older clients clearing a missing model', () => {
       })
     }
   )
+})
+
+describe('structuredLaunchRequestedOptions speed precedence', () => {
+  const replacements: [Record<string, string>, Record<string, string>, Record<string, string>][] = [
+    [{ serviceTier: 'synthetic-paid-id' }, { fastMode: 'false' }, { fastMode: 'false' }],
+    [{ serviceTier: 'default' }, { fastMode: 'true' }, { fastMode: 'true' }],
+    [
+      { fastMode: 'true' },
+      { serviceTier: 'synthetic-exact-id' },
+      { serviceTier: 'synthetic-exact-id' }
+    ]
+  ]
+  it.each(replacements)(
+    'a newer held speed replaces the explicit speed without sending both (%j, %j)',
+    (explicitSpeed, held, speed) => {
+      const explicit = { model: 'synthetic-model', permissionMode: 'ask', ...explicitSpeed }
+      expect(structuredLaunchRequestedOptions({ explicit, held })).toEqual({
+        model: 'synthetic-model',
+        permissionMode: 'ask',
+        ...speed
+      })
+      expect(explicit).toEqual({
+        model: 'synthetic-model',
+        permissionMode: 'ask',
+        ...explicitSpeed
+      })
+    }
+  )
+
+  it('keeps both saved values for canonical service-tier migration when there is no newer speed pick', () => {
+    const explicit = {
+      model: 'synthetic-model',
+      serviceTier: 'synthetic-exact-id',
+      fastMode: 'false'
+    }
+    expect(structuredLaunchRequestedOptions({ explicit, held: { effort: 'high' } })).toEqual({
+      ...explicit,
+      effort: 'high'
+    })
+  })
 })
 
 describe('resolveNativeChatSessionOptionDefaults', () => {

@@ -12,8 +12,13 @@ import {
 } from './structured-agent-session-pick-reply'
 import type { StructuredAgentSessionAdapter } from './structured-agent-session-adapter'
 import { pickAgentSessionOption } from '../../runtime/agent-session-record-options'
+import {
+  agentSessionRefusalError,
+  isAgentSessionRefusalError
+} from '../../../shared/agent-session-wire-refusals'
 
-function acceptsOptionPick(
+/** Whether the agent takes this pick: a permission mode it offers, or an option key it names. */
+export function acceptsOptionPick(
   agents: Pick<StructuredAgentRegistry, 'definition'>,
   provider: string,
   key: string,
@@ -33,9 +38,15 @@ export function structuredAgentSessionOptionOverridesRefusal(
   provider: string,
   options: Readonly<Record<string, string>>
 ) {
-  const key = Object.keys(options).find(
-    (key) => !acceptsOptionPick(agents, provider, key, options[key] ?? '')
-  )
+  const key = Object.keys(options).find((key) => {
+    const value = options[key] ?? ''
+    return (
+      !acceptsOptionPick(agents, provider, key, value) ||
+      (key !== AGENT_CHAT_PERMISSION_MODE_OPTION_ID &&
+        agents.definition(provider)?.restingOptions.normalizePick?.(options, { key, value }) ===
+          null)
+    )
+  })
   return key === undefined
     ? null
     : refuse(
@@ -45,7 +56,7 @@ export function structuredAgentSessionOptionOverridesRefusal(
       )
 }
 
-/** Records literal picks for registered keys; the native control owns value acceptance. */
+/** Save accepted intent for the next turn; Codex keeps explicit speed intent across model changes. */
 export async function recordStructuredAgentSessionOptionIntent(
   deps: {
     store: Pick<
@@ -78,7 +89,40 @@ export async function recordStructuredAgentSessionOptionIntent(
     options = { ...record.options, [input.key]: input.value }
   } else {
     const picked = { sessionId, fence, ...input, models: undefined, now: ctx.now() }
-    options = (await deps.store.reviseSessionOptions(pickAgentSessionOption, picked)).options ?? {}
+    try {
+      options =
+        (
+          await deps.store.reviseSessionOptions((current, pick) => {
+            const next = pickAgentSessionOption(current, pick)
+            const normalize = deps.agents.definition(current.provider)?.restingOptions.normalizePick
+            const normalized = normalize?.(current.options ?? {}, input)
+            if (normalized === null) {
+              throw agentSessionRefusalError('agent_session_operation_invalid', {
+                reason: 'optionRejected'
+              })
+            }
+            if (current.provider !== 'codex' || !normalized) {
+              return next
+            }
+            const { serviceTier: _tier, fastMode: _fast, ...other } = next.options ?? {}
+            return {
+              ...next,
+              options: {
+                ...other,
+                ...(normalized.serviceTier !== undefined
+                  ? { serviceTier: normalized.serviceTier }
+                  : {}),
+                ...(normalized.fastMode !== undefined ? { fastMode: normalized.fastMode } : {})
+              }
+            }
+          }, picked)
+        ).options ?? {}
+    } catch (error) {
+      if (isAgentSessionRefusalError(error)) {
+        return { ok: false, refusal: error.refusal }
+      }
+      throw error
+    }
   }
   ctx.publish()
   return {
@@ -87,7 +131,9 @@ export async function recordStructuredAgentSessionOptionIntent(
       ...input,
       options:
         deps.adapter?.projectOptions?.(sessionId, options)?.options ??
-        structuredAgentSessionPickReply(options, undefined)
+        (record.provider === 'codex'
+          ? options
+          : structuredAgentSessionPickReply(options, undefined))
     }
   }
 }

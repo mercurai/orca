@@ -6,6 +6,11 @@ Import `runProcess`, `runProcessSync`, and `spawnProcess` from `@orca/process-ho
 
 `spawnProcess` guarantees three stream pipes when `stdio` is omitted, is `'pipe'`, or starts with `['pipe', 'pipe', 'pipe']`. Other specifications return a child with nullable streams. Use `PipedProcessSpec` and `PipedChildProcess` when a stream-owning interface requires pipes.
 
+`captureProcess` from `@orca/process-host/capture-process` preserves Node `execFile` buffering,
+encoding and callback errors while hiding Windows consoles. Use it when an execution host owns
+stdin, deadlines and tree cleanup; it adds no timeout or shell interpretation. The Git worker
+uses this entry so process creation stays on its worker thread.
+
 The application supplies policy through `process-tree-kill-gate` and diagnostics through `spawn-observer`. Register these before starting managed children. Each process must load one package instance so registration and execution share state. The production exports use one CommonJS output for both import and require callers. The `orca-source` condition supports tests, dependency analysis, and Node tooling that runs TypeScript through `tsx`. Source tooling runs in a separate process and must use that condition for every package import; mixing source and compiled output would split the registration state.
 
 From the repository root:

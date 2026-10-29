@@ -124,7 +124,7 @@ afterEach(async () => {
 
 describe('WSL move retention', () => {
   it('marks the source rows durably, then retains the move; nothing is deleted', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove())
+    await seedWslMoveCutover(testState.dir, retainedMove())
     open(profile())
 
     const report = await pass()
@@ -156,7 +156,7 @@ describe('WSL move retention', () => {
   })
 
   it('downgrade then re-upgrade: re-hides, re-marks, flags the edit and loses no row', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove())
+    await seedWslMoveCutover(testState.dir, retainedMove())
     open(profile())
     await pass()
     await closeTestStores()
@@ -234,11 +234,13 @@ describe('WSL move retention', () => {
   })
 
   it('drops the marks once the move is dropped, so the rows list again', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove())
+    await seedWslMoveCutover(testState.dir, retainedMove())
     open(profile())
     await pass()
 
-    expect(bringWslMovedProjectBack(testState.dir, { repoId: 'repo-a' }).released).toBe(true)
+    expect((await bringWslMovedProjectBack(testState.dir, { repoId: 'repo-a' })).released).toBe(
+      true
+    )
     const report = await pass()
 
     expect(report?.rewrittenMarks).toBe(2)
@@ -260,7 +262,7 @@ describe('WSL move retention', () => {
   })
 
   it('keeps every mark when the journal cannot be read', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove())
+    await seedWslMoveCutover(testState.dir, retainedMove())
     open(profile())
     await pass()
     const dir = wslMoveJournalDirectory(testState.dir)
@@ -275,7 +277,7 @@ describe('WSL move retention', () => {
 
   it('does nothing with the internal WSL hosts gate closed', async () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
-    seedWslMoveCutover(testState.dir, retainedMove())
+    await seedWslMoveCutover(testState.dir, retainedMove())
     open(profile())
 
     expect(await pass()).toBeNull()
@@ -284,10 +286,10 @@ describe('WSL move retention', () => {
   })
 
   it('marks a delta move with its own id and keeps the earlier move on its rows', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove('retained'))
+    await seedWslMoveCutover(testState.dir, retainedMove('retained'))
     open(profile())
     await pass()
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       testState.dir,
       wslMoveCutoverFixture(
         'move-2',
@@ -315,7 +317,7 @@ describe('WSL move retention', () => {
   })
 
   it('leaves the move unretained when its marks cannot be made durable', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove())
+    await seedWslMoveCutover(testState.dir, retainedMove())
     open(profile())
     const failing = {
       getRepos: () => store.getRepos(),
@@ -335,7 +337,7 @@ describe('WSL move retention', () => {
     open(profile())
     const stop = installWslMoveRetention({ userDataPath: testState.dir, store, warn: () => {} })
     try {
-      seedWslMoveCutover(testState.dir, retainedMove())
+      await seedWslMoveCutover(testState.dir, retainedMove())
       await vi.waitFor(() => {
         expect(listWslMoveCutovers(testState.dir)[0]?.phase).toBe('retained')
       })
@@ -348,8 +350,8 @@ describe('WSL move retention', () => {
   })
 
   it('keeps every mark when a release is refused because a later move builds on it', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove('retained'))
-    seedWslMoveCutover(
+    await seedWslMoveCutover(testState.dir, retainedMove('retained'))
+    await seedWslMoveCutover(
       testState.dir,
       wslMoveCutoverFixture(
         'move-2',
@@ -361,7 +363,9 @@ describe('WSL move retention', () => {
     open(profile())
     await pass()
 
-    expect(() => removeWslMoveCutover(testState.dir, 'move-1')).toThrow('wsl_move_superseded')
+    await expect(removeWslMoveCutover(testState.dir, 'move-1')).rejects.toThrow(
+      'wsl_move_superseded'
+    )
     expect((await pass())?.rewrittenMarks).toBe(0)
     expect(localRow(store.getRepos()).find((repo) => repo.id === 'repo-a')?.orcadRetained).toEqual(
       MARK
@@ -369,7 +373,7 @@ describe('WSL move retention', () => {
   })
 
   it('drops a mark naming a move that never took the row', async () => {
-    seedWslMoveCutover(testState.dir, retainedMove('retained'))
+    await seedWslMoveCutover(testState.dir, retainedMove('retained'))
     open(profile({ repos: [movedRepo, { ...stayingRepo, orcadRetained: MARK }] }))
 
     await pass()

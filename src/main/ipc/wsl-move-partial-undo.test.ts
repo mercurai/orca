@@ -43,15 +43,15 @@ const record = (step: string) => (move: WslMoveCutover) => {
   touched.push(`${step}:${move.migrationId}`)
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-partial-undo-'))
   vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
   registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
   touched.length = 0
   // P moved first; Q, a different project, moved after it to the same host.
   const rewritten = { rewrittenStores: ['renderer-a'] }
-  seedWslMoveCutover(userDataPath, { ...cutover('move-p', 'retained'), ...rewritten })
-  seedWslMoveCutover(userDataPath, {
+  await seedWslMoveCutover(userDataPath, { ...cutover('move-p', 'retained'), ...rewritten })
+  await seedWslMoveCutover(userDataPath, {
     ...cutover('move-q', 'retained', { supersedesMigrationId: 'move-p' }, { repoIds: ['repo-q'] }),
     ...rewritten
   })

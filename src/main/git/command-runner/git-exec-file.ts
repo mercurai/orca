@@ -83,10 +83,8 @@ async function gitExecFileAsyncUnlocked(
       const capture = (
         command: ResolvedCommand
       ): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> => {
-        let reportTerminated: () => void = () => {}
-        terminationState.current = new Promise<void>((resolve) => {
-          reportTerminated = resolve
-        })
+        const terminated = Promise.withResolvers<void>()
+        terminationState.current = terminated.promise
         const captureOptions = {
           cwd: command.cwd,
           encoding: (options.encoding ?? 'utf-8') as BufferEncoding,
@@ -98,7 +96,8 @@ async function gitExecFileAsyncUnlocked(
           terminationBarrier: options.terminationBarrier,
           admissionTier: options.admissionTier,
           spawnOnWorkerThread: options.spawnOnWorkerThread,
-          onChildTerminated: reportTerminated,
+          onChildTerminated: terminated.resolve,
+          onSpawned: (spawnMs: number) => span?.setAttribute('git.spawn_ms', spawnMs),
           ...(options.onStderr ? { onStderr: options.onStderr } : {}),
           ...(timeoutMs === undefined
             ? {}

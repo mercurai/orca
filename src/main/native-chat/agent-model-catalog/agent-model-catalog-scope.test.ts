@@ -144,7 +144,8 @@ describe('original operation through actual nested resolution', () => {
         expect(stages).toEqual(before)
         expect(runListing).not.toHaveBeenCalled()
         expect(service.snapshot({ agent: 'claude', sessionId: record.sessionId })).toEqual({
-          origin: 'unknown'
+          origin: 'unknown',
+          catalogState: 'unknown'
         })
       } finally {
         gate.resolve()

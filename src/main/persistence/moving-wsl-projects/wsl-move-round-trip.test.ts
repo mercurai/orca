@@ -292,7 +292,7 @@ describe('WSL move round trip on every fixture', () => {
       const [cutover] = listWslMoveCutovers(trip.userDataPath)
       expect(cutover?.phase).toBe('retained')
       // The escape hatch (#29833) drops the newest committed move; the host is never asked.
-      removeWslMoveCutover(trip.userDataPath, cutover.migrationId)
+      await removeWslMoveCutover(trip.userDataPath, cutover.migrationId)
       await runWslMoveRetentionPass({ userDataPath: trip.userDataPath, store: trip.desktop })
       await trip.desktop.flushPendingOrThrowAsync()
       expect(sourceBytes(persistedState(trip.desktopDir))).toEqual(sourceBytes(trip.before))

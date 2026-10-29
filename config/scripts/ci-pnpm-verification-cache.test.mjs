@@ -17,7 +17,8 @@ const resolve = cacheAction.runs.steps.find((step) => step.id === 'verification-
 const restore = cacheAction.runs.steps.find((step) => step.id === 'verification-cache-restore')
 const install = steps.find((step) => step.name === 'Install dependencies')
 const save = steps.find((step) => step.name === 'Save pnpm verification record on main')
-const evaluate = (expression, context) => runInNewContext(expression, context)
+const evaluate = (expression, context) =>
+  runInNewContext(expression.replaceAll('inputs.cache-mode', 'inputs["cache-mode"]'), context)
 
 function resolveRecord({
   container = false,
@@ -74,6 +75,18 @@ function resolveRecord({
 }
 
 describe('pnpm-owned verification record', () => {
+  it('passes an explicit disabled record cache during isolated qualification', () => {
+    const expression = cache.with.enabled
+      .slice(3, -2)
+      .replaceAll(/inputs\.([\w-]+)/g, 'inputs["$1"]')
+    expect(
+      runInNewContext(expression, {
+        inputs: { 'cache-mode': 'off', 'cache-pnpm-verification': 'true' }
+      })
+    ).toBe('false')
+    expect(evaluate(save.if, { inputs: { 'cache-mode': 'off' } })).toBe(false)
+  })
+
   it('qualifies every shared-installer consumer when verification restoration changes', () => {
     const result = classifyPrJobs(['.github/actions/restore-pnpm-verification/action.yml'])
     for (const job of PR_CHECK_JOBS) {
@@ -142,7 +155,9 @@ describe('pnpm-owned verification record', () => {
     expect(resolve.run).toContain('pnpm_version="$(pnpm --version)"')
     expect(resolve.run).toContain('"$RUNNER_OS" "$RUNNER_ARCH" "$pnpm_version" "$POLICY_HASH"')
     expect(cache.uses).toBe('./.github/actions/restore-pnpm-verification')
-    expect(cache.with.enabled).toBe('${{ inputs.cache-pnpm-verification }}')
+    expect(cache.with.enabled).toBe(
+      "${{ inputs.cache-mode != 'off' && inputs.cache-pnpm-verification != 'false' && 'true' || 'false' }}"
+    )
     expect(restore.uses).toBe('actions/cache/restore@v5')
     expect(restore.with.path).toBe('${{ steps.verification-cache.outputs.path }}')
     expect(restore.with['restore-keys']).toBeUndefined()
@@ -161,6 +176,7 @@ describe('pnpm-owned verification record', () => {
   ])('%s on %s retains the main-only write boundary', (event, ref, expected) => {
     const context = {
       github: { event_name: event, ref },
+      inputs: { 'cache-mode': 'auto' },
       steps: {
         'verification-cache': { outputs: { key: 'a-key', 'cache-hit': 'false' } }
       }

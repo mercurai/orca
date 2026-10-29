@@ -78,6 +78,7 @@ describe('model catalog prewarm', () => {
     await vi.waitFor(() => expect(codex).toHaveBeenCalledTimes(1))
     expect(await service.read({ agent: 'codex' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     codexListed.resolve(listing('gpt-a'))
@@ -225,7 +226,7 @@ describe('model catalog prewarm', () => {
 
     const prewarmed = service.prewarm()
     const opened = await service.read({ agent: 'opencode2', workspacePath: '/work/project' })
-    expect(opened).toEqual({ origin: 'unknown' })
+    expect(opened).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     expect(probe).not.toHaveBeenCalled()
     const waited = service.read({
       agent: 'opencode2',
@@ -235,6 +236,7 @@ describe('model catalog prewarm', () => {
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1))
     expect(await service.read({ agent: 'opencode2', workspacePath: '/work/project' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     versionChecked.resolve()
@@ -341,13 +343,17 @@ describe('model catalog prewarm', () => {
     expect(probes.codex).toHaveBeenCalledTimes(1)
     expect(probes.claude).toHaveBeenCalledTimes(1)
     expect(probes.pi).not.toHaveBeenCalled()
-    expect(await service.read({ agent: 'pi' })).toEqual({ origin: 'unknown' })
+    expect(await service.read({ agent: 'pi' })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(probes.pi).not.toHaveBeenCalled()
     // Its first chat still lists it on demand.
     const demand = service.demand({ agent: 'pi' })
     await vi.waitFor(() => expect(probes.pi).toHaveBeenCalledTimes(1))
     expect(await service.read({ agent: 'pi' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     piListed.resolve(listing('pi-model'))
@@ -389,7 +395,11 @@ describe('model catalog prewarm', () => {
     expect(started).toEqual(['codex', 'claude'])
     expect(signals.every((signal) => signal.aborted)).toBe(true)
 
-    expect(await service.read({ agent: 'grok' })).toEqual({ origin: 'unknown' })
+    // A read or another prewarm after stop spawns nothing.
+    expect(await service.read({ agent: 'grok' })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     hasChatRecords.mockClear()
     await service.prewarm()
     expect(started).toEqual(['codex', 'claude'])
@@ -565,11 +575,13 @@ it('withholds a known retired Pi invocation until a current live producer lists'
   void service.demand({ agent: 'pi', sessionId: record.sessionId })
   await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(1))
   expect(service.snapshot({ agent: 'pi', sessionId: record.sessionId, savedOnly: true })).toEqual({
-    origin: 'unknown'
+    origin: 'unknown',
+    catalogState: 'unknown'
   })
   service.recordLiveListing(record.sessionId, listing('old-child'), old)
   expect(service.snapshot({ agent: 'pi', sessionId: record.sessionId, savedOnly: true })).toEqual({
-    origin: 'unknown'
+    origin: 'unknown',
+    catalogState: 'unknown'
   })
   service.recordLiveListing(
     record.sessionId,

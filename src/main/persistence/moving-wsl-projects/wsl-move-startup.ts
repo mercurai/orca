@@ -46,7 +46,7 @@ export function startWslMoveStartup(userDataPath: string, store: Store): Promise
           isWslDistroRegistered(distro, distroGuid)
         )
         sweepOrphanedWslMoveSleptSpools(userDataPath)
-        settleInterruptedWslMoveUndos(userDataPath)
+        await settleInterruptedWslMoveUndos(userDataPath)
       }
     }
   )

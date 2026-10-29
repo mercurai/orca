@@ -11,6 +11,16 @@ import {
   main
 } from './check-flaky-test-pattern-ratchet.mjs'
 
+function gitLargeScope(root, args, input = undefined) {
+  return execFileSync('git', args, {
+    cwd: root,
+    input,
+    encoding: 'utf8',
+    maxBuffer: 4 * 1024 * 1024,
+    stdio: ['pipe', 'pipe', 'pipe']
+  }).trim()
+}
+
 describe('countFindings', () => {
   it('counts each rule per file, folding TSX twins and Windows separators', () => {
     const counts = countFindings(
@@ -103,5 +113,52 @@ describe('listChangedFiles', () => {
     ])
     vi.stubEnv('ORCA_CODE_QUALITY_BASE', upstream)
     expect([...listChangedFiles(fixture)]).toEqual(['contribution.txt'])
+  })
+})
+
+describe('listChangedFiles large scopes', () => {
+  it('preserves the complete changed scope when Git names exceed one MiB', () => {
+    const root = mkdtempSync(join(tmpdir(), 'orca-ratchet-'))
+    vi.stubEnv('ORCA_FLAKY_TEST_RATCHET_ALL', '')
+    vi.stubEnv('ORCA_CODE_QUALITY_BASE', '')
+    try {
+      gitLargeScope(root, ['init', '--quiet'])
+      const blob = gitLargeScope(root, ['hash-object', '-w', '--stdin'], '')
+      const names = Array.from(
+        { length: 7_000 },
+        (_, index) => `changed-${String(index).padStart(5, '0')}-${'x'.repeat(160)}.test.ts`
+      )
+      const unchanged = 'unchanged.test.ts'
+      const tree = gitLargeScope(
+        root,
+        ['mktree'],
+        [...names, unchanged].map((name) => `100644 blob ${blob}\t${name}\n`).join('')
+      )
+      const base = gitLargeScope(root, [
+        '-c',
+        'user.name=Ratchet Test',
+        '-c',
+        'user.email=ratchet-test@example.invalid',
+        'commit-tree',
+        tree,
+        '-m',
+        'baseline'
+      ])
+      gitLargeScope(root, ['update-ref', 'HEAD', base])
+      gitLargeScope(root, ['update-ref', 'refs/remotes/origin/main', base])
+      // Missing tracked paths are real deletions; only the unchanged control needs a file.
+      gitLargeScope(root, ['read-tree', base])
+      writeFileSync(join(root, unchanged), '')
+      const diff = gitLargeScope(root, ['diff', '--name-only', '--no-renames', base])
+      expect(Buffer.byteLength(diff)).toBeGreaterThan(1024 * 1024)
+
+      const changed = listChangedFiles(root)
+
+      expect(changed).toEqual(new Set(names))
+      expect(changedFileScope(changed)(`test-no-wall-clock:${unchanged}`)).toBe(false)
+    } finally {
+      vi.unstubAllEnvs()
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

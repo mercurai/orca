@@ -14,7 +14,8 @@ vi.mock('node:child_process', async (importOriginal) => ({
   spawn: spawnMock,
   spawnSync: vi.fn()
 }))
-vi.mock('./process-tree-termination', () => ({
+vi.mock('./process-tree-termination', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./process-tree-termination')>()),
   forceTerminateProcessTree: forceTerminateProcessTreeMock,
   signalProcessTree: signalProcessTreeMock
 }))

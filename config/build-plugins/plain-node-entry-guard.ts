@@ -56,6 +56,7 @@ const WORKER_THREAD_ENTRY_NAMES = [
   'port-scan-command-worker-entry',
   'command-path-directory-worker-entry',
   'worker-thread-child-process-entry',
+  'git-spawn-worker-entry',
   'usage-scan-worker-entry',
   'workspace-space-scan-worker-entry',
   'claude-profile-setup-worker-entry',

@@ -48,7 +48,6 @@ import { deliverPluginEvent } from './plugin-event-delivery'
 import { PluginInstallationState } from './installation/plugin-installation-state'
 
 export class PluginService {
-  readonly options: PluginServiceOptions
   private readonly audit: PluginAuditLog
   private readonly workerController: PluginWorkerController
   private readonly contentVerifier = new PluginContentVerifier()
@@ -67,8 +66,7 @@ export class PluginService {
     notifyChanged: () => this.notifyChanged(false)
   })
 
-  constructor(options: PluginServiceOptions) {
-    this.options = options
+  constructor(readonly options: PluginServiceOptions) {
     this.contentPacks = new PluginContentPackRegistry(this.contentVerifier, (pluginKey) =>
       Boolean(this.options.getPluginKillListEntry?.(pluginKey))
     )
@@ -256,7 +254,8 @@ export class PluginService {
         services: this.runtimeDelegate
           ? bindPluginHostServices({
               delegate: this.runtimeDelegate,
-              pluginsDataDir: getPluginsDataDir(this.options.userDataPath)
+              pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
+              invokePluginCommand: this.invokeCommand.bind(this)
             })
           : null,
         audit: this.audit

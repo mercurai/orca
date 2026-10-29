@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { pluginCommandIdSchema } from '../manifest/plugin-manifest'
 import type { PluginCapabilityKind } from '../capabilities/plugin-capabilities'
 import type { PluginSurface } from '../frames/plugin-protocol'
 
@@ -66,6 +67,16 @@ const storageKeySchema = z
   .refine((key) => !RESERVED_STORAGE_KEYS.has(key), 'reserved storage key')
 const pluginJsonValueSchema = z.json()
 export type PluginJsonValue = z.infer<typeof pluginJsonValueSchema>
+export const pluginCommandInvocationParamsSchema = z.strictObject({
+  commandId: pluginCommandIdSchema,
+  args: pluginJsonValueSchema.optional()
+})
+const pluginCommandInvocationResultSchema = z
+  .strictObject({ value: pluginJsonValueSchema })
+  .refine(
+    (value) => new TextEncoder().encode(JSON.stringify(value)).byteLength <= 64 * 1024,
+    'command result exceeds the panel message limit'
+  )
 /** Caps keep per-plugin storage an honest key-value store, not a database. */
 export const PLUGIN_STORAGE_VALUE_MAX_BYTES = 256 * 1024
 export const PLUGIN_STORAGE_TOTAL_MAX_BYTES = 5 * 1024 * 1024
@@ -121,6 +132,16 @@ const spec = <P extends z.ZodType, R extends z.ZodType>(
 ): PluginHostMethodSpec<P, R> => entry
 
 export const PLUGIN_HOST_API = {
+  'commands.invoke': spec({
+    summary: "Invokes this plugin's declared worker command.",
+    since: 1,
+    scope: 'plugin-private',
+    capability: 'commands:invoke',
+    mutation: true,
+    surfaces: ['worker', 'panel'],
+    params: pluginCommandInvocationParamsSchema,
+    result: pluginCommandInvocationResultSchema
+  }),
   'workspace.readContext': spec({
     summary:
       'Branch, name and terminal ids of the focused workspace, or null when none is focused.',

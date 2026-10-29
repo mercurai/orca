@@ -161,7 +161,7 @@ describe('other clients after a clear', () => {
       methods: [...STRUCTURED_AGENT_SESSION_METHODS, ...SESSION_TAB_METHODS]
     })
     server['deviceRegistry'] = new DeviceRegistry(directory)
-    const phone = server['deviceRegistry'].addDevice('phone', 'mobile')
+    const phone = await server['deviceRegistry'].addDevice('phone', 'mobile')
     const socket = WebSocket.prototype
     const replies: unknown[] = []
     const before = await snapshot()

@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as bounded from '../../../shared/bounded-secure-json-file'
 import { wslMoveCutoverFixture } from '../__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { seedWslMoveCutover } from '../__fixtures__/wsl-mover/wsl-move-journal-seeding'
 import {
@@ -89,10 +90,10 @@ describe("undo's host automation step", () => {
 
 describe('undo of a move with automations', () => {
   let userDataPath: string
-  beforeEach(() => {
+  beforeEach(async () => {
     userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-undo-automations-'))
     vi.spyOn(console, 'warn').mockImplementation(() => {})
-    seedWslMoveCutover(userDataPath, wslMoveCutoverFixture(MOVE, 'retained'))
+    await seedWslMoveCutover(userDataPath, wslMoveCutoverFixture(MOVE, 'retained'))
   })
   afterEach(() => {
     vi.restoreAllMocks()
@@ -100,6 +101,30 @@ describe('undo of a move with automations', () => {
     rmSync(userDataPath, { recursive: true, force: true })
   })
   const cutover = () => listWslMoveCutovers(userDataPath)[0]
+
+  it('keeps host automations enabled until their undo intent is durable', async () => {
+    const w = world({ a: true }, { a: false })
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const write = bounded.writeSecureJsonFileWithinLimitAsync
+    vi.spyOn(bounded, 'writeSecureJsonFileWithinLimitAsync').mockImplementationOnce(
+      async (...args) => {
+        entered.resolve()
+        await release.promise
+        await write(...args)
+      }
+    )
+    const pending = stopWslMoveHostAutomations(userDataPath, MOVE, ['a'], w.ports)
+    try {
+      await entered.promise
+      expect(w.host.get('a')).toBe(true)
+    } finally {
+      release.resolve()
+      await pending
+    }
+    expect(w.host.get('a')).toBe(false)
+    expect(cutover()?.undoHostAutomationIntent).toEqual({ a: true })
+  })
 
   // d3a: undo kept the pre-move state and dropped what the user chose on the host since.
   it("turns off every host copy that is on, and gives the copies here the host's state", async () => {
@@ -228,7 +253,7 @@ describe('undo of a move with automations', () => {
       if (again.outcome === 'stopped') {
         again.applyHere()
       }
-      removeCommittedWslMoveCutover(userDataPath, MOVE)
+      await removeCommittedWslMoveCutover(userDataPath, MOVE)
     })
     await vi.waitFor(() => expect(order).toEqual(['retry restore']))
     finishRestore()
@@ -259,7 +284,7 @@ describe('undo of a move with automations', () => {
             w.host.set(id, true)
           }
           // The move is released by another route during the host round trip.
-          removeCommittedWslMoveCutover(userDataPath, MOVE)
+          await removeCommittedWslMoveCutover(userDataPath, MOVE)
         },
         disable
       })
@@ -274,7 +299,7 @@ describe('undo of a move with automations', () => {
     const w = world({ a: true, b: false }, { a: true, b: true })
     await stopWslMoveHostAutomations(userDataPath, MOVE, ['a', 'b'], w.ports)
     // Crash here: the host copies are off, the record holds the choice.
-    settleInterruptedWslMoveUndos(userDataPath)
+    await settleInterruptedWslMoveUndos(userDataPath)
     // The left-off one keeps its choice for a later undo; the rest clears.
     expect(cutover()?.undoHostAutomationIntent).toEqual({ a: true })
     expect(cutover()?.hostAutomationsLeftOff).toEqual(['a'])
@@ -288,7 +313,7 @@ describe('undo of a move with automations', () => {
     if (refused.outcome === 'stopped') {
       await refused.restore()
     }
-    settleInterruptedWslMoveUndos(userDataPath)
+    await settleInterruptedWslMoveUndos(userDataPath)
     const unreachable = {
       restore: async () => {
         throw new Error('unreachable')
@@ -313,7 +338,7 @@ describe('undo of a move with automations', () => {
       throw new Error('expected the move')
     }
     // Only the left-off list survives (an older build dropped the recorded choice).
-    writeWslMoveCutover(userDataPath, { ...seeded, hostAutomationsLeftOff: ['a'] })
+    await writeWslMoveCutover(userDataPath, { ...seeded, hostAutomationsLeftOff: ['a'] })
     const w = world({ a: false }, { a: true })
     const stop = await stopWslMoveHostAutomations(userDataPath, MOVE, ['a'], w.ports)
     if (stop.outcome !== 'stopped') {

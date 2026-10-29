@@ -186,7 +186,7 @@ describe('WSL move desktop rewrite registry coverage', () => {
       ),
       rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
       destinationHostId: HOST,
-      recordSeededHostWorkspaceIds: () => {}
+      recordSeededHostWorkspaceIds: async () => {}
     }
     registerWslMoveMainRewriteStores({
       getUI: () => ({ ...getDefaultPersistedState('/nowhere').ui, ...movedUi() }),

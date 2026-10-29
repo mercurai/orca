@@ -135,7 +135,7 @@ describe('PushDispatcher', () => {
       client,
       registry: {
         listDevices: () => devices,
-        setPushRegistration: () => true
+        setPushRegistration: async () => true
       },
       scheduleRetry: (run, delayMs) => {
         expect(delayMs).toBe(2_000)
@@ -176,7 +176,7 @@ describe('PushDispatcher', () => {
         listDevices: () => {
           throw new Error('registry unavailable')
         },
-        setPushRegistration: () => true
+        setPushRegistration: async () => true
       }
     })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})

@@ -1,5 +1,5 @@
 import type { StructuredAgentSessionOptionsArgs } from './structured-agent-session-options-contract'
-import { toast } from 'sonner'
+import { isStructuredLaunchSpeedBlocked } from '@/lib/structured-agent-session-launch-blocked-speed'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import type { AgentSessionOptionResult } from '../../../../shared/agent-session-wire'
 import { structuredAgentSessionSeedCatalog } from '../../../../shared/structured-agent-session-seed-catalog'
@@ -23,7 +23,7 @@ import {
 import { encodeStructuredAgentSessionOptionValue } from '../../../../shared/structured-agent-session-option-codec'
 import { useHostModelCatalogUpgrade } from './use-host-model-catalog-upgrade'
 import { useStructuredAgentSessionOptionState } from './use-structured-agent-session-option-state'
-import { agentSessionWriteFailureText } from './agent-session-write-notice-text'
+import { settleNativeChatLaunchOptionPick } from './native-chat-launch-option-settlement'
 import {
   getStructuredAgentSessionLaunchSelection,
   holdStructuredAgentSessionLaunchOption,
@@ -183,16 +183,13 @@ export function useStructuredAgentSessionOptions(args: StructuredAgentSessionOpt
     ]
   )
   const settleLaunchOptionPick = useCallback(
-    (outcome: StructuredLaunchOptionOutcome) => {
-      if (outcome.kind === 'refused') {
-        toast.error(agentSessionWriteFailureText(outcome.failure, 'option'))
-      } else if (outcome.kind === 'accepted') {
+    (outcome: StructuredLaunchOptionOutcome) =>
+      settleNativeChatLaunchOptionPick(outcome, (options) => {
         rememberOptionPicks(
           optionView(optionStateRef.current, launchSeedOptions, NO_HELD_OPTIONS),
-          outcome.options
+          options
         )
-      }
-    },
+      }),
     [launchSeedOptions, optionStateRef, optionView, rememberOptionPicks]
   )
   const interactionReadyRef = useRef(acceptsPicks)
@@ -232,7 +229,7 @@ export function useStructuredAgentSessionOptions(args: StructuredAgentSessionOpt
       ) {
         return false
       }
-      if (!transportEnabled || fence === null) {
+      if (!transportEnabled || fence === null || isStructuredLaunchSpeedBlocked(sessionId, id)) {
         // No fence yet: the launch holds it and applies it before anything else is sent.
         const applied = holdStructuredAgentSessionLaunchOption(sessionId, id, encoded)
         void applied?.then(settleLaunchOptionPick)

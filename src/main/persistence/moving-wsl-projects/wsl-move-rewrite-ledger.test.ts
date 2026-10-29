@@ -24,27 +24,27 @@ const committed = (rewrittenStores: string[]) =>
   cutover('move-1', 'destination-committed', { rewrittenStores })
 
 describe('WSL move rewrite ledger', () => {
-  it('lets the seeded host workspaces only grow, and only while the desktop rewrites', () => {
+  it('lets the seeded host workspaces only grow, and only while the desktop rewrites', async () => {
     const seeded = (ids: string[] | undefined) =>
       cutover('move-1', 'destination-committed', { seededHostWorkspaceIds: ids })
-    seedWslMoveCutover(userDataPath, committed([]))
-    writeWslMoveCutover(userDataPath, seeded(['w1']))
-    writeWslMoveCutover(userDataPath, seeded(['w1', 'w2']))
+    await seedWslMoveCutover(userDataPath, committed([]))
+    await writeWslMoveCutover(userDataPath, seeded(['w1']))
+    await writeWslMoveCutover(userDataPath, seeded(['w1', 'w2']))
 
-    expect(() => writeWslMoveCutover(userDataPath, seeded(['w2']))).toThrow(
+    await expect(writeWslMoveCutover(userDataPath, seeded(['w2']))).rejects.toThrow(
       'wsl_move_ledger_changed'
     )
-    expect(() => writeWslMoveCutover(userDataPath, seeded(undefined))).toThrow(
+    await expect(writeWslMoveCutover(userDataPath, seeded(undefined))).rejects.toThrow(
       'wsl_move_ledger_changed'
     )
     expect(listWslMoveCutovers(userDataPath)[0]?.seededHostWorkspaceIds).toEqual(['w1', 'w2'])
   })
 
-  it('grows append-only while the desktop rewrites', () => {
-    seedWslMoveCutover(userDataPath, committed([]))
-    writeWslMoveCutover(userDataPath, committed(['a']))
-    writeWslMoveCutover(userDataPath, committed(['a', 'b']))
-    writeWslMoveCutover(userDataPath, committed(['a', 'b']))
+  it('grows append-only while the desktop rewrites', async () => {
+    await seedWslMoveCutover(userDataPath, committed([]))
+    await writeWslMoveCutover(userDataPath, committed(['a']))
+    await writeWslMoveCutover(userDataPath, committed(['a', 'b']))
+    await writeWslMoveCutover(userDataPath, committed(['a', 'b']))
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual(['a', 'b'])
   })
 
@@ -53,51 +53,51 @@ describe('WSL move rewrite ledger', () => {
     ['reorders entries', ['b', 'a']],
     ['replaces an entry', ['a', 'c']],
     ['duplicates an entry', ['a', 'b', 'a']]
-  ])('refuses a write that %s', (_label, rewrittenStores) => {
-    seedWslMoveCutover(userDataPath, committed(['a', 'b']))
-    expect(() => writeWslMoveCutover(userDataPath, committed(rewrittenStores))).toThrow(
+  ])('refuses a write that %s', async (_label, rewrittenStores) => {
+    await seedWslMoveCutover(userDataPath, committed(['a', 'b']))
+    await expect(writeWslMoveCutover(userDataPath, committed(rewrittenStores))).rejects.toThrow(
       'wsl_move_ledger_changed'
     )
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual(['a', 'b'])
   })
 
-  it('refuses ledger entries outside the rewrite phase', () => {
-    expect(() =>
+  it('refuses ledger entries outside the rewrite phase', async () => {
+    await expect(
       writeWslMoveCutover(userDataPath, cutover('move-1', 'prepared', { rewrittenStores: ['a'] }))
-    ).toThrow('wsl_move_ledger_changed')
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'blobs-transferred'))
-    expect(() => writeWslMoveCutover(userDataPath, committed(['a']))).toThrow(
+    ).rejects.toThrow('wsl_move_ledger_changed')
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'blobs-transferred'))
+    await expect(writeWslMoveCutover(userDataPath, committed(['a']))).rejects.toThrow(
       'wsl_move_ledger_changed'
     )
   })
 
-  it('advances to client-rewritten only once every registered store is recorded', () => {
+  it('advances to client-rewritten only once every registered store is recorded', async () => {
     setWslMoveDesktopRewriteRegistryCompleteForTests(true)
     registerWslMoveDesktopRewriteStore({ id: 'a', side: 'main', run: () => {}, flush: () => {} })
     registerWslMoveDesktopRewriteStore({ id: 'b', side: 'renderer' })
-    seedWslMoveCutover(userDataPath, committed(['a']))
-    expect(() =>
+    await seedWslMoveCutover(userDataPath, committed(['a']))
+    await expect(
       writeWslMoveCutover(
         userDataPath,
         cutover('move-1', 'client-rewritten', { rewrittenStores: ['a'] })
       )
-    ).toThrow('wsl_move_rewrite_incomplete')
-    writeWslMoveCutover(userDataPath, committed(['a', 'b']))
-    writeWslMoveCutover(
+    ).rejects.toThrow('wsl_move_rewrite_incomplete')
+    await writeWslMoveCutover(userDataPath, committed(['a', 'b']))
+    await writeWslMoveCutover(
       userDataPath,
       cutover('move-1', 'client-rewritten', { rewrittenStores: ['a', 'b'] })
     )
     expect(listWslMoveCutovers(userDataPath)[0]?.phase).toBe('client-rewritten')
   })
 
-  it('refuses client-rewritten while the store registry is incomplete', () => {
+  it('refuses client-rewritten while the store registry is incomplete', async () => {
     setWslMoveDesktopRewriteRegistryCompleteForTests(false)
-    seedWslMoveCutover(userDataPath, committed([]))
-    expect(() => writeWslMoveCutover(userDataPath, cutover('move-1', 'client-rewritten'))).toThrow(
-      'wsl_move_rewrite_incomplete'
-    )
+    await seedWslMoveCutover(userDataPath, committed([]))
+    await expect(
+      writeWslMoveCutover(userDataPath, cutover('move-1', 'client-rewritten'))
+    ).rejects.toThrow('wsl_move_rewrite_incomplete')
     setWslMoveDesktopRewriteRegistryCompleteForTests(true)
-    writeWslMoveCutover(userDataPath, cutover('move-1', 'client-rewritten'))
+    await writeWslMoveCutover(userDataPath, cutover('move-1', 'client-rewritten'))
     expect(listWslMoveCutovers(userDataPath)[0]?.phase).toBe('client-rewritten')
   })
 })

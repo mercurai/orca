@@ -16,8 +16,8 @@ vi.mock('fs', () => ({
   chmodSync: vi.fn()
 }))
 
-const { gitExecFileSyncMock, readWorktreeGitPathMock } = vi.hoisted(() => ({
-  gitExecFileSyncMock: vi.fn(() => '/mnt/c/src/app/.git/orca/setup-runner.sh\n'),
+const { gitExecFileAsyncMock, readWorktreeGitPathMock } = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn(async () => ({ stdout: '/mnt/c/src/app/.git/orca/setup-runner.sh\n', stderr: '' })),
   readWorktreeGitPathMock: vi.fn(
     (_worktree: string, _relative: string, _roots: readonly string[]): string | null =>
       String.raw`C:\src\app\.git\worktrees\fix\orca\setup-runner.sh`
@@ -26,7 +26,7 @@ const { gitExecFileSyncMock, readWorktreeGitPathMock } = vi.hoisted(() => ({
 
 vi.mock('./git/runner', async () => ({
   ...(await vi.importActual<typeof GitRunner>('./git/runner')),
-  gitExecFileSync: gitExecFileSyncMock
+  gitExecFileAsync: gitExecFileAsyncMock
 }))
 vi.mock('./git/worktree-git-path', () => ({ readWorktreeGitPath: readWorktreeGitPathMock }))
 
@@ -35,7 +35,7 @@ const WORKTREE = String.raw`C:\src\app-fix`
 
 beforeEach(() => {
   Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
-  gitExecFileSyncMock.mockClear()
+  gitExecFileAsyncMock.mockClear()
   readWorktreeGitPathMock.mockClear()
 })
 
@@ -63,7 +63,7 @@ describe('createSetupRunnerScript git path for a WSL-runtime drive project', () 
       'orca/setup-runner.sh',
       expect.arrayContaining(['/mnt/'])
     )
-    expect(gitExecFileSyncMock).not.toHaveBeenCalled()
+    expect(gitExecFileAsyncMock).not.toHaveBeenCalled()
     expect(result.runnerScriptPath).toBe(
       String.raw`C:\src\app\.git\worktrees\fix\orca\setup-runner.sh`
     )
@@ -73,16 +73,28 @@ describe('createSetupRunnerScript git path for a WSL-runtime drive project', () 
     setLocalGitRuntimeRouter(() => 'Ubuntu')
     readWorktreeGitPathMock.mockReturnValueOnce(null)
     const result = await create()
-    expect(gitExecFileSyncMock).toHaveBeenCalledOnce()
+    expect(gitExecFileAsyncMock).toHaveBeenCalledOnce()
     expect(result.runnerScriptPath).toBe(String.raw`C:\src\app\.git\orca\setup-runner.sh`)
+  })
+
+  it('propagates a timed out host Git lookup without writing a runner', async () => {
+    const fs = await import('node:fs')
+    vi.mocked(fs.writeFileSync).mockClear()
+    gitExecFileAsyncMock.mockRejectedValueOnce(new Error('git lookup timed out'))
+    await expect(create()).rejects.toThrow('git lookup timed out')
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
+      ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
+      { cwd: WORKTREE, hostGit: true, timeout: 15_000 }
+    )
+    expect(fs.writeFileSync).not.toHaveBeenCalled()
   })
 
   it('runs the host Git lookup main runs, with the router off', async () => {
     const result = await create()
     expect(readWorktreeGitPathMock).not.toHaveBeenCalled()
-    expect(gitExecFileSyncMock).toHaveBeenCalledWith(
+    expect(gitExecFileAsyncMock).toHaveBeenCalledWith(
       ['rev-parse', '--git-path', 'orca/setup-runner.sh'],
-      { cwd: WORKTREE, hostGit: true }
+      { cwd: WORKTREE, hostGit: true, timeout: 15_000 }
     )
     expect(result.runnerScriptPath).toBe(String.raw`C:\src\app\.git\orca\setup-runner.sh`)
   })

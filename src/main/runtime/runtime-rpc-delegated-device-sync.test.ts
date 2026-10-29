@@ -24,7 +24,7 @@ beforeEach(async () => {
     wsPort: 0
   })
   await server.start()
-  const offer = server.createPairingOffer({
+  const offer = await server.createPairingOffer({
     address: '127.0.0.1',
     name: 'desktop',
     scope: 'runtime'
@@ -45,9 +45,9 @@ afterEach(async () => {
   await server.stop()
 })
 
-function sync(name: string) {
-  return server['syncDelegatedMobileDevices'](parentDeviceId, [{ phoneKey: 'phone-1', name }])
-    .devices
+async function sync(name: string) {
+  const result = await server['syncDelegatedMobileDevices'](parentDeviceId, [{ phoneKey: 'phone-1', name }])
+  return result.devices
 }
 
 function removeOnDisk(deviceId: string): void {
@@ -57,15 +57,15 @@ function removeOnDisk(deviceId: string): void {
 }
 
 describe('delegated mobile device sync', () => {
-  it('hands the phone a fresh child when the save dropped the one removed on disk', () => {
-    const [first] = sync('Pixel')
+  it('hands the phone a fresh child when the save dropped the one removed on disk', async () => {
+    const [first] = await sync('Pixel')
     if (!first) {
       throw new Error('expected a delegated child')
     }
 
     removeOnDisk(first.deviceId)
     // A rename makes the save rewrite the child row, which the merge drops.
-    const devices = sync('Pixel 9')
+    const devices = await sync('Pixel 9')
 
     expect(devices).toHaveLength(1)
     const [fresh] = devices
@@ -74,17 +74,17 @@ describe('delegated mobile device sync', () => {
     expect(registry.validateToken(first.token)).toBeNull()
   })
 
-  it('reruns at most once', () => {
-    const upsert = vi.spyOn(registry, 'upsertDelegatedMobileDevices').mockReturnValue([])
+  it('reruns at most once', async () => {
+    const upsert = vi.spyOn(registry, 'upsertDelegatedMobileDevices').mockResolvedValue([])
 
-    expect(sync('Pixel')).toEqual([])
+    expect(await sync('Pixel')).toEqual([])
     expect(upsert).toHaveBeenCalledTimes(2)
   })
 
-  it('does not rerun when every phone got its child', () => {
+  it('does not rerun when every phone got its child', async () => {
     const upsert = vi.spyOn(registry, 'upsertDelegatedMobileDevices')
 
-    expect(sync('Pixel')).toHaveLength(1)
+    expect(await sync('Pixel')).toHaveLength(1)
     expect(upsert).toHaveBeenCalledOnce()
   })
 })

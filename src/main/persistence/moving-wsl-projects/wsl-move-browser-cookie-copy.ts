@@ -18,7 +18,7 @@ import type {
   WslHostBrowserRouteStorage,
   WslHostBrowserRouteStorageResult
 } from '../../browser/wsl-host-browser-route-partition'
-import { listWslMoveCutovers, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import { listWslMoveCutovers, updateWslMoveCutover } from './wsl-move-cutover-journal'
 import type { WslMoveDesktopRewriteContext } from './wsl-move-desktop-rewrite-stores'
 
 export type WslMoveBrowserCookieCopyDependencies = {
@@ -67,18 +67,18 @@ export function previewWslMoveBrowserCookieCopy(
  * the live connection is re-saved once to restore the link. If logins still cannot carry, the
  * preview says so; the move is never blocked for it.
  */
-export function ensureWslMoveDestinationBrowserLogins(dependencies: {
+export async function ensureWslMoveDestinationBrowserLogins(dependencies: {
   resolveEnvironment: () => KnownRuntimeEnvironment
-  resaveConnection: () => void
+  resaveConnection: () => Promise<void>
   orcaProfileId: () => string | null
   resolveHostStorage: WslMoveBrowserCookieCopyDependencies['resolveHostStorage']
-}): {
+}): Promise<{
   environment: KnownRuntimeEnvironment
   notCarried?: WslMoveBrowserCookieFreshPartitionReason
-} {
+}> {
   let environment = dependencies.resolveEnvironment()
   if (!environment.orcadDeployment) {
-    dependencies.resaveConnection()
+    await dependencies.resaveConnection()
     environment = dependencies.resolveEnvironment()
   }
   const orcaProfileId = dependencies.orcaProfileId()
@@ -111,7 +111,7 @@ export async function runWslMoveBrowserCookieCopy(
     .listEnvironments()
     .find((entry) => entry.id === cutover.destinationEnvironmentId)
   if (!environment) {
-    recordOutcome(dependencies.userDataPath, cutover.migrationId, {
+    await recordOutcome(dependencies.userDataPath, cutover.migrationId, {
       outcome: 'fresh-partition',
       reason: 'destination-environment-missing'
     })
@@ -119,7 +119,7 @@ export async function runWslMoveBrowserCookieCopy(
   }
   const storage = dependencies.resolveHostStorage(orcaProfileId, environment)
   if (storage.kind !== 'stable') {
-    recordOutcome(dependencies.userDataPath, cutover.migrationId, {
+    await recordOutcome(dependencies.userDataPath, cutover.migrationId, {
       outcome: 'fresh-partition',
       reason: storage.reason
     })
@@ -134,7 +134,7 @@ export async function runWslMoveBrowserCookieCopy(
     )
   } catch (error) {
     if (error instanceof Error && error.message === 'browser_route_partition_binding_conflict') {
-      recordOutcome(dependencies.userDataPath, cutover.migrationId, {
+      await recordOutcome(dependencies.userDataPath, cutover.migrationId, {
         outcome: 'fresh-partition',
         reason: 'destination-partition-conflict'
       })
@@ -169,7 +169,7 @@ export async function runWslMoveBrowserCookieCopy(
       counts
     })
   }
-  recordOutcome(dependencies.userDataPath, cutover.migrationId, {
+  await recordOutcome(dependencies.userDataPath, cutover.migrationId, {
     outcome: 'copied',
     // Within the journal's bound, so a huge profile list never blocks the ledger entry.
     profiles: results.slice(0, WSL_MOVE_BROWSER_COOKIE_COPY_MAX_PROFILES)
@@ -205,16 +205,14 @@ function recordOutcome(
   userDataPath: string,
   migrationId: string,
   browserCookieCopy: WslMoveBrowserCookieCopy
-): void {
-  const current = listWslMoveCutovers(userDataPath).find(
-    (entry) => entry.migrationId === migrationId
-  )
-  if (current?.phase !== 'destination-committed') {
-    throw new Error('wsl_move_record_missing')
-  }
-  writeWslMoveCutover(userDataPath, {
-    ...current,
-    browserCookieCopy,
-    updatedAt: new Date().toISOString()
+): Promise<void> {
+  return updateWslMoveCutover(userDataPath, migrationId, (current) => {
+    if (current?.phase !== 'destination-committed') {
+      throw new Error('wsl_move_record_missing')
+    }
+    return {
+      cutover: { ...current, browserCookieCopy, updatedAt: new Date().toISOString() },
+      result: undefined
+    }
   })
 }

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import * as secureFile from '../../shared/secure-file'
+import * as secureFile from '../../shared/secure-file-async-write'
 import { DeviceRegistry } from './device-registry'
 import * as fileRead from './device-registry-file-read'
 import { DEVICE_REGISTRY_FILENAME } from './mobile-pairing-files'
@@ -29,17 +29,14 @@ function removeOnDisk(deviceId: string): void {
 }
 
 function spyOnSaves() {
-  return [
-    vi.spyOn(secureFile, 'writeSecureJsonFile'),
-    vi.spyOn(secureFile, 'writeDurableSecureJsonFile')
-  ]
+  return [vi.spyOn(secureFile, 'writeSecureFileAsync')]
 }
 
 describe('device registry auth checks see edits made on disk', () => {
-  it('refuses a token removed on disk at the next validate, with no save in between', () => {
+  it('refuses a token removed on disk at the next validate, with no save in between', async () => {
     const registry = new DeviceRegistry(dir)
-    const desktop = registry.addDevice('desktop', 'runtime')
-    const phone = registry.addDevice('phone', 'mobile')
+    const desktop = await registry.addDevice('desktop', 'runtime')
+    const phone = await registry.addDevice('phone', 'mobile')
     expect(registry.validateToken(desktop.token)?.deviceId).toBe(desktop.deviceId)
     const saves = spyOnSaves()
 
@@ -52,10 +49,10 @@ describe('device registry auth checks see edits made on disk', () => {
     }
   })
 
-  it('refuses a keyed device removed on disk, and answers unknown for its key', () => {
+  it('refuses a keyed device removed on disk, and answers unknown for its key', async () => {
     const registry = new DeviceRegistry(dir)
-    const desktop = registry.addDevice('desktop', 'runtime')
-    const keyed = registry.forkDeviceKey(
+    const desktop = await registry.addDevice('desktop', 'runtime')
+    const keyed = await registry.forkDeviceKey(
       desktop.deviceId,
       Buffer.alloc(32, 1).toString('base64'),
       'Tab'
@@ -72,9 +69,9 @@ describe('device registry auth checks see edits made on disk', () => {
     expect(registry.lookupDeviceKey(keyed.deviceId)).toEqual({ kind: 'unknown' })
   })
 
-  it('only stats the file while it is unchanged', () => {
+  it('only stats the file while it is unchanged', async () => {
     const registry = new DeviceRegistry(dir)
-    const desktop = registry.addDevice('desktop', 'runtime')
+    const desktop = await registry.addDevice('desktop', 'runtime')
     // The first check after this process's own save re-reads once.
     registry.validateToken(desktop.token)
     const reads = vi.spyOn(fileRead, 'readDeviceRegistryFile')
@@ -89,28 +86,28 @@ describe('device registry auth checks see edits made on disk', () => {
     expect(reads).toHaveBeenCalledOnce()
   })
 
-  it('refuses every device once the file is deleted, and keeps working', () => {
+  it('refuses every device once the file is deleted, and keeps working', async () => {
     const registry = new DeviceRegistry(dir)
-    const desktop = registry.addDevice('desktop', 'runtime')
+    const desktop = await registry.addDevice('desktop', 'runtime')
 
     rmSync(registryPath())
 
     expect(registry.validateToken(desktop.token)).toBeNull()
     expect(registry.listDevices()).toEqual([])
-    const added = registry.addDevice('second desktop', 'runtime')
+    const added = await registry.addDevice('second desktop', 'runtime')
     expect(registry.validateToken(added.token)?.deviceId).toBe(added.deviceId)
   })
 
-  it('stays usable when there is no file at all', () => {
+  it('stays usable when there is no file at all', async () => {
     const registry = new DeviceRegistry(dir)
 
     expect(registry.validateToken('not-a-token')).toBeNull()
     expect(registry.lookupDeviceKey('missing-device')).toEqual({ kind: 'unknown' })
   })
 
-  it('keeps what it has when the file turns corrupt, since that proves no removal', () => {
+  it('keeps what it has when the file turns corrupt, since that proves no removal', async () => {
     const registry = new DeviceRegistry(dir)
-    const desktop = registry.addDevice('desktop', 'runtime')
+    const desktop = await registry.addDevice('desktop', 'runtime')
 
     writeFileSync(registryPath(), '{ not json')
 
@@ -118,13 +115,13 @@ describe('device registry auth checks see edits made on disk', () => {
     expect(readFileSync(registryPath(), 'utf8')).toBe('{ not json')
   })
 
-  it('never shows a pending offer that was removed on disk', () => {
+  it('never shows a pending offer that was removed on disk', async () => {
     const registry = new DeviceRegistry(dir)
-    const offer = registry.getOrCreatePendingDevice('phone', 'mobile')
-    expect(registry.getOrCreatePendingDevice('phone', 'mobile').deviceId).toBe(offer.deviceId)
+    const offer = await registry.getOrCreatePendingDevice('phone', 'mobile')
+    expect((await registry.getOrCreatePendingDevice('phone', 'mobile')).deviceId).toBe(offer.deviceId)
 
     removeOnDisk(offer.deviceId)
-    const fresh = registry.getOrCreatePendingDevice('phone', 'mobile')
+    const fresh = await registry.getOrCreatePendingDevice('phone', 'mobile')
 
     expect(fresh.deviceId).not.toBe(offer.deviceId)
     expect(registry.validateToken(offer.token)).toBeNull()
@@ -132,27 +129,27 @@ describe('device registry auth checks see edits made on disk', () => {
     expect(registry.getPendingDevice('mobile')).toBeNull()
   })
 
-  it('does not read its own quarantine as a delete when the write after it failed', () => {
+  it('does not read its own quarantine as a delete when the write after it failed', async () => {
     const first = new DeviceRegistry(dir)
-    const phone = first.addDevice('phone', 'mobile')
-    first.updateLastSeen(phone.deviceId)
+    const phone = await first.addDevice('phone', 'mobile')
+    await first.updateLastSeen(phone.deviceId)
     const rows: unknown[] = JSON.parse(readFileSync(registryPath(), 'utf8'))
     writeFileSync(registryPath(), JSON.stringify([...rows, { deviceId: 'x', bogus: true }]))
     const registry = new DeviceRegistry(dir)
-    vi.spyOn(secureFile, 'writeSecureJsonFile').mockImplementationOnce(() => {
+    vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementationOnce(() => {
       throw new Error('disk full')
     })
 
-    expect(() => registry.addDevice('desktop', 'runtime')).toThrow('disk full')
+    await expect(registry.addDevice('desktop', 'runtime')).rejects.toThrow('disk full')
 
     expect(registry.validateToken(phone.token)?.deviceId).toBe(phone.deviceId)
   })
 
-  it('accepts a device another writer added, with no save in between', () => {
+  it('accepts a device another writer added, with no save in between', async () => {
     const registry = new DeviceRegistry(dir)
-    registry.addDevice('desktop', 'runtime')
+    await registry.addDevice('desktop', 'runtime')
     // E.g. the pairing CLI on the host, writing through its own registry instance.
-    const added = new DeviceRegistry(dir).addDevice('cli pairing', 'runtime')
+    const added = await new DeviceRegistry(dir).addDevice('cli pairing', 'runtime')
 
     expect(registry.validateToken(added.token)?.deviceId).toBe(added.deviceId)
   })

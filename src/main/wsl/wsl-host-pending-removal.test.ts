@@ -1,16 +1,23 @@
+import { removeWslHostServer } from './wsl-host-removal'
+import { withRuntimeEnvironmentMutation } from '../../shared/runtime-environment-store-mutation'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listEnvironments } from '../../shared/runtime-environment-store'
 import {
+  addWslHostEnvironment,
+  removeWslHostEnvironment,
   findWslHostDeployment,
   setWslHostPendingStop
 } from '../../shared/runtime-environment-wsl-host-store'
 import type { WslHostStatus } from '../../shared/wsl-host-types'
 import { WslHostService, type WslHostConnector } from './wsl-host-service'
-import { UBUNTU, UBUNTU_ID, makeConnector } from './wsl-host-service-test-connector'
+import { UBUNTU, UBUNTU_ID, makeConnector, pairing } from './wsl-host-service-test-connector'
 import { rememberWslHostsToWake, wakeRememberedWslHosts } from './wsl-host-early-wake'
+import { wasWslHostKeptForPeers } from './wsl-host-kept-for-peers'
+import { onWslHostUserAction } from './wsl-host-user-actions'
 
 // E11: a Remove that can't prove the host's server stopped keeps the host, pending.
 describe('WslHostService pending removal', () => {
@@ -38,9 +45,116 @@ describe('WslHostService pending removal', () => {
     vi.clearAllMocks()
     vi.spyOn(console, 'warn').mockImplementation(() => {})
   })
-  afterEach(() => {
+  afterEach(async () => {
+    await drainPendingPathWrites()
     vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
+  })
+
+  it.each(['helper', 'service'] as const)(
+    'preserves a replacement registration when an older stop finishes through the %s',
+    async (entrypoint) => {
+      const connector = makeConnector([UBUNTU])
+      const service = makeService(connector)
+      await service.add({ distro: 'Ubuntu' })
+      const original = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
+      if (!original) {
+        throw new Error('missing original registration')
+      }
+      const actions = vi.fn()
+      const unsubscribe = onWslHostUserAction(actions)
+      const entered = Promise.withResolvers<void>()
+      const stopped = Promise.withResolvers<{ stopped: true; keptForOtherDesktops?: string[] }>()
+      connector.stopServer.mockImplementationOnce(() => {
+        entered.resolve()
+        return stopped.promise
+      })
+      const removing =
+        entrypoint === 'helper'
+          ? removeWslHostServer(userDataPath, connector, original)
+          : service.remove('wsl:ubuntu')
+      try {
+        await expect(Promise.race([entered.promise, removing])).resolves.toBeUndefined()
+        await removeWslHostEnvironment(userDataPath, 'wsl:ubuntu')
+        await addWslHostEnvironment(userDataPath, {
+          id: 'wsl:ubuntu',
+          name: 'Ubuntu (WSL)',
+          pairingCode: pairing(42001),
+          now: original.createdAt + 1,
+          record: {
+            kind: 'wsl',
+            distro: 'Ubuntu',
+            distroId: UBUNTU_ID,
+            localPort: 42001,
+            remotePort: 6768
+          }
+        })
+        await rememberWslHostsToWake(userDataPath, ['Ubuntu'])
+        const statusesBefore = service.getStatuses()
+        const publishedBefore = published.length
+        expect(statusesBefore).toMatchObject([{ environmentId: 'wsl:ubuntu', state: 'ready' }])
+        expect(wakeRememberedWslHosts(userDataPath, vi.fn())).toEqual(['Ubuntu'])
+        stopped.resolve({ stopped: true, keptForOtherDesktops: ['peer'] })
+        const result = await removing
+        if (entrypoint === 'helper') {
+          expect.soft(result).toMatchObject({ removed: false })
+        }
+        expect.soft(connector.disconnect).not.toHaveBeenCalled()
+        expect.soft(connector.releaseHolder).not.toHaveBeenCalled()
+        expect.soft(removed).not.toHaveBeenCalled()
+        expect.soft(actions).not.toHaveBeenCalled()
+        expect.soft(wasWslHostKeptForPeers(userDataPath, original.environmentId)).toBe(false)
+        expect.soft(service.getStatuses()).toEqual(statusesBefore)
+        expect.soft(published).toHaveLength(publishedBefore)
+        expect.soft(wakeRememberedWslHosts(userDataPath, vi.fn())).toEqual(['Ubuntu'])
+        expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toMatchObject({
+          createdAt: original.createdAt + 1,
+          localPort: 42001
+        })
+      } finally {
+        stopped.resolve({ stopped: true })
+        await Promise.allSettled([removing])
+        unsubscribe()
+      }
+    }
+  )
+
+  it('does not finish a pending Remove before its marker is durable', async () => {
+    const connector = makeConnector([UBUNTU])
+    const service = makeService(connector)
+    await service.add({ distro: 'Ubuntu' })
+    connector.stopServer.mockResolvedValueOnce({
+      stopped: false,
+      reason: 'still running',
+      verdict: 'live'
+    })
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const blocked = withRuntimeEnvironmentMutation(userDataPath, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const operations: Promise<unknown>[] = [blocked]
+    try {
+      let finished = false
+      const removing = service.remove('wsl:ubuntu').then((result) => {
+        finished = true
+        return result
+      })
+      operations.push(removing)
+      await vi.waitFor(() => expect(connector.stopServer).toHaveBeenCalledOnce())
+      expect(finished).toBe(false)
+      expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.pendingStop).toBeUndefined()
+      release.resolve()
+      await expect(removing).resolves.toMatchObject({ stopped: false, kept: true })
+      expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.pendingStop).toMatchObject({
+        reason: 'still running'
+      })
+    } finally {
+      release.resolve()
+      await Promise.allSettled(operations)
+    }
   })
 
   it('keeps a host whose server it could not stop, pending, and nothing reconnects it', async () => {
@@ -235,9 +349,13 @@ describe('WslHostService pending removal', () => {
     const connector = makeConnector([UBUNTU])
     const service = makeService(connector)
     await service.add({ distro: 'Ubuntu' })
-    rememberWslHostsToWake(userDataPath, ['Ubuntu'])
+    await rememberWslHostsToWake(userDataPath, ['Ubuntu'])
     // A Remove left pending by a build that still remembered the host.
-    setWslHostPendingStop(userDataPath, 'wsl:ubuntu', { since: 1, reason: 'busy', verdict: 'live' })
+    await setWslHostPendingStop(userDataPath, 'wsl:ubuntu', {
+      since: 1,
+      reason: 'busy',
+      verdict: 'live'
+    })
     const spawn = vi.fn()
 
     expect(wakeRememberedWslHosts(userDataPath, spawn)).toEqual([])

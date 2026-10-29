@@ -18,8 +18,11 @@ it('refuses registration until unreadable cleanup is recovered and settled on re
   let service: DesktopPushService | null = null
   try {
     let registry = new DeviceRegistry(dir)
-    const { deviceId } = registry.addDevice('phone', 'mobile')
-    const queued = new PushUnregisterOutbox(dir).enqueue({ deviceId, registrationId: 'stable-id' })
+    const { deviceId } = await registry.addDevice('phone', 'mobile')
+    const queued = await new PushUnregisterOutbox(dir).enqueue({
+      deviceId,
+      registrationId: 'stable-id'
+    })
     const path = join(dir, 'mobile-push-unregister-outbox.json')
     const bytes = readFileSync(path, 'utf-8')
     vi.mocked(readFileSync).mockImplementationOnce(() => {

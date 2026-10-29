@@ -1,4 +1,13 @@
 import { writeStartupDiagnosticLine } from '../startup/startup-diagnostics'
+import {
+  MAIN_LOOP_WINDOW_MS,
+  emitMainLoopSpan,
+  mergeSpawnStats,
+  newGapCounter,
+  recordGap,
+  recordMainLoopStall,
+  resetGapCounter
+} from './main-loop-span'
 
 export const MAIN_THREAD_DIAGNOSTICS_ENV = 'ORCA_MAIN_THREAD_DIAGNOSTICS'
 
@@ -68,14 +77,12 @@ export type SubprocessSpawnStats = {
 
 const spawnStatsByCommand = new Map<string, SubprocessSpawnStats>()
 
+/** Always collect main-thread spawn costs for the per-minute `main.loop` span. */
 export function recordSubprocessSpawn(
   command: string,
   args: readonly string[],
   blockMs: number
 ): void {
-  if (!isMainThreadDiagnosticsEnabled()) {
-    return
-  }
   const key = classifySubprocessCommand(command, args)
   const stats = spawnStatsByCommand.get(key)
   if (stats) {
@@ -115,47 +122,58 @@ export type MainThreadChurnProbeOptions = {
   extraStats?: () => Record<string, unknown>
 }
 
-/** Unlike the startup probe, report steady-state stalls and subprocess costs throughout the session. */
+/** Always emit minute spans and stall breadcrumbs; the env flag adds 5s stderr reports. */
 export function startMainThreadChurnProbe(options: MainThreadChurnProbeOptions = {}): void {
-  if (!isMainThreadDiagnosticsEnabled()) {
-    return
-  }
   let last = performance.now()
   let lastReport = last
-  let windowMaxGapMs = 0
-  let gapsOver50Ms = 0
-  let gapsOver250Ms = 0
+  let windowStart = last
+  const reportGaps = newGapCounter()
+  const windowGaps = newGapCounter()
+  const windowSpawns: Record<string, SubprocessSpawnStats> = {}
+  const reportSpawns: Record<string, SubprocessSpawnStats> = {}
+  // Why both: a window roll between stderr reports must not steal spawns from the next report.
+  const drainSpawns = (): void => {
+    const drained = drainSubprocessSpawnStats()
+    mergeSpawnStats(windowSpawns, drained)
+    mergeSpawnStats(reportSpawns, drained)
+  }
   const timer = setInterval(() => {
     const now = performance.now()
     const gap = now - last - TICK_MS
     last = now
-    if (gap > windowMaxGapMs) {
-      windowMaxGapMs = gap
+    recordGap(reportGaps, gap)
+    recordGap(windowGaps, gap)
+    recordMainLoopStall(gap)
+    if (now - lastReport >= REPORT_EVERY_MS) {
+      lastReport = now
+      drainSpawns()
+      const spawns = { ...reportSpawns }
+      if (isMainThreadDiagnosticsEnabled()) {
+        const report = {
+          t: Math.round(now),
+          maxGapMs: Math.max(0, Math.round(reportGaps.maxGapMs)),
+          gapsOver50Ms: reportGaps.gapsOver50Ms,
+          gapsOver250Ms: reportGaps.gapsOver250Ms,
+          spawnCount: Object.values(spawns).reduce((sum, s) => sum + s.count, 0),
+          spawns,
+          ...options.extraStats?.()
+        }
+        writeStartupDiagnosticLine(`[main-thread] ${JSON.stringify(report)}`)
+      }
+      resetGapCounter(reportGaps)
+      for (const key of Object.keys(reportSpawns)) {
+        delete reportSpawns[key]
+      }
     }
-    if (gap > 50) {
-      gapsOver50Ms++
+    if (now - windowStart >= MAIN_LOOP_WINDOW_MS) {
+      drainSpawns()
+      emitMainLoopSpan(now - windowStart, windowGaps, windowSpawns)
+      windowStart = now
+      resetGapCounter(windowGaps)
+      for (const key of Object.keys(windowSpawns)) {
+        delete windowSpawns[key]
+      }
     }
-    if (gap > 250) {
-      gapsOver250Ms++
-    }
-    if (now - lastReport < REPORT_EVERY_MS) {
-      return
-    }
-    lastReport = now
-    const spawns = drainSubprocessSpawnStats()
-    const report = {
-      t: Math.round(now),
-      maxGapMs: Math.max(0, Math.round(windowMaxGapMs)),
-      gapsOver50Ms,
-      gapsOver250Ms,
-      spawnCount: Object.values(spawns).reduce((sum, s) => sum + s.count, 0),
-      spawns,
-      ...options.extraStats?.()
-    }
-    windowMaxGapMs = 0
-    gapsOver50Ms = 0
-    gapsOver250Ms = 0
-    writeStartupDiagnosticLine(`[main-thread] ${JSON.stringify(report)}`)
   }, TICK_MS)
   timer.unref?.()
 }

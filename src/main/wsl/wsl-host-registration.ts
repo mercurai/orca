@@ -1,8 +1,10 @@
-/** Admit, refuse duplicate orcad ownership, connect (possibly booting), then persist the environment and WSL record. */
-import { errorMessage } from '../../shared/error-message'
-import { addWslHostEnvironment } from '../../shared/runtime-environment-wsl-host-store'
+import { completeWslHostAdd } from './wsl-host-connection-change'
+/**
+ * Adding a WSL distro as a host: admit it, refuse one whose orcad this desktop already reaches,
+ * connect (which may boot it), then persist the environment and its WSL record.
+ */
 import type { WslHostDeploymentRecord } from '../../shared/wsl-host-deployment-store'
-import { wslHostEnvironmentLabel, type WslHostAddResult } from '../../shared/wsl-host-types'
+import type { WslHostAddResult } from '../../shared/wsl-host-types'
 import { admitWslHostDistro, wslHostAddRefusal, wslHostRunRefusal } from './wsl-host-add-admission'
 import { abandonWslHostAdd, connectForWslHostAdd } from './wsl-host-first-connect'
 import type { WslHostConnector, WslHostServiceDependencies } from './wsl-host-service'
@@ -17,6 +19,7 @@ export type WslHostRegistrationContext = {
   wsl: () => WslHostConnector
   /** Bumped each time the experiment is turned off; an add that spans a bump ends without a host. */
   disableGeneration: () => number
+  canRegister: (environmentId: string) => boolean
   recordForDistro: (distro: string) => WslHostDeploymentRecord | null
   recordForEnvironment: (environmentId: string) => WslHostDeploymentRecord | null
   setReady: (record: WslHostDeploymentRecord, connection: WslOrcadConnection) => void
@@ -31,9 +34,10 @@ export async function registerWslHost(
     return refusal
   }
   const generation = context.disableGeneration()
+  const connector = context.wsl()
   const admission = admitWslHostDistro({
     requested: args.distro,
-    candidates: await context.wsl().listDistros(),
+    candidates: await connector.listDistros(),
     alreadyAdded: (name) => context.recordForDistro(name) !== null,
     startIfStopped: args.startIfStopped === true
   })
@@ -43,14 +47,14 @@ export async function registerWslHost(
   const { distro } = admission
   const userDataPath = context.deps.userDataPath()
   const sharing = await wslHostSshManagedRefusal(distro.name, userDataPath, (name) =>
-    context.wsl().readOrcadPublicKey(name)
+    connector.readOrcadPublicKey(name)
   )
   if (sharing) {
     return sharing
   }
   const environmentId = defaultWslOrcadEnvironmentId(distro.name)
-  const connected = await connectForWslHostAdd(context.wsl(), distro.name, () =>
-    generation === context.disableGeneration()
+  const connected = await connectForWslHostAdd(connector, distro.name, () =>
+    generation === context.disableGeneration() && context.wsl() === connector && context.canRegister(environmentId)
       ? wslHostRunRefusal(context.deps)
       : wslHostAddRefusal('disabled', 'turnedOff')
   )
@@ -58,27 +62,30 @@ export async function registerWslHost(
     return connected
   }
   const { connection } = connected
-  try {
-    addWslHostEnvironment(userDataPath, {
-      id: environmentId,
-      name: wslHostEnvironmentLabel(distro.name),
-      pairingCode: connection.pairingOffer,
-      record: {
-        kind: 'wsl',
-        distro: distro.name,
-        distroId: distro.id,
-        localPort: connection.localPort,
-        remotePort: connection.remotePort
+  return completeWslHostAdd({
+    userDataPath,
+    distro,
+    environmentId,
+    connection,
+    isCurrent: () =>
+      generation === context.disableGeneration() &&
+      context.canRegister(environmentId) &&
+      context.wsl() === connector &&
+      connector.get(distro.name) === connection,
+    abandon: async () => {
+      const current = connector.get(distro.name)
+      if (current && current !== connection) {
+        await connection.close().catch(() => {})
+        return
       }
-    })
-  } catch (error) {
-    await abandonWslHostAdd(context.wsl(), distro.name)
-    return { ok: false, kind: 'failed', message: errorMessage(error) }
-  }
-  const record = context.recordForEnvironment(environmentId)
-  if (record) {
-    context.setReady(record, connection)
-  }
-  context.deps.ready(environmentId)
-  return { ok: true, environmentId }
+      await abandonWslHostAdd(connector, distro.name)
+    },
+    publish: () => {
+      const record = context.recordForEnvironment(environmentId)
+      if (record) {
+        context.setReady(record, connection)
+      }
+      context.deps.ready(environmentId)
+    }
+  })
 }

@@ -21,7 +21,7 @@ afterEach(() => {
 })
 
 describe('isWslMoveUnderwayOnHost', () => {
-  it('is true only between the run journaling its own cutover and the run ending', () => {
+  it('is true only between the run journaling its own cutover and the run ending', async () => {
     const running = claimWslMoveRun('Ubuntu')
     if (!running) {
       throw new Error('expected to claim the run')
@@ -30,7 +30,7 @@ describe('isWslMoveUnderwayOnHost', () => {
       running.migrationId = 'm1'
       // The move's own first connect may still update an outdated server.
       expect(isWslMoveUnderwayOnHost(userDataPath, 'Ubuntu')).toBe(false)
-      seedWslMoveCutover(userDataPath, wslMoveCutoverFixture('m1', 'destination-staged'))
+      await seedWslMoveCutover(userDataPath, wslMoveCutoverFixture('m1', 'destination-staged'))
       expect(isWslMoveUnderwayOnHost(userDataPath, 'ubuntu')).toBe(true)
       expect(isWslMoveUnderwayOnHost(userDataPath, 'Debian')).toBe(false)
     } finally {
@@ -40,9 +40,9 @@ describe('isWslMoveUnderwayOnHost', () => {
     expect(isWslMoveUnderwayOnHost(userDataPath, 'Ubuntu')).toBe(false)
   })
 
-  it("never counts an earlier move's record for a run that only settles it", () => {
+  it("never counts an earlier move's record for a run that only settles it", async () => {
     // Else an outdated server stays held, the settle refuses for an update, and retries forever.
-    seedWslMoveCutover(userDataPath, wslMoveCutoverFixture('earlier', 'blobs-transferred'))
+    await seedWslMoveCutover(userDataPath, wslMoveCutoverFixture('earlier', 'blobs-transferred'))
     const settling = claimWslMoveRun('Ubuntu')
     try {
       expect(isWslMoveUnderwayOnHost(userDataPath, 'Ubuntu')).toBe(false)

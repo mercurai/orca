@@ -109,7 +109,7 @@ test("a moved project's existing chat still answers here after the move", async 
     await session.close(launched.app)
     launched = undefined
 
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       session.userDataDir,
       wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: [repoId] })
     )

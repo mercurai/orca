@@ -6,12 +6,16 @@ import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import { StructuredAgentSessionInputNotAdmitted } from '../native-chat/agent-session-wire/structured-agent-session-input-admission'
 import { agentSessionFailureFact } from '../../shared/agent-session-failure'
 import { codexDispatchRejection } from './codex-structured-turn-end-settlement'
-import type { AgentSessionExecutionOptions } from '../../shared/agent-session-execution-options'
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
+import type { AgentSessionExecutionOptions } from '../../shared/agent-session-execution-options'
 import type { CodexSession } from './codex-structured-session-state'
-import { codexSessionCapabilities } from './codex-structured-catalog-entry'
-import { codexServiceTierOfFastMode } from './codex-structured-session-options'
-import { codexEffectiveModel, codexTurnRequestOptions } from './codex-structured-service-tier'
+
+/** Allowlist turn overrides so saved options cannot replace the thread's permission policy. */
+const CODEX_TURN_OPTION_KEYS = new Set(['model', 'effort', 'personality', 'serviceTier'])
+
+export function isCodexTurnOptionKey(key: string): boolean {
+  return CODEX_TURN_OPTION_KEYS.has(key)
+}
 
 export function resolvedCodexGoalSettings(
   _session: CodexSession,
@@ -23,55 +27,53 @@ export function resolvedCodexGoalSettings(
   }
 }
 
-/** Captured fields are overrides; omitted fields inherit the native thread's state. */
-export async function resolvedCodexMessageOptions(
-  session: CodexSession,
-  choices: AgentSessionExecutionOptions | undefined
-): Promise<Readonly<Record<string, string>> | undefined> {
-  if (choices === undefined) {
-    return undefined
-  }
-  return compileCodexMessageOptions(session, choices)
-}
-
-function compileCodexMessageOptions(
-  session: CodexSession,
+function capturedCodexMessageOptions(
   choices: Readonly<Record<string, string | undefined>>
-): Readonly<Record<string, string>> {
-  const compiled: Record<string, string> = {}
+): Record<string, string> {
+  const captured: Record<string, string> = {}
   for (const key of ['model', 'effort', 'personality', 'serviceTier'] as const) {
-    const value = choices[key]
-    if (value !== undefined) {
-      compiled[key] = value
+    if (choices[key] !== undefined) {
+      captured[key] = choices[key]
     }
   }
   if (choices.serviceTier === undefined && choices.fastMode !== undefined) {
-    const model = codexSessionCapabilities(session).models.find(
-      (row) => row.id === codexEffectiveModel(session, compiled)
-    )
-    compiled.serviceTier = codexServiceTierOfFastMode(choices.fastMode, model)
+    if (choices.fastMode === 'false') {
+      captured.serviceTier = 'default'
+    } else if (choices.fastMode === 'true') {
+      captured.fastMode = 'true'
+    } else {
+      throw new Error('codex fast mode must be encoded as true or false')
+    }
   }
-  return codexTurnRequestOptions(session, compiled)
+  return captured
 }
 
-/** The same sparse controls as dispatch, compared under the exact acquisition that took them. */
+/** Omitted captured fields inherit the native thread's current values. */
+export async function resolvedCodexMessageOptions(
+  _session: CodexSession,
+  choices: AgentSessionExecutionOptions | undefined
+): Promise<Readonly<Record<string, string>> | undefined> {
+  return choices === undefined ? undefined : capturedCodexMessageOptions(choices)
+}
+
+/** Compare the active turn with the next captured intent. */
 export function readCodexAppliedInputOptions(
   session: CodexSession | undefined,
   input: Parameters<NonNullable<StructuredAgentSessionAdapter['readAppliedInputOptions']>>[0]
 ): ReturnType<NonNullable<StructuredAgentSessionAdapter['readAppliedInputOptions']>> {
-  if (
-    !session ||
-    session.ended ||
-    session.connection.closed ||
-    session.fence !== input.fence ||
-    session.acquisitionGeneration !== input.acquisitionGeneration ||
-    !session.appliedTurnOptions
-  ) {
+  if (!session || session.ended || session.connection.closed || session.fence !== input.fence ||
+      session.acquisitionGeneration !== input.acquisitionGeneration || !session.appliedTurnOptions) {
     return null
   }
   const active = session.appliedTurnOptions
-  const requested = input.next ?? Object.fromEntries(session.options)
-  return { active, next: { ...active, ...compileCodexMessageOptions(session, requested) } }
+  const next = capturedCodexMessageOptions(input.next ?? Object.fromEntries(session.options))
+  const projected = { ...active, ...next }
+  if (next.fastMode !== undefined && next.serviceTier === undefined) {
+    delete projected.serviceTier
+  } else if (next.serviceTier !== undefined) {
+    delete projected.fastMode
+  }
+  return { active, next: projected }
 }
 
 /** Check the live binding after options settle and again whenever the provider is about to write. */

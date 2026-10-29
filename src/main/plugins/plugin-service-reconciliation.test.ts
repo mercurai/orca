@@ -60,12 +60,12 @@ function testWorker(): PluginWorkerHandle & { dispose: ReturnType<typeof vi.fn> 
   }
 }
 
-async function createHarness(root: string) {
+async function createHarness(root: string, pluginManifest = manifest()) {
   let enabled = true
   let disabled: string[] = []
   let devPaths = [root]
   let killed = false
-  const consent = fingerprintPluginConsent(manifest(), await devFolderConsentIdentity(root))
+  const consent = fingerprintPluginConsent(pluginManifest, await devFolderConsentIdentity(root))
   const workers: ReturnType<typeof testWorker>[] = []
   const factory = vi.fn<PluginWorkerFactory>(async () => {
     const handle = testWorker()
@@ -117,6 +117,39 @@ afterEach(async () => {
 })
 
 describe('PluginService worker reconciliation', () => {
+  it('dispatches an authenticated panel command to its own worker and revokes access when disabled', async () => {
+    const declaration = manifest({ capabilities: [{ kind: 'commands:invoke' }] })
+    const root = await pluginRoot(declaration)
+    const harness = await createHarness(root, declaration)
+    harness.service.setRuntimeDelegate({
+      resolveActiveWorktreeContext: async () => null,
+      listTerminals: async () => ({ terminals: [] }),
+      sendTerminal: async () => ({ accepted: false }),
+      dispatchPluginNotification: async () => ({ delivered: false })
+    })
+    await harness.service.initialize()
+    const panel = await harness.service.panels.open('desktop:test', pluginKey, 'panel')
+    if (!panel) {
+      throw new Error('approved panel was not loaded')
+    }
+    const call = {
+      sessionToken: panel.sessionToken,
+      action: 'commands.invoke',
+      params: { commandId: 'run', args: { operation: 'read' } }
+    }
+    await expect(harness.service.panels.execute('desktop:test', call)).resolves.toEqual({
+      ok: true,
+      value: { value: null }
+    })
+    expect(harness.factory).toHaveBeenCalledOnce()
+    expect(harness.workers[0].invokeCommand).toHaveBeenCalledWith('run', { operation: 'read' })
+    harness.setDisabled([pluginKey])
+    await expect(harness.service.panels.execute('desktop:test', call)).resolves.toMatchObject({
+      ok: false,
+      code: 'unavailable'
+    })
+    expect(harness.workers[0].invokeCommand).toHaveBeenCalledOnce()
+  })
   it('blocks every runtime surface until a saved override resolves a content conflict', async () => {
     const conflictingManifest = (id: string): PluginManifest =>
       pluginManifestSchema.parse({

@@ -20,6 +20,15 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
+vi.mock('@/runtime/runtime-rpc-client', async () => {
+  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } =
+    await import('../../../shared/agent-session-create-capabilities')
+  return {
+    callRuntimeRpc: vi.fn(async () => ({
+      capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY]
+    }))
+  }
+})
 
 const launchErrorMocks = vi.hoisted(() => {
   class StructuredAgentSessionCreateRefusalError extends Error {}
@@ -257,7 +266,7 @@ describe('picks made while a chat launches', () => {
     expect(mutations().map((mutation) => mutation.value)).toEqual(['gpt-picked', 'gpt-repicked'])
   })
 
-  it('sends held Fast with the picked model even when its catalog omits that tier', async () => {
+  it('retains a held unsupported speed until an explicit Standard replacement is accepted', async () => {
     const created = deferred<{ sessionId: string; fence: number }>()
     mocks.launch.mockReturnValue(created.promise)
     const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'request-tier' })
@@ -271,16 +280,24 @@ describe('picks made while a chat launches', () => {
     await settle()
     setOptionReplies[0]!.resolve(ACCEPTED)
     await settle()
-    setOptionReplies[1]!.resolve({ ok: true, value: { options: { serviceTier: 'priority' } } })
-    await launch.launchResult
-
-    await expect(tierPick).resolves.toEqual({
-      kind: 'accepted',
-      options: { serviceTier: 'priority' }
+    setOptionReplies[1]!.resolve({
+      ok: false,
+      refusal: { code: 'invalid_argument', message: 'Selected speed is unavailable' }
     })
+    await expect(tierPick).resolves.toMatchObject({ kind: 'refused' })
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toMatchObject({
+      serviceTier: 'priority'
+    })
+    expect(lifecycle()).toBe('pending')
+    const standard = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'default')
+    await settle()
+    setOptionReplies[2]!.resolve(ACCEPTED)
+    await expect(standard).resolves.toMatchObject({ kind: 'accepted' })
+    await launch.launchResult
     expect(mutations().map(({ key, value }) => [key, value])).toEqual([
       ['model', 'gpt-nofast'],
-      ['serviceTier', 'priority']
+      ['serviceTier', 'priority'],
+      ['serviceTier', 'default']
     ])
   })
 
@@ -360,7 +377,18 @@ describe('picks made while a chat launches', () => {
     expect(lifecycle()).toBe('failed')
     expect(mutations()).toEqual([])
 
+    const retryAdopted = Promise.withResolvers<void>()
+    mocks.retryIntent.mockImplementationOnce((intent: StructuredAgentSessionLaunchIntent) => {
+      const retried = { ...intent, seedOptions: { model: 'gpt-saved-since' } }
+      retryAdopted.resolve()
+      return retried
+    })
     expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
+    expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)?.held).toEqual({
+      model: 'gpt-picked'
+    })
+    await retryAdopted.promise
+    // A definitive refusal permits a new create once recovery admits the retry.
     expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)).toEqual({
       seed: { model: 'gpt-saved-since' },
       held: { model: 'gpt-picked' }

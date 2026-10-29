@@ -67,7 +67,7 @@ export function registerWslMoveMainRewriteStores(profile: WslMoveMainRewriteProf
   registerWslMoveDesktopRewriteStore({
     id: 'host-session-seed',
     side: 'main',
-    run: (context) => {
+    run: async (context) => {
       holdWslMoveWindowWrites()
       const seeded = applyWslMoveHostSessionSeed(
         profile,
@@ -77,7 +77,7 @@ export function registerWslMoveMainRewriteStores(profile: WslMoveMainRewriteProf
       )
       if (seeded.length > 0) {
         // Recorded before the flush: a crash may then lose the seed, but never revives a closed tab.
-        context.recordSeededHostWorkspaceIds(seeded)
+        await context.recordSeededHostWorkspaceIds(seeded)
       }
     },
     flush

@@ -12,7 +12,7 @@ const scope = wslMoveRewriteScope({
   cutover: wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: ['repo-a'] }),
   rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
   destinationHostId: HOST,
-  recordSeededHostWorkspaceIds: () => {}
+  recordSeededHostWorkspaceIds: async () => {}
 })
 
 // The mixed profile: repo-a moves; repo-b (same distro), repo-win and repo-deb stay.
@@ -134,7 +134,7 @@ describe('WSL move UI routing rewrite', () => {
       ),
       rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
       destinationHostId: HOST,
-      recordSeededHostWorkspaceIds: () => {}
+      recordSeededHostWorkspaceIds: async () => {}
     })
     const other = '\\\\wsl.localhost\\Ubuntu\\srv\\other'
     const updates = rewriteWslMoveUiRouting(
@@ -164,7 +164,7 @@ describe('WSL move UI routing rewrite', () => {
       ),
       rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
       destinationHostId: HOST,
-      recordSeededHostWorkspaceIds: () => {}
+      recordSeededHostWorkspaceIds: async () => {}
     })
     const lowercase = 'repo-a::\\\\wsl.localhost\\ubuntu\\home\\dev\\app'
     const updates = rewriteWslMoveUiRouting(

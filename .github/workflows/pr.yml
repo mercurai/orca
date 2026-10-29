@@ -1,7 +1,73 @@
 name: PR Checks
-run-name: "PR ${{ github.event.pull_request.number }} | source ${{ github.sha }} | workflow ${{ github.workflow_sha }} | unit ${{ github.event.pull_request.draft && vars.ORCA_UNIT_SELECTION_MODE == 'selected' && 'selected' || 'full' }}"
+run-name: "PR ${{ github.event.pull_request.number }} | source ${{ inputs.candidate_sha || github.sha }} | workflow ${{ github.workflow_sha }} | unit ${{ github.event.pull_request.draft && vars.ORCA_UNIT_SELECTION_MODE == 'selected' && 'selected' || 'full' }}"
 
 on:
+  workflow_call:
+    inputs:
+      candidate_sha:
+        description: Exact source commit; omitted for ordinary PR checks.
+        type: string
+        default: ''
+      candidate_tree:
+        description: Expected source tree for full qualification.
+        type: string
+        default: ''
+      controller_sha:
+        description: Trusted calling workflow revision for full qualification.
+        type: string
+        default: ''
+      upstream_base_sha:
+        description: Official source base for qualification ratchets.
+        type: string
+        default: ''
+      full_mode:
+        description: Execute every required PR job and the full unit discovery.
+        type: boolean
+        default: false
+      cache_mode:
+        description: Use off for isolated release qualification; auto preserves PR caching.
+        type: string
+        default: auto
+    outputs:
+      result:
+        description: Actual result of the shared required-job aggregate.
+        value: ${{ jobs.verify.result }}
+      candidate_sha:
+        description: Checked source commit.
+        value: ${{ jobs.code_paths.outputs.candidate_sha }}
+      candidate_tree:
+        description: Checked source tree.
+        value: ${{ jobs.code_paths.outputs.candidate_tree }}
+      controller_sha:
+        description: Checked calling controller revision.
+        value: ${{ jobs.code_paths.outputs.controller_sha }}
+      upstream_base_sha:
+        description: Checked official base.
+        value: ${{ jobs.code_paths.outputs.upstream_base_sha }}
+      unit_shards:
+        description: Executed full unit matrix assignments.
+        value: ${{ jobs.unit_plan.outputs.shards }}
+      selected_tests:
+        description: Explicit unit test selections; empty in full mode.
+        value: ${{ jobs.unit_plan.outputs.selected_tests }}
+      required_results:
+        description: Actual results keyed by the existing required job identifiers.
+        value: ${{ jobs.verify.outputs.required_results }}
+      full_mode:
+        description: Whether immutable cacheless full qualification was admitted.
+        value: ${{ jobs.code_paths.outputs.full_mode }}
+      unit_plan_artifact:
+        description: Immutable artifact containing the full discovered and executed unit-file plan.
+        value: ${{ jobs.unit_plan.outputs.unit_plan_artifact }}
+      layout_oracle_shards:
+        description: Actual changed-spec shard assignments for the required layout oracle.
+        value: ${{ jobs.layout_oracle.outputs.changed_e2e_shards }}
+      cache_mode:
+        description: Admitted persistent-cache policy; off in full qualification.
+        value: ${{ jobs.code_paths.outputs.cache_mode }}
+      advisory_exclusions:
+        description: Existing advisory lanes intentionally excluded from required qualification.
+        value: ${{ inputs.full_mode && '["e2e","terminal_ime_native","windows_wsl","unit_selection_evidence"]' || '[]' }}
   pull_request:
     types:
       - opened
@@ -11,8 +77,8 @@ on:
       - converted_to_draft
 
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: pr-checks-${{ inputs.full_mode && format('qualification-{0}-{1}', inputs.candidate_sha, github.run_id) || github.event.pull_request.number }}
+  cancel-in-progress: ${{ !inputs.full_mode }}
 
 permissions:
   contents: read
@@ -29,39 +95,46 @@ jobs:
       contents: read
       actions: read
     outputs:
-      should_run: ${{ steps.filter.outputs.should_run }}
+      full_mode: ${{ steps.qualification-identity.outputs.full_mode }}
+      cache_mode: ${{ steps.qualification-identity.outputs.cache_mode }}
+      candidate_sha: ${{ steps.qualification-identity.outputs.candidate_sha }}
+      candidate_tree: ${{ steps.qualification-identity.outputs.candidate_tree }}
+      controller_sha: ${{ steps.qualification-identity.outputs.controller_sha }}
+      upstream_base_sha: ${{ steps.qualification-identity.outputs.upstream_base_sha }}
+      should_run: ${{ inputs.full_mode && 'true' || steps.filter.outputs.should_run }}
       reused_run_id: ${{ steps.readiness.outputs.run_id }}
       # A proven success masks required work only; advisory routing still uses the full diff.
-      mobile_dependencies: ${{ steps.filter.outputs.mobile_dependencies }}
-      mobile_web_app: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.mobile_web_app }}
-      static_analysis: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.static_analysis }}
-      typecheck: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.typecheck }}
-      mobile_ci_tools: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.mobile_ci_tools }}
-      git_compatibility: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.git_compatibility }}
-      codex_index_heal_contract: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.codex_index_heal_contract }}
-      xterm_patch_sync: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.xterm_patch_sync }}
-      shell_contracts: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.shell_contracts }}
-      test: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.test }}
-      relay_integration: ${{ steps.filter.outputs.relay_integration }}
-      orcad_browser: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.orcad_browser }}
-      cross-version-wire: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.cross-version-wire }}
-      managed_hook_node18: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.managed_hook_node18 }}
-      package: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.package }}
-      windows_process_probe: ${{ steps.filter.outputs.windows_process_probe }}
-      package_windows: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.package_windows }}
-      layout_oracle: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.layout_oracle }}
-      dependency_isolation: ${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.dependency_isolation }}
-      e2e_should_run: ${{ steps.e2e_filter.outputs.should_run }}
+      mobile_dependencies: ${{ inputs.full_mode && 'true' || (steps.filter.outputs.mobile_dependencies) }}
+      mobile_web_app: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.mobile_web_app) }}
+      static_analysis: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.static_analysis) }}
+      typecheck: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.typecheck) }}
+      mobile_ci_tools: ${{ !inputs.full_mode && (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.mobile_ci_tools) }}
+      git_compatibility: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.git_compatibility) }}
+      codex_index_heal_contract: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.codex_index_heal_contract) }}
+      xterm_patch_sync: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.xterm_patch_sync) }}
+      shell_contracts: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.shell_contracts) }}
+      test: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.test) }}
+      relay_integration: ${{ inputs.full_mode && 'true' || (steps.filter.outputs.relay_integration) }}
+      orcad_browser: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.orcad_browser) }}
+      cross-version-wire: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.cross-version-wire) }}
+      managed_hook_node18: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.managed_hook_node18) }}
+      package: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.package) }}
+      windows_process_probe: ${{ inputs.full_mode && 'true' || (steps.filter.outputs.windows_process_probe) }}
+      package_windows: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.package_windows) }}
+      layout_oracle: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.layout_oracle) }}
+      dependency_isolation: ${{ inputs.full_mode && 'true' || (steps.readiness.outputs.reused != 'true' && steps.filter.outputs.dependency_isolation) }}
+      e2e_should_run: ${{ inputs.full_mode && 'true' || (steps.e2e_filter.outputs.should_run) }}
       test_files: ${{ steps.e2e_filter.outputs.test_files }}
       e2e_run_changed: ${{ steps.e2e_filter.outputs.e2e_run_changed }}
       e2e_needs_build: ${{ steps.e2e_filter.outputs.e2e_needs_build }}
       e2e_ssh_shards: ${{ steps.e2e_filter.outputs.e2e_ssh_shards }}
-      native_ime_source_changed: ${{ steps.e2e_filter.outputs.native_ime_source_changed }}
-      wsl_source_changed: ${{ steps.e2e_filter.outputs.wsl_source_changed }}
+      native_ime_source_changed: ${{ inputs.full_mode && 'true' || (steps.e2e_filter.outputs.native_ime_source_changed) }}
+      wsl_source_changed: ${{ inputs.full_mode && 'true' || (steps.e2e_filter.outputs.wsl_source_changed) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           # Fetch 50 commits for merge HEAD^1 diffs instead of all 8127 refs (~20s); sparse ~7-file blob:none checkout avoids materialization/refetch (9.5s→1.6s).
           fetch-depth: 50
           filter: blob:none
@@ -88,9 +161,41 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Verify immutable qualification identity
+        id: qualification-identity
+        if: inputs.full_mode
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          CANDIDATE_TREE: ${{ inputs.candidate_tree }}
+          CONTROLLER_SHA: ${{ inputs.controller_sha }}
+          UPSTREAM_BASE_SHA: ${{ inputs.upstream_base_sha }}
+          CACHE_MODE: ${{ inputs.cache_mode }}
+        run: |
+          set -euo pipefail
+          for value in "$CANDIDATE_SHA" "$CANDIDATE_TREE" "$CONTROLLER_SHA" "$UPSTREAM_BASE_SHA"; do
+            [[ "$value" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::qualification requires full immutable identities"; exit 1; }
+          done
+          [ "$CACHE_MODE" = off ] || { echo "::error::qualification requires cache_mode=off"; exit 1; }
+          [ "$CONTROLLER_SHA" = "$GITHUB_SHA" ] || { echo "::error::qualification controller changed"; exit 1; }
+          [ "$(git rev-parse HEAD)" = "$CANDIDATE_SHA" ] || { echo "::error::qualification checked out another source"; exit 1; }
+          [ "$(git rev-parse 'HEAD^{tree}')" = "$CANDIDATE_TREE" ] || { echo "::error::qualification source tree changed"; exit 1; }
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
+          git cat-file -e "$UPSTREAM_BASE_SHA^{commit}"
+          git merge-base --is-ancestor "$UPSTREAM_BASE_SHA" "$CANDIDATE_SHA"
+          {
+            echo "full_mode=true"
+            echo "cache_mode=$CACHE_MODE"
+            echo "candidate_sha=$CANDIDATE_SHA"
+            echo "candidate_tree=$CANDIDATE_TREE"
+            echo "controller_sha=$CONTROLLER_SHA"
+            echo "upstream_base_sha=$UPSTREAM_BASE_SHA"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Reject new root-level files and folders
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
           node .github/scripts/check-root-directory-entries.mjs "$DIFF_BASE" HEAD
@@ -111,7 +216,7 @@ jobs:
       # Readiness changes eligibility for advisory tests, not the already-tested source.
       - name: Find identical successful required checks
         id: readiness
-        if: github.event.action == 'ready_for_review'
+        if: ${{ !inputs.full_mode && github.event.action == 'ready_for_review' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_CHECK_WORKFLOW_SHA: ${{ github.workflow_sha }}
@@ -120,7 +225,7 @@ jobs:
       - name: Classify changed paths
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
           # PR merge HEAD’s first parent is the base; --merge-base would require the payload SHA/full history.
@@ -141,7 +246,7 @@ jobs:
         if: github.event.pull_request.draft != true && steps.filter.outputs.should_run == 'true'
         run: |
           set -euo pipefail
-          BASE="${{ github.event.pull_request.base.sha }}"
+          BASE="${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}"
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE")"
           CHANGED="$(git diff --name-only --diff-filter=AMCR "$DIFF_BASE" HEAD)"
           E2E_SCOPE_ARGS=()
@@ -181,9 +286,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           # Fetch 50 for merge HEAD^1, no merge-base graph needed. Full-tree checkout omits blob:none to avoid refetching ~30k blobs (23s versus ~11s).
           fetch-depth: 50
           persist-credentials: false
+
+      - name: Fetch complete qualification diff history
+        if: inputs.full_mode
+        run: |
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --no-tags --unshallow origin
+          fi
 
       # The dependency action below restores Node 24 before installing or building packages.
       - name: Prepare Node 18 smoke runtime
@@ -205,12 +318,14 @@ jobs:
       - uses: ./.github/actions/install-node-dependencies
         if: needs.code_paths.outputs.mobile_dependencies != 'true'
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: node
           node-version: '24'
 
       - uses: ./.github/actions/install-node-dependencies
         if: needs.code_paths.outputs.mobile_dependencies == 'true'
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: node
           node-version: '24'
           cache-dependency-path: |
@@ -321,7 +436,7 @@ jobs:
           PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
         run: |
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
-          node config/scripts/check-changed-code-quality.mjs "${{ github.event.pull_request.base.sha }}"
+          node config/scripts/check-changed-code-quality.mjs "${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}"
 
       - name: Verify locked audit tools
         if: needs.code_paths.outputs.static_analysis == 'true'
@@ -331,7 +446,7 @@ jobs:
 
       - name: Enforce React Doctor on changed lines
         if: needs.code_paths.outputs.static_analysis == 'true'
-        run: node config/scripts/check-react-doctor-changed.mjs "${{ github.event.pull_request.base.sha }}"
+        run: node config/scripts/check-react-doctor-changed.mjs "${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}"
 
       - wait: changed-code-quality
 
@@ -356,7 +471,7 @@ jobs:
         env:
           PREFLIGHT_PHASE_SELECTED: ${{ needs.code_paths.outputs.static_analysis == 'true' }}
           PREFLIGHT_PRIOR_SUCCESS: ${{ job.status == 'success' }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}
         run: |
           if [ "$PREFLIGHT_PHASE_SELECTED" != true ] || [ "$PREFLIGHT_PRIOR_SUCCESS" != true ]; then exit 0; fi
           # Detection failures run the full check; renames retain the removed input path.
@@ -383,7 +498,7 @@ jobs:
       - name: Check VM runtime rollback compatibility
         if: needs.code_paths.outputs.static_analysis == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
           if git diff --quiet "$DIFF_BASE" HEAD -- \
@@ -401,6 +516,16 @@ jobs:
             echo "VM runtime persistence is unchanged."
             exit 0
           fi
+          # The rollback oracle needs historical trees outside the shallow checkout.
+          ROLLBACK_ORACLE_COMMITS=(
+            bf0c77d5bc800e19117084c27fd1441eda9134ad
+            25abb9368d98ad84a174f530e02f4228d2269062
+          )
+          git -c credential.helper= fetch --no-tags --depth=1 \
+            https://github.com/stablyai/orca.git "${ROLLBACK_ORACLE_COMMITS[@]}"
+          for oracle_sha in "${ROLLBACK_ORACLE_COMMITS[@]}"; do
+            git cat-file -e "${oracle_sha}^{commit}"
+          done
           node config/scripts/run-ephemeral-vm-runtime-store-rollback-repro.mjs \
             config/scripts/ephemeral-vm-runtime-store-cross-version.test.ts
 
@@ -433,7 +558,7 @@ jobs:
         id: orcad-smoke-scope
         if: needs.code_paths.outputs.static_analysis == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}
         run: |
           # Detection failures run the smoke; renames retain the removed input path.
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
@@ -536,7 +661,7 @@ jobs:
           ORCA_BALANCE_UNIT_SHARDS: '1'
         run: >-
           node config/scripts/run-vitest.mjs run --config config/vitest.config.ts
-          --maxWorkers=4 --isolate --retry=0 --bail=0
+          --maxWorkers=${{ github.repository == 'mercurai/orca' && 2 || 4 }} --isolate --retry=0 --bail=0
           config/scripts/mobile-release-check-scope.test.mjs
           config/scripts/mobile-test-change-scope.test.mjs
           config/scripts/pr-ready-check-reuse.test.mjs
@@ -566,17 +691,22 @@ jobs:
       needs.code_paths.outputs.git_compatibility == 'true' &&
       needs.preflight.result == 'success'
     # Three parallel lanes (two through Docker) exceed real-Git test timeouts on 4-vCPU hosted runners.
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ${{ github.repository == 'mercurai/orca' && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
+        with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
 
       - uses: ./.github/actions/prepare-git-compatibility
+        with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
 
       - name: Verify Git binary compatibility matrix
         env:
@@ -596,7 +726,7 @@ jobs:
             ORCA_GIT_COMPAT_BINARY="$HOME/.cache/orca-git-compat/git-2.25.5/git" \
               GIT_EXEC_PATH="$HOME/.cache/orca-git-compat/git-2.25.5" \
               ORCA_GIT_COMPAT_VERSION="2.25.5" \
-              pnpm exec vitest run --config config/vitest.config.ts \
+              pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
               src/shared/git-binary-compatibility.test.ts \
               src/main/git/worktree-safety-real-git.test.ts \
               src/main/git/worktree-rebase-update-refs-real-git.test.ts
@@ -608,7 +738,7 @@ jobs:
               image="${spec%%|*}"
               version="${spec#*|}"
               ORCA_GIT_COMPAT_IMAGE="$image" ORCA_GIT_COMPAT_VERSION="$version" \
-                pnpm exec vitest run --config config/vitest.config.ts \
+                pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
                 src/shared/git-binary-compatibility.test.ts \
                 src/main/git/worktree-safety-real-git.test.ts \
                 src/main/git/worktree-rebase-update-refs-real-git.test.ts
@@ -642,9 +772,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
+        with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
 
       - name: Install pinned Codex CLI
         run: |
@@ -660,7 +793,7 @@ jobs:
         run: |
           set -euo pipefail
           ORCA_CODEX_CONTRACT_BINARY="$RUNNER_TEMP/codex-cli/node_modules/.bin/codex" \
-            pnpm exec vitest run --config config/vitest.config.ts \
+            pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
             src/main/codex/codex-index-heal-binary-contract.test.ts
 
       - name: Install pinned no-daemon Codex CLI
@@ -676,7 +809,7 @@ jobs:
         run: |
           set -euo pipefail
           ORCA_CODEX_NO_DAEMON_CONTRACT_BINARY="$RUNNER_TEMP/codex-cli-no-daemon/node_modules/.bin/codex" \
-            pnpm exec vitest run --config config/vitest.config.ts \
+            pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
             src/main/pty/codex-no-daemon-binary-contract.test.ts
 
       # Test pins plus latest because Codex’s managed-home approval hash can change before users encounter review prompts.
@@ -688,7 +821,7 @@ jobs:
           for install in codex-cli:"$CODEX_CLI_VERSION" codex-cli-no-daemon:"$CODEX_NO_DAEMON_CLI_VERSION"; do
             ORCA_CODEX_HOOK_CONTRACT_BINARY="$RUNNER_TEMP/${install%%:*}/node_modules/.bin/codex" \
               ORCA_CODEX_HOOK_CONTRACT_VERSION="${install#*:}" \
-              pnpm exec vitest run --config config/vitest.config.ts \
+              pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
               src/main/codex/codex-hook-file-entry-binary-contract.test.ts
           done
 
@@ -703,7 +836,7 @@ jobs:
         run: |
           set -euo pipefail
           ORCA_CODEX_HOOK_CONTRACT_BINARY="$RUNNER_TEMP/codex-cli-latest/node_modules/.bin/codex" \
-            pnpm exec vitest run --config config/vitest.config.ts \
+            pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
             src/main/codex/codex-hook-file-entry-binary-contract.test.ts
 
       # Why the no-daemon install: it is the newest pinned Codex, and its project
@@ -715,7 +848,7 @@ jobs:
         run: |
           set -euo pipefail
           ORCA_CODEX_TRUST_CONTRACT_BINARY="$RUNNER_TEMP/codex-cli-no-daemon/node_modules/.bin/codex" \
-            pnpm exec vitest run --config config/vitest.config.ts \
+            pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
             src/main/agent-trust-presets.test.ts
 
   xterm_patch_sync:
@@ -733,6 +866,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       # The generator uses Node built-ins and installs its own upstream toolchain.
@@ -744,6 +878,8 @@ jobs:
 
       # Rebuild both pristine and patched bundles; reuse only the pinned toolchain.
       - uses: ./.github/actions/prepare-xterm-dependencies
+        with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
 
       - name: Verify xterm patches match the pinned upstream build
         env:
@@ -772,6 +908,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       # fish 4+ provides DECSET 2031 arming required by live shell contracts (#9993).
@@ -816,6 +953,7 @@ jobs:
 
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: node
 
       - wait: shells
@@ -866,6 +1004,9 @@ jobs:
     if: needs.code_paths.outputs.test == 'true'
     uses: ./.github/workflows/unit-plan.yml
     with:
+      ref: ${{ inputs.candidate_sha || github.sha }}
+      cache_mode: ${{ inputs.cache_mode || 'auto' }}
+      full_mode: ${{ inputs.full_mode }}
       selection_mode: ${{ vars.ORCA_UNIT_SELECTION_MODE || 'shadow' }}
 
   test:
@@ -877,9 +1018,12 @@ jobs:
       needs.unit_plan.result == 'success'
     uses: ./.github/workflows/unit-tests.yml
     with:
+      ref: ${{ inputs.candidate_sha || github.sha }}
+      cache_mode: ${{ inputs.cache_mode || 'auto' }}
       node_versions: '["24"]'
       # Free hosted ARM: 12 shards measured 361s median cold vs ~390s for 5 warm Blacksmith 8-vCPU shards.
       runner: ubuntu-24.04-arm
+      max_workers: ${{ github.repository == 'mercurai/orca' && 2 || 0 }}
       phase_diagnostics: true
       # Restore main's transform cache; the `ci:cold-unit-cache` label or ORCA_UNIT_MODULE_CACHE=off forces cold.
       module_cache: ${{ (vars.ORCA_UNIT_MODULE_CACHE == 'off' || contains(github.event.pull_request.labels.*.name, 'ci:cold-unit-cache')) && 'off' || 'warm' }}
@@ -891,8 +1035,10 @@ jobs:
   # Keep advisory evidence sibling to tests and outside verify.needs; reusable-workflow dependency otherwise added ~36s after last shard.
   unit_selection_evidence:
     needs: [test]
-    if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'failure') }}
+    if: ${{ !inputs.full_mode && !cancelled() && (needs.test.result == 'success' || needs.test.result == 'failure') }}
     uses: ./.github/workflows/unit-selection-evidence.yml
+    with:
+      ref: ${{ inputs.candidate_sha || github.sha }}
 
   # Isolate two browser/mobile files to avoid every unit shard paying for their installs; test the same shipped bundle plus render/census.
   mobile_web_app:
@@ -905,12 +1051,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       # Why no native-runtime: the builder is esbuild and the render check is a browser. Nothing
       # in this job loads node-pty.
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: none
           cache-dependency-path: |
             pnpm-lock.yaml
@@ -974,6 +1122,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           # Use blob:none for merge-base history because blobs are ~89% of pack; fetch rare historical contents on demand.
           fetch-depth: 0
           filter: blob:none
@@ -981,6 +1130,7 @@ jobs:
 
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: node
 
       # R1: an upgrade from the newest release must adopt its live terminal daemon.
@@ -991,7 +1141,7 @@ jobs:
       # The label is read from the event payload, so push again after applying it.
       - name: Runtime launcher change does not bump daemon protocol
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ inputs.upstream_base_sha || github.event.pull_request.base.sha }}
           ORCA_ALLOW_RUNTIME_LAUNCHER_PROTOCOL_BUMP: ${{ contains(github.event.pull_request.labels.*.name, 'allow-runtime-launcher-protocol-bump') }}
         run: |
           DIFF_BASE="$(node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA")"
@@ -999,7 +1149,7 @@ jobs:
 
       # Run the entire directory; zero matches fail so new contracts cannot be omitted silently.
       - name: Old/new client and server compatibility journeys
-        run: pnpm exec vitest run --config config/vitest.config.ts tests/e2e/cross-version-wire/
+        run: pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} tests/e2e/cross-version-wire/
 
   managed_hook_node18:
     name: managed hooks on Node 18
@@ -1035,6 +1185,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       # Electron and builder releases fix what this downloads; the lockfile churns far more often.
@@ -1045,6 +1196,7 @@ jobs:
 
       # The platform warmup seeds this on main.
       - name: Cache electron-builder downloads
+        if: inputs.cache_mode != 'off'
         uses: actions/cache/restore@v5
         with:
           path: ~/.cache/electron-builder
@@ -1056,6 +1208,7 @@ jobs:
       - uses: ./.github/actions/prepare-linux-package-fixture
         id: daemon-fixture-cache-restore
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           fixture: daemon-shutdown-descendants
           load: 'false'
 
@@ -1069,6 +1222,7 @@ jobs:
 
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: electron
           cache-dependency-path: |
             pnpm-lock.yaml
@@ -1092,7 +1246,7 @@ jobs:
         env:
           ORCA_BACKGROUND_LAUNCH: '1'
         run: >-
-          xvfb-run --auto-servernum pnpm exec vitest run --config config/vitest.config.ts
+          xvfb-run --auto-servernum pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }}
           --no-file-parallelism
           src/main/browser/browser-client-page-renderer-lifecycle.electron.test.ts
           src/main/browser/browser-route-webrtc-egress.electron.test.ts
@@ -1114,6 +1268,7 @@ jobs:
         id: linux-native-restore
         uses: ./.github/actions/prepare-wayland-clipboard
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           build: 'false'
 
       # The isolated glibc-floor build writes only the Wayland helper, so JavaScript can overlap.
@@ -1128,6 +1283,7 @@ jobs:
       - uses: ./.github/actions/prepare-linux-package-fixture
         id: shutdown-fixture-cache-restore
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           fixture: headless-serve-shutdown
           load: 'false'
 
@@ -1142,6 +1298,7 @@ jobs:
       - uses: ./.github/actions/prepare-linux-package-fixture
         id: cli-fixture-cache-restore
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           fixture: cli-launch-contract
           load: 'false'
 
@@ -1273,6 +1430,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       # Electron and builder releases fix what this downloads; the lockfile churns far more often.
@@ -1282,6 +1440,7 @@ jobs:
         run: node -p "const d = require('./package.json').devDependencies; 'versions=electron' + d.electron + '-builder' + d['electron-builder']" >> "$GITHUB_OUTPUT"
 
       - name: Cache electron-builder downloads
+        if: inputs.cache_mode != 'off'
         uses: actions/cache/restore@v5
         with:
           path: |
@@ -1296,6 +1455,7 @@ jobs:
       - uses: ./.github/actions/install-node-dependencies
         id: deps
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: node
           persist-native-cache: 'false'
           cache-dependency-path: |
@@ -1314,7 +1474,7 @@ jobs:
           ORCA_BACKGROUND_LAUNCH: '1'
         # Serialize the two suites so their cold PowerShell/CIM starts cannot contend.
         run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
+          pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }}
           --no-file-parallelism
           config/scripts/nsis-process-check.test.mjs
           config/scripts/idle-cpu-process-sampling.test.mjs
@@ -1326,6 +1486,7 @@ jobs:
 
       # Real inputs only: older restores are safe because the build re-checks each exe's fingerprint.
       - name: Cache Windows CLI launcher
+        if: inputs.cache_mode != 'off'
         uses: actions/cache@v5
         with:
           # Cache cargo registry with .build so misses do not rebuild resource crates cold.
@@ -1364,14 +1525,14 @@ jobs:
         run: |
           $files = node config/scripts/pr-package-test-paths.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts @files
+          node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} @files
 
       # Isolate slow-taskkill CPU burners so they cannot starve unrelated test files.
       - name: Test Windows tree kill under CPU load
         env:
           ORCA_WINDOWS_TREE_KILL_LOAD: '1'
         run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
+          pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }}
           src/shared/__tests__/process-host/windows-tree-kill-late-taskkill.win32.test.ts
 
       # Use parallel Vite targets as already packaged/smoked on Linux; release behavior is otherwise identical.
@@ -1383,6 +1544,7 @@ jobs:
       - name: Prepare Electron native runtime
         uses: ./.github/actions/prepare-native-runtime
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: electron
           node-version: ${{ steps.deps.outputs.node-version }}
 
@@ -1401,7 +1563,7 @@ jobs:
     name: e2e
     needs: [code_paths, preflight]
     if: >-
-      !cancelled() &&
+      !inputs.full_mode && !cancelled() &&
       needs.code_paths.result == 'success' &&
       needs.code_paths.outputs.e2e_should_run == 'true' &&
       (
@@ -1417,10 +1579,11 @@ jobs:
       contents: read
     uses: ./.github/workflows/e2e.yml
     with:
+      cache_mode: ${{ inputs.cache_mode || 'auto' }}
       # The synthetic pull-request merge ref can disappear while this reusable
       # workflow is queued. The head SHA is immutable and works for every PR.
-      ref: ${{ github.event.pull_request.head.sha }}
-      test_files: ${{ needs.code_paths.outputs.test_files }}
+      ref: ${{ inputs.candidate_sha || github.event.pull_request.head.sha }}
+      test_files: ${{ !inputs.full_mode && needs.code_paths.outputs.test_files || '' }}
       run_changed_e2e: ${{ needs.code_paths.outputs.e2e_run_changed != 'false' }}
       needs_build: ${{ needs.code_paths.outputs.e2e_needs_build != 'false' }}
       managed_ssh_shards: ${{ needs.code_paths.outputs.e2e_ssh_shards || '["1/2","2/2"]' }}
@@ -1437,8 +1600,9 @@ jobs:
       contents: read
     uses: ./.github/workflows/e2e.yml
     with:
+      cache_mode: ${{ inputs.cache_mode || 'auto' }}
       # Why the merge commit, unlike `e2e`: a gate must test what lands on main, not a stale head.
-      ref: ${{ github.sha }}
+      ref: ${{ inputs.candidate_sha || github.sha }}
       test_files: '["tests/e2e/workspace-layout-oracle-headless.spec.ts","tests/e2e/workspace-layout-oracle.spec.ts"]'
       # Two ~3.6 min halves of the 21 window scenarios keep this gate off the PR's critical path.
       changed_e2e_test_shards: '["1/2","2/2"]'
@@ -1450,21 +1614,25 @@ jobs:
   terminal_ime_native:
     name: real IME
     needs: code_paths
-    if: needs.code_paths.outputs.native_ime_source_changed == 'true'
+    if: ${{ !inputs.full_mode && needs.code_paths.outputs.native_ime_source_changed == 'true' }}
     # Why: the reusable workflow only checks out, builds, and uploads artifacts.
     permissions:
       contents: read
     uses: ./.github/workflows/terminal-ime-e2e.yml
+    with:
+      ref: ${{ inputs.candidate_sha || github.sha }}
+      cache_mode: ${{ inputs.cache_mode || 'auto' }}
 
   windows_wsl:
     name: real WSL terminal
     needs: code_paths
-    if: needs.code_paths.outputs.wsl_source_changed == 'true'
+    if: ${{ !inputs.full_mode && needs.code_paths.outputs.wsl_source_changed == 'true' }}
     permissions:
       contents: read
     uses: ./.github/workflows/windows-wsl-e2e.yml
     with:
-      ref: ${{ github.event.pull_request.head.sha }}
+      cache_mode: ${{ inputs.cache_mode || 'auto' }}
+      ref: ${{ inputs.candidate_sha || github.event.pull_request.head.sha }}
 
   # Install like developers’ global virtual store in empty HOME/store; hoisting or stray dependencies can mask undeclared imports.
   dependency_isolation:
@@ -1492,6 +1660,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.candidate_sha || github.sha }}
           persist-credentials: false
 
       - uses: actions/setup-node@v6
@@ -1515,7 +1684,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm tc
-          pnpm exec vitest run --config config/vitest.config.ts config/scripts/undeclared-dependency-resolution.test.ts
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=${{ github.repository == 'mercurai/orca' && 2 || 4 }} config/scripts/undeclared-dependency-resolution.test.ts
           # Pointless if any pnpm command above fell back to the hoisted layout or another store.
           case "$(realpath node_modules/zod)" in
             "$(realpath "$pnpm_config_store_dir")"/*) ;;
@@ -1524,8 +1693,10 @@ jobs:
 
   verify:
     name: PR checks passed
+    outputs:
+      required_results: ${{ steps.qualification-evidence.outputs.required_results }}
     # Publish an explicit result after every required dependency settles.
-    if: ${{ !cancelled() && github.event.pull_request.draft != true }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.draft != true) }}
     needs:
       - code_paths
       - preflight
@@ -1622,3 +1793,16 @@ jobs:
           check_job layout_oracle "$LAYOUT_ORACLE" "$LAYOUT_ORACLE_SHOULD_RUN"
           check_job dependency_isolation "$DEPENDENCY_ISOLATION" "$DEPENDENCY_ISOLATION_SHOULD_RUN"
           exit "$failed"
+
+      - name: Record actual qualification matrix outcomes
+        id: qualification-evidence
+        if: inputs.full_mode
+        env:
+          REQUIRED_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs'
+          const needs = JSON.parse(process.env.REQUIRED_NEEDS)
+          const results = Object.fromEntries(Object.entries(needs).map(([id, value]) => [id, value.result]))
+          appendFileSync(process.env.GITHUB_OUTPUT, `required_results=${JSON.stringify(results)}\n`)
+          NODE

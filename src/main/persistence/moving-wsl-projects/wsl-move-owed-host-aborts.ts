@@ -4,11 +4,12 @@
  * keeps its claims on those projects for the stage's 7-day lifetime and refuses every retry. The
  * reset leaves this record; the next move into the distro aborts that stage by identity first.
  */
-import type { OrcadMigrationCatalogReferenceAbortResult } from '../../../shared/orcad-migration/orcad-migration-manifest'
 import { isRecord } from '../../../shared/orcad-migration/orcad-migration-manifest-fields'
+import { serializePathWrite } from '../../../shared/path-write-serializer'
 import type { WslMoveCutover } from '../../../shared/wsl-move/wsl-move-cutover'
 import { createMigrationJournalDirectory } from '../migrating-orcad-catalog/migration-journal-directory'
 import type { OrcadMigrationDestinationCatalog } from '../../ssh/orcad-migration-cutover-coordinator'
+import { listWslMoveCutovers, wslMoveJournalDirectory } from './wsl-move-cutover-journal'
 
 export type WslMoveOwedHostAbort = {
   migrationId: string
@@ -45,8 +46,8 @@ function parseOwedAbort(value: unknown): WslMoveOwedHostAbort {
 export function recordWslMoveOwedHostAbort(
   userDataPath: string,
   cutover: Pick<WslMoveCutover, 'migrationId' | 'manifestSha256' | 'journalKey'>
-): void {
-  owed.write(userDataPath, {
+): Promise<void> {
+  return owed.write(userDataPath, {
     migrationId: cutover.migrationId,
     manifestSha256: cutover.manifestSha256,
     journalKey: cutover.journalKey
@@ -75,19 +76,56 @@ export async function settleWslMoveOwedHostAborts(
     return
   }
   for (const entry of pending) {
-    let answer: OrcadMigrationCatalogReferenceAbortResult
     try {
-      answer = await destination.abortByReference(entry)
+      await serializePathWrite(wslMoveJournalDirectory(userDataPath), async () => {
+        if (
+          listWslMoveCutovers(userDataPath).some(
+            (record) => record.migrationId === entry.migrationId
+          )
+        ) {
+          return
+        }
+        const current = owed
+          .list(userDataPath)
+          .find((record) => record.migrationId === entry.migrationId)
+        if (!sameAbortIdentity(current, entry)) {
+          return
+        }
+        const answer = await destination.abortByReference(entry)
+        if (
+          answer.migrationId !== entry.migrationId ||
+          answer.manifestSha256 !== entry.manifestSha256
+        ) {
+          warn('[wsl-move] A leftover stage abort answered for another migration')
+          return
+        }
+        if (answer.state === 'committed') {
+          warn(`[wsl-move] A reset move ${entry.migrationId} reads as committed on the host`)
+        }
+        await owed.transact(userDataPath, async ({ remove }) => {
+          const latest = owed
+            .list(userDataPath)
+            .find((record) => record.migrationId === entry.migrationId)
+          if (sameAbortIdentity(latest, entry)) {
+            await remove(entry.migrationId)
+          }
+        })
+      })
     } catch (error) {
-      warn(`[wsl-move] Could not abort a leftover stage on the host: ${describe(error)}`)
-      continue
+      warn(`[wsl-move] Could not settle a leftover stage on the host: ${describe(error)}`)
     }
-    if (answer.state === 'committed') {
-      // No commit was ever requested for it; leave the host's state alone and stop asking.
-      warn(`[wsl-move] A reset move ${entry.migrationId} reads as committed on the host`)
-    }
-    owed.remove(userDataPath, entry.migrationId)
   }
+}
+
+function sameAbortIdentity(
+  current: WslMoveOwedHostAbort | undefined,
+  expected: WslMoveOwedHostAbort
+): boolean {
+  return (
+    current?.migrationId === expected.migrationId &&
+    current.manifestSha256 === expected.manifestSha256 &&
+    current.journalKey === expected.journalKey
+  )
 }
 
 function describe(error: unknown): string {

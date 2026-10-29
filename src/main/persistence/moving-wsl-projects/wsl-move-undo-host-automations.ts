@@ -8,7 +8,7 @@
  */
 import type { Automation } from '../../../shared/automations-types'
 import type { WslMoveCutover } from '../../../shared/wsl-move/wsl-move-cutover'
-import { listWslMoveCutovers, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import { listWslMoveCutovers, updateWslMoveCutover } from './wsl-move-cutover-journal'
 
 export type WslMoveHostAutomationStop =
   | {
@@ -90,12 +90,12 @@ export async function stopWslMoveHostAutomations(
   } catch (error) {
     return { outcome: classify(error) }
   }
-  const { intent, recorded } = recordUndoIntent(userDataPath, migrationId, hostStates)
+  const { intent, recorded } = await recordUndoIntent(userDataPath, migrationId, hostStates)
   let turnedOff: string[]
   try {
     turnedOff = await ports.disable(automationIds.filter((id) => hostStates[id]))
   } catch (error) {
-    settleRefusedUndo(userDataPath, migrationId, recorded, leftOffOf(error))
+    await settleRefusedUndo(userDataPath, migrationId, recorded, leftOffOf(error))
     return { outcome: classify(error) }
   }
   return {
@@ -108,7 +108,7 @@ export async function stopWslMoveHostAutomations(
         console.warn('[wsl-move] Could not turn host automations back on:', error)
         leftOff = leftOffOf(error).length > 0 ? leftOffOf(error) : turnedOff
       }
-      settleRefusedUndo(userDataPath, migrationId, recorded, leftOff)
+      await settleRefusedUndo(userDataPath, migrationId, recorded, leftOff)
     },
     applyHere: () => {
       const applied: { id: string; enabled: boolean }[] = []
@@ -142,19 +142,21 @@ function recordUndoIntent(
   userDataPath: string,
   migrationId: string,
   hostStates: Readonly<Record<string, boolean>>
-): { intent: Record<string, boolean>; recorded: string[] } {
-  const cutover = readMove(userDataPath, migrationId)
-  // Left off by an earlier undo: on is the choice, whatever the host shows now.
-  const earlier = {
-    ...Object.fromEntries((cutover?.hostAutomationsLeftOff ?? []).map((id) => [id, true])),
-    ...cutover?.undoHostAutomationIntent
-  }
-  const recorded = Object.keys(hostStates).filter((id) => !Object.hasOwn(earlier, id))
-  const intent = { ...hostStates, ...earlier }
-  if (cutover && recorded.length > 0) {
-    writeWslMoveCutover(userDataPath, { ...cutover, undoHostAutomationIntent: intent })
-  }
-  return { intent, recorded }
+): Promise<{ intent: Record<string, boolean>; recorded: string[] }> {
+  return updateWslMoveCutover(userDataPath, migrationId, (cutover) => {
+    const earlier = {
+      ...Object.fromEntries((cutover?.hostAutomationsLeftOff ?? []).map((id) => [id, true])),
+      ...cutover?.undoHostAutomationIntent
+    }
+    const recorded = Object.keys(hostStates).filter((id) => !Object.hasOwn(earlier, id))
+    const intent = { ...hostStates, ...earlier }
+    return {
+      ...(cutover && recorded.length > 0
+        ? { cutover: { ...cutover, undoHostAutomationIntent: intent } }
+        : {}),
+      result: { intent, recorded }
+    }
+  })
 }
 
 /** A refused undo forgets what it recorded, except what it left off, which waits to be retried. */
@@ -163,18 +165,19 @@ function settleRefusedUndo(
   migrationId: string,
   recorded: readonly string[],
   leftOff: readonly string[]
-): void {
-  const cutover = readMove(userDataPath, migrationId)
-  if (!cutover) {
-    return
-  }
-  const kept = new Set(leftOff)
-  const forget = new Set(recorded.filter((id) => !kept.has(id)))
-  const intent = Object.fromEntries(
-    Object.entries(cutover.undoHostAutomationIntent ?? {}).filter(([id]) => !forget.has(id))
-  )
-  const left = [...new Set([...(cutover.hostAutomationsLeftOff ?? []), ...leftOff])].sort()
-  writeWslMoveCutover(userDataPath, withUndoAutomationFields(cutover, intent, left))
+): Promise<void> {
+  return updateWslMoveCutover(userDataPath, migrationId, (cutover) => {
+    if (!cutover) {
+      return { result: undefined }
+    }
+    const kept = new Set(leftOff)
+    const forget = new Set(recorded.filter((id) => !kept.has(id)))
+    const intent = Object.fromEntries(
+      Object.entries(cutover.undoHostAutomationIntent ?? {}).filter(([id]) => !forget.has(id))
+    )
+    const left = [...new Set([...(cutover.hostAutomationsLeftOff ?? []), ...leftOff])].sort()
+    return { cutover: withUndoAutomationFields(cutover, intent, left), result: undefined }
+  })
 }
 
 function withUndoAutomationFields(
@@ -194,16 +197,18 @@ function withUndoAutomationFields(
  * At startup no undo is running, so a recorded choice is an undo a crash interrupted: what it
  * read as on goes back on through the retry and keeps its choice for a later undo; the rest clears.
  */
-export function settleInterruptedWslMoveUndos(userDataPath: string): void {
-  for (const cutover of listWslMoveCutovers(userDataPath)) {
-    const intent = cutover.undoHostAutomationIntent
-    if (!intent) {
-      continue
-    }
-    const on = Object.entries(intent).flatMap(([id, enabled]) => (enabled ? [id] : []))
-    const left = [...new Set([...(cutover.hostAutomationsLeftOff ?? []), ...on])].sort()
-    const kept = Object.fromEntries(on.map((id) => [id, true]))
-    writeWslMoveCutover(userDataPath, withUndoAutomationFields(cutover, kept, left))
+export async function settleInterruptedWslMoveUndos(userDataPath: string): Promise<void> {
+  for (const { migrationId } of listWslMoveCutovers(userDataPath)) {
+    await updateWslMoveCutover(userDataPath, migrationId, (cutover) => {
+      const intent = cutover?.undoHostAutomationIntent
+      if (!cutover || !intent) {
+        return { result: undefined }
+      }
+      const on = Object.entries(intent).flatMap(([id, enabled]) => (enabled ? [id] : []))
+      const left = [...new Set([...(cutover.hostAutomationsLeftOff ?? []), ...on])].sort()
+      const kept = Object.fromEntries(on.map((id) => [id, true]))
+      return { cutover: withUndoAutomationFields(cutover, kept, left), result: undefined }
+    })
   }
 }
 
@@ -233,20 +238,26 @@ export async function retryWslMoveHostAutomationsLeftOff(
         stillOff = leftOffOf(error).length > 0 ? leftOffOf(error) : ids
       }
       const turnedOn = new Set(ids.filter((id) => !stillOff.includes(id)))
-      const current = readMove(userDataPath, migrationId)
-      if (!current) {
-        // Released meanwhile: the project is local again, so what this turned on goes back off.
+      const left = await updateWslMoveCutover(userDataPath, migrationId, (current) => {
+        if (!current) {
+          return { result: null }
+        }
+        const leftOff = (current.hostAutomationsLeftOff ?? []).filter((id) => !turnedOn.has(id))
+        const intent = Object.fromEntries(
+          Object.entries(current.undoHostAutomationIntent ?? {}).filter(([id]) => !turnedOn.has(id))
+        )
+        return {
+          cutover: withUndoAutomationFields(current, intent, leftOff),
+          result: leftOff.length
+        }
+      })
+      if (left === null) {
         await host.disable(cutover.destinationEnvironmentId, [...turnedOn]).catch((error) => {
           console.warn("[wsl-move] Could not turn a released move's host automations off:", error)
         })
         return 0
       }
-      const leftOff = (current.hostAutomationsLeftOff ?? []).filter((id) => !turnedOn.has(id))
-      const intent = Object.fromEntries(
-        Object.entries(current.undoHostAutomationIntent ?? {}).filter(([id]) => !turnedOn.has(id))
-      )
-      writeWslMoveCutover(userDataPath, withUndoAutomationFields(current, intent, leftOff))
-      return leftOff.length
+      return left
     })
     remaining ||= left > 0
   }

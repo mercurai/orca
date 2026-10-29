@@ -201,7 +201,7 @@ describe('the move orchestrator over the real driver', () => {
   it('never moves again after the user brings the project back', async () => {
     const { orchestrator } = orchestratorOverDriver()
     await orchestrator.trigger('Ubuntu', 'connect')
-    expect(bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' }).released).toBe(true)
+    expect((await bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).released).toBe(true)
     orchestrator.releasedByUser('Ubuntu', 'released-here')
     const stagedBefore = world.points.filter((point) => point === 'stage:before').length
     await orchestrator.trigger('Ubuntu', 'project-opened')

@@ -315,14 +315,14 @@ describe('moveProjectsToWslHost', () => {
     await vi.waitFor(() => expect(world.progress.map((e) => e.step)).toContain('finishing'))
     expect(journal()[0]?.phase).toBe('destination-committed')
 
-    expect(bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).toEqual({
+    expect(await bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).toEqual({
       released: false,
       reason: 'move-running'
     })
     expect(journal()).toHaveLength(1)
     release()
     expect(await run).toMatchObject({ outcome: 'moved' })
-    expect(bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' }).released).toBe(true)
+    expect((await bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).released).toBe(true)
   })
 
   it('refuses a move whose terminals are busy, and shows the blockers in the preview', async () => {
@@ -413,7 +413,7 @@ describe('moveProjectsToWslHost', () => {
     world.deps.finishOnDesktop = async () => {
       const [entry] = journal()
       if (entry) {
-        writeWslMoveCutover(userDataPath, {
+        await writeWslMoveCutover(userDataPath, {
           ...entry,
           browserCookieCopy: { outcome: 'fresh-partition', reason: 'no-stable-partition' }
         })
@@ -642,9 +642,9 @@ describe('moveProjectsToWslHost', () => {
   })
 
   describe('an earlier move an interruption left short of commit', () => {
-    const seedStuck = () => {
+    const seedStuck = async () => {
       const stuck = wslMoveCutoverFixture('stuck', 'blobs-transferred', {}, { repoIds: ['repo-9'] })
-      seedWslMoveCutover(userDataPath, stuck)
+      await seedWslMoveCutover(userDataPath, stuck)
       return stuck
     }
 

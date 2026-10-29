@@ -6,6 +6,7 @@ import {
   collectOrcadTerminalSmokeInputs
 } from './orcad-terminal-smoke-change-scope.mjs'
 import { ORCAD_CHILD_ENTRY_POINTS } from './orcad-entry-build.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 
 it.each([
   'package.json',
@@ -94,7 +95,17 @@ it('only skips the unchanged smoke after a successful diff and dependency analys
   )
   const steps = workflow.jobs.preflight.steps
   const scope = steps.find((candidate) => candidate.id === 'orcad-smoke-scope')
-  expect(scope.env).toEqual({ BASE_SHA: '${{ github.event.pull_request.base.sha }}' })
+  expect(Object.keys(scope.env)).toEqual(['BASE_SHA'])
+  const base = compileAggregateExpression(scope.env.BASE_SHA, ['inputs', 'github'])
+  const prBase = 'a'.repeat(40)
+  for (const upstream_base_sha of ['', 'b'.repeat(40)]) {
+    expect(
+      base({
+        inputs: { upstream_base_sha },
+        github: { event: { pull_request: { base: { sha: prBase } } } }
+      }).coerceString()
+    ).toBe(upstream_base_sha || prBase)
+  }
   // HEAD^1 bypasses merge-base lookup, permitting shallow checkout; payload head SHA is unused (see localization gate).
   expect(scope.run).toContain('node config/scripts/git-pull-request-diff-base.mjs "$BASE_SHA"')
   expect(scope.run).toContain('git diff --name-only --no-renames -z "$DIFF_BASE" HEAD')

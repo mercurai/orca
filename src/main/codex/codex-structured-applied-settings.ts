@@ -25,12 +25,19 @@ export function codexMethodUnavailable(error: unknown, method: string): boolean 
 export class CodexAppliedSettings {
   private snapshot: Settings = {}
   private readonly pending = new Set<Settings>()
+  private readonly pendingModels = new Set<Settings>()
+  private observedModel: string | undefined
   private readonly listeners = new Set<() => void>()
   private ended = false
   private unsupported = false
 
   observe(value: unknown): void {
     const row = readRecord(value)
+    if (typeof row.model === 'string' && row.model !== this.observedModel) {
+      this.observedModel = row.model
+      const matched = [...this.pendingModels].find((write) => write.model === row.model)
+      if (matched) this.pendingModels.delete(matched)
+    }
     const previous = this.snapshot
     this.snapshot = {
       ...(typeof row.model === 'string' ? { model: row.model } : {}),
@@ -68,10 +75,20 @@ export class CodexAppliedSettings {
     }
   }
 
+  /** A pending model write can make an older observation stale. */
+  knownModel(): string | undefined {
+    if (this.ended || this.pendingModels.size > 0) {
+      return undefined
+    }
+    return this.observedModel
+  }
+
   end(): void {
     this.ended = true
     this.snapshot = {}
     this.pending.clear()
+    this.pendingModels.clear()
+    this.observedModel = undefined
     for (const listener of this.listeners) {
       listener()
     }
@@ -83,10 +100,17 @@ export class CodexAppliedSettings {
     }
     const write = { model: choices.model, effort: choices.effort }
     this.pending.add(write)
-    return () => this.pending.delete(write)
+    if (write.model !== undefined) this.pendingModels.add(write)
+    return () => {
+      this.pending.delete(write)
+      this.pendingModels.delete(write)
+    }
   }
 
   private equivalent(choices: Settings): boolean {
+    if (choices.model !== undefined && this.pendingModels.size > 0) {
+      return false
+    }
     const keys = ['model', 'effort'] as const
     if (keys.some((key) => choices[key] !== undefined && choices[key] !== this.snapshot[key])) {
       return false

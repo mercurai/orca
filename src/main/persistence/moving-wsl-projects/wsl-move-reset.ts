@@ -79,14 +79,21 @@ export async function resetWslMoveToZero(
     return { outcome: 'committed', cutover }
   }
   const commitMayExist = cutover.phase === WSL_MOVE_COMMIT_REQUEST_PHASE
-  const release = (
+  const release = async (
     evidence: 'commit-never-requested' | 'catalog-absent' | 'distro-unregistered',
     hostConfirmedAbsent = false
-  ): WslMoveResetResult => {
+  ): Promise<WslMoveResetResult> => {
     if (!hostConfirmedAbsent && phaseIndex(cutover.phase) >= STAGE_MAY_EXIST_FROM) {
-      recordWslMoveOwedHostAbort(context.userDataPath, cutover)
+      await recordWslMoveOwedHostAbort(context.userDataPath, cutover)
     }
-    removeUncommittedWslMoveCutover(context.userDataPath, migrationId)
+    try {
+      await removeUncommittedWslMoveCutover(context.userDataPath, migrationId, cutover)
+    } catch (error) {
+      if (error instanceof Error && error.message === 'wsl_move_cutover_changed') {
+        return { outcome: 'unverifiable', reason: error.message }
+      }
+      throw error
+    }
     return { outcome: 'reset', evidence }
   }
   if (!context.destination) {
@@ -137,7 +144,7 @@ async function resetByReference(
   release: (
     evidence: 'commit-never-requested' | 'catalog-absent',
     hostConfirmedAbsent?: boolean
-  ) => WslMoveResetResult
+  ) => Promise<WslMoveResetResult>
 ): Promise<WslMoveResetResult> {
   let aborted: OrcadMigrationCatalogReferenceAbortResult
   try {
@@ -157,7 +164,7 @@ async function resetByReference(
   if (aborted.durableCommitted !== true) {
     return { outcome: 'unverifiable', reason: 'commit_not_proven_durable' }
   }
-  return { outcome: 'committed', cutover: recordCommitted(context, cutover) }
+  return { outcome: 'committed', cutover: await recordCommitted(context, cutover) }
 }
 
 /** Only commit()'s acknowledgement, which flushes first, may move the journal to committed. */
@@ -181,13 +188,16 @@ async function recordCommit(
   return recordCommitted(context, cutover)
 }
 
-function recordCommitted(context: WslMoveResetContext, cutover: WslMoveCutover): WslMoveCutover {
+async function recordCommitted(
+  context: WslMoveResetContext,
+  cutover: WslMoveCutover
+): Promise<WslMoveCutover> {
   const committed: WslMoveCutover = {
     ...cutover,
     phase: 'destination-committed',
     updatedAt: (context.now ?? (() => new Date()))().toISOString()
   }
-  writeWslMoveCutover(context.userDataPath, committed)
+  await writeWslMoveCutover(context.userDataPath, committed)
   return committed
 }
 

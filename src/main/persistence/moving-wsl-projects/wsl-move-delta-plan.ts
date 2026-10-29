@@ -206,7 +206,7 @@ const sameIds = (left: readonly string[], right: readonly string[]): boolean =>
  * Journals a planned move at `prepared`. The manifest must be exactly the plan's scope, and the
  * journal refuses it if another move of the distro journaled or finished since the plan was made.
  */
-export function journalWslMove(args: {
+export async function journalWslMove(args: {
   userDataPath: string
   plan: WslMovePlan
   manifest: OrcadMigrationManifest
@@ -214,7 +214,7 @@ export function journalWslMove(args: {
   /** Carried disabled; the host turns them back on after commit. */
   automationsToReenable?: readonly string[]
   now?: () => Date
-}): WslMoveCutover {
+}): Promise<WslMoveCutover> {
   const { plan, manifest } = args
   const { source, destinationEnvironmentId } = manifest
   if (
@@ -249,6 +249,6 @@ export function journalWslMove(args: {
     manifest: { ...manifest, source }
   }
   // The journal re-checks under its own read: one in-flight move, extending the current head.
-  writeWslMoveCutover(args.userDataPath, cutover)
+  await writeWslMoveCutover(args.userDataPath, cutover)
   return cutover
 }

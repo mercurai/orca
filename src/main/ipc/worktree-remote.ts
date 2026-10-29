@@ -1695,8 +1695,9 @@ async function performLocalWorktreeCreate(
     }
     if (setupScript && shouldLaunchSetup) {
       try {
-        // Main generates setup scripts without executing them; generation failure leaves the created workspace usable.
-        setup = createSetupRunnerScript(
+        // Why: main only writes the runner script and must not execute setup itself, or we reintroduce the old hidden background-hook behavior.
+        // Why: worktree already exists, so a runner-gen failure degrades to "created without setup launch" rather than failing creation.
+        setup = await createSetupRunnerScript(
           repo,
           worktreePath,
           setupScript,

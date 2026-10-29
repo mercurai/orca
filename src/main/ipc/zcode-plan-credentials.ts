@@ -6,7 +6,9 @@ import {
 } from '../zcode/zcode-plan-credential-commands'
 import type { RateLimitService } from '../rate-limits/service'
 
-export function registerZcodePlanCredentialsHandlers(rateLimits: RateLimitService | null): void {
+export function registerZcodePlanCredentialsHandlers(
+  rateLimits: Pick<RateLimitService, 'refresh' | 'invalidateZcodeCredentialState'> | null
+): void {
   ipcMain.handle('zcodePlanCredentials:getStatus', () => getZcodePlanCredentialsStatus())
   ipcMain.handle('zcodePlanCredentials:saveApiKey', (_event, key: unknown) =>
     saveZcodePlanApiKeyCredential(rateLimits, key)

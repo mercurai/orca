@@ -1,5 +1,5 @@
 import { statSync } from 'node:fs'
-import { writeDurableSecureJsonFile, writeSecureJsonFile } from '../../shared/secure-file'
+import { writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import type { DeviceEntry } from './device-entry'
 import { isMissingFileError, quarantineCorruptRegistry } from './device-registry-corruption'
 import { readDeviceRegistryFile, type DeviceRegistryFileRead } from './device-registry-file-read'
@@ -36,6 +36,11 @@ export function mergeDeviceRegistrySave(
  */
 export class DeviceRegistryWriter {
   private readonly removedIds = new Set<string>()
+  lastRead: DeviceRegistryFileRead | undefined
+
+  markRemoved(ids: readonly string[]): void {
+    for (const id of ids) this.removedIds.add(id)
+  }
   /** This process moved the file aside and no write has landed since: its absence is ours, not a revoke. */
   private quarantinedUntilWritten = false
   /** Stat identity of the file when this process last read it; null forces the next re-read. */
@@ -52,7 +57,8 @@ export class DeviceRegistryWriter {
   /** Stamped before reading, so a write landing during the read is caught by the next check. */
   read(): DeviceRegistryFileRead {
     this.readStamp = fileStamp(this.registryPath)
-    return readDeviceRegistryFile(this.registryPath)
+    this.lastRead = readDeviceRegistryFile(this.registryPath)
+    return this.lastRead
   }
 
   /**
@@ -70,27 +76,42 @@ export class DeviceRegistryWriter {
       : mergeDeviceRegistrySave(current, current, disk, this.removedIds)
   }
 
+  /** Recheck disk immediately before the caller publishes a completed write in memory. */
+  reconcileWritten(written: readonly DeviceEntry[]): DeviceEntry[] {
+    const disk = this.read()
+    if (disk.unreadable || disk.corruptFilePending) {
+      throw new Error('Cannot verify device registry after writing')
+    }
+    return mergeDeviceRegistrySave(written, written, disk, this.removedIds)
+  }
+
   /** Returns what was written. Security transitions pass `durable`. */
-  write(
+  async write(
     before: readonly DeviceEntry[],
     next: readonly DeviceEntry[],
     options: { durable?: boolean } = {}
-  ): DeviceEntry[] {
+  ): Promise<DeviceEntry[]> {
     const saving = new Set(next.map((device) => device.deviceId))
     for (const { deviceId } of before) {
       if (!saving.has(deviceId)) {
         this.removedIds.add(deviceId)
       }
     }
+    const stamp = fileStamp(this.registryPath)
     const disk = this.quarantinedUntilWritten ? null : readDeviceRegistryFile(this.registryPath)
+    if (disk?.unreadable) {
+      throw new Error('Cannot read device registry before writing')
+    }
     const merged =
-      !disk || disk.unreadable || disk.corruptFilePending
+      !disk || disk.corruptFilePending
         ? [...next]
         : mergeDeviceRegistrySave(before, next, disk, this.removedIds)
-    const write = options.durable ? writeDurableSecureJsonFile : writeSecureJsonFile
-    // Stat after our rename can't tell our write from one right after it; re-read once instead.
+    // The pre-rename veto protects observations made while staging awaited.
     this.readStamp = null
-    write(this.registryPath, merged)
+    await writeSecureFileAsync(this.registryPath, JSON.stringify(merged, null, 2), {
+      durable: options.durable,
+      shouldPublish: () => stamp !== 'unstattable' && fileStamp(this.registryPath) === stamp
+    })
     this.quarantinedUntilWritten = false
     return merged
   }

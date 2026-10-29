@@ -19,6 +19,7 @@ import { notifyMainWindowBecameVisible } from '../window/main-window-visibility'
 import { setTrayAttention } from '../tray/system-tray'
 import { createSystemTrayDeferred, showRendererRecoveryPrompt } from './main-window-actions'
 import { attachMainWindowCoreServices } from './main-window-core-services'
+import { loadMainWindowAfterCoreServices } from './main-window-core-services-readiness'
 import {
   clearMainWindowAgentStatusListeners,
   installMainWindowAgentStatusListeners
@@ -192,7 +193,7 @@ export function openMainWindow(options: { revealOnDidFinishLoad?: boolean } = {}
     }
   }
   window.webContents.on('did-finish-load', onFirstWindowLoad)
-  attachMainWindowCoreServices(window, {
+  const coreServicesReady = attachMainWindowCoreServices(window, {
     markExpectedRendererReload,
     recordRendererReload: (ignoreCache) =>
       recordCrashBreadcrumb('renderer_reload_requested', { ignoreCache })
@@ -238,7 +239,16 @@ export function openMainWindow(options: { revealOnDidFinishLoad?: boolean } = {}
     state.automations?.setWebContents(null)
     clearMainWindowAgentStatusListeners()
   })
-  logStartupMilestone('load-start')
-  loadMainWindow(window)
+  void loadMainWindowAfterCoreServices({
+    ready: coreServicesReady,
+    isCurrent: () => state.mainWindow === window && !window.isDestroyed(),
+    load: () => {
+      logStartupMilestone('load-start')
+      loadMainWindow(window)
+    },
+    failed: (error) => {
+      console.warn('[startup] WSL host preparation failed; host actions remain unavailable:', error)
+    }
+  })
   return window
 }

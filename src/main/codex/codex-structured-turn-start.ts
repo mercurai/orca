@@ -1,8 +1,9 @@
+import { acknowledgeCodexSpeed, type CodexSpeedRequestState } from './codex-structured-speed-state'
 import {
   StructuredAgentSessionInputNotAdmitted,
   type StructuredAgentSessionAdmitFreshInput
 } from '../native-chat/agent-session-wire/structured-agent-session-input-admission'
-import { turnInputFor } from './codex-structured-message-options'
+import { isCodexTurnOptionKey, turnInputFor } from './codex-structured-message-options'
 import { reportedCodexPermissionMode } from './codex-structured-thread-open'
 import { admitCodexTurnPermission } from './codex-structured-turn-permission'
 import type { CodexSkillReport } from './codex-structured-skill-report'
@@ -14,11 +15,14 @@ import type {
 } from '../../shared/agent-session-journal-types'
 import type { AgentSessionDispatchOutcome } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import { isCodexAppServerRequestError } from './app-server/codex-app-server-request-error'
-import type { CodexAppServerConnection } from './app-server/codex-app-server-connection-types'
 import { isCodexAppServerUnsupportedError } from './codex-app-server-session'
+import {
+  assertCodexSpeedAdmitted,
+  CodexSpeedAdmissionError
+} from './codex-structured-speed-admission'
 import type { CodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { readCodexTurnId } from './codex-structured-thread-facts'
-import { codexTurnRequestOptions } from './codex-structured-service-tier'
+import { beginCodexTurnOptions } from './codex-structured-turn-option-rollback'
 import type { CodexSession } from './codex-structured-session-state'
 import {
   codexRunningOrOpeningTurn,
@@ -30,12 +34,7 @@ import {
   codexTurnEndRejection
 } from './codex-structured-turn-end-settlement'
 
-/** Allowlist turn overrides so saved options cannot replace the thread's permission policy. */
-const CODEX_TURN_OPTION_KEYS = new Set(['model', 'effort', 'personality', 'serviceTier'])
-
-export function isCodexTurnOptionKey(key: string): boolean {
-  return CODEX_TURN_OPTION_KEYS.has(key)
-}
+export { isCodexTurnOptionKey } from './codex-structured-message-options'
 
 function checkDispatchAuthority(
   host: CodexTurnHost,
@@ -61,10 +60,11 @@ function checkDispatchAuthority(
   }
 }
 
-export type CodexTurnHost = {
+/** The session state one turn needs. */
+export type CodexTurnHost = CodexSpeedRequestState & {
   account?: AgentSessionAccountKind
   skillReport?: Pick<CodexSkillReport, 'hasSkillPath'>
-  connection: Pick<CodexAppServerConnection, 'request'>
+  connection: Pick<CodexSession['connection'], 'request'>
   threadId: string
   permissions?: CodexSession['permissions']
   options: Map<string, string>
@@ -152,31 +152,25 @@ export async function startCodexTurn(
   if (steered) {
     return steered
   }
-  let previousApplied = host.appliedTurnOptions
-  let previousOptions: Map<string, string> | null | undefined
-  let requested: Readonly<Record<string, string>> = {}
   let enqueued = false
   let discardSettingsAttempt: (() => void) | undefined
+  let optionAttempt: ReturnType<typeof beginCodexTurnOptions> | undefined
+  let sequence = 0
+  let requested: Record<string, string> = {}
   const enqueue = (
     permission: Parameters<Parameters<typeof admitCodexTurnPermission>[2]>[0],
     body = input.body
   ) => {
     checkDispatchAuthority(host, input.clientMessageId, input.signal, input.isCurrent)
-    previousApplied = host.appliedTurnOptions
-    previousOptions = input.turnOptions ? new Map(host.options) : null
-    if (input.turnOptions) {
-      host.options.clear()
-      for (const [key, value] of Object.entries(input.turnOptions)) {
-        host.options.set(key, value)
-      }
-    }
-    requested = codexTurnRequestOptions(host)
-    const known = { ...previousApplied }
-    for (const key of Object.keys(requested)) {
-      delete known[key]
-    }
-    host.appliedTurnOptions = known
+    // Validate frozen message choices at final admission; permission preparation may have waited.
+    // Resolve legacy Fast against this model before filtering it off the provider wire.
+    const selected = new Map(Object.entries(input.turnOptions ?? Object.fromEntries(host.options)))
+    assertCodexSpeedAdmitted({ ...host, options: selected })
+    requested = Object.fromEntries([...selected].filter(([key]) => isCodexTurnOptionKey(key)))
+    optionAttempt = beginCodexTurnOptions(host, requested)
     discardSettingsAttempt = host.appliedSettings?.attempt(requested)
+    sequence = (host.speedDispatchSequence ?? 0) + 1
+    host.speedDispatchSequence = sequence
     enqueued = true
     return {
       kind: 'sent' as const,
@@ -215,20 +209,20 @@ export async function startCodexTurn(
     }
     if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
       discardSettingsAttempt?.()
-    }
-    if (isCodexAppServerRequestError(error) || isCodexAppServerUnsupportedError(error)) {
-      host.appliedTurnOptions = previousApplied
-      if (previousOptions) {
-        host.options.clear()
-        for (const [key, value] of previousOptions) {
-          host.options.set(key, value)
-        }
+      optionAttempt?.reject()
+    } else {
+      optionAttempt?.retain()
+      if (requested.serviceTier !== undefined && sequence > (host.speedAcknowledgedSequence ?? 0)) {
+        host.speedAcknowledgedSequence = sequence
+        host.speedApplied = undefined
       }
     }
     throw error
   }
-  host.appliedTurnOptions = { ...previousApplied, ...requested }
-  return { turnId: readCodexTurnId(answer), via: 'start' }
+  optionAttempt?.confirm()
+  const turnId = readCodexTurnId(answer)
+  acknowledgeCodexSpeed(host, sequence, requested.serviceTier, turnId)
+  return { turnId, via: 'start' }
 }
 
 /** Replies establish admission; exact echoes establish identity. Timeouts cannot disprove delivery. */
@@ -255,6 +249,13 @@ export async function dispatchCodexTurn(
   try {
     answer = await startCodexTurn(session, { ...input, timeoutMs, onReply })
   } catch (error) {
+    if (error instanceof CodexSpeedAdmissionError) {
+      session.dispatchEchoes.disarm(input.clientMessageId)
+      return {
+        state: 'rejected',
+        ...codexDispatchRejection(agentSessionFailureFact(error.kind, { neverReachedAgent: true }))
+      }
+    }
     if (error instanceof StructuredAgentSessionInputNotAdmitted) {
       throw error
     }
@@ -310,5 +311,14 @@ export async function dispatchCodexTurn(
 
 /** Steers retain running-turn options; starts use request overrides over thread defaults. */
 function codexRanOptions(session: CodexTurnHost): Record<string, string> {
-  return { ...session.appliedTurnOptions }
+  const requested = session.appliedTurnOptions ?? {}
+  const thread = session.reportedOptions ?? {}
+  const model = requested.model ?? thread.model
+  const effort = requested.effort ?? (model === thread.model ? thread.effort : undefined)
+  const { serviceTier } = requested
+  return {
+    ...(model ? { model } : {}),
+    ...(effort ? { effort } : {}),
+    ...(serviceTier ? { serviceTier } : {})
+  }
 }

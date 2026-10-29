@@ -5,7 +5,7 @@ import { createAgentModelCatalogService } from './agent-model-catalog-service'
 import {
   agentsWithChangedLaunchSettings,
   createAgentModelCatalogSettingsExpiry,
-  expireAgentModelCatalogFailuresForSettings
+  expireAgentModelCatalogsForSettings
 } from './agent-model-catalog-account-expiry'
 import {
   AGENT_MODEL_CATALOG_FAILURE_TTL_MS,
@@ -19,7 +19,6 @@ import { agentSessionRecordFixture } from '../../../shared/agent-session-record.
 import type { AgentSessionAccountHome } from '../../../shared/agent-session-account-home'
 
 const HOME = '/homes/selected'
-const ACCOUNT_HOME = { variable: 'GROK_HOME', path: HOME } as const
 const FINGERPRINT = agentModelCatalogFingerprint({
   agent: 'grok',
   accountHomeVariable: 'GROK_HOME',
@@ -31,7 +30,8 @@ const SIGNED_OUT = { reason: 'notSignedIn', account: 'system' } as const
 function listing(id: string, origin: AgentModelCatalogSuccess['origin']): AgentModelCatalogSuccess {
   return {
     models: [{ id, label: id, isDefault: true, efforts: [] }],
-    origin
+    origin,
+    complete: true
   }
 }
 
@@ -48,7 +48,9 @@ function deferred<T>() {
 const signedOut = (): Promise<AgentModelCatalogSuccess> =>
   Promise.reject(new AgentModelCatalogUnavailableError(SIGNED_OUT))
 
-function rig(initialProbe: AgentModelCatalogProbe = signedOut) {
+function rig(initialProbe: AgentModelCatalogProbe = signedOut, agent = 'grok') {
+  const accountHome = { variable: agent === 'codex' ? 'CODEX_HOME' : 'GROK_HOME', path: HOME }
+  const fingerprint = agentModelCatalogFingerprint({ agent, accountHome, wslDistro: null })
   let now = 1_000
   let answer = initialProbe
   const store = new AgentModelCatalogStore({ now: () => now })
@@ -60,21 +62,26 @@ function rig(initialProbe: AgentModelCatalogProbe = signedOut) {
     getConversation: () => undefined,
     getRecord: () => ({
       ...agentSessionRecordFixture(),
-      provider: 'grok',
-      accountHome: ACCOUNT_HOME
+      provider: agent,
+      accountHome
     }),
     drivesRecord: () => true,
-    resolveAccountHome: async () => ACCOUNT_HOME,
-    probes: { grok: probe }
+    resolveAccountHome: async () => accountHome,
+    probes: { [agent]: probe }
   })
   return {
+    fingerprint,
     store,
     probe,
-    service,
+    service: {
+      ...service,
+      read: (params: Parameters<typeof service.read>[0]) =>
+        params.savedOnly ? service.prepareSaved(params) : service.read(params)
+    },
     /** Lets the probe's verdict land. */
     probed: async () => {
-      await service.prepareSaved({ agent: 'grok' })
-      await store.refresh(FINGERPRINT, 'grok', () => probe(ACCOUNT_HOME))
+      await service.prepareSaved({ agent, workspacePath: agent === 'codex' ? null : undefined })
+      await store.refresh(fingerprint, agent, () => probe(accountHome))
     },
     answerWith: (next: AgentModelCatalogProbe) => (answer = next),
     pastTtl: () => (now += AGENT_MODEL_CATALOG_FAILURE_TTL_MS)
@@ -137,9 +144,9 @@ describe('a reason the probe found', () => {
   it('is expired, not dropped, by a change to that agent’s account settings', async () => {
     const store = new AgentModelCatalogStore()
     await store.refresh(FINGERPRINT, 'codex', signedOut)
-    expireAgentModelCatalogFailuresForSettings(store, { activeClaudeManagedAccountId: 'other' })
+    expireAgentModelCatalogsForSettings(store, { activeClaudeManagedAccountId: 'other' })
     expect(store.hasActiveFailure(FINGERPRINT)).toBe(true)
-    expireAgentModelCatalogFailuresForSettings(store, { activeCodexManagedAccountId: 'other' })
+    expireAgentModelCatalogsForSettings(store, { activeCodexManagedAccountId: 'other' })
     expect(store.hasActiveFailure(FINGERPRINT)).toBe(false)
     expect(store.failure(FINGERPRINT)?.unavailable).toEqual(SIGNED_OUT)
   })
@@ -167,7 +174,7 @@ describe('a chat that starts under the account', () => {
     await probed()
     service.providerStarted({
       ...agentSessionRecordFixture(),
-      provider: 'grok',
+      provider: agent,
       accountHome: { variable: 'GROK_HOME', path: HOME },
       location: {
         executionHostId: LOCAL_EXECUTION_HOST_ID,
@@ -193,7 +200,7 @@ describe('an expired failure that carries no reason', () => {
     expect(store.hasActiveFailure(FINGERPRINT)).toBe(false)
     expect(store.failure(FINGERPRINT)).toBeNull()
     await store.refresh(FINGERPRINT, 'codex', () => Promise.reject(new Error('listing timed out')))
-    expireAgentModelCatalogFailuresForSettings(store, { activeCodexManagedAccountId: 'other' })
+    expireAgentModelCatalogsForSettings(store, { activeCodexManagedAccountId: 'other' })
     expect(store.failure(FINGERPRINT)).toBeNull()
   })
 })
@@ -204,6 +211,7 @@ describe('a catalog read that finds a held reason', () => {
     await probed()
     expect(await service.read({ agent: 'grok', waitForListing: true })).toEqual({
       origin: 'unknown',
+      catalogState: 'unknown',
       unavailable: SIGNED_OUT
     })
     expect(probe).toHaveBeenCalledTimes(1)
@@ -264,6 +272,7 @@ describe('a catalog read that finds a held reason', () => {
     answerWith(() => hung.promise)
     expect(await service.read({ agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'unknown',
       unavailable: SIGNED_OUT
     })
     expect(probe).toHaveBeenCalledTimes(1)
@@ -271,6 +280,7 @@ describe('a catalog read that finds a held reason', () => {
     await vi.waitFor(() => expect(probe).toHaveBeenCalledTimes(2))
     expect(await service.read({ agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true,
       unavailable: SIGNED_OUT
     })
@@ -361,5 +371,95 @@ describe("an agent's command or environment change", () => {
     expect(agentsWithChangedLaunchSettings({ agentCmdOverrides: { grok: 'grok' } }, {})).toEqual([
       'grok'
     ])
+  })
+})
+
+describe('a managed account reauthenticated in the same home', () => {
+  it('does not let a pre-change pending probe certify the reauthenticated account', async () => {
+    const oldProbe = deferred<AgentModelCatalogSuccess>()
+    const {
+      store,
+      service,
+      probed,
+      fingerprint: FINGERPRINT
+    } = rig(() => oldProbe.promise, 'codex')
+    store.recordSuccess(FINGERPRINT, 'codex', listing('synthetic-old-model', 'probe'), 'discovery')
+    const pending = probed()
+    await vi.waitFor(() => expect(store.isListing(FINGERPRINT)).toBe(true))
+    const expire = createAgentModelCatalogSettingsExpiry(store, {})
+    expire({ activeCodexManagedAccountId: 'reauthenticated-account' }, {})
+    oldProbe.resolve(listing('synthetic-old-model', 'probe'))
+    await pending
+    const entry = store.get(FINGERPRINT)
+    if (!entry) {
+      throw new Error('Expected the retained account catalog')
+    }
+    expect(store.isStale(entry, 'latest')).toBe(true)
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
+      catalogState: 'unknown'
+    })
+  })
+
+  it('holds the old catalog unknown until a fresh account probe answers', async () => {
+    const { store, probe, service, answerWith, fingerprint: FINGERPRINT } = rig(signedOut, 'codex')
+    const saved = listing('synthetic-model', 'probe')
+    saved.models[0].serviceTiers = [{ value: 'synthetic-paid-id', label: 'Fast' }]
+    store.recordSuccess(FINGERPRINT, 'codex', saved, 'discovery')
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
+      catalogState: 'available'
+    })
+    const expire = createAgentModelCatalogSettingsExpiry(store, {})
+    expire(
+      {
+        codexManagedAccounts: [
+          {
+            id: 'same-account',
+            email: 'reauthenticated@example.test',
+            managedHomePath: HOME,
+            providerAccountId: 'new-principal',
+            workspaceLabel: null,
+            workspaceAccountId: null,
+            createdAt: 1,
+            updatedAt: 2,
+            lastAuthenticatedAt: 2
+          }
+        ]
+      },
+      {}
+    )
+    const entry = store.get(FINGERPRINT)
+    expect(entry).not.toBeNull()
+    if (!entry) {
+      throw new Error('Expected the retained same-home catalog')
+    }
+    expect(store.isStale(entry, 'latest')).toBe(true)
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
+      catalogState: 'unknown',
+      models: [{ id: 'synthetic-model' }]
+    })
+    const fresh = deferred<AgentModelCatalogSuccess>()
+    answerWith(() => fresh.promise)
+    const warming = service.read({ agent: 'codex', workspacePath: null, waitForListing: true })
+    await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce())
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
+      catalogState: 'loading'
+    })
+    fresh.resolve(listing('synthetic-new-principal-model', 'probe'))
+    await warming
+    expect(
+      await service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
+    ).toMatchObject({
+      catalogState: 'available',
+      models: [{ id: 'synthetic-new-principal-model' }]
+    })
+    expect(probe.mock.calls[0]?.[0]).toEqual({ variable: 'CODEX_HOME', path: HOME })
   })
 })
