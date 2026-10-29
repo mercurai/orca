@@ -1,5 +1,5 @@
 import { liftActionPermissionArgs } from '../../../../../../shared/source-control-action-permission-lift'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { GlobalSettings } from '../../../../../../shared/global-settings-types'
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
 import { CUSTOM_AGENT_ID } from '../../../../../../shared/commit-message-agent-spec'
@@ -60,16 +60,15 @@ export function useRepositorySourceControlAiGlobalUx({
   const persistedRef = useRef(persistedRepoAi)
   const repoIdRef = useRef(repoId)
   const updateRepoRef = useRef(updateRepo)
-  repoIdRef.current = repoId
-  updateRepoRef.current = updateRepo
+  useLayoutEffect(() => {
+    repoIdRef.current = repoId
+    updateRepoRef.current = updateRepo
+  }, [repoId, updateRepo])
 
   const [saveError, setSaveError] = useState<string | null>(null)
   const [immediateRepoAi, setImmediateRepoAi] = useState(persistedRepoAi)
   const immediateRepoAiRef = useRef(immediateRepoAi)
-  immediateRepoAiRef.current = immediateRepoAi
   const [baselineRepoAi, setBaselineRepoAi] = useState(persistedRepoAi)
-  const setBaselineRepoAiRef = useRef(setBaselineRepoAi)
-  setBaselineRepoAiRef.current = setBaselineRepoAi
   const [actionTextDrafts, setActionTextDrafts] = useState<
     Partial<Record<SourceControlActionId, ActionRecipeTextDraft>>
   >({})
@@ -87,7 +86,7 @@ export function useRepositorySourceControlAiGlobalUx({
     setPersisted: (value) => {
       persistedRef.current = value
       if (mountedRef.current) {
-        setBaselineRepoAiRef.current(value)
+        setBaselineRepoAi(value)
       }
     },
     updateRepo: (id, updates) => updateRepoRef.current(id, updates),
@@ -99,22 +98,22 @@ export function useRepositorySourceControlAiGlobalUx({
     }
   })
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const repoChanged = lastSyncedRepoIdRef.current !== repoId
     lastSyncedRepoIdRef.current = repoId
     persistedRef.current = persistedRepoAi
     setBaselineRepoAi(persistedRepoAi)
+    if (repoChanged || pendingWritesRef.current === 0) {
+      immediateRepoAiRef.current = persistedRepoAi
+      setImmediateRepoAi(persistedRepoAi)
+    }
     if (repoChanged) {
       pendingWritesRef.current = 0
-      setImmediateRepoAi(persistedRepoAi)
       setActionTextDrafts({})
       setCustomCommandDraft(null)
       setSavingActionIds({})
       setSaveError(null)
       return
-    }
-    if (pendingWritesRef.current === 0) {
-      setImmediateRepoAi(persistedRepoAi)
     }
     setCustomCommandDraft((current) =>
       retainCustomCommandDraft(current, persistedRepoAi.customAgentCommand)
@@ -267,11 +266,9 @@ export function useRepositorySourceControlAiGlobalUx({
       if (repoIdRef.current !== repoIdForWrite || !mountedRef.current || !ok) {
         return
       }
-      setImmediateRepoAi((current) => {
-        const next = withRepoAiActionRecipeText(current, settings, actionId, draft)
-        immediateRepoAiRef.current = next
-        return next
-      })
+      commitImmediate(
+        withRepoAiActionRecipeText(immediateRepoAiRef.current, settings, actionId, draft)
+      )
       setActionTextDrafts((current) =>
         clearActionTextDraftIfUnchanged(current, actionId, actionTextDrafts[actionId] ?? draft)
       )
