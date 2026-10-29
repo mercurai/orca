@@ -1,5 +1,10 @@
 import type * as BrowserClientHostRuntime from '../../browser/paired-runtime-browser-client-host-runtime'
 import { drainPendingPathWrites } from '../../../shared/path-write-serializer'
+import {
+  resetWindowsSecurityLoadForTests,
+  setWindowsSecurityForTests
+} from '../../../shared/windows-security-addon'
+import { createFakeWindowsSecurity } from '../../../shared/windows-security-addon.test-fixture'
 import type { RuntimeHostStatusSnapshot } from '../../../shared/runtime-host-status'
 import {
   getRuntimeEnvironmentStatusSnapshots,
@@ -114,6 +119,8 @@ describe('registerRuntimeEnvironmentHandlers', () => {
   }
 
   beforeEach(() => {
+    // IPC semantics use real files without native DACL workers racing directory teardown.
+    setWindowsSecurityForTests(createFakeWindowsSecurity())
     userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-ipc-'))
     activeRuntimeEnvironmentId = null
     store = {
@@ -146,6 +153,7 @@ describe('registerRuntimeEnvironmentHandlers', () => {
 
   afterEach(async () => {
     await drainPendingPathWrites()
+    resetWindowsSecurityLoadForTests()
     resetRuntimeEnvironmentStatusOwners()
     rmSync(userDataPath, { recursive: true, force: true })
   })
