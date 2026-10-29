@@ -30,6 +30,27 @@ function jobsOf(workflow) {
   return jobs
 }
 
+function yamlOutsideRunBlocks(text) {
+  let runIndent = null
+  return text
+    .split('\n')
+    .filter((line) => {
+      const indent = line.search(/\S/)
+      if (runIndent !== null) {
+        if (indent === -1 || indent > runIndent) {
+          return false
+        }
+        runIndent = null
+      }
+      const run = /^(\s*)(?:-\s+)?run:\s*[|>][-+]?\s*$/.exec(line)
+      if (run) {
+        runIndent = run[1].length
+      }
+      return true
+    })
+    .join('\n')
+}
+
 /** Text with whole-line comments removed, so a comment that names a secret is not a reference. */
 const code = (text) =>
   text
@@ -49,7 +70,11 @@ const SECRET_EXPRESSION = /\$\{\{[^}]*\bsecrets\b/
 test('only the publish job references a secret', () => {
   for (const [name, text] of releaseJobs) {
     const references = /\bsecrets\b/.test(code(text)) || SECRET_EXPRESSION.test(text)
-    assert.equal(references, name === 'publish', `${name} ${references ? 'references' : 'lacks'} a secret`)
+    assert.equal(
+      references,
+      name === 'publish',
+      `${name} ${references ? 'references' : 'lacks'} a secret`
+    )
   }
   // Nothing outside the jobs either: a workflow-level env reaches every job.
   const outsideJobs = release.slice(0, release.indexOf('\njobs:\n'))
@@ -63,11 +88,18 @@ test('every job is a plain block key: none hides inside another', () => {
   const topLevel = body.split('\n').filter((line) => /^ {2}\S/.test(line) && !/^ {2}#/.test(line))
   assert.deepEqual(topLevel, ['  preflight:', '  orcad-template:', '  build-win:', '  publish:'])
   // No flow-style mapping or sequence anywhere under jobs: (`${{` is an expression, not a mapping).
-  for (const line of code(body).split('\n')) {
+  for (const line of yamlOutsideRunBlocks(code(body)).split('\n')) {
     // `needs: [a, b]` names jobs and is the one flow sequence allowed.
     const stripped = line.replaceAll(/\$\{\{.*?\}\}/g, '').replace(/^\s+needs: \[[\w, -]+\]$/, '')
     assert.doesNotMatch(stripped, /:\s*[{[]|^\s*-\s*[{[]/, `flow style in: ${line.trim()}`)
   }
+})
+
+test('script object literals cannot hide a subsequent YAML flow mapping', () => {
+  const source = '      - run: |\n          candidate: {\n      - env: { HIDDEN: true }\n'
+  const declarations = yamlOutsideRunBlocks(source)
+  assert.doesNotMatch(declarations, /candidate:/)
+  assert.match(declarations, /env: \{ HIDDEN: true \}/)
 })
 
 test('no YAML anchor or alias can carry a value from one job into another', () => {
@@ -96,18 +128,28 @@ test('the workflow grants its token read access only', () => {
     ['release', release],
     ['template', template]
   ]) {
-    assert.match(workflow, /^permissions:\n {2}contents: read\n(?! )/m, `${name} top-level permissions`)
-    assert.doesNotMatch(code(workflow), /^[ \t]+permissions:/m, `${name} has a job-level permissions block`)
-    assert.doesNotMatch(code(workflow), /:\s*write\b/, `${name} grants write`)
+    const permissions = workflow.match(/^permissions:\n(?: {2}[^\n]+\n)+/m)?.[0] ?? ''
+    assert.match(permissions, /^permissions:\n/m, `${name} top-level permissions`)
+    assert.match(permissions, /^ {2}contents: read$/m, `${name} contents permission`)
+    if (name === 'release') {
+      assert.match(permissions, /^ {2}actions: read$/m, `${name} actions permission`)
+    }
+    assert.doesNotMatch(permissions, /:\s*write\b/, `${name} grants write`)
+    assert.doesNotMatch(
+      code(workflow),
+      /^[ \t]+permissions:/m,
+      `${name} has a job-level permissions block`
+    )
   }
 })
 
-test('the publish job is gated on the dispatch itself, exactly', () => {
-  // Exact: `always() ||`, `|| true` or a value a build step can write (env, needs, steps, vars)
-  // would each open it. The ref clause keeps a ref build, always a dry run, out of it.
+test('the publish job is gated on dispatch identity and promotion evidence, exactly', () => {
+  // Exact: `always() ||`, `|| true` or a value a build step can write (env, vars, or a build step)
+  // would each open it. The preflight qualification output is trusted only after its receipt check;
+  // the ref clause keeps a ref build, always a dry run, out of it.
   const gates = releaseJobs.get('publish').match(/^ {4}if: .*$/gm)
   assert.deepEqual(gates, [
-    "    if: ${{ github.repository == 'mercurai/orca' && !inputs.dry_run && inputs.ref == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}"
+    "    if: ${{ github.repository == 'mercurai/orca' && needs.preflight.outputs.qualified == 'true' && !inputs.dry_run && inputs.ref == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}"
   ])
 })
 
@@ -118,6 +160,38 @@ test('no publish step carries its own condition or may fail quietly', () => {
   assert.doesNotMatch(publish, /continue-on-error/)
 })
 
+test('all real releases share one queued channel publication lock', () => {
+  const publish = code(releaseJobs.get('publish'))
+  assert.match(
+    publish,
+    /^ {4}concurrency:\n {6}group: mercurai-orca-mercurai-windows-stable-publication\n {6}cancel-in-progress: false\n {6}queue: max$/m
+  )
+  assert.doesNotMatch(publish, /group:.*\$\{\{/)
+})
+
+test('publication retains byte and provenance checks without destructive retry commands', () => {
+  const publish = code(releaseJobs.get('publish'))
+  assert.doesNotMatch(publish, /--clobber|--draft=true|gh release delete|gh api.*-X DELETE/)
+  assert.match(publish, /gh api -X PUT "repos\/\$CHANNEL_REPO\/contents\/README\.md"/)
+  assert.match(publish, /test "\$\(jq length "\$work\/releases\.json"\)" = 0/)
+  assert.match(
+    publish,
+    /PROMOTION_PROVENANCE: \$\{\{ needs\.preflight\.outputs\.promotion_provenance \}\}/
+  )
+  assert.match(publish, /gh api --paginate --slurp "repos\/\$CHANNEL_REPO\/releases\?per_page=100"/)
+  assert.match(
+    publish,
+    /gh api --paginate --slurp "repos\/\$CHANNEL_REPO\/releases\/\$release_id\/assets\?per_page=100"/
+  )
+  assert.match(publish, /cmp -s "dist\/\$name" "\$downloads\/\$name"/)
+  assert.match(publish, /\(\.body \| fromjson\) == \$expected\[0\]/)
+  assert.match(publish, /gh api "repos\/\$CHANNEL_REPO\/releases\/latest"/)
+  assert.match(
+    releaseJobs.get('preflight'),
+    /promotion_provenance: \$\{\{ steps\.promotion\.outputs\.promotion_provenance \}\}/
+  )
+})
+
 test('the publish job runs no repository code: its steps are exactly these', () => {
   const publish = code(releaseJobs.get('publish'))
   const steps = [...publish.matchAll(/^ {6}- (name|uses): (.+)$/gm)].map((match) => match[2])
@@ -126,7 +200,7 @@ test('the publish job runs no repository code: its steps are exactly these', () 
     'Vet the tag',
     'Download the release files',
     'Check the release files',
-    'Make sure the channel repo has a commit',
+    'Check channel repository access',
     'Publish the release',
     'Verify the update manifest is public'
   ])
@@ -140,16 +214,26 @@ test('the publish job runs no repository code: its steps are exactly these', () 
     /\b(pnpm|npm|npx|node|python3?|git\s+clone|gh\s+repo\s+clone|curl|wget|source|eval|exec|chmod)\b/
   )
   assert.doesNotMatch(publish, /\b(bash|sh)\s+\S+\.sh\b|\.\/dist\//)
-  assert.doesNotMatch(publish, /\|\s*(bash|sh|pwsh|powershell)\b|\b(bash|sh|pwsh)\s+-c\b|^\s*\.\s+\S/m)
+  assert.doesNotMatch(
+    publish,
+    /\|\s*(bash|sh|pwsh|powershell)\b|\b(bash|sh|pwsh)\s+-c\b|^\s*\.\s+\S/m
+  )
   // The default shell or bash only: another interpreter could run a script the job fetched.
   assert.doesNotMatch(publish, /^\s+shell:(?!\s*bash\s*$)/m)
   assert.doesNotMatch(publish, /base64\s+(-d|--decode)/)
 })
 
-test('preflight keeps both of its rules', () => {
+test('preflight keeps dispatch rules and verifies only trusted promotion evidence', () => {
   const preflight = releaseJobs.get('preflight')
-  assert.ok(preflight.includes(String.raw`if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mercurai\.[0-9]+$ ]]; then`))
-  assert.match(preflight, /if \[ "\$publish" = "true" \] && \[ -n "\$REF_INPUT" \]; then\n[^\n]*\n\s+exit 1\n/)
+  assert.ok(
+    preflight.includes(
+      String.raw`if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-mercurai\.[0-9]+$ ]]; then`
+    )
+  )
+  assert.match(
+    preflight,
+    /if \[ "\$publish" = "true" \] && \[ -n "\$REF_INPUT" \]; then\n[^\n]*\n\s+exit 1\n/
+  )
   // publish=true keeps latest.yml and skips the dry-run strip, so it is set by the same rule as the publish gate.
   assert.match(
     preflight,
@@ -161,13 +245,29 @@ test('preflight keeps both of its rules', () => {
     preflight,
     /if \[ -n "\$REF_INPUT" \] && \[ "\$DISPATCH_REF" = "refs\/heads\/\$DEFAULT_BRANCH" \]; then\n[^\n]*\n\s+exit 1\n/
   )
-  assert.doesNotMatch(code(preflight), /continue-on-error|actions\/checkout|uses: \.\//)
+  assert.doesNotMatch(code(preflight), /continue-on-error|uses: \.\//)
+  assert.match(
+    preflight,
+    /uses: actions\/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333/
+  )
+  assert.match(preflight, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/)
+  assert.match(preflight, /path: \.controller/)
+  assert.match(preflight, /sparse-checkout: config\/mercurai/)
+  assert.match(preflight, /node \.controller\/config\/mercurai\/scripts\/verify-promotion\.mjs/)
 })
 
 test('the channel repo is named only where the token is', () => {
   for (const [name, text] of releaseJobs) {
     if (name !== 'publish') {
-      assert.doesNotMatch(code(text), /CHANNEL_REPO|GH_TOKEN|gh release|gh api/, `${name} reaches for the channel`)
+      const nonPublish = code(text)
+      assert.doesNotMatch(nonPublish, /CHANNEL_REPO|gh release/, `${name} reaches for the channel`)
+      if (/\bGH_TOKEN\b/.test(nonPublish)) {
+        assert.match(
+          nonPublish,
+          /GH_TOKEN:\s*\$\{\{ github\.token \}\}/,
+          `${name} must use the read-only Actions token`
+        )
+      }
     }
   }
   assert.doesNotMatch(code(release.slice(0, release.indexOf('\njobs:\n'))), /CHANNEL_REPO|GH_TOKEN/)
@@ -193,10 +293,16 @@ test('no release job restores or saves a cache', () => {
   ]) {
     const body = code(workflow)
     assert.doesNotMatch(body, /actions\/cache\b/, `${name} uses actions/cache`)
-    assert.doesNotMatch(body, /uses:\s*\.\/\.github\/actions\//, `${name} uses a repo install action`)
+    assert.doesNotMatch(
+      body,
+      /uses:\s*\.\/\.github\/actions\//,
+      `${name} uses a repo install action`
+    )
     // setup-node's `cache:` and setup-* cache inputs of any spelling (cache-dependency-path too).
     assert.doesNotMatch(body, /^\s+cache[\w-]*:/m, `${name} passes a cache input`)
-    const setupNode = body.split(/^ {6}- /m).filter((step) => /uses: actions\/setup-node@/.test(step))
+    const setupNode = body
+      .split(/^ {6}- /m)
+      .filter((step) => /uses: actions\/setup-node@/.test(step))
     assert.ok(setupNode.length >= 1, `${name} sets up Node`)
     for (const step of setupNode) {
       // From v5 setup-node caches the packageManager's store on its own unless told not to.
@@ -205,15 +311,24 @@ test('no release job restores or saves a cache', () => {
   }
   const build = code(releaseJobs.get('build-win'))
   const reset = build.slice(build.indexOf('- name: Start from empty build caches'))
-  assert.ok(build.indexOf('- name: Start from empty build caches') < build.indexOf('- name: Install dependencies'))
+  assert.ok(
+    build.indexOf('- name: Start from empty build caches') <
+      build.indexOf('- name: Install dependencies')
+  )
   assert.match(reset, /ELECTRON_CACHE=\$RUNNER_TEMP\/electron-cache/)
   assert.match(reset, /ELECTRON_BUILDER_CACHE=\$RUNNER_TEMP\/electron-builder-cache/)
 })
 
 // A tag can be moved between jobs; every job builds the one commit preflight resolved (SEC-103).
 test('every job builds the commit preflight resolved', () => {
-  assert.match(releaseJobs.get('preflight'), /^ {6}build_sha: \$\{\{ steps\.vet\.outputs\.build_sha \}\}$/m)
-  assert.match(releaseJobs.get('orcad-template'), /^ {6}ref: \$\{\{ needs\.preflight\.outputs\.build_sha \}\}$/m)
+  assert.match(
+    releaseJobs.get('preflight'),
+    /^ {6}build_sha: \$\{\{ steps\.vet\.outputs\.build_sha \}\}$/m
+  )
+  assert.match(
+    releaseJobs.get('orcad-template'),
+    /^ {6}ref: \$\{\{ needs\.preflight\.outputs\.build_sha \}\}$/m
+  )
   const build = code(releaseJobs.get('build-win'))
   const checkouts = build.split(/^ {6}- /m).filter((step) => /uses: actions\/checkout@/.test(step))
   const ofTheBuild = checkouts.filter((step) => !/path: \.fork/.test(step))
@@ -260,7 +375,10 @@ test('every build checks the manifest and smokes the installer before upload', (
   const manifest = at('Check the update manifest field by field')
   const smoke = at('Smoke the installer (install, launch for 30 s, uninstall)')
   assert.ok(manifest > at('Check the build outputs') && smoke > manifest)
-  for (const later of ['Keep the release files as a run artifact', 'Strip the update files from a dry run']) {
+  for (const later of [
+    'Keep the release files as a run artifact',
+    'Strip the update files from a dry run'
+  ]) {
     assert.ok(at(later) > smoke, `${later} runs before the smoke`)
   }
   const stepAt = (start) => build.slice(start, build.indexOf('\n      - ', start + 1))
@@ -290,19 +408,33 @@ test('every build checks the manifest and smokes the installer before upload', (
   const fields = `yq -r '[(.files | length), .files[0].url, .path, .files[0].sha512, .sha512, .version] | join(" ")' dist/latest.yml`
   assert.ok(releaseJobs.get('publish').includes(fields))
   const smokeStep = stepAt(smoke)
-  assert.match(smokeStep, /-ArgumentList '\/S', "\/D=\$installDir" -PassThru\n(?:[^\n]*\n){2}\s+if \(-not \$setup\.WaitForExit\(300000\)\)/)
+  assert.match(
+    smokeStep,
+    /-ArgumentList '\/S', "\/D=\$installDir" -PassThru\n(?:[^\n]*\n){2}\s+if \(-not \$setup\.WaitForExit\(300000\)\)/
+  )
   assert.match(smokeStep, /Start-Sleep -Seconds 30/)
   assert.match(smokeStep, /\$ErrorActionPreference = 'Stop'/)
   // Alive means the app's main process, not a helper, daemon or crash handler from the same dir.
-  assert.match(smokeStep, /\$_\.ExecutablePath\.StartsWith\(\$dir, \[StringComparison\]::OrdinalIgnoreCase\)/)
+  assert.match(
+    smokeStep,
+    /\$_\.ExecutablePath\.StartsWith\(\$dir, \[StringComparison\]::OrdinalIgnoreCase\)/
+  )
   assert.match(smokeStep, /\n\s+\$running = Get-OrcaUnder \$installDir\n/)
   // The exit code stays readable, and the relocated daemon stays under the run's dir.
   assert.match(smokeStep, /-PassThru\n[^\n]*\n\s+\$null = \$setup\.Handle\n/)
   assert.match(smokeStep, /\$env:LOCALAPPDATA = Join-Path \$root/)
-  assert.ok(smokeStep.includes(String.raw`$_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '\.[cm]?js\b'`))
+  assert.ok(
+    smokeStep.includes(
+      String.raw`$_.CommandLine -notmatch '--type=' -and $_.CommandLine -notmatch '\.[cm]?js\b'`
+    )
+  )
   assert.match(smokeStep, /if \(\$main\.Count -eq 0\) \{/)
   // A main process held open by Electron's start-up error dialog has no renderer.
-  assert.ok(smokeStep.includes(`$renderers = @($running | Where-Object { $_.CommandLine -match '--type=renderer' })`))
+  assert.ok(
+    smokeStep.includes(
+      `$renderers = @($running | Where-Object { $_.CommandLine -match '--type=renderer' })`
+    )
+  )
   assert.match(smokeStep, /if \(\$renderers\.Count -eq 0\) \{ throw/)
   // Only the app's own logs reach the public job log, never the binary LevelDB profile.
   assert.match(smokeStep, /Get-ChildItem \(Join-Path \$userData 'logs'\) -Recurse/)
@@ -310,7 +442,10 @@ test('every build checks the manifest and smokes the installer before upload', (
   assert.match(smokeStep, /if \(\$appCrashes\.Count -gt 0\) \{ throw/)
   assert.match(smokeStep, /if \(\$werFaults\.Count -gt 0\) \{ throw/)
   // Stopped by the PIDs it started, whatever happened; a stray survivor or a left install fails.
-  assert.match(smokeStep, /\} finally \{\n[^\n]*\n[^\n]*\n\s+foreach \(\$process in \(Get-OrcaUnder \$root\)\) \{ taskkill \/PID \$process\.ProcessId \/T \/F/)
+  assert.match(
+    smokeStep,
+    /\} finally \{\n[^\n]*\n[^\n]*\n\s+foreach \(\$process in \(Get-OrcaUnder \$root\)\) \{ taskkill \/PID \$process\.ProcessId \/T \/F/
+  )
   assert.match(smokeStep, /if \(\$survivors\.Count -gt 0\) \{ throw/)
   assert.match(smokeStep, /if \(Test-Path \$exe\) \{ throw "the uninstaller left/)
   assert.match(smokeStep, /\n\s+exit 0\n/)
@@ -340,7 +475,10 @@ test('a shipping template is required at packaging and checked in the unpacked a
   const stepAt = (start) => build.slice(start, build.indexOf('\n      - ', start + 1))
   const packaging = stepAt(at('Build the Windows installer'))
   assert.match(packaging, /SHIPS_ORCAD_TEMPLATE: \$\{\{ needs\.orcad-template\.outputs\.ships \}\}/)
-  assert.match(packaging, /ORCAD_TEMPLATE_TARGETS: \$\{\{ needs\.orcad-template\.outputs\.targets \}\}/)
+  assert.match(
+    packaging,
+    /ORCAD_TEMPLATE_TARGETS: \$\{\{ needs\.orcad-template\.outputs\.targets \}\}/
+  )
   assert.match(
     packaging,
     /if \[ "\$SHIPS_ORCAD_TEMPLATE" = "true" \]; then\n\s+export ORCA_REQUIRE_ORCAD_TEMPLATE=1\n\s+export ORCA_ORCAD_TEMPLATE_TARGETS="\$ORCAD_TEMPLATE_TARGETS"\n\s+fi\n/
@@ -363,8 +501,13 @@ test('Windows builds refuse relay-era refs and use the current native preparatio
   const refuse = build.slice(refuseAt, build.indexOf('\n      - ', refuseAt + 1))
   assert.match(refuse, /if \[\[ -e config\/tsconfig\.relay\.json \]\]; then\n[^\n]*\n\s+exit 1\n/)
   assert.doesNotMatch(refuse, /^\s+(if|continue-on-error):/m)
-  assert.doesNotMatch(build, /build-windows-process-tree-relay-addon|ORCA_REQUIRE_RELAY_NATIVE_ADDONS/)
-  const commands = build.match(/node config\/scripts\/ensure-native-runtime\.mjs --runtime=electron/g)
+  assert.doesNotMatch(
+    build,
+    /build-windows-process-tree-relay-addon|ORCA_REQUIRE_RELAY_NATIVE_ADDONS/
+  )
+  const commands = build.match(
+    /node config\/scripts\/ensure-native-runtime\.mjs --runtime=electron/g
+  )
   assert.equal(commands?.length, 2)
   assert.match(build, /run: pnpm run build:release\n/)
 })

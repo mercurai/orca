@@ -1,21 +1,91 @@
 # mercurai fork management
 
 How `mercurai/orca` stays in sync with `stablyai/orca` without hands, and how a mercurai
-release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-23.
+release is chosen and assembled. Owner: harness. Last reviewed: 2026-10-29.
+
+## Current candidate registration
+
+The preparation manifest selects official main
+`cbbaa2d7635297916ea257a0287cc4ec6c12af25` and stable floor `v1.4.242`
+(`86ad9d95cac792f3d1359d886cef9fb9b0aadd47`). Candidate
+`patch/current-main-release-cbbaa@6e21f9861780a6dec1a55a20725a0e6cd284c503`,
+tree `8b11466b1d58a66fb9ccf6e35c2130767c601f2b`, contains seven reviewed commits
+over that main and is remote, with 258 registered existing test paths.
+Latest observed main `7f4c8f606435d4ca90964e176e860626ffba918a` and stable
+`v1.4.244` are queued after this freeze; no current-upstream equality is claimed.
+
+Twelve semantic conflicts are resolved. Hosted
+[40844702585](https://github.com/mercurai/orca/actions/runs/40844702585) at `94c7`
+reproduced all four raw-UNC and stale-removal helper/service failures: 266 persistence
+tests passed and four failed. Windows coverage passed 1,360 tests with 16 skipped;
+both cost jobs and 611 qualification contracts passed. Independent review accepted
+the narrow ownership and UNC fixes without changing assertions. At `6d57`,
+[40846970058](https://github.com/mercurai/orca/actions/runs/40846970058) passed all three
+targeted jobs after isolating a pairing IPC fixture from native ACL teardown. Its real
+file and pairing assertions remain intact.
+
+Full controller CI at `930c7e` exposed `ENOBUFS` in the changed-file reader. A real-Git
+regression reproduced it at `27b8` in
+[40847371955](https://github.com/mercurai/orca/actions/runs/40847371955): 613 contracts
+passed and one failed. The reader now uses the adjacent tracked-file reader's 64 MiB
+bound, preserving every changed path and the ratchet's enforcement. At `2ec5`,
+[40847881117](https://github.com/mercurai/orca/actions/runs/40847881117) passed all three jobs:
+Windows 1,360 passed/16 skipped, costs, 614 contracts and 270 persistence tests passed.
+Full controller CI then identified five watcher-test ratchet findings. The real native
+watcher uses `vi.waitFor` with unchanged bounds/assertions, and the 1,000-seed model
+explains its unchanged timeout. Fresh
+[40849629838](https://github.com/mercurai/orca/actions/runs/40849629838) at `6e21` includes
+both suites and is pending. No baseline allowance, timeout or seed count changed.
+The recovery source `8218bf9d21` passed
+[40472710805](https://github.com/mercurai/orca/actions/runs/40472710805): 1,351 Windows
+tests passed, 16 skipped; both cost suites, 610 contracts and 143 persistence
+tests passed. Seven accepted repair blobs are byte-identical in this generation.
+Recovery PR [#82](https://github.com/mercurai/orca/pull/82) remains draft and
+preserved. It does not qualify the new source.
+
+Controller `64cd4a9969` passed 412 Node tests plus nine template checks in
+[40848487591](https://github.com/mercurai/orca/actions/runs/40848487591). Proposed
+manual promotion retains authenticated review, complete qualification and
+protected publication; default landing and full exact-head gates remain open.
+Controller PR [#80](https://github.com/mercurai/orca/pull/80) is ready for review and full CI.
+Recurring coordination and local automation stay disabled and unregistered;
+trusted dispatcher claiming and crash recovery remain incomplete.
+
+No version suffix, tag, publication, installation or loaded-runtime acceptance is
+claimed. See the [242 draft notes](release-notes-v1.4.242.md) and
+[authoritative plan](plans/2026-10-24-release-automation.md). Preserve the superseded
+241 worktrees as recovery sources and use the existing version allocator.
 
 ## Branches
 
-| Branch | Content | Who writes it |
-|---|---|---|
-| `main` | exact mirror of `upstream/main`, fast-forward only | `fork-sync-upstream` (hourly) |
-| `mercurai` (default) | `main` + this directory and the `fork-*` workflows, merged forward | `fork-sync-upstream`, reviewed PRs |
-| `patch/<slug>` | one patch of the series, rebased onto the manifest `base:` tag | lanes, `fork-rebase-patches` |
-| `release/mercurai` | assembled: an upstream release tag (or a frozen official `main` commit) + the active patches, never hand-edited | `fork-assemble-release` |
-| `upstream/*` | optional mirror of upstream branches (off by default) | `fork-sync-upstream` with `mirror_branches=true` |
+| Branch               | Content                                                                                                         | Who writes it                                    |
+| -------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| `main`               | exact mirror of `upstream/main`, fast-forward only                                                              | `fork-sync-upstream` (hourly)                    |
+| `mercurai` (default) | `main` + this directory and the `fork-*` workflows, merged forward                                              | `fork-sync-upstream`, reviewed PRs               |
+| `patch/<slug>`       | one patch of the series, rebased onto the manifest `base:` tag                                                  | lanes, `fork-rebase-patches`                     |
+| `release/mercurai`   | assembled: an upstream release tag (or a frozen official `main` commit) + the active patches, never hand-edited | `fork-assemble-release`                          |
+| `upstream/*`         | optional mirror of upstream branches (off by default)                                                           | `fork-sync-upstream` with `mirror_branches=true` |
 
 Tags: upstream's tags are mirrored as they are; mercurai releases are `v<upstream>-mercurai.N`.
 Upstream cuts its tags on release branches, not on `main`, so "merged upstream" is always judged
 against the tag being rebased onto, never against `main`.
+
+## Mirror a reviewed stable floor for a main-snapshot candidate
+
+After this controller lands, mirror the owner-reviewed upstream tag with the explicit
+single-tag mode. The `allow_tag` SHA is the peeled upstream commit recorded by review.
+For the currently frozen floor:
+
+```bash
+gh workflow run fork-sync-upstream.yml --repo mercurai/orca --ref mercurai   -f mirror_tag_only=true   -f allow_tag=v1.4.242@86ad9d95cac792f3d1359d886cef9fb9b0aadd47
+```
+
+This protected default-branch operation preserves the frozen patch basis. It runs the
+existing pinned-tag validator and mirror while suppressing main/default/other-ref writes,
+rebase handoffs and issue writes. Use `dry_run=true` to rehearse with no enabled write route.
+An absent pin, conflicting branch/guarded-main options or invalid mode fails before push
+authorization. The default `mirror_tag_only=false` retains ordinary sync behavior.
+The Mercurai candidate is qualified and released through the separate assembly workflow.
 
 ## The series: `config/mercurai/patches.yaml`
 
@@ -125,8 +195,15 @@ series.
   once in a lane replays.
 - `fork-assemble-release`: manual. Checks every active patch is recorded on the tag and contains
   it, builds `release/mercurai` = tag + cherry-picked patches (a patch with no commits beyond the
-  tag is skipped with a warning), runs the series tests, tags `v<upstream>-mercurai.N` and pushes
-  both, then dispatches `fork-release-win-build` with the new tag.
+  tag is skipped with a warning), runs the series tests, and pushes the assembled candidate branch.
+  It then dispatches `fork-qualify-release` for the exact candidate commit, waits for its full
+  qualification receipt, tags only that immutable candidate, and dispatches `fork-release-win-build`
+  with the tag and qualification run ID. A missing reviewer receipt, moved candidate branch, failed
+  qualification, or stale run ID stops before tagging. `dry_run=true` never pushes or dispatches a
+  publishing build. Promotion additionally requires `prepared_candidate_sha`,
+  `prepared_release_tag` and `review_run_id`; assembly recomposes and compares the tree, then
+  preserves that exact reviewed commit and reserved tag. A secretless owner-review job precedes
+  canonical branch mutation. Owner evidence is refetched after qualification and before packaging.
   **Main snapshot:** the optional `upstream_main_sha` input (`UPSTREAM_MAIN_SHA` to
   `scripts/assemble-release.sh`) assembles on a frozen commit of official `stablyai/orca` `main`
   instead of the tag, for a release that must carry upstream changes no tag has yet. The value is a
@@ -142,11 +219,36 @@ series.
   (`patch/<name>:<sha>,...` in manifest order) as outputs and in the release tag message. The test
   and push jobs both check out the dispatched commit (`github.sha`), not the branch name, and the push
   job pushes only when its tree, base and pinned patch commits equal the tested ones. Leave the input
-  empty for the unchanged tag assembly. The owner registers the sha and pins in the manifest;
-  recurring snapshots are not automated.
+  empty only for tag-based dry-run preparation. Promotion requires a frozen main snapshot.
+  The owner registers the SHA and pins in the manifest before review.
+- `fork-accept-release-review`: proposed manual, default-branch-only owner intake. A bounded
+  independent-review attestation must match candidate/tree/controller/manifest/policy/version,
+  ordered patch pins and frozen upstream inputs. Live actor and rerun actor IDs must match the
+  trusted owner policy. The exact-run artifact and digest authenticate owner acceptance; reviewer
+  text alone grants no authority. Submit it only after real independent review of the final revision.
+- `fork-qualify-release`: proposed default-branch-only, read-only qualification of one exact
+  candidate SHA. Admission validates owner acceptance before calling the existing shared PR
+  matrix with full discovery, exact checkouts and caches off. It records actual required jobs and
+  every planned unit/layout shard. The shared PR verifier alone owns `PR checks passed`.
+  Four existing advisory lanes are explicitly excluded; ordinary source PRs still exercise them.
+  This replacement is source-only and remains unqualified until hosted CI and rehearsal pass.
 - `fork-release-win-build`: builds the Windows installer for a `v<upstream>-mercurai.N` tag and
-  publishes it to the release channel (below). Dispatchable by hand with `-f tag=...` to rebuild
-  or retry a tag.
+  publishes it to the release channel (below). A real build must receive the qualification run ID
+  and receipt; preflight verifies the receipt against the resolved tag commit, version, controller,
+  manifest, and policy. Direct/manual dispatch without that receipt is dry-run-only. Dispatch a
+  qualified tag with `-f tag=... -f qualification_run_id=...` to retry packaging.
+- `fork-release-coordinate`: hourly at minute 7 and manual. It resolves official `main`, the latest
+  stable tag, and active patch heads, then updates the durable `automation/release-state` branch.
+  It records a pinned `release-conflict-inventory.mjs` result for each patch and blocks admission with
+  exact conflict paths instead of attempting an automatic ours/theirs resolution. It also records the
+  deterministic bounded task plan produced by `release-conflict-task-plan.mjs`; local Orca workers may
+  consume those packages only in isolated worktrees with the listed writable paths.
+  It coalesces one newer target while an active candidate is in progress and never publishes, starts
+  an agent, or carries the channel token. See [`automation-contract.md`](automation-contract.md) for
+  the state machine, structured Orca dispatch adapter, recovery, and pause/resume rules. The local
+  Orca schedule remains disabled until the first qualified release and a nonpublishing rehearsal.
+  `scripts/release-automation-spec.mjs` prints the reviewed disabled registration argv; enabling it is
+  an explicit owner action after that rehearsal.
 - `fork-orcad-template`: builds the orcad deployment template for a ref. From upstream v1.4.224
   every SSH host runs a managed Orca server (orcad), which the desktop deploys from a template
   packaged inside the app; a build without it installs and then fails every SSH host. The fork
@@ -161,23 +263,23 @@ series.
   target: add its build lane to `fork-orcad-template` first, then widen the list; a host on a
   target outside the list gets no managed server and falls back to the legacy relay. A widened
   list ships only with a new app version: the desktop keys its unsupported-host record by version.
-- `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch; no secret,
-  no repository code), `orcad-template` and `build-win` (build and package the ref's code; no
+- `fork-release-win-build` jobs and what each holds: `preflight` (vets the dispatch and verifies
+  the promotion receipt with trusted controller code; no secret), `orcad-template` and `build-win` (build and package the ref's code; no
   secret), `publish` (the only job given `FORK_BOT_TOKEN`; runs no repository code, only uploads
   the three files `build-win` made). The owner's app updates itself from the channel repo, so
   the code being built never shares a job with the token that publishes it. `publish` exists
-  only for a real build dispatched from the default branch; its condition reads the dispatch
-  inputs and ref, which no build step can change.
+  only for a real build dispatched from the default branch and a verified qualification receipt;
+  its condition reads the dispatch inputs and preflight output, which no build step can change.
   `config/mercurai/scripts/release-workflow-token-scope.test.mjs` pins all of this.
-Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
-CLI/hook native assets through `build:release`. After the script-free dependency install, the Windows
-build links the manifest-pinned Bun package with `pnpm rebuild bun`, matching the official install action;
-current CLI compilation requires that local binary. The workflow refuses refs that still contain
-`config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
-Use an existing published installer for an older release rather than rebuilding a relay-era ref
-through this workflow. Installed-profile downgrade compatibility still requires separate verification.
-The packaged-template checker uses the release's own shared-ripgrep resolver for compacted layouts;
-canonical hash/inventory checks and the required remote worker remain mandatory.
+  Current official-main builds prepare desktop native modules with `ensure-native-runtime` and build
+  CLI/hook native assets through `build:release`. After the script-free dependency install, the Windows
+  build links the manifest-pinned Bun package with `pnpm rebuild bun`, matching the official install action;
+  current CLI compilation requires that local binary. The workflow refuses refs that still contain
+  `config/tsconfig.relay.json`; standalone relay-addon build scripts no longer exist in current source.
+  Use an existing published installer for an older release rather than rebuilding a relay-era ref
+  through this workflow. Installed-profile downgrade compatibility still requires separate verification.
+  The packaged-template checker uses the release's own shared-ripgrep resolver for compacted layouts;
+  canonical hash/inventory checks and the required remote worker remain mandatory.
 
 - `fork-release-win-build` dry run: `-f dry_run=true` builds, packages and checks the installer
   and keeps it as a run artifact; the run has no publish job. The artifact holds the installer

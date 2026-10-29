@@ -16,13 +16,14 @@ import { ORCAD_SERVER_ENTRY_FILENAME, ORCAD_VERSION_FILENAME } from '../../share
 import { ORCAD_NODE_RUNTIME_IDENTITY } from '../../shared/orcad-node-runtime-identity'
 import { runProcess } from '@orca/process-host'
 import { preflightOrcadNativeRuntime } from './orcad-runtime-native-preflight'
+import { orcadCompileCacheEnv } from './orcad-compile-cache'
 import {
   isRunningAsBundledOrcadRuntime,
   OrcadBundledRuntimeError,
   resolveBundledOrcadSlot
 } from './orcad-bundled-runtime'
 
-/** Check every packaged start before a profile index, data-root lock or import is touched. */
+/** Qualify packaged startup before touching profile indexes, data-root locks or imports. */
 export async function preflightBundledOrcadStartup(): Promise<void> {
   const directory = resolveBundledOrcadSlot()
   if (!isRunningAsBundledOrcadRuntime(directory)) {
@@ -34,7 +35,8 @@ export async function preflightBundledOrcadStartup(): Promise<void> {
   const result = await runProcess({
     program: process.execPath,
     args: [join(directory, ORCAD_SERVER_ENTRY_FILENAME), ORCAD_STARTUP_PREFLIGHT_FLAG, nonce],
-    env: { ...process.env, ORCA_BACKGROUND_LAUNCH: '1' },
+    // Reuse the serving runtime code cache for this identical bundle.
+    env: { ...process.env, ORCA_BACKGROUND_LAUNCH: '1', ...orcadCompileCacheEnv(directory) },
     timeoutMs: ORCAD_PROFILE_PREFLIGHT_TIMEOUT_MS,
     maxOutputBytes: 64 * 1024,
     terminationBarrier: true
@@ -52,7 +54,6 @@ export async function preflightBundledOrcadStartup(): Promise<void> {
   }
 }
 
-/** Only disposable state is opened; no server, profile index or host adapters are installed. */
 export async function runOrcadProfilePreflight(
   nonce: string | undefined,
   options: { nativeFeatures?: boolean } = {}
@@ -68,7 +69,7 @@ export async function runOrcadProfilePreflight(
     })
   }
   const result = await preflightProfileStateRuntime()
-  // Why only inside the pinned runtime: a host Node rollback launcher never serves this slot.
+  // Host Node rollback launchers do not serve the bundled slot.
   if (isRunningAsBundledOrcadRuntime(directory)) {
     await preflightOrcadNativeRuntime(options)
   }

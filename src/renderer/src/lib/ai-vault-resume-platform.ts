@@ -1,3 +1,4 @@
+import type { ProjectCatalogReadState } from '@/store/project-host-setup-selector'
 import type { AppState } from '@/store/types'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import { CLIENT_PLATFORM } from '@/lib/new-workspace'
@@ -6,20 +7,7 @@ import { getAiVaultResumeWorkspacePath } from '@/lib/ai-vault-resume-shell'
 import { parseExecutionHostId } from '../../../shared/execution-host'
 import { parseWslUncPath } from '../../../shared/wsl-paths'
 
-// Which platform's grammar an Agent Session History resume is written in: the target
-// workspace's host, or Linux when the agent runs over SSH, a paired runtime, or WSL.
-
-export function getAiVaultResumeCodexHome(
-  codexHome: string | null,
-  platform: NodeJS.Platform
-): string | null {
-  // Why: WSL UNC Codex homes must be POSIX when invoking Linux commands.
-  // Keep original paths unchanged for non-Linux targets.
-  if (!codexHome || platform !== 'linux') {
-    return codexHome
-  }
-  return parseWslUncPath(codexHome)?.linuxPath ?? codexHome
-}
+// Target the workspace host’s grammar, or Linux for agents running through SSH, paired runtime or WSL.
 
 export function getAiVaultResumePlatform(
   state: Pick<
@@ -28,11 +16,11 @@ export function getAiVaultResumePlatform(
     | 'activeWorktreeId'
     | 'folderWorkspaces'
     | 'projectGroups'
-    | 'projects'
     | 'repos'
     | 'settings'
     | 'worktreesByRepo'
-  >,
+  > &
+    ProjectCatalogReadState,
   worktreeId?: string | null
 ): NodeJS.Platform {
   const targetWorktreeId = worktreeId ?? state.activeWorktreeId

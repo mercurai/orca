@@ -19,7 +19,6 @@ function worktree(overrides: Partial<Worktree> = {}): Worktree {
     path: '/home/me/orca',
     liveTerminalCount: 0,
     hasAttachedPty: false,
-    preview: '',
     unread: false,
     isPinned: false,
     linkedPR: null,
@@ -169,6 +168,8 @@ describe('getWorktreeHostContextLabels', () => {
     ]
     const linux = applyWorktreeHostContextLabels(rows, { ...sources, hostPlatform: 'linux' })
     expect(linux[0].hostContextLabel).toBe('Local Linux')
+    const windows = applyWorktreeHostContextLabels(rows, { ...sources, hostPlatform: 'win32' })
+    expect(windows[0].hostContextLabel).toBe('Local Windows')
     const unknown = applyWorktreeHostContextLabels(rows, { ...sources, hostPlatform: null })
     expect(unknown[0].hostContextLabel).toBe('This computer')
   })

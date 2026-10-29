@@ -4,7 +4,8 @@ import { translate } from '@/i18n/i18n'
 import { getLocalFileManager } from './local-file-manager-label'
 import {
   getLocalPathOpenOwnerForRoute,
-  isLocalPathOpenBlocked,
+  getLocalPathOpenOwnerHostId,
+  isRevealOrEditorOpenBlocked,
   showLocalPathOpenBlockedToast,
   type LocalPathOpenOwner
 } from './local-path-open-guard'
@@ -32,10 +33,7 @@ export function getRevealInFileManagerLabel(): string {
   }
 }
 
-/**
- * The host that owns a workspace file. A route that reads as local is confirmed against the
- * catalog row, because a server workspace whose tab carries no owner stamp also reads as local.
- */
+/** Resolve file owner from route and catalog: an unstamped server tab can appear local by route alone. */
 export function getWorkspaceFileRevealOwner(
   state: WorktreeRuntimeOwnerState,
   worktreeId: string | null | undefined,
@@ -48,13 +46,14 @@ export function getWorkspaceFileRevealOwner(
   return getResolvedExecutionHostIdForWorktree(state, worktreeId) ?? 'unresolved'
 }
 
-/** Shows a path in the OS file manager when this computer owns it, and says why when it cannot. */
+/** Shows a path in the OS file manager when this computer can reach it, and says why when it cannot. */
 export async function revealInFileManager(path: string, owner: LocalPathOpenOwner): Promise<void> {
-  if (isLocalPathOpenBlocked(owner)) {
+  const ownerHostId = getLocalPathOpenOwnerHostId(owner)
+  if (isRevealOrEditorOpenBlocked(owner) || ownerHostId === 'unresolved') {
     showLocalPathOpenBlockedToast()
     return
   }
-  const result = await window.api.shell.openInFileManager(path, LOCAL_EXECUTION_HOST_ID)
+  const result = await window.api.shell.openInFileManager(path, ownerHostId)
   if (result.ok) {
     return
   }

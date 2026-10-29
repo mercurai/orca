@@ -1,3 +1,7 @@
+import {
+  selectCanonicalProjects,
+  selectCanonicalProjectHostSetups
+} from '@/store/project-host-setup-selector'
 import { useMemo } from 'react'
 import { useAppStore } from '@/store'
 import { useShallow } from 'zustand/react/shallow'
@@ -13,6 +17,8 @@ import type { WorkspaceStatus } from '../../../../shared/worktree/types'
 import type { WorkspaceSource as WorkspaceCreateTelemetrySource } from '../../../../shared/workspace-source'
 import type { LinkedWorkItemSummary } from '@/lib/new-workspace'
 import type { ComposerDecisions } from './composer-decisions'
+import type { WorkspaceCreationTargetHint } from '@/lib/project-host-workspace-target'
+import { selectWorktreesByRepo } from '@/store/workspace-record-selectors'
 
 export type ComposerStateInput = {
   initialRepoId?: string
@@ -23,6 +29,7 @@ export type ComposerStateInput = {
   initialLinkedWorkItem?: LinkedWorkItemSummary | null
   initialGitHubWorkItem?: GitHubWorkItem | null
   initialTaskSourceContext?: TaskSourceContext | null
+  initialWorkspaceTarget?: WorkspaceCreationTargetHint | null
   initialWorkspaceStatus?: WorkspaceStatus
   initialBaseBranch?: string
   persistDraft: boolean
@@ -45,6 +52,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
     initialLinkedWorkItem = null,
     initialGitHubWorkItem = null,
     initialTaskSourceContext = null,
+    initialWorkspaceTarget = null,
     initialWorkspaceStatus,
     initialBaseBranch,
     persistDraft,
@@ -89,11 +97,11 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
 
   const repos = useAppStore((s) => s.repos)
 
-  const projects = useAppStore((s) => s.projects)
+  const projects = useAppStore((s) => selectCanonicalProjects(s))
 
   const projectGroups = useAppStore((s) => s.projectGroups)
 
-  const projectHostSetups = useAppStore((s) => s.projectHostSetups)
+  const projectHostSetups = useAppStore((s) => selectCanonicalProjectHostSetups(s))
 
   const activeRepoId = useAppStore((s) => s.activeRepoId)
 
@@ -101,7 +109,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
 
   const newWorkspaceDraft = useAppStore((s) => s.newWorkspaceDraft)
 
-  const worktreesByRepo = useAppStore((s) => s.worktreesByRepo)
+  const worktreesByRepo = useAppStore((s) => selectWorktreesByRepo(s))
 
   const sparsePresetsByRepo = useAppStore((s) => s.sparsePresetsByRepo)
 
@@ -161,6 +169,7 @@ export function useComposerTargetStore(options: ComposerStateInput, decisions: C
     initialLinkedWorkItem,
     initialGitHubWorkItem,
     initialTaskSourceContext,
+    initialWorkspaceTarget,
     initialWorkspaceStatus,
     initialBaseBranch,
     persistDraft,

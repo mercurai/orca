@@ -35,7 +35,7 @@ export class DaemonServer {
   private static readonly INITIAL_ADOPTION_TIMEOUT_MS = 2 * 60 * 1000
 
   private readonly log: DaemonFileLog
-  private readonly automaticWork: DaemonAutomaticWorkGuard
+  readonly automaticWork: DaemonAutomaticWorkGuard
   private readonly host: TerminalHost
   private readonly transientFactRelay: BackgroundTransientFactRelay
   private readonly streamDataBatcher: DaemonStreamDataBatcher
@@ -48,7 +48,6 @@ export class DaemonServer {
   private readonly admission: DaemonTerminalAdmission
   private readonly requestRouter: DaemonRequestRouter
   private stopStreamBacklogProbe: () => void = () => {}
-  readonly recordOrderlyExit = (): void => this.automaticWork.recordOrderlyExit()
 
   constructor(options: DaemonServerOptions) {
     this.log = options.log ?? createNoopDaemonFileLog()
@@ -145,7 +144,7 @@ export class DaemonServer {
       onLastAuthenticatedClientDisconnected: () =>
         this.lifecycle.onLastAuthenticatedClientDisconnected(),
       onControlRequest: (socket, clientId, request) => {
-        // Why: a rejection here would be unhandled, and the daemon treats that as fatal.
+        // Unhandled request rejections are fatal to the daemon.
         this.handleRequest(socket, clientId, request).catch((error: unknown) => {
           this.log.log('client-request-failed', {
             error: error instanceof Error ? error.message : String(error)
@@ -199,7 +198,8 @@ export class DaemonServer {
       isIdle: () => this.isIdle(),
       disposeResources: () => this.disposeResources(),
       onIdleShutdown: options.onIdleShutdown ?? (() => {}),
-      onRpcShutdown: options.onRpcShutdown ?? (() => {})
+      onRpcShutdown: options.onRpcShutdown ?? (() => {}),
+      onShutdownRequested: options.onShutdownRequested ?? (() => {})
     })
     this.admission = new DaemonTerminalAdmission({
       host: this.host,
@@ -245,7 +245,7 @@ export class DaemonServer {
 
   async start(): Promise<void> {
     await this.lifecycle.start((socket) => this.connections.accept(socket))
-    // Why after start: only the daemon that won the endpoint may judge or rewrite the marker.
+    // Only the endpoint winner may inspect or rewrite the automatic-work marker.
     this.automaticWork.start()
   }
 
@@ -277,7 +277,7 @@ export class DaemonServer {
     }
     this.streamDataBatcher.clear()
     this.historySeedTransfers.dispose()
-    // Why after host dispose: every automatic session is gone, so this exit was orderly.
+    // Clearing earlier could make a crash during PTY teardown look like orderly shutdown.
     this.automaticWork.stop()
     // Let canceled in-flight RPCs enqueue their protocol errors before transport destruction.
     await waitForImmediate()

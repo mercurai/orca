@@ -1,0 +1,229 @@
+# Qualify the exact owner-reviewed candidate through the existing required PR matrix.
+# Candidate code runs without a publisher credential; only trusted controller code records admission.
+# A partial rerun without complete current-attempt evidence requires a fresh qualification dispatch.
+name: fork-qualify-release
+run-name: qualify ${{ inputs.dispatch_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      dispatch_id:
+        description: Unique identity of the assembly run and attempt
+        type: string
+        required: true
+      candidate_sha:
+        description: Exact candidate commit to qualify
+        type: string
+        required: true
+      candidate_tree:
+        description: Expected candidate tree SHA
+        type: string
+        required: true
+      controller_sha:
+        description: Trusted controller commit owning this workflow
+        type: string
+        required: true
+      manifest_sha:
+        description: Trusted patches manifest blob SHA
+        type: string
+        required: true
+      policy_sha:
+        description: SHA-256 of the trusted release policy
+        type: string
+        required: true
+      version:
+        description: Reserved Mercurai release version
+        type: string
+        required: true
+      review_run_id:
+        description: Successful owner-intake run accepting independent candidate-and-controller review
+        type: string
+        required: true
+      series:
+        description: Ordered patch branch and commit pins
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: fork-qualify-release-${{ inputs.candidate_sha }}
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    name: Authorize exact release candidate
+    if: ${{ github.repository == 'mercurai/orca' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      candidate: ${{ steps.identity.outputs.candidate }}
+      upstream_base_sha: ${{ steps.identity.outputs.upstream_base_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DISPATCH_ID: ${{ inputs.dispatch_id }}
+      CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+      CANDIDATE_TREE: ${{ inputs.candidate_tree }}
+      CONTROLLER_SHA: ${{ inputs.controller_sha }}
+      MANIFEST_SHA: ${{ inputs.manifest_sha }}
+      POLICY_SHA: ${{ inputs.policy_sha }}
+      VERSION: ${{ inputs.version }}
+      SERIES: ${{ inputs.series }}
+      REVIEW_RUN_ID: ${{ inputs.review_run_id }}
+    steps:
+      - name: Checkout the trusted qualification controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Bind the candidate to the trusted manifest and policy
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DISPATCH_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$ ]] || exit 1
+          for value in "$CANDIDATE_SHA" "$CANDIDATE_TREE" "$CONTROLLER_SHA" "$MANIFEST_SHA"; do
+            [[ "$value" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          done
+          [[ "$POLICY_SHA" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          [[ "$REVIEW_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+          [ "$CONTROLLER_SHA" = "$GITHUB_SHA" ] || { echo '::error::qualification controller changed'; exit 1; }
+          [ "$(git rev-parse HEAD)" = "$CONTROLLER_SHA" ] || exit 1
+          [ "$(git rev-parse HEAD:config/mercurai/patches.yaml)" = "$MANIFEST_SHA" ] || exit 1
+          [ "$(sha256sum config/mercurai/release-policy.json | cut -d ' ' -f 1)" = "$POLICY_SHA" ] || exit 1
+          jq -e '.promotionEnabled == true and .schemaVersion == 2' config/mercurai/release-policy.json >/dev/null || {
+            echo '::error::release qualification is not admitted by the full-matrix policy'; exit 1;
+          }
+          [ "$(git rev-parse "$CANDIDATE_SHA^{tree}")" = "$CANDIDATE_TREE" ] || exit 1
+          git for-each-ref --contains "$CANDIDATE_SHA" --format='%(refname)' refs/remotes/origin/patch/ > "$RUNNER_TEMP/qualified-refs"
+          [ -s "$RUNNER_TEMP/qualified-refs" ] || { echo '::error::candidate is not retained by a current patch ref'; exit 1; }
+          yq -o=json config/mercurai/patches.yaml > "$RUNNER_TEMP/qualification-manifest.json"
+          base=$(yq -r '.base' config/mercurai/patches.yaml)
+          [[ "$base" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          git merge-base --is-ancestor "$base" "$CANDIDATE_SHA"
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
+          import { sameReleaseReviewCandidate } from './config/mercurai/scripts/release-review.mjs'
+          const env = process.env
+          const manifest = JSON.parse(readFileSync(env.RUNNER_TEMP + '/qualification-manifest.json', 'utf8'))
+          const series = manifest.patches.filter((row) => ['ours-only', 'upstream-open'].includes(row.status)).map((row) => row.branch + ':' + row.commit)
+          if (JSON.stringify(series) !== JSON.stringify(env.SERIES ? env.SERIES.split(',') : [])) throw new Error('qualification patch pins differ from the trusted manifest')
+          const candidate = {
+            commit: env.CANDIDATE_SHA, tree: env.CANDIDATE_TREE, controllerSha: env.CONTROLLER_SHA,
+            manifestSha: env.MANIFEST_SHA, policySha: env.POLICY_SHA, version: env.VERSION, series,
+            upstream: { repository: manifest.upstream, mainSha: manifest.base, stableTag: manifest.upstream_release_tag, stableCommit: manifest.upstream_release_sha }
+          }
+          if (!sameReleaseReviewCandidate(candidate, candidate) || !/^\d+\.\d+\.\d+-mercurai\.[1-9]\d*$/.test(env.VERSION) || !env.VERSION.startsWith(manifest.upstream_release_tag.slice(1) + '-mercurai.')) throw new Error('qualification candidate or stable version floor is invalid')
+          writeFileSync(env.RUNNER_TEMP + '/qualification-expected.json', JSON.stringify({ repository: env.GITHUB_REPOSITORY, candidate }) + '\n')
+          appendFileSync(env.GITHUB_OUTPUT, 'candidate=' + JSON.stringify(candidate) + '\nupstream_base_sha=' + candidate.upstream.mainSha + '\n')
+          NODE
+      - name: Authenticate independent review accepted by the release owner
+        shell: bash
+        run: |
+          bash config/mercurai/scripts/fetch-release-review.sh \
+            "$RUNNER_TEMP/qualification-expected.json" config/mercurai/release-policy.json \
+            "$REVIEW_RUN_ID" "$RUNNER_TEMP/qualification-review"
+
+  matrix:
+    needs: admission
+    uses: ./.github/workflows/pr.yml
+    with:
+      candidate_sha: ${{ inputs.candidate_sha }}
+      candidate_tree: ${{ inputs.candidate_tree }}
+      controller_sha: ${{ inputs.controller_sha }}
+      upstream_base_sha: ${{ needs.admission.outputs.upstream_base_sha }}
+      full_mode: true
+      cache_mode: 'off'
+
+  receipt:
+    name: Record release qualification
+    needs: [admission, matrix]
+    if: ${{ always() && github.repository == 'mercurai/orca' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch || 'mercurai') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CANDIDATE_JSON: ${{ needs.admission.outputs.candidate }}
+      MATRIX_OUTPUTS: ${{ toJSON(needs.matrix.outputs) }}
+      REVIEW_RUN_ID: ${{ inputs.review_run_id }}
+      DISPATCH_ID: ${{ inputs.dispatch_id }}
+      UNIT_PLAN_ARTIFACT: ${{ needs.matrix.outputs.unit_plan_artifact }}
+    steps:
+      - name: Require the entire shared matrix to succeed
+        env:
+          ADMISSION_RESULT: ${{ needs.admission.result }}
+          MATRIX_RESULT: ${{ needs.matrix.result }}
+        run: |
+          [ "$ADMISSION_RESULT" = success ] && [ "$MATRIX_RESULT" = success ] || {
+            echo '::error::candidate admission or the shared required matrix did not succeed'; exit 1;
+          }
+      - name: Checkout the trusted receipt verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: config/mercurai
+          persist-credentials: false
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Refetch current owner acceptance and exact-attempt job evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 1
+          jq -n --arg repository "$GITHUB_REPOSITORY" --argjson candidate "$CANDIDATE_JSON" \
+            '{repository:$repository,candidate:$candidate}' > "$RUNNER_TEMP/qualification-expected.json"
+          bash config/mercurai/scripts/fetch-release-review.sh \
+            "$RUNNER_TEMP/qualification-expected.json" config/mercurai/release-policy.json \
+            "$REVIEW_RUN_ID" "$RUNNER_TEMP/qualification-review"
+          gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
+            > "$RUNNER_TEMP/qualification-jobs.json"
+          [ "$UNIT_PLAN_ARTIFACT" = "unit-selection-attempt-$GITHUB_RUN_ATTEMPT" ] || exit 1
+          gh run download "$GITHUB_RUN_ID" --name "$UNIT_PLAN_ARTIFACT" --dir "$RUNNER_TEMP/qualification-unit-plan"
+      - name: Record actual matrix and full-discovery evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { collectQualificationEvidence, verifyPromotion } from './config/mercurai/scripts/verify-promotion.mjs'
+          const env = process.env
+          const read = (name) => JSON.parse(readFileSync(env.RUNNER_TEMP + '/' + name, 'utf8'))
+          const candidate = JSON.parse(env.CANDIDATE_JSON)
+          const policy = JSON.parse(readFileSync('config/mercurai/release-policy.json', 'utf8'))
+          const outputs = JSON.parse(env.MATRIX_OUTPUTS)
+          const qualification = {
+            workflow: 'fork-qualify-release.yml', dispatchId: env.DISPATCH_ID,
+            ...collectQualificationEvidence({
+              candidate, outputs, runId: Number(env.GITHUB_RUN_ID), attempt: Number(env.GITHUB_RUN_ATTEMPT),
+              repository: env.GITHUB_REPOSITORY,
+              jobsEndpoint: 'repos/' + env.GITHUB_REPOSITORY + '/actions/runs/' + env.GITHUB_RUN_ID + '/attempts/' + env.GITHUB_RUN_ATTEMPT + '/jobs?per_page=100',
+              unitPlan: read('qualification-unit-plan/unit-selection.json'),
+              jobPages: read('qualification-jobs.json')
+            }, policy)
+          }
+          const receipt = { candidate, qualification, review: read('qualification-review/release-review.json') }
+          const result = verifyPromotion(receipt, policy, read('qualification-review/review-context.json'))
+          if (!result.ok) throw new Error(result.reasons.join('; '))
+          writeFileSync(env.RUNNER_TEMP + '/promotion-receipt.json', JSON.stringify(receipt) + '\n')
+          NODE
+      - name: Upload the promotion receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: promotion-receipt
+          path: ${{ runner.temp }}/promotion-receipt.json
+          if-no-files-found: error
+          retention-days: 30

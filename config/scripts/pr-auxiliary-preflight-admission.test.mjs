@@ -14,6 +14,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { runProcessSync } from '@orca/process-host'
 import { parse } from 'yaml'
 import { classifyPrJobs } from './pr-code-change-scope.mjs'
+import { collectNodeServerInputs } from './node-server-change-scope.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 
 const workflow = parse(readFileSync('.github/workflows/pr.yml', 'utf8'))
 const unit = parse(readFileSync('.github/workflows/unit-tests.yml', 'utf8'))
@@ -35,7 +37,7 @@ function evaluate(expression, context) {
     expression
       .replace(/^\$\{\{\s*|\s*\}\}$/g, '')
       .replaceAll('.cross-version-wire', '["cross-version-wire"]'),
-    context
+    { inputs: {}, ...context }
   )
 }
 
@@ -52,9 +54,14 @@ function routedOutputs(files, reused, options) {
     }
   }
   return Object.fromEntries(
-    ['test', 'static_analysis', 'typecheck', 'mobile_ci_tools', ...routes.map(([job]) => job)].map(
-      (name) => [name, String(evaluate(workflow.jobs.code_paths.outputs[name], context))]
-    )
+    [
+      'test',
+      'static_analysis',
+      'typecheck',
+      'mobile_ci_tools',
+      'relay_integration',
+      ...routes.map(([job]) => job)
+    ].map((name) => [name, String(evaluate(workflow.jobs.code_paths.outputs[name], context))])
   )
 }
 
@@ -239,19 +246,26 @@ describe('Mobile CI tool preflight routing', () => {
     expect(evaluate(required.env.PREFLIGHT_SHOULD_RUN, context)).toBe(true)
   })
 
-  it('keeps workflow-only changes on their original skipped root route', () => {
+  // Static analysis only, for the whole-tree formatting check.
+  it('keeps workflow-only changes off the root unit and typecheck route', () => {
     const outputs = routedOutputs(['.github/workflows/mobile.yml'], 'false', verified)
     expect(outputs.mobile_ci_tools).toBe('false')
     expect(outputs.test).toBe('false')
-    expect(outputs.static_analysis).toBe('false')
+    expect(outputs.static_analysis).toBe('true')
     expect(outputs.typecheck).toBe('false')
-    expect(evaluate(workflow.jobs.preflight.if, { needs: { code_paths: { outputs } } })).toBe(false)
   })
 
   it('keeps root shard execution enabled for callers that do not opt out', () => {
     expect(unit.on.workflow_call.inputs.run_shards.default).toBe(true)
     expect(evaluate(unit.jobs.test.if, { inputs: { run_shards: true } })).toBe(true)
-    expect(unit.jobs.relay_integration.if).toBeUndefined()
+    const relayDefault = unit.on.workflow_call.inputs.run_relay_integration.default
+    expect(relayDefault).toBe(true)
+    expect(
+      evaluate(unit.jobs.relay_integration.if, { inputs: { run_relay_integration: relayDefault } })
+    ).toBe(true)
+    expect(
+      evaluate(unit.jobs.relay_integration.if, { inputs: { run_relay_integration: false } })
+    ).toBe(false)
     expect(unit.jobs.relay_integration.needs).toBeUndefined()
   })
 
@@ -266,6 +280,7 @@ describe('Mobile CI tool preflight routing', () => {
       [tool, 'package.json'],
       [tool, 'config/vitest.config.ts'],
       [tool, 'config/scripts/pr-code-change-scope.mjs'],
+      [tool, 'config/scripts/pr-package-test-paths.mjs'],
       [tool, 'config/scripts/new-mobile-tool.mjs'],
       [tool, 'README.md'],
       [tool, 'mobile/vitest.config.ts']
@@ -280,6 +295,74 @@ describe('Mobile CI tool preflight routing', () => {
     const files = ['config/scripts/run-mobile-ci-tests.mjs']
     expect(routedOutputs(files, 'true', verified).mobile_ci_tools).toBe('false')
     expect(routedOutputs(files, 'false', verified).mobile_ci_tools).toBe('true')
+  })
+})
+
+describe('Renderer-only relay admission', () => {
+  const renderer = 'src/renderer/src/components/right-sidebar/FileExplorer.tsx'
+  const admitted = (files) => {
+    const outputs = routedOutputs(files, 'false')
+    const runRelay = evaluate(workflow.jobs.test.with.run_relay_integration, {
+      needs: { code_paths: { outputs } }
+    })
+    return evaluate(unit.jobs.relay_integration.if, {
+      inputs: { run_relay_integration: runRelay }
+    })
+  }
+
+  it('skips relay setup for renderer-only changes while retaining unit and package checks', () => {
+    const files = [renderer, 'src/renderer/src/i18n/locales/en.json', 'README.md']
+    expect(admitted(files)).toBe(false)
+    expect(classifyPrJobs(files)).toMatchObject({
+      test: true,
+      static_analysis: true,
+      typecheck: true,
+      package: true,
+      package_windows: true
+    })
+  })
+
+  it.each([
+    [],
+    ['src/main/runtime/mobile-cloud-relay/relay-http-client.ts'],
+    ['src/shared/relay-region-preference.ts'],
+    ['tests/e2e/relay-region-compatibility.unit.test.ts'],
+    ['src/main/orcad/orcad-browser-provider.ts'],
+    ['package.json'],
+    ['pnpm-lock.yaml'],
+    ['config/vitest.config.ts'],
+    ['.github/workflows/unit-tests.yml'],
+    ['.github/workflows/pr.yml'],
+    ['unknown-input'],
+    [renderer, 'cloud/packages/relay-contract/src/director-messages.ts'],
+    [renderer, 'src/main/runtime/mobile-cloud-relay/relay-http-client.ts'],
+    [renderer, 'src/shared/relay-region-preference.ts']
+  ])('retains relay coverage for non-renderer or incomplete evidence: %j', (...files) => {
+    expect(admitted(files)).toBe(true)
+  })
+
+  it.each([
+    {},
+    { relay_integration: '' },
+    { relay_integration: 'unknown' },
+    { relay_integration: 'false', orcad_browser: 'true' }
+  ])(
+    'retains relay/browser execution for missing routes or a selected browser contract: %j',
+    (outputs) => {
+      expect(
+        evaluate(workflow.jobs.test.with.run_relay_integration, {
+          needs: { code_paths: { outputs } }
+        })
+      ).toBe(true)
+    }
+  )
+
+  it('keeps the shipped relay contracts independent of renderer inputs', async () => {
+    const testStep = relaySteps.find((step) => step.name === 'Test relay integration contracts')
+    const entryPoints = testStep.run.split(/\s+/).filter((arg) => arg.endsWith('.test.ts'))
+    expect(entryPoints.length).toBeGreaterThan(0)
+    const inputs = await collectNodeServerInputs({ entryPoints })
+    expect([...inputs].filter((file) => file.startsWith('src/renderer/'))).toEqual([])
   })
 })
 
@@ -301,9 +384,11 @@ function createMobileCiScopeRepository(
   for (const file of [
     'package.json',
     'config/scripts/pr-code-change-scope.mjs',
+    'config/scripts/pr-package-test-paths.mjs',
     'config/scripts/pr-layout-oracle-route.mjs',
     'config/scripts/git-pull-request-diff-base.mjs',
     'config/scripts/pr-e2e-source-routing.mjs',
+    'config/scripts/pr-browser-e2e-source-routes.mjs',
     'config/scripts/ci-e2e-job-selection.mjs'
   ]) {
     mkdirSync(dirname(join(directory, file)), { recursive: true })
@@ -340,31 +425,40 @@ function createMobileCiScopeRepository(
     writeFileSync(join(directory, file), 'export const revision = 1\n')
   }
   const base = commit()
-  const detect = (stepId = 'filter') => {
+  const detect = (
+    stepId = 'filter',
+    { upstreamBaseSha = '', pullRequestBaseSha = base, eventName = 'pull_request' } = {}
+  ) => {
     const output = join(
       directory,
       stepId === 'filter' ? 'github-output' : `github-output-${stepId}`
     )
     const step = workflow.jobs.code_paths.steps.find((candidate) => candidate.id === stepId)
+    const context = {
+      inputs: { upstream_base_sha: upstreamBaseSha },
+      github: { event: { pull_request: { base: { sha: pullRequestBaseSha } } } }
+    }
+    const render = (value) =>
+      value.replace(/\$\{\{.*?\}\}/g, (expression) =>
+        compileAggregateExpression(expression, ['inputs', 'github'])(context).coerceString()
+      )
     const result = runProcessSync({
       program: 'bash',
-      args: [
-        '-e',
-        '-c',
-        step.run.replace('${{ github.event.pull_request.base.sha }}', '$BASE_SHA')
-      ],
+      args: ['-e', '-c', render(step.run)],
       cwd: directory,
       env: {
         ...process.env,
-        BASE_SHA: base,
-        GITHUB_EVENT_NAME: 'pull_request',
+        ...Object.fromEntries(
+          Object.entries(step.env ?? {}).map(([key, value]) => [key, render(value)])
+        ),
+        GITHUB_EVENT_NAME: eventName,
         GITHUB_OUTPUT: output,
         ORCA_BACKGROUND_LAUNCH: '1'
       }
     })
     return { result, output }
   }
-  return { directory, tool, git, commit, detect }
+  return { directory, tool, git, commit, detect, base }
 }
 
 describe.skipIf(process.platform === 'win32')('Mobile CI complete Git change evidence', () => {
@@ -431,33 +525,43 @@ describe.skipIf(process.platform === 'win32')('Daemon mock complete Git change e
     expect(flags).toContain('test=true\n')
     expect(flags).toContain('typecheck=true\n')
   })
-  it('routes the complete four-file modification through the real detector', () => {
-    const companions = [
-      'src/main/native-chat/agent-session-wire/structured-agent-session-claude-queued-stop.test.ts',
-      'config/scripts/process-host-build-dist.test.mjs',
-      'src/main/codex/codex-app-server-connection.test.ts'
-    ]
-    const repo = createMobileCiScopeRepository(true, helper, companions)
-    for (const file of [helper, ...companions]) {
-      writeFileSync(join(repo.directory, file), 'export const revision = 2\n')
+  it.each([false, true])(
+    'routes the complete three-file modification with qualification=%s',
+    (qualification) => {
+      const companions = [
+        'src/main/native-chat/agent-session-wire/structured-agent-session-claude-queued-stop.test.ts',
+        'config/scripts/process-host-build-dist.test.mjs'
+      ]
+      const repo = createMobileCiScopeRepository(true, helper, companions)
+      for (const file of [helper, ...companions]) {
+        writeFileSync(join(repo.directory, file), 'export const revision = 2\n')
+      }
+      const candidate = repo.commit()
+      const bases = qualification
+        ? {
+            upstreamBaseSha: repo.base,
+            pullRequestBaseSha: 'f'.repeat(40),
+            eventName: 'workflow_call'
+          }
+        : {}
+      const { result, output } = repo.detect('filter', bases)
+      expect(result.code, result.stderr).toBe(0)
+      const flags = readFileSync(output, 'utf8')
+      for (const name of ['package', 'package_windows']) {
+        expect(classifyPrJobs([helper, ...companions])[name]).toBe(true)
+        expect(flags).toContain(`${name}=false\n`)
+      }
+      for (const name of ['test', 'static_analysis', 'typecheck', 'cross-version-wire']) {
+        expect(flags).toContain(`${name}=true\n`)
+      }
+      const e2e = repo.detect('e2e_filter', bases)
+      expect(e2e.result.code, e2e.result.stderr).toBe(0)
+      expect(repo.git('rev-parse', 'HEAD')).toBe(candidate)
+      const routes = readFileSync(e2e.output, 'utf8')
+      expect(routes).toContain('test_files=[]\n')
+      expect(routes).toContain('should_run=false\n')
     }
-    repo.commit()
-    const { result, output } = repo.detect()
-    expect(result.code, result.stderr).toBe(0)
-    const flags = readFileSync(output, 'utf8')
-    for (const name of ['package', 'package_windows']) {
-      expect(classifyPrJobs([helper, ...companions])[name]).toBe(true)
-      expect(flags).toContain(`${name}=false\n`)
-    }
-    for (const name of ['test', 'static_analysis', 'typecheck', 'cross-version-wire']) {
-      expect(flags).toContain(`${name}=true\n`)
-    }
-    const e2e = repo.detect('e2e_filter')
-    expect(e2e.result.code, e2e.result.stderr).toBe(0)
-    const routes = readFileSync(e2e.output, 'utf8')
-    expect(routes).toContain('test_files=[]\n')
-    expect(routes).toContain('should_run=false\n')
-  })
+  )
   it.each(['addition', 'deletion', 'rename', 'type change'])(
     'keeps platform packages for an actual %s',
     (change) => {

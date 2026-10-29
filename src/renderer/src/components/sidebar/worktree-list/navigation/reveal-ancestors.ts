@@ -1,15 +1,13 @@
 import type { ProjectGroup } from '../../../../../../shared/project-group-types'
 import type { Repo } from '../../../../../../shared/repo-types'
-import { getProjectGroupHeaderKey } from '../grouping/group-keys'
-import type { ProjectGroupingModel } from '../grouping/project-grouping'
+import { getProjectGroupHeaderKey } from '../../../../../../shared/sidebar-list/group-keys'
+import type { ProjectGroupingModel } from '../../../../../../shared/project-section-grouping'
 
 function getProjectIdFromHeaderRowKey(rowKey: string): string | null {
   if (!rowKey.startsWith('project:')) {
     return null
   }
-  const withoutPrefix = rowKey.slice('project:'.length)
-  const setupSeparator = withoutPrefix.indexOf('::setup:')
-  return setupSeparator === -1 ? withoutPrefix : withoutPrefix.slice(0, setupSeparator)
+  return rowKey.slice('project:'.length)
 }
 
 function getRepoIdsFromHeaderRowKey(
@@ -19,11 +17,6 @@ function getRepoIdsFromHeaderRowKey(
 ): string[] {
   if (rowKey.startsWith('repo:')) {
     return [rowKey.slice('repo:'.length)]
-  }
-  const setupMarker = '::setup:'
-  const setupIndex = rowKey.indexOf(setupMarker)
-  if (rowKey.startsWith('project:') && setupIndex !== -1) {
-    return [rowKey.slice(setupIndex + setupMarker.length)]
   }
   const projectId = getProjectIdFromHeaderRowKey(rowKey)
   if (!projectId) {
@@ -72,7 +65,8 @@ export function getSidebarRowRevealAncestorKeys(args: {
 }): string[] {
   if (args.rowKey.startsWith('project-group:')) {
     const groupId = args.rowKey.slice('project-group:'.length)
-    const group = args.projectGroups.find((candidate) => candidate.id === groupId)
+    // Why the last copy: same-id host copies render as that one (getDistinctProjectGroups).
+    const group = args.projectGroups.findLast((candidate) => candidate.id === groupId)
     return getProjectGroupAncestorKeys(group?.parentGroupId, args.projectGroups)
   }
   const keys = new Set<string>()

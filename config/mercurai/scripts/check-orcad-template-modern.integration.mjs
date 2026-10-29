@@ -9,7 +9,10 @@ import { pathToFileURL } from 'node:url'
 import { after, test } from 'node:test'
 import { checkOrcadTemplate } from './check-orcad-template.mjs'
 
-assert.ok(process.env.ORCA_TEMPLATE_PRODUCT_REPO, 'Set ORCA_TEMPLATE_PRODUCT_REPO to the pinned modern product checkout')
+assert.ok(
+  process.env.ORCA_TEMPLATE_PRODUCT_REPO,
+  'Set ORCA_TEMPLATE_PRODUCT_REPO to the pinned modern product checkout'
+)
 const repoRoot = resolve(process.env.ORCA_TEMPLATE_PRODUCT_REPO)
 const artifacts = await import(pathToFileURL(join(repoRoot, 'src/shared/orcad-artifacts.ts')).href)
 const { writeOrcadTemplateTestFixture } = await import(
@@ -52,7 +55,8 @@ async function fixture() {
   await writePage(JSON.stringify({ assets: paths.map((path) => ({ path })) }))
   return { resourcesDir, templateDir, manifest, writePage }
 }
-const check = (f) => checkOrcadTemplate({ repoRoot, resourcesDir: f.resourcesDir, targets: [SHIPPED] })
+const check = (f) =>
+  checkOrcadTemplate({ repoRoot, resourcesDir: f.resourcesDir, targets: [SHIPPED] })
 async function failureText(f) {
   try {
     return (await check(f)).join('\n')
@@ -75,12 +79,18 @@ test('rejects a missing modern page manifest instead of assuming an empty asset 
 test('rejects a missing hashed page asset', async () => {
   const f = await fixture()
   await rm(join(f.templateDir, artifacts.ORCAD_MOBILE_WEB_DIR, 'assets/app.abc123.js'))
-  assert.match(await failureText(f), /missing.*assets\/app\.abc123\.js|assets\/app\.abc123\.js.*missing/)
+  assert.match(
+    await failureText(f),
+    /missing.*assets\/app\.abc123\.js|assets\/app\.abc123\.js.*missing/
+  )
 })
 
 test('rejects corrupted page bytes against the template checksum', async () => {
   const f = await fixture()
-  await writeFile(join(f.templateDir, artifacts.ORCAD_MOBILE_WEB_DIR, 'assets/styles.def456.css'), 'corrupt')
+  await writeFile(
+    join(f.templateDir, artifacts.ORCAD_MOBILE_WEB_DIR, 'assets/styles.def456.css'),
+    'corrupt'
+  )
   assert.match(await failureText(f), /styles\.def456\.css checksum mismatch/)
 })
 

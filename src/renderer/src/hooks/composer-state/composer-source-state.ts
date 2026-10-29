@@ -78,6 +78,8 @@ export function useComposerSourceState(
     setReuseSelectedBranch: target.workspaceIdentityState.setReuseSelectedBranch,
     setSelectedProjectHostSetupOverrideId:
       target.initialTargetState.setSelectedProjectHostSetupOverrideId,
+    setSelectedProjectHostSetupOverrideHostId:
+      target.initialTargetState.setSelectedProjectHostSetupOverrideHostId,
     setSparseDirectories: target.asyncComposerState.setSparseDirectories,
     setSparseEnabled: target.asyncComposerState.setSparseEnabled,
     setSparseSelectedPresetId: target.asyncComposerState.setSparseSelectedPresetId,
@@ -207,6 +209,7 @@ export function useComposerSourceState(
     setStartFromResetHint: target.workspaceIdentityState.setStartFromResetHint
   })
   const workItemSourceActions = useWorkItemSourceActions({
+    setBranchIntent: target.workspaceIdentityState.setBranchIntent,
     branchAutoNameRef: target.asyncComposerState.branchAutoNameRef,
     lastAutoNameRef: target.asyncComposerState.lastAutoNameRef,
     name: target.sourceContextState.name,

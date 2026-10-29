@@ -91,6 +91,89 @@ describe('emitBrowserCookieImportToast', () => {
     expect(message).not.toContain('export')
   })
 
+  it('names the missing Linux cookie-key tool and source browser', () => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        warning: {
+          code: 'cookies-undecryptable',
+          failedCookies: 3,
+          reason: 'linux-keyring-unavailable',
+          otherFailedCookies: 1,
+          keyringFailure: { cause: 'secret-tool-missing', browser: 'Google Chrome' }
+        }
+      },
+      'Imported 0 cookies.',
+      localExecution
+    )
+
+    const message = warningToastMock.mock.calls[0]?.[0]
+    expect(message).toContain('Google Chrome')
+    expect(message).toContain('secret-tool')
+    expect(message).toContain('libsecret-tools')
+    expect(message).toContain('import again')
+    expect(message).toContain('1 more cookies could not be decrypted for another reason.')
+    expect(message).not.toMatch(/keyring|gnome-keyring/i)
+  })
+
+  it.each([
+    { cause: 'keyring-locked' as const, action: 'Unlock your login keyring' },
+    { cause: 'key-unavailable' as const, action: 'sign in directly in Orca' }
+  ])('gives the recovery action for $cause', ({ cause, action }) => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        warning: {
+          code: 'cookies-undecryptable',
+          failedCookies: 3,
+          reason: 'linux-keyring-unavailable',
+          keyringFailure: { cause, browser: 'Google Chrome' }
+        }
+      },
+      'Imported 0 cookies.',
+      localExecution
+    )
+
+    const message = warningToastMock.mock.calls[0]?.[0]
+    expect(message).toContain('Google Chrome')
+    expect(message).toContain(action)
+    expect(message).not.toContain('libsecret-tools')
+  })
+
+  it.each([
+    { detail: 'absent detail', keyringFailure: undefined },
+    { detail: 'absent cause', keyringFailure: { browser: 'Google Chrome' } },
+    {
+      detail: 'unknown cause',
+      keyringFailure: { cause: 'future-key-source', browser: 'Google Chrome' }
+    }
+  ])('keeps the legacy keyring warning for $detail', ({ keyringFailure }) => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        importedCookies: 0,
+        totalCookies: 5,
+        skippedCookies: 5,
+        // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: simulate missing/future nested cause values from an unvalidated RPC peer.
+        warning: {
+          code: 'cookies-undecryptable',
+          failedCookies: 3,
+          reason: 'linux-keyring-unavailable',
+          otherFailedCookies: 2,
+          keyringFailure
+        } as unknown as BrowserCookieImportSummary['warning']
+      },
+      'Imported 0 cookies.',
+      remoteExecution
+    )
+
+    expect(warningToastMock).toHaveBeenCalledTimes(1)
+    expect(warningToastMock).toHaveBeenCalledWith(
+      '3 cookies could not be decrypted because the system keyring was unavailable; 2 more could not be decrypted for another reason. Unlock your login keyring (or install a Secret Service provider such as gnome-keyring) and import again.'
+    )
+    expect(successToastMock).not.toHaveBeenCalled()
+  })
+
   it('shows workspace-specific Google guidance after a remote-side import', () => {
     emitBrowserCookieImportToast(
       { ...summary, importedCookies: 2, skippedCookies: 1, googleCookiesSkipped: 1 },
@@ -110,8 +193,7 @@ describe('emitBrowserCookieImportToast', () => {
     )
   })
 
-  // Why: a client-hosted import stores cookies on this desktop for the named workspace; the
-  // guidance must not read as "go sign in on the other machine".
+  // Client-hosted imports populate this desktop’s workspace jar; guidance must not send users to another machine.
   it('says the workspace tab opens on this device for a client-hosted import', () => {
     emitBrowserCookieImportToast(
       { ...summary, importedCookies: 2, skippedCookies: 1, googleCookiesSkipped: 1 },
@@ -142,8 +224,7 @@ describe('emitBrowserCookieImportToast', () => {
     )
   })
 
-  // Why (STA-4300): these cookies were skipped rather than written unpartitioned, so the success
-  // count alone would report a lossy import as clean.
+  // Skipped partitioned cookies make import lossy; success counts alone hide it (STA-4300).
   it('warns separately about cookies skipped for an unreadable partition', () => {
     emitBrowserCookieImportToast(
       { ...summary, importedCookies: 2, skippedCookies: 1, partitionSkippedCookies: 1 },
@@ -154,6 +235,65 @@ describe('emitBrowserCookieImportToast', () => {
     expect(successToastMock).toHaveBeenCalledWith('Imported 2 cookies.')
     expect(warningToastMock).toHaveBeenCalledWith(
       '1 cookies were not imported because their site-partition could not be read. Sign in to those sites again in Orca.',
+      { duration: 12000 }
+    )
+  })
+
+  it('distinguishes unreadable cookies from readable cookies withheld to protect sessions', () => {
+    emitBrowserCookieImportToast(
+      {
+        ...summary,
+        importedCookies: 1,
+        skippedCookies: 2,
+        partitionSkippedCookies: 2,
+        partitionSkipBreakdown: { unreadableCookies: 1, preservedRelatedCookies: 1 }
+      },
+      'Imported 1 cookie.',
+      remoteExecution
+    )
+    expect(warningToastMock).toHaveBeenCalledWith(
+      'Cookies with unreadable site partitions: 1. Related cookies left unimported to protect existing sessions: 1. Existing cookies for these sites were left unchanged. Check these sites in this profile before signing in again.',
+      { duration: 12000 }
+    )
+  })
+
+  it('localizes the count breakdown without changing either count', async () => {
+    const { i18n } = await import('@/i18n/i18n')
+    const originalLanguage = i18n.language
+    try {
+      await i18n.changeLanguage('ja')
+      emitBrowserCookieImportToast(
+        {
+          ...summary,
+          partitionSkippedCookies: 2,
+          partitionSkipBreakdown: { unreadableCookies: 1, preservedRelatedCookies: 1 }
+        },
+        'Imported 1 cookie.',
+        localExecution
+      )
+      expect(warningToastMock.mock.calls[0]?.[0]).toContain('読み取れない Cookie: 1')
+      expect(warningToastMock.mock.calls[0]?.[0]).toContain('インポートしなかった関連 Cookie: 1')
+    } finally {
+      await i18n.changeLanguage(originalLanguage)
+    }
+  })
+
+  it.each([
+    { unreadableCookies: 1, preservedRelatedCookies: 2 },
+    { unreadableCookies: -1, preservedRelatedCookies: 3 },
+    { unreadableCookies: 1.5, preservedRelatedCookies: 0.5 },
+    { unreadableCookies: 0, preservedRelatedCookies: 2 },
+    { unreadableCookies: Number.NaN, preservedRelatedCookies: 1 },
+    { unreadableCookies: 1, preservedRelatedCookies: Number.POSITIVE_INFINITY },
+    { unreadableCookies: Number.MAX_SAFE_INTEGER + 1, preservedRelatedCookies: 0 }
+  ])('uses the existing warning for invalid breakdown counts: %j', (partitionSkipBreakdown) => {
+    emitBrowserCookieImportToast(
+      { ...summary, partitionSkippedCookies: 2, partitionSkipBreakdown },
+      'Imported 1 cookie.',
+      remoteExecution
+    )
+    expect(warningToastMock).toHaveBeenCalledWith(
+      '2 cookies were not imported because their site-partition could not be read. Sign in to those sites again in Orca.',
       { duration: 12000 }
     )
   })
@@ -169,8 +309,7 @@ describe('emitBrowserCookieImportToast', () => {
     expect(warningToastMock).not.toHaveBeenCalled()
   })
 
-  // Why: the summary crosses the runtime RPC wire and is cast, not decoded, so a newer host can
-  // publish a reason/code this client build has never heard of (#14683 follow-up).
+  // RPC summaries are cast rather than decoded; newer hosts can send unknown reason/code values (#14683).
   it('still warns when a newer host sends an undeclared undecryptable reason', () => {
     emitBrowserCookieImportToast(
       {
@@ -209,8 +348,7 @@ describe('emitBrowserCookieImportToast', () => {
     expect(message).not.toBe('')
   })
 
-  // Why: hasOwn coerces its key, so a host that widened `reason` to an array sends ['unknown'],
-  // which a hasOwn-only guard admits before the switch drops it back out.
+  // hasOwn coerces arrays to keys; reject [unknown] before it reaches the switch.
   it('still warns when a newer host sends the reason as an array', () => {
     emitBrowserCookieImportToast(
       {

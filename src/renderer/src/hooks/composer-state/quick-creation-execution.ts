@@ -38,10 +38,11 @@ import type { WorktreeCreationRequest } from '@/lib/pending-worktree-creation'
 import { useAppStore } from '@/store'
 import { settleComposerSubmit } from '@/lib/composer-submit-cancellation'
 import { runBackgroundWorktreeCreation } from '@/lib/worktree-creation-flow'
+import type { ComposerCreateHandoff } from '@/lib/composer-create-handoff'
 import { translate } from '@/i18n/i18n'
 import { resolveQuickCreateLinkedWorkItemPrompt } from '@/lib/linked-work-item-context'
 import { buildQuickComposerStartup } from './quick-startup-plan'
-import { buildQuickCreationRequest } from './quick-creation-request'
+import { buildQuickCreationRequest, type QuickSubmitOptions } from './quick-creation-request'
 import type { PendingSmartGitHubSubmitResolution } from './source-selection-decisions'
 import { resolveAgentSessionLaunchRoute } from '@/lib/agent-session-launch-plan'
 
@@ -83,7 +84,9 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
       requestedAgent: TuiAgent | null,
       workspaceNameSeed: string,
       workspaceRunContext: WorktreeCreationRequest['workspaceRunContext'],
-      repoId: string
+      repoId: string,
+      options?: QuickSubmitOptions,
+      handoff?: ComposerCreateHandoff
     ): Promise<void> => {
       const prepared = await prepareQuickSubmit(
         smartGitHubResolution,
@@ -111,6 +114,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         linkedLinearIssueWorkspaceId,
         linkedLinearIssueOrganizationUrlKey,
         effectiveBranchNameOverride,
+        branchIntent,
         submitBaseBranch,
         createDisplayName,
         pendingFirstAgentMessageRename,
@@ -173,8 +177,10 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
 
       const promptDelivery = quickDraftPrompt ? 'draft' : 'auto-submit'
       // Why: the verdict is persisted on the request as data and re-entered once the worktree exists.
-      const agentLaunchRoute = agent
-        ? resolveAgentSessionLaunchRoute(useAppStore.getState(), {
+      const agentLaunchRoute = !agent
+        ? 'terminal-tui'
+        : (options?.launchChoice?.route ??
+          resolveAgentSessionLaunchRoute(useAppStore.getState(), {
             agent,
             workspace: {
               kind: selectedRepoIsGit ? 'git-worktree' : 'folder',
@@ -185,8 +191,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
             },
             prompt: quickDraftPrompt ?? quickPrompt,
             promptDelivery
-          })
-        : 'terminal-tui'
+          }))
       const structuredLaunch = agentLaunchRoute === 'structured-native-chat'
 
       const request = buildQuickCreationRequest({
@@ -217,6 +222,7 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         linkedLinearIssueWorkspaceId,
         linkedLinearIssueOrganizationUrlKey,
         branchNameOverride: effectiveBranchNameOverride,
+        branchIntent,
         parentWorktreeId,
         workspaceStatus: resolvedInitialWorkspaceStatus,
         linkedGitLabMR,
@@ -237,7 +243,8 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         launchDraftPrompt: quickDraftPrompt,
         promptDelivery,
         quickTelemetry,
-        suppressTerminalFocusOnCompletion: createMultiple
+        suppressTerminalFocusOnCompletion: createMultiple,
+        setupOnly: options?.setupOnly === true
       })
 
       if (isSubmissionCancelled()) {
@@ -248,7 +255,16 @@ export function useQuickCreationExecution(input: QuickCreationExecutionInput) {
         clearNewWorkspaceDraft()
       }
 
-      runBackgroundWorktreeCreation(request)
+      if (handoff) {
+        handoff.start(request)
+      } else {
+        runBackgroundWorktreeCreation(request)
+      }
+
+      // The composer already closed at handoff; closing again could dismiss a newer modal.
+      if (handoff?.isHandedOff()) {
+        return
+      }
 
       if (createMultiple) {
         resetForNextCreate()

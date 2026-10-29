@@ -13,7 +13,9 @@ const workflow = read('.github', 'workflows', 'fork-scripts-test.yml')
   .filter((line) => !/^\s*#/.test(line))
   .join('\n')
 
-const lintStep = workflow.split(/^ {6}- /m).find((step) => step.startsWith('name: Lint config/mercurai\n'))
+const lintStep = workflow
+  .split(/^ {6}- /m)
+  .find((step) => step.startsWith('name: Lint config/mercurai\n'))
 
 test('the lint step runs oxlint over config/mercurai with the repo config', () => {
   assert.ok(lintStep, 'no lint step')
@@ -34,7 +36,10 @@ test('npx runs outside the checkout, on the public registry, with no user config
 test('the oxlint version is the one pnpm-lock pins', () => {
   const pinned = /^ {2}oxlint@(\d+\.\d+\.\d+):$/m.exec(read('pnpm-lock.yaml'))?.[1]
   assert.ok(pinned, 'pnpm-lock.yaml has no oxlint entry')
-  assert.ok(lintStep.includes(`npx --yes oxlint@${pinned} `), `the lint step does not run oxlint@${pinned}`)
+  assert.ok(
+    lintStep.includes(`npx --yes oxlint@${pinned} `),
+    `the lint step does not run oxlint@${pinned}`
+  )
 })
 
 test('the job restores no cache', () => {

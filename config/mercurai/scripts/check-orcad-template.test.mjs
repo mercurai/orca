@@ -58,14 +58,20 @@ test('passes a template that carries exactly the shipped target', async () => {
 test('fails when the template lacks a target the build claims to ship', async () => {
   const { resourcesDir } = await resourcesWith([SHIPPED])
   const problems = await check(resourcesDir, [SHIPPED, 'win32-x64'])
-  assert.ok(problems.some((problem) => problem.includes('target manifest inventory')), problems.join('\n'))
+  assert.ok(
+    problems.some((problem) => problem.includes('target manifest inventory')),
+    problems.join('\n')
+  )
   assert.ok(problems.some((problem) => problem.startsWith('win32-x64: missing or empty ')))
 })
 
 test('fails when the template carries a target the build does not claim', async () => {
   const { resourcesDir } = await resourcesWith()
   const problems = await check(resourcesDir, [SHIPPED])
-  assert.ok(problems.some((problem) => problem.includes('target manifest inventory')), problems.join('\n'))
+  assert.ok(
+    problems.some((problem) => problem.includes('target manifest inventory')),
+    problems.join('\n')
+  )
 })
 
 test('names a server file that is missing from the template', async () => {
@@ -77,9 +83,15 @@ test('names a server file that is missing from the template', async () => {
 
 test('names a per-target file that is empty', async () => {
   const { resourcesDir, templateDir } = await resourcesWith([SHIPPED])
-  await writeFile(join(templateDir, ORCAD_TEMPLATE_TARGETS_DIR, SHIPPED, ORCAD_SERVER_TARGET_FILENAME), '')
+  await writeFile(
+    join(templateDir, ORCAD_TEMPLATE_TARGETS_DIR, SHIPPED, ORCAD_SERVER_TARGET_FILENAME),
+    ''
+  )
   const problems = await check(resourcesDir, [SHIPPED])
-  assert.ok(problems.includes(`${SHIPPED}: missing or empty ${ORCAD_SERVER_TARGET_FILENAME}`), problems.join('\n'))
+  assert.ok(
+    problems.includes(`${SHIPPED}: missing or empty ${ORCAD_SERVER_TARGET_FILENAME}`),
+    problems.join('\n')
+  )
 })
 
 test('fails when the tag does not list a file the release requires', async () => {
@@ -97,14 +109,25 @@ test('accepts a required file the tag lists', async () => {
 
 test('parses its arguments and refuses an incomplete or unknown set', () => {
   const parsed = parseArguments([
-    '--repo', '.', '--resources', 'out', '--targets', `${SHIPPED},win32-x64`,
-    '--require', 'a.js', '--require', 'b.js'
+    '--repo',
+    '.',
+    '--resources',
+    'out',
+    '--targets',
+    `${SHIPPED},win32-x64`,
+    '--require',
+    'a.js',
+    '--require',
+    'b.js'
   ])
   assert.deepEqual(parsed.targets, [SHIPPED, 'win32-x64'])
   assert.deepEqual(parsed.required, ['a.js', 'b.js'])
   assert.equal(parsed.repoRoot, resolve('.'))
   assert.throws(() => parseArguments(['--repo', '.']), /usage:/)
-  assert.throws(() => parseArguments(['--repo', '.', '--resources', 'out', '--targets', '']), /usage:/)
+  assert.throws(
+    () => parseArguments(['--repo', '.', '--resources', 'out', '--targets', '']),
+    /usage:/
+  )
   assert.throws(() => parseArguments(['--bogus', 'x']), /unexpected argument --bogus/)
 })
 
@@ -135,7 +158,9 @@ async function compactedReleaseFixture() {
       }
     })
   )
-  await writeFile(join(releaseRepo, 'src/shared/orcad-artifacts.ts'), `
+  await writeFile(
+    join(releaseRepo, 'src/shared/orcad-artifacts.ts'),
+    `
 export const ORCAD_TEMPLATE_TARGETS_DIR = 'targets'
 export const ORCAD_TEMPLATE_MANIFEST_FILENAME = 'manifest.json'
 export const ORCAD_ARTIFACTS = [{filename: '${worker}'}, {filename: '${binary}'}]
@@ -147,8 +172,11 @@ export function orcadTemplatePackagedRipgrep(schema, target, value) {
   }
   return '${binary}'
 }
-`)
-  await writeFile(join(releaseRepo, 'config/scripts/verify-packaged-orcad-template.cjs'), `
+`
+  )
+  await writeFile(
+    join(releaseRepo, 'config/scripts/verify-packaged-orcad-template.cjs'),
+    `
 const { readFileSync, lstatSync } = require('node:fs')
 const { createHash } = require('node:crypto')
 const { join } = require('node:path')
@@ -162,7 +190,8 @@ exports.verifyPackagedOrcadTemplate = (resources) => {
     throw new Error('shared ripgrep checksum mismatch')
   }
 }
-`)
+`
+  )
   return { root, repoRoot: releaseRepo, resourcesDir, templateDir, worker, binary }
 }
 
@@ -171,7 +200,9 @@ test('uses the release resolver for a compacted shared ripgrep and retains requi
   const input = { ...fixture, targets: [SHIPPED], required: [fixture.worker] }
   assert.deepEqual(await checkOrcadTemplate(input), [])
   await rm(join(fixture.templateDir, 'targets', SHIPPED, fixture.worker))
-  assert.ok((await checkOrcadTemplate(input)).includes(`${SHIPPED}: missing or empty ${fixture.worker}`))
+  assert.ok(
+    (await checkOrcadTemplate(input)).includes(`${SHIPPED}: missing or empty ${fixture.worker}`)
+  )
 })
 
 for (const damage of ['missing', 'tampered']) {

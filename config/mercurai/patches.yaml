@@ -3,19 +3,26 @@
 # Jobs act only on upstream-open and ours-only patches; planned entries document the series.
 # PREPARATION ONLY: the active entry below is provisional and must not be merged or used
 # for publication until exact-head CI/review passes. CI-only dry-run assembly may use this pin.
+# Preparation candidate on frozen main cbbaa2d7; stable floor v1.4.242.
+# This remains a preparation candidate pending complete qualification.
 version: 1
 upstream: stablyai/orca
-base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
+base: cbbaa2d7635297916ea257a0287cc4ec6c12af25
+upstream_release_tag: v1.4.242
+upstream_release_sha: 86ad9d95cac792f3d1359d886cef9fb9b0aadd47
 release_branch: release/mercurai
 patches:
-  - slug: current-main-release-20261023
-    branch: patch/current-main-release-54e8ee5e
+  - slug: current-main-release-cbbaa
+    branch: patch/current-main-release-cbbaa
     status: ours-only
-    base: 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40
-    commit: 83840aae8c6b6ab425b4ed80744e567bb4aabda8
+    base: cbbaa2d7635297916ea257a0287cc4ec6c12af25
+    commit: 6e21f9861780a6dec1a55a20725a0e6cd284c503
     owner: harness
-    added: 2026-10-23
+    added: 2026-10-27
     tests:
+      - src/main/ipc/filesystem/watchers/filesystem-watcher-real.test.ts
+      - src/main/ipc/filesystem/watchers/filesystem-watcher-lifecycle-model.test.ts
+      - config/scripts/check-flaky-test-pattern-ratchet.test.mjs
       - src/shared/release-channel.test.ts
       - config/scripts/verify-dev-channel-packaging.test.mjs
       - src/main/diagnostics/main-loop-span.test.ts
@@ -50,6 +57,7 @@ patches:
       - src/shared/secure-file-async-spawn-count.test.ts
       - src/shared/secure-file-async-write-serialization.test.ts
       - src/shared/secure-file.test.ts
+      - src/shared/secure-file-fsync-flags.test.ts
       - src/shared/secure-path-windows-acl-sid-lookup.test.ts
       - src/shared/secure-path-windows-acl.win32.test.ts
       - tests/e2e/structured-attention-host-read-retirement.unit.test.ts
@@ -96,9 +104,9 @@ patches:
       - src/renderer/src/runtime/codex-speed-compatibility-mutations.test.ts
       - src/main/native-chat/agent-session-wire/structured-agent-session-message-speed-options.test.ts
       - src/renderer/src/runtime/codex-speed-selection.test.ts
-      - src/renderer/src/lib/structured-agent-session-launch-persistence.test.ts
-      - src/renderer/src/lib/structured-agent-session-launch-record.test.ts
-      - src/renderer/src/lib/structured-agent-session-launch-reload.test.ts
+      - src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-persistence.test.ts
+      - src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-record.test.ts
+      - src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-reload.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-prompt.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-publication.test.ts
       - src/renderer/src/components/native-chat/native-chat-composer-draft-recovery.test.ts
@@ -155,7 +163,12 @@ patches:
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-discovery-freshness.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-prewarm.test.ts
       - src/main/native-chat/agent-model-catalog/agent-model-catalog-saved-only-read.test.ts
-      - src/main/native-chat/agent-session-wire/structured-agent-session-conversation-stop.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-listed-stop-lifetime.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-stop-aborts-start.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-queued-stop-row.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-stop-event.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-stop-receipts.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-unnamed-stop-races.test.ts
       - src/main/orca-profiles/profile-cloud-auth-characterization.test.ts
       - src/main/persistence/migrating-orcad-catalog/migration-journal-directory.test.ts
       - src/main/persistence/moving-wsl-projects/wsl-move-background-backoff.test.ts
@@ -174,11 +187,13 @@ patches:
       - src/main/runtime/runtime-managed-worktree-metadata-wsl-move.test.ts
       - src/main/runtime/runtime-provisioned-root-adoption.test.ts
       - src/main/runtime/runtime-rpc-relay-provider-install.test.ts
+      - src/main/runtime/runtime-rpc-mobile-terminal-streaming.test.ts
       - src/main/ssh/orcad-migration-cutover-journal.test.ts
       - src/main/ssh/orcad-migration-delta-move.test.ts
       - src/main/ssh/orcad-migration-delta-snapshot.test.ts
       - src/main/ssh/orcad-migration-repository-link.test.ts
       - src/main/ssh/orcad-migration-source-retention.test.ts
+      - src/main/automations/automation-dispatch-host-fence.test.ts
       - src/main/ssh/orcad-retained-source-lists.test.ts
       - src/main/ssh/orcad-runtime-maintenance.test.ts
       - src/main/ssh/orcad-unreachable-setup-release.test.ts
@@ -199,7 +214,7 @@ patches:
       - src/renderer/src/lib/structured-agent-session-launch-create-message.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-options.test.ts
       - src/renderer/src/lib/structured-agent-session-launch-registered-agent.test.ts
-      - src/renderer/src/lib/structured-agent-session-launch-unconfirmed-or-retried.test.ts
+      - src/renderer/src/lib/agent-session/launch/structured-agent-session-launch-unconfirmed-or-retried.test.ts
       - src/shared/runtime-environment-managed-orcad-store.test.ts
       - src/shared/runtime-environment-sidecar.test.ts
       - src/shared/runtime-environment-ssh-access-store.test.ts
@@ -235,19 +250,67 @@ patches:
       - src/renderer/src/components/settings/ReleaseChannelSection.test.tsx
       - src/main/runtime/external-worktree-paired-client-discovery.integration.test.ts
       - src/main/startup/main-process-quit-update-veto.test.ts
+      - src/main/wsl/wsl-host-service-wake.test.ts
+      - src/main/wsl/wsl-host-early-wake.test.ts
+      - src/shared/native-chat-session-option-defaults.test.ts
+      - src/renderer/src/lib/structured-agent-session-launch-create-options.test.ts
+      - config/scripts/ci-unit-module-cache.test.mjs
+      - config/scripts/orcad-terminal-smoke-change-scope.test.mjs
+      - config/scripts/pr-code-change-scope-workflow.test.mjs
+      - config/scripts/pr-code-change-scope.test.mjs
+      - config/scripts/pr-ready-check-reuse.test.mjs
+      - config/scripts/windows-native-preparation-benchmark.test.mjs
+      - config/scripts/wsl-e2e-lane-contract.test.mjs
+      - src/main/connector-cloud/connector-poll-client.persistence.test.ts
+      - src/main/connector-cloud/connector-turn-events.persistence.test.ts
+      - src/main/connector-cloud/connector-turn-events.test.ts
+      - src/main/managed-server/lifecycle/orcad-managed-tunnel-local-port.test.ts
+      - src/main/native-chat/agent-session-wire/structured-agent-session-codex-input-finalization.spec.ts
+      - src/main/runtime/device-registry-file-read.test.ts
+      - src/main/runtime/rpc/methods/agent-launch-at-rest.test.ts
+      - src/renderer/src/components/tab-bar/cli-chat-resume-run.test.ts
+      - tests/e2e/wsl-host-fake-transport.spec.ts
+      - src/main/ai-vault/runtime-session-search-lifetime.test.ts
+      - src/main/ipc/ai-vault-search.test.ts
+      - src/main/ipc/runtime-environments/runtime-environment-session-reconcile.test.ts
+      - src/main/ipc/worktrees/listing/detected-worktree-scan-listing-distro.test.ts
+      - src/main/runtime/runtime-rpc-device-key-dispatch.test.ts
+      - src/main/wsl/wsl-host-pending-removal.test.ts
+      - src/main/wsl/wsl-orphan-holder-release.test.ts
+      - src/main/persistence/moving-wsl-projects/wsl-move-state-projection-scope.test.ts
     notes: >-
-      Provisional exact candidate 83840aae8c6b6ab425b4ed80744e567bb4aabda8,
-      source 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40 plus the pinned Mercurai patch,
-      tree c006ce4c8c61c708e38ca19cced8e959907c444f.
-      Frozen official base is 54e8ee5e961c1b3a5972322e2f20cbeb7ff0da40;
-      v1.4.237 is the release-version floor. This combines all released code and
-      subsequent main changes while preserving the shipped Mercurai enhancements.
-      Scoped independent merge reviews accepted; exact-head CI, assembly/tree equality,
-      packaging and final review remain required. No prior release receipt approves this pin.
-      Registered tests retain the predecessor union and new per-message speed,
-      async credential, pairing serialization and partial-template compaction regressions.
-      CI-only dry-run assembly may use this pin. Default registration/publication remain
-      blocked until exact-candidate gates pass. See release-notes-v1.4.237.md.
+      Remote preparation 6e21f9861780a6dec1a55a20725a0e6cd284c503 has seven linear
+      commits after official main cbbaa2d7635297916ea257a0287cc4ec6c12af25,
+      tree8b11466b1d58a66fb9ccf6e35c2130767c601f2b. Stable floor242 peels to
+      86ad9d95cac792f3d1359d886cef9fb9b0aadd47. Twelve conflicts were
+      independently reviewed as semantic unions; no wholesale side selection.
+      Seven accepted source8218 repair blobs are byte-identical; hosted40472710805
+      passed Windows1351tests/16skip, both cost jobs,610contracts and143persistence
+      tests at that recovery source, not this new candidate.
+      Hosted40844702585 at94c7 reproduced four meaningful WSL failures with266persistence
+      passes; Windows1360passed/16skip, both cost jobs and611contracts passed.
+      Independent review accepted the four-file WSL fix; hosted40846970058 at6d57
+      passed all three jobs including Windows1360passed/16skip and270persistence tests.
+      A pairing IPC fixture uses the existing fake native addon with real file writes,
+      avoiding DACL teardown races without changing production or native ACL coverage.
+      Full controller930 CI failed on the large-diff reader ENOBUFS; real-Git regression
+      at27b8 hosted40847371955 reproduced it with613contracts passed/1failed.
+      The reviewed one-line64MiB buffer matches the existing tracked-file reader;
+      scope/baselines/error propagation are unchanged. Hosted40847881117 at2ec5 passed
+      all three jobs: Windows1360passed/16skip, costs and614contracts/270persistence passed.
+      Full controller64 CI then exposed five watcher-test ratchet findings. Native watcher
+      waits now use vi.waitFor with unchanged bounds/assertions; the1000-seed model's
+      existing timeout has a reason. No baseline, seed, skip or timeout changed.
+      Fresh40849629838 at6e21 includes both watcher suites and remains pending.
+      Complete exact-candidate qualification/review is still required.
+      Controller64 hosted40848487591 passed412Node tests and9template checks.
+      Latest observed official main7f4c8f606435d4ca90964e176e860626ffba918a andstable244 are queued
+      after the cbbaa freeze; no moving-main or current-runtime claim is made.
+      Release-only242 CI changes are already represented in frozen main; preserve
+      current dependencies and use the canonical build-version override.
+      Source/default landing, version allocation, tag, publication, installation and
+      runtime acceptance remain incomplete. Recurring automation stays disabled.
+      See release-notes-v1.4.242.md and the authoritative release automation plan.
       Consolidates the eight active patches recorded in config/mercurai/patches.yaml at
       005464c2dfd9b39dfec20df181916af134438fa9. Original patch refs remain provenance;
       they are not replayed independently over this combined exact-tree candidate.

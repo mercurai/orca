@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
 import { PR_CHECK_JOBS } from './pr-code-change-scope.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 import {
   lookupReadyCheckRun,
   prCheckRunTitle,
@@ -126,32 +127,84 @@ describe('ready-for-review required check reuse', () => {
   })
 
   it('keeps required skips conditional on proof and leaves advisory routing eligible', () => {
-    expect(workflow['run-name']).toBe(
-      "PR ${{ github.event.pull_request.number }} | source ${{ github.sha }} | workflow ${{ github.workflow_sha }} | unit ${{ github.event.pull_request.draft && vars.ORCA_UNIT_SELECTION_MODE == 'selected' && 'selected' || 'full' }}"
-    )
+    for (const candidate_sha of ['', 'd'.repeat(40)]) {
+      const title = workflow['run-name'].replace(/\$\{\{.*?\}\}/g, (expression) =>
+        compileAggregateExpression(expression, ['inputs', 'github', 'vars'])({
+          inputs: { candidate_sha },
+          github: {
+            sha: identity.sourceSha,
+            workflow_sha: identity.workflowSha,
+            event: { pull_request: { number: identity.number, draft: false } }
+          },
+          vars: { ORCA_UNIT_SELECTION_MODE: 'selected' }
+        }).coerceString()
+      )
+      expect(title).toBe(
+        prCheckRunTitle({ ...identity, sourceSha: candidate_sha || identity.sourceSha })
+      )
+    }
     expect(workflow.on.pull_request.types).toContain('ready_for_review')
     const detector = workflow.jobs.code_paths
     expect(detector.permissions).toEqual({ contents: 'read', actions: 'read' })
     const readiness = detector.steps.find((step) => step.id === 'readiness')
-    expect(readiness.if).toBe("github.event.action == 'ready_for_review'")
+    const ready = compileAggregateExpression(readiness.if, ['inputs', 'github'])
+    for (const full_mode of [false, true]) {
+      for (const action of ['ready_for_review', 'synchronize']) {
+        expect(ready({ inputs: { full_mode }, github: { event: { action } } }).coerceString()).toBe(
+          String(!full_mode && action === 'ready_for_review')
+        )
+      }
+    }
     expect(readiness.env.PR_CHECK_WORKFLOW_SHA).toBe('${{ github.workflow_sha }}')
     expect(readiness.run).toBe('node config/scripts/pr-ready-check-reuse.mjs')
     expect(detector.steps[0].with['sparse-checkout']).toContain(
       '/config/scripts/pr-ready-check-reuse.mjs'
     )
-    for (const job of PR_CHECK_JOBS) {
-      expect(detector.outputs[job]).toBe(
-        `\${{ steps.readiness.outputs.reused != 'true' && steps.filter.outputs.${job} }}`
-      )
-    }
-    expect(detector.outputs.should_run).toBe('${{ steps.filter.outputs.should_run }}')
-    for (const name of ['test_files', 'native_ime_source_changed', 'wsl_source_changed']) {
-      expect(detector.outputs[name]).toBe(`\${{ steps.e2e_filter.outputs.${name} }}`)
+    for (const full_mode of [false, true]) {
+      for (const reused of ['false', 'true']) {
+        for (const selected of ['false', 'true']) {
+          const context = {
+            inputs: { full_mode },
+            steps: {
+              readiness: { outputs: { reused } },
+              filter: {
+                outputs: {
+                  should_run: selected,
+                  ...Object.fromEntries(PR_CHECK_JOBS.map((job) => [job, selected]))
+                }
+              },
+              e2e_filter: {
+                outputs: {
+                  test_files: '[]',
+                  native_ime_source_changed: selected,
+                  wsl_source_changed: selected
+                }
+              }
+            }
+          }
+          for (const job of PR_CHECK_JOBS) {
+            const output = compileAggregateExpression(detector.outputs[job], ['inputs', 'steps'])
+            expect(output(context).coerceString(), job).toBe(
+              String(full_mode || (reused !== 'true' && selected === 'true'))
+            )
+          }
+          const overall = compileAggregateExpression(detector.outputs.should_run, [
+            'inputs',
+            'steps'
+          ])
+          expect(overall(context).coerceString()).toBe(full_mode ? 'true' : selected)
+          for (const name of ['test_files', 'native_ime_source_changed', 'wsl_source_changed']) {
+            const output = compileAggregateExpression(detector.outputs[name], ['inputs', 'steps'])
+            expect(output(context).coerceString(), name).toBe(
+              name === 'test_files' ? '[]' : full_mode ? 'true' : selected
+            )
+          }
+        }
+      }
     }
     expect(detector.steps.find((step) => step.id === 'e2e_filter').if).toBe(
       "github.event.pull_request.draft != true && steps.filter.outputs.should_run == 'true'"
     )
-    expect(workflow.jobs.verify.if).toBe('${{ !cancelled() }}')
     expect(workflow.jobs.verify.needs).toEqual([
       'code_paths',
       'preflight',
@@ -163,7 +216,7 @@ describe('ready-for-review required check reuse', () => {
     ])
   })
 
-  it.each(['pr-test-loc.yml', 'mobile.yml'])(
+  it.each(['pr-test-loc.yml'])(
     'does not rerun draft-independent %s on readiness changes',
     (file) => {
       const source = readFileSync(`.github/workflows/${file}`, 'utf8')

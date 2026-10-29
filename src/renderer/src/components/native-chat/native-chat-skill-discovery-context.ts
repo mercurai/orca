@@ -1,26 +1,34 @@
+import {
+  getProjectHostSetupProjectionFromState,
+  type ProjectCatalogReadState
+} from '@/store/project-host-setup-selector'
 import type { AppState } from '../../store/types'
 import type { SkillDiscoveryTarget } from '../../../../shared/skills'
 import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-import {
-  getExplicitRuntimeEnvironmentIdForWorktree,
-  getExecutionHostIdForWorktree
-} from '@/lib/worktree-runtime-owner'
+import { getExecutionHostIdForWorktree } from '@/lib/worktree-runtime-owner'
+import { runtimeEnvironmentIdForWorkspaceOwner } from '@/lib/resolve-owner'
 import { getLocalProjectExecutionRuntimeContext } from '@/lib/local-preflight-context'
 import {
   resolveNativeChatTabDirectory,
   resolveNativeChatTabDirectoryResolution,
   type NativeChatTabDirectoryState
 } from './native-chat-tab-directory'
+import {
+  selectDetectedWorktreesByRepo,
+  selectFolderWorkspaces,
+  selectWorktreesByRepo
+} from '@/store/workspace-record-selectors'
 
 export type NativeChatSkillStateInputs = Pick<
   AppState,
   | 'activeRepoId'
+  | 'activeWorkspaceExecutionHostId'
   | 'activeWorktreeId'
+  | 'detectedWorktreesByRepo'
   | 'floatingWorkspacePath'
   | 'folderWorkspaces'
   | 'projectGroups'
-  | 'projects'
   | 'repos'
   | 'restoredRuntimeHostIdByWorkspaceSessionKey'
   | 'settings'
@@ -28,7 +36,8 @@ export type NativeChatSkillStateInputs = Pick<
   | 'tabsByWorktree'
   | 'unifiedTabsByWorktree'
   | 'worktreesByRepo'
->
+> &
+  ProjectCatalogReadState
 
 type NativeChatSkillTab = { id: string; startupCwd?: string }
 
@@ -47,18 +56,21 @@ export type NativeChatSkillDiscoveryContext = {
 export function selectNativeChatSkillStateInputs(state: AppState): NativeChatSkillStateInputs {
   return {
     activeRepoId: state.activeRepoId,
+    // Why: the owner resolver needs the picked host and detected rows to tell twins apart.
+    activeWorkspaceExecutionHostId: state.activeWorkspaceExecutionHostId,
     activeWorktreeId: state.activeWorktreeId,
+    detectedWorktreesByRepo: selectDetectedWorktreesByRepo(state),
     floatingWorkspacePath: state.floatingWorkspacePath,
-    folderWorkspaces: state.folderWorkspaces,
+    folderWorkspaces: selectFolderWorkspaces(state),
     projectGroups: state.projectGroups,
-    projects: state.projects,
+    projectHostSetupProjection: getProjectHostSetupProjectionFromState(state),
     repos: state.repos,
     restoredRuntimeHostIdByWorkspaceSessionKey: state.restoredRuntimeHostIdByWorkspaceSessionKey,
     settings: state.settings,
     structuredSessionLaunchDirectoryByTabId: state.structuredSessionLaunchDirectoryByTabId,
     tabsByWorktree: state.tabsByWorktree,
     unifiedTabsByWorktree: state.unifiedTabsByWorktree,
-    worktreesByRepo: state.worktreesByRepo
+    worktreesByRepo: selectWorktreesByRepo(state)
   }
 }
 
@@ -70,8 +82,7 @@ export function resolveNativeChatSkillDiscoveryCwd(
   if (!found) {
     return null
   }
-  // Why: the agent runs where its pane started. A pane launched in a
-  // subdirectory must not scan (or share a cache key with) the worktree root.
+  // Scan and cache by pane startup directory, which may differ from the workspace root.
   const startupCwd = found.tab.startupCwd?.trim()
   if (startupCwd) {
     return startupCwd
@@ -119,9 +130,13 @@ export function resolveNativeChatSkillDiscoveryContext(
     }
   }
 
-  const runtimeEnvironmentId = getExplicitRuntimeEnvironmentIdForWorktree(state, worktreeId)
-  // Why: a selected global runtime is not proof that it owns this pane. Modern
-  // panes carry an owner stamp; ambiguous legacy panes stay not-ready.
+  const owner = runtimeEnvironmentIdForWorkspaceOwner(state, { workspaceId: worktreeId })
+  // Why: listing one twin's skills under the other's chat would offer skills that host lacks.
+  if (owner.kind === 'ambiguous') {
+    return null
+  }
+  const runtimeEnvironmentId = owner.environmentId
+  // Global runtime selection cannot prove pane ownership; ambiguous legacy panes remain not-ready.
   if (parsedHost?.kind === 'runtime' && !runtimeEnvironmentId) {
     return null
   }
@@ -146,9 +161,7 @@ export function resolveNativeChatSkillDiscoveryContext(
     cwd,
     executionHostKind: runtimeEnvironmentId ? 'runtime' : 'local',
     runtimeTarget,
-    // Why: worktreeId lets the owning runtime resolve its own WSL project
-    // preference when this client cannot supply projectRuntime (environment-
-    // owned panes resolve host semantics on the runtime, never here).
+    // Let the owning runtime resolve WSL project preferences when this client lacks them.
     discoveryTarget: { cwd, worktreeId, ...(projectRuntime ? { projectRuntime } : {}) }
   }
 }

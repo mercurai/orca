@@ -1,11 +1,13 @@
 import { SshHostNotServedError } from '../providers/ssh-host-not-served-error'
 import { detectWslCommandsOnPath } from '../ipc/preflight-wsl-agent-detection'
-import { detectCommandsInInstallDirs } from '../ipc/local-agent-install-dir-detection'
+import { detectCommandsInInstallDirs } from '../../shared/local-agent-install-dir-detection'
 import {
   getPreflightWslTarget,
   type PreflightRuntimeContext
 } from '../ipc/preflight-runtime-target'
 import { isCommandOnPath } from '../ipc/preflight-command-exec'
+import { buildLocalPreflightEnv } from '../ipc/preflight-local-env'
+import { readGuestWindowsDriveMounts } from '../ipc/wsl-guest-windows-drive-path'
 
 export async function detectAgentCommandsOnHost(
   commands: readonly string[],
@@ -26,9 +28,12 @@ export async function detectAgentCommandsOnHost(
     }))
   )
   const missedCommands = pathChecks.filter((check) => !check.installedOnPath).map(({ cmd }) => cmd)
-  // Why: PATH may still be unhydrated on a cold GUI launch; bulk resolution
-  // computes user install dirs once instead of blocking once per missed CLI.
-  const installDirCommands = detectCommandsInInstallDirs(missedCommands)
+  // Resolve cold-GUI install dirs once; use the same WSL-filtered PATH while retaining process PATH elsewhere.
+  const guestMounts = readGuestWindowsDriveMounts()
+  const installDirCommands = detectCommandsInInstallDirs(
+    missedCommands,
+    guestMounts.length > 0 ? buildLocalPreflightEnv(guestMounts)?.PATH : undefined
+  )
   const foundCommands = new Set(
     pathChecks
       .filter(({ cmd, installedOnPath }) => installedOnPath || installDirCommands.has(cmd))

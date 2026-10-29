@@ -8,7 +8,7 @@ import {
   type RestartRpc,
   type ResumeStatusStream
 } from './native-chat-resume-modal.test-support'
-import { NativeChatResumeOnRestartModal } from './NativeChatResumeOnRestartModal'
+import { NativeChatResumeOnRestartModal } from './NativeChatResumeRuntimeModal'
 import { NativeChatResumeStatusSegment } from './status-bar/NativeChatResumeStatusSegment'
 import { requestNativeChatResumeOnRestartDialog } from './native-chat-resume-on-restart-dialog'
 import {
@@ -36,7 +36,9 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
 vi.mock('@/lib/activate-ai-vault-structured-session', () => ({
   activateAiVaultStructuredSession: vi.fn(async () => true)
 }))
-vi.mock('sonner', () => ({ toast: vi.fn() }))
+vi.mock('sonner', async () =>
+  (await import('./native-chat-resume-sonner-mock.test-support')).resumeSonnerMock()
+)
 
 const { mount, button, toasts, runStatus, fakeHost } = createResumeModalFixture(rpc, statusStream)
 const dialog = () => document.querySelector('[role="dialog"]')?.textContent
@@ -152,9 +154,13 @@ it.each(['returned', 'lost'] as const)(
         )
       ).toHaveLength(2)
       expect(document.querySelectorAll('button[aria-label^="Dismiss"]')).toHaveLength(2)
-      expect(runStatus('Prompt a')).toBe('Prompt a: Couldn’t resume')
+      expect(runStatus('Prompt a')).toBe(
+        delivery === 'lost'
+          ? 'Prompt a: Couldn’t confirm the chat was resumed'
+          : 'Prompt a: Couldn’t resume'
+      )
       if (delivery === 'lost') {
-        expect(toasts()).toEqual([['1 chat couldn’t be resumed']])
+        expect(toasts()).toEqual([['Couldn’t confirm 1 chat was resumed']])
       }
     } finally {
       warn.mockRestore()

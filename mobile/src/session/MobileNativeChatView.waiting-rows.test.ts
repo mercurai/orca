@@ -1,3 +1,4 @@
+import './MobileNativeChatView.harness.test-fixture'
 import { createElement } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -13,6 +14,7 @@ vi.mock('react-native', async () => {
       React.useImperativeHandle(ref, () => ({ scrollToEnd: vi.fn(), scrollToOffset: vi.fn() }), [])
       return React.createElement('FlatList', props)
     }),
+    Platform: { OS: 'ios' },
     Pressable: 'Pressable',
     StyleSheet: { create: (styles: unknown) => styles, hairlineWidth: 1 },
     Text: 'Text',
@@ -38,14 +40,17 @@ vi.mock('lucide-react-native', () => ({
 }))
 vi.mock('./MobileNativeChatMessage', () => ({ MobileNativeChatMessage: 'ChatMessage' }))
 vi.mock('./MobileNativeChatLiveLine', () => ({ MobileNativeChatLiveLine: 'LiveStatus' }))
-vi.mock('./MobileNativeChatComposer', () => ({ MobileNativeChatComposer: 'Composer' }))
+vi.mock('./native-chat/composer/MobileNativeChatComposer', () => ({
+  MobileNativeChatComposer: 'Composer'
+}))
 // The queue's action sheet pulls in the animation runtime, which this react-native mock can't host.
 vi.mock('../components/ActionSheetModal', () => ({ ActionSheetModal: 'ActionSheetModal' }))
-vi.mock('./MobileNativeChatAsk', () => ({ MobileNativeChatAsk: 'ChatAsk' }))
-vi.mock('./MobileNativeChatPermission', () => ({ MobileNativeChatPermission: 'ChatPermission' }))
-vi.mock('./MobileNativeChatQuestion', () => ({ MobileNativeChatQuestion: 'ChatQuestion' }))
-vi.mock('./MobileAgentWorkingIndicator', () => ({
-  MobileAgentWorkingIndicator: 'WorkingIndicator'
+vi.mock('./native-chat/input/MobileNativeChatAsk', () => ({ MobileNativeChatAsk: 'ChatAsk' }))
+vi.mock('./native-chat/input/MobileNativeChatPermission', () => ({
+  MobileNativeChatPermission: 'ChatPermission'
+}))
+vi.mock('./native-chat/input/MobileNativeChatQuestion', () => ({
+  MobileNativeChatQuestion: 'ChatQuestion'
 }))
 
 let renderer: ReactTestRenderer | null = null

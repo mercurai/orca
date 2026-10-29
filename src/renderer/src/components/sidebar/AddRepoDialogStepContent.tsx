@@ -21,6 +21,8 @@ type AddRepoDialogStepContentProps = {
   nestedScanInProgress: boolean
   nestedScanId: string | null
   serverPath: string
+  /** The path came from Windows' picker or an Explorer drop, so the host's browser is skipped. */
+  serverPathPrefilled?: boolean
   isAddingServerPath: boolean
   cloneUrl: string
   cloneDestination: string
@@ -83,6 +85,7 @@ export function AddRepoDialogStepContent({
   nestedScanInProgress,
   nestedScanId,
   serverPath,
+  serverPathPrefilled = false,
   isAddingServerPath,
   cloneUrl,
   cloneDestination,
@@ -134,14 +137,13 @@ export function AddRepoDialogStepContent({
   onPickCreateParent,
   onCreate
 }: AddRepoDialogStepContentProps): React.JSX.Element | null {
-  // Why here: the selected server decides whether its own SSH hosts can hold a new project.
+  // The selected server owns the SSH hosts eligible for project creation.
   const serverSsh = useServerSshProjects(
     activeRuntimeEnvironmentId ?? null,
     selectedHostLabel ?? null,
     onOpenRemoteStep
   )
-  // Why the start step for a remote step without a server: SSH hosts hold projects only through
-  // the paired server that reaches them, so there is nothing to show if that server went away.
+  // Server-owned SSH hosts need their paired server; return to Start if it disappears.
   if (step === 'add' || (step === 'remote' && !serverSsh)) {
     return (
       <AddRepoLocalStartStep
@@ -153,7 +155,7 @@ export function AddRepoDialogStepContent({
         hostSelector={hostSelector}
         actionsDisabled={actionsDisabled}
         browseHostKind={browseHostKind}
-        serverSshProjects={serverSsh?.state}
+        offersServerSshHosts={serverSsh !== null}
         onBrowse={onBrowse}
         onOpenCloneStep={onOpenCloneStep}
         onOpenRemoteStep={onOpenRemoteStep}
@@ -171,7 +173,7 @@ export function AddRepoDialogStepContent({
         isAddingServerPath={isAddingServerPath}
         addProjectBusyLabel={addProjectBusyLabel}
         hostSelector={hostSelector}
-        initialBrowsing
+        initialBrowsing={!(serverPathPrefilled && serverPath.trim())}
         onServerPathChange={onServerPathChange}
         onAddServerPath={onAddServerPath}
         onOpenCloneStep={onOpenCloneStep}

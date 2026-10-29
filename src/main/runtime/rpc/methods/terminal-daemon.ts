@@ -10,7 +10,14 @@ export const TERMINAL_DAEMON_METHODS = [
     name: 'terminalDaemon.severedStatus',
     permission: 'workspace',
     params: null,
-    handler: async () => ({ severed: await readSeveredDaemonStatus() })
+    // Why `daemon` is additive: older CLIs read only `severed`.
+    handler: async () => ({
+      severed: await readSeveredDaemonStatus(),
+      // Import the probe lazily to avoid loading daemon providers with the RPC table.
+      daemon: await (
+        await import('../../../daemon/daemon-liveness-report')
+      ).readTerminalDaemonLiveness()
+    })
   }),
   defineMethod({
     name: 'terminalDaemon.restartSevered',

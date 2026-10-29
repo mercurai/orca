@@ -1,3 +1,4 @@
+import { forgetVisibleTabPicksForEnvironment } from '../web-session-visible-tab-pick-report'
 import {
   latestSessionTabsSnapshotByWorktree,
   replayableSessionTabsSnapshotByWorktree,
@@ -27,6 +28,10 @@ import {
 import { clearWebSessionReorderIntentsForWorktree } from '../web-session-reorder-intent'
 import { clearWebSessionCloseIntentsForWorktree } from '../web-session-close-intent'
 import {
+  forgetMirroredTerminalHandles,
+  resetMirroredTerminalHandlesForTests
+} from './mirrored-terminal-handle-index'
+import {
   forgetRetiredEpochCensuses,
   resetRetiredEpochCensusesForTests
 } from './retired-epoch-census'
@@ -55,12 +60,14 @@ import {
 
 const sessionTabsTrackingGenerations = createBoundedGenerationMap(512)
 
+/** Null until the host has sent a frame for the worktree: unknown is not zero. */
 export function getLastKnownHostTerminalTabCount(
   environmentId: string,
   worktreeId: string
-): number {
+): number | null {
   return (
-    lastHostTerminalTabCountByWorktree.get(sessionTabsFreshnessKey(environmentId, worktreeId)) ?? 0
+    lastHostTerminalTabCountByWorktree.get(sessionTabsFreshnessKey(environmentId, worktreeId)) ??
+    null
   )
 }
 
@@ -74,18 +81,7 @@ export function getLatestWebSessionTabsPublicationEpoch(
   )
 }
 
-// Why: a replay may repeat the current epoch/version; permit only that exact
-// identity once so an older concurrent frame cannot bypass monotonic ordering.
-export function acceptReplayedWebSessionTabsSnapshot(
-  environmentId: string,
-  worktreeId: string
-): void {
-  const key = sessionTabsFreshnessKey(environmentId, worktreeId)
-  const current = latestSessionTabsSnapshotByWorktree.get(key)
-  if (current) {
-    replayableSessionTabsSnapshotByWorktree.set(key, current)
-  }
-}
+export { acceptReplayedWebSessionTabsSnapshot } from './state'
 export function resetWebSessionTabsSnapshotFreshnessForTests(): void {
   latestSessionTabsSnapshotByWorktree.clear()
   replayableSessionTabsSnapshotByWorktree.clear()
@@ -106,6 +102,7 @@ export function resetWebSessionTabsSnapshotFreshnessForTests(): void {
   sessionTabsTrackingGenerations.reset()
   resetWebSessionBrowserPlacementsForTests()
   resetRetiredEpochCensusesForTests()
+  resetMirroredTerminalHandlesForTests()
 }
 
 export function _getWebSessionTabsTrackingCountsForTest(): {
@@ -143,9 +140,7 @@ export function clearWebSessionTabsTrackingForWorktree(
   latestSessionTabsSnapshotByWorktree.delete(key)
   replayableSessionTabsSnapshotByWorktree.delete(key)
   forgetRetiredEpochCensuses((candidate) => candidate === key)
-  // The receipt ledger and removal watermark are deliberately kept: they order a delayed
-  // predecessor frame against the live publisher's next one, which is the whole point of a
-  // retraction. Clearing the live view is this function's job; forgetting what was received is not.
+  // Retain receipt/removal boundaries after clearing live view; they distinguish delayed predecessors from live republication.
   untrackWebSessionTabsWorktree(environmentId, worktreeId)
   removeWebSessionTabsEnvironment(environmentId, worktreeId)
   lastHostTerminalTabCountByWorktree.delete(key)
@@ -158,6 +153,7 @@ export function clearWebSessionTabsTrackingForWorktree(
   clearHostSessionTabIdMappings(environmentId, worktreeId)
   clearWebSessionBrowserPlacementsForWorktree(environmentId, worktreeId)
   clearWebSessionTerminalPlacementsForWorktree(environmentId, worktreeId)
+  forgetMirroredTerminalHandles(environmentId, worktreeId)
 }
 
 export function clearWebSessionTabsTrackingForEnvironment(environmentId: string): void {
@@ -191,6 +187,7 @@ export function clearWebSessionTabsTrackingForEnvironment(environmentId: string)
   }
   latestReceivedSessionTabsFrameByEnvironment.delete(trimmedEnvironmentId)
   latestReceivedSessionTabsInventoryFrameByEnvironment.delete(trimmedEnvironmentId)
+  forgetVisibleTabPicksForEnvironment(trimmedEnvironmentId)
   for (const key of sessionTabsRemovalWatermarkByWorktree.keys()) {
     if (key.startsWith(keyPrefix)) {
       sessionTabsRemovalWatermarkByWorktree.delete(key)
@@ -227,6 +224,7 @@ export function clearWebSessionTabsTrackingForEnvironment(environmentId: string)
   clearHostMirrorHandleGapVerdictsForEnvironment(trimmedEnvironmentId)
   clearAllWebRuntimeWakeTerminalRespawn()
   clearWebRuntimeInitialTerminalBootstrapsForEnvironment(trimmedEnvironmentId)
+  forgetMirroredTerminalHandles(trimmedEnvironmentId)
 }
 
 export function getWebSessionTabsTrackingGeneration(environmentId: string): number {

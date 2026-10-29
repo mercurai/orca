@@ -3,6 +3,7 @@
 # branch that carries the fork's own files). Lives in the fork only; never sent upstream.
 # The privileged job runs only from the protected default branch. A dispatch from another
 # branch is skipped before checkout or any secret-bearing step.
+# mirror_tag_only mirrors one reviewed tag without dispatching a rebase or changing other refs.
 name: fork-sync-upstream
 
 on:
@@ -14,12 +15,16 @@ on:
         description: Also mirror every upstream branch under upstream/* (tags are what the patch series rebases onto, so this is off by default)
         type: boolean
         default: false
+      mirror_tag_only:
+        description: Mirror only the reviewed allow_tag pin, without rebasing, merging, mirroring other refs or writing issues
+        type: boolean
+        default: false
       dry_run:
         description: Fetch and compare only; push nothing and dispatch nothing
         type: boolean
         default: false
       allow_tag:
-        description: Mirror one upstream release tag the owner reviewed, as <tag>@<40-hex sha> (the sha the tag points at; see its "fork-sync tag" issue). Pushes only that tag, then rebases onto it. The schedule never sets it
+        description: Mirror one upstream release tag the owner reviewed, as <tag>@<40-hex sha> (the sha the tag points at; see its "fork-sync tag" issue). Rebases onto it unless mirror_tag_only is true. The schedule never sets it
         type: string
         default: ''
       allow_guarded_merge_sha:
@@ -51,6 +56,7 @@ env:
   ALLOWED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_guarded_merge_sha || '' }}
   # The owner's approval of one release tag, <tag>@<40-hex sha>: same rule, the schedule has no inputs.
   ALLOW_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.allow_tag || '' }}
+  MIRROR_TAG_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.mirror_tag_only || false }}
 
 jobs:
   mirror:
@@ -80,8 +86,28 @@ jobs:
 
       - name: Decide whether this run may push
         id: mode
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          MIRROR_BRANCHES: ${{ inputs.mirror_branches }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          set -euo pipefail
+          tag_only=${MIRROR_TAG_ONLY:-}
+          case "$tag_only" in
+            true | false) ;;
+            *) echo "::error::mirror_tag_only must be true or false"; exit 1 ;;
+          esac
+          if [ "$tag_only" = true ]; then
+            if [ "${GITHUB_EVENT_NAME:-}" != workflow_dispatch ] || [ -z "${ALLOW_TAG:-}" ]; then
+              echo "::error::mirror_tag_only requires an explicit dispatch with a reviewed allow_tag pin"
+              exit 1
+            fi
+            if [ "${MIRROR_BRANCHES:-}" != false ] || [ -n "${ALLOWED_SHA:-}" ]; then
+              echo "::error::mirror_tag_only cannot mirror branches or allow a guarded main merge"
+              exit 1
+            fi
+          fi
+          echo "tag_only=$tag_only" >> "$GITHUB_OUTPUT"
+          if [ "$DRY_RUN" = "true" ]; then
             echo "push=false" >> "$GITHUB_OUTPUT"; echo "report-only run (dry_run)"
           else
             echo "push=true" >> "$GITHUB_OUTPUT"
@@ -124,7 +150,7 @@ jobs:
       - name: Mirror main (fast-forward only)
         id: mainmirror
         # A non-fast-forward push fails here on purpose: `main` must never carry fork commits.
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
@@ -140,7 +166,7 @@ jobs:
       - name: Mirror new tags
         id: tags
         # New names only, never forced, and only tags whose commit is in the pinned commit.
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
@@ -158,7 +184,7 @@ jobs:
         id: dispatch
         # Before the merge-forward: a merge conflict must not lose the tag, and the tag is no longer "new" next hour.
         # Only a tag that was mirrored this run. The outputs name what was dispatched, written only once it was.
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && steps.tags.outputs.rebase_tag != '' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && steps.tags.outputs.rebase_tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
@@ -171,7 +197,7 @@ jobs:
           { echo "dispatched_tag=$tag"; echo "dispatched_sha=$tag_sha"; } >> "$GITHUB_OUTPUT"
 
       - name: Mirror upstream branches under upstream/*
-        if: ${{ steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && inputs.mirror_branches == true }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && steps.mode.outputs.push == 'true' && steps.guard.outputs.refused == 'false' && inputs.mirror_branches == true }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           GUARD_REFUSED: ${{ steps.guard.outputs.refused }}
@@ -188,7 +214,7 @@ jobs:
       - name: Merge main forward into the fork branch
         id: merge
         # Skipped when the guard refused; the issue step below then fails the run.
-        if: ${{ steps.guard.outputs.refused == 'false' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && steps.guard.outputs.refused == 'false' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           GUARD_ALLOWED: ${{ steps.guard.outputs.allowed }}
@@ -229,7 +255,7 @@ jobs:
           done
 
       - name: Report a guarded upstream range as an issue
-        if: ${{ steps.guard.outputs.refused == 'true' || steps.merge.outputs.guarded == 'true' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && (steps.guard.outputs.refused == 'true' || steps.merge.outputs.guarded == 'true') }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           # The text differs by which output fired: a refused range pushed nothing; a reset merge came after the
@@ -241,7 +267,7 @@ jobs:
         run: bash /tmp/report-sync-issue.sh "$STAGE"
 
       - name: Report a merge conflict as an issue
-        if: ${{ steps.merge.outputs.conflict == 'true' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && steps.merge.outputs.conflict == 'true' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           PUSH: ${{ steps.mode.outputs.push }}
@@ -271,7 +297,7 @@ jobs:
           bash /tmp/mirror-allowed-tag.sh
 
       - name: Hand the owner-allowed tag to fork-rebase-patches
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.allowtag.outputs.tag != '' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' && steps.allowtag.outputs.tag != '' }}
         env:
           GH_TOKEN: ${{ secrets.FORK_BOT_TOKEN }}
         run: |
@@ -286,7 +312,7 @@ jobs:
         # Last, and run whatever failed before it (not when cancelled): upstream decides how many tags there are, so
         # this step must never be able to skip the pushes or the merge-forward. It caps what it opens per run, pages
         # through every issue (closed ones included) and trusts only the bot's own words (tag-issues.sh).
-        if: ${{ !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}
+        if: ${{ steps.mode.outputs.tag_only == 'false' && !cancelled() && steps.fetch.outcome == 'success' && steps.mode.outputs.push == 'true' }}
         env:
           UPSTREAM_SHA: ${{ steps.fetch.outputs.upstream_sha }}
           FORK_MAIN: ${{ steps.fetch.outputs.fork_main }}

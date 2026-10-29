@@ -57,7 +57,10 @@ function runGate({ version, template = false, packageJson }) {
   if (packageJson !== undefined) {
     writeFileSync(join(root, 'package.json'), packageJson)
   } else if (version !== null) {
-    writeFileSync(join(root, 'package.json'), `{\n  "name": "orca",\n  "version": "${version}",\n  "dependencies": {\n    "version": "9.9.9"\n  }\n}\n`)
+    writeFileSync(
+      join(root, 'package.json'),
+      `{\n  "name": "orca",\n  "version": "${version}",\n  "dependencies": {\n    "version": "9.9.9"\n  }\n}\n`
+    )
   }
   if (template) {
     mkdirSync(join(root, 'config', 'scripts'), { recursive: true })
@@ -75,7 +78,11 @@ function runGate({ version, template = false, packageJson }) {
       GITHUB_OUTPUT: output
     }
   })
-  return { ...result, outputs: readFileSync(output, 'utf8'), log: `${result.stdout}${result.stderr}` }
+  return {
+    ...result,
+    outputs: readFileSync(output, 'utf8'),
+    log: `${result.stdout}${result.stderr}`
+  }
 }
 
 test('the gate step names the first version whose SSH hosts need a template', () => {
@@ -139,7 +146,10 @@ test('mobile dependencies are installed and checked before building the template
   assert.match(install, /working-directory: mobile\n/)
   assert.match(install, /pnpm install --frozen-lockfile\n/)
   assert.doesNotMatch(install, /--ignore-scripts/)
-  assert.match(install, /git diff --exit-code -- package\.json pnpm-lock\.yaml pnpm-workspace\.yaml/)
+  assert.match(
+    install,
+    /git diff --exit-code -- package\.json pnpm-lock\.yaml pnpm-workspace\.yaml/
+  )
 })
 
 test('the verified mobile page is built before orcad stages it', () => {

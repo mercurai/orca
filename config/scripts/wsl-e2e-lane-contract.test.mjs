@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { hasWslSourceChange, selectPrE2eSpecs } from './pr-e2e-source-routing.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 
 const read = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')
 
@@ -13,10 +14,12 @@ describe('real WSL terminal lane', () => {
     'src/main/wsl/wsl-runner.ts',
     'src/main/pty/wsl-orca-env.ts',
     'src/shared/wsl-login-shell-command.ts',
+    'src/shared/shell-argument-quoting.ts',
     'src/shared/windows-terminal-shell.ts',
     'tests/e2e/helpers/wsl-golden-stub-agent.ts',
     'tests/e2e/golden-tab-bar-agent-launch.spec.ts',
     'tests/e2e/terminal-windows-shell-paste-ownership.spec.ts',
+    'tests/e2e/terminal-inline-images-windows.spec.ts',
     '.github/actions/setup-wsl-test-runtime/setup.ps1',
     '.github/workflows/windows-wsl-e2e.yml'
   ])('routes %s to both WSL sentinels', (path) => {
@@ -39,8 +42,28 @@ describe('real WSL terminal lane', () => {
 
   it('runs the reusable lane at the immutable PR head', () => {
     const pr = parse(read('.github/workflows/pr.yml'))
-    expect(pr.jobs.windows_wsl.if).toBe("needs.code_paths.outputs.wsl_source_changed == 'true'")
-    expect(pr.jobs.windows_wsl.with.ref).toBe('${{ github.event.pull_request.head.sha }}')
+    const lane = pr.jobs.windows_wsl
+    const admitted = compileAggregateExpression(lane.if, ['inputs', 'needs'])
+    const ref = compileAggregateExpression(lane.with.ref, ['inputs', 'github'])
+    const head = 'a'.repeat(40)
+    for (const full_mode of [false, true]) {
+      for (const changed of ['false', 'true']) {
+        expect(
+          admitted({
+            inputs: { full_mode },
+            needs: { code_paths: { outputs: { wsl_source_changed: changed } } }
+          }).coerceString()
+        ).toBe(String(!full_mode && changed === 'true'))
+      }
+    }
+    for (const candidate_sha of ['', 'b'.repeat(40)]) {
+      expect(
+        ref({
+          inputs: { candidate_sha },
+          github: { event: { pull_request: { head: { sha: head } } } }
+        }).coerceString()
+      ).toBe(candidate_sha || head)
+    }
     const detector = pr.jobs['code_paths'].steps.find(
       (step) => step.name === 'Filter changed E2E specs'
     )
