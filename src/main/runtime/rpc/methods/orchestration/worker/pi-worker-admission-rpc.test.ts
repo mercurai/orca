@@ -504,7 +504,7 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
       'kind' in effect && (effect.kind === 'terminal' || effect.kind === 'preamble' || effect.kind === 'close')
     )).toBe(false)
     expect(durableDb.getWorkerTerminalResourceByOwner(firstDispatch.id)).toBeUndefined()
-    expect(structuredWorkerIdentities.getBySessionId(observedEnvelope!.sessionId)).toBeUndefined()
+    expect(structuredWorkerIdentities.getBySessionId(observedEnvelope!.sessionId)).toBeNull()
 
     const protectedState = {
       state: failedWorker.state,
@@ -591,8 +591,12 @@ describe('Pi admission through the registered orchestration RPC methods', () => 
     expect(replacementEnvelope.sessionId).not.toBe(secondEnvelope.sessionId)
     expect(replacementEnvelope.clientOperationId).not.toBe(observedEnvelope?.clientOperationId)
     expect(replacementEnvelope.clientOperationId).not.toBe(secondEnvelope.clientOperationId)
-    expect(structuredWorkerIdentities.getBySessionId(secondEnvelope.sessionId)).toBeDefined()
-    expect(structuredWorkerIdentities.getBySessionId(replacementEnvelope.sessionId)).toBeDefined()
+    expect(structuredWorkerIdentities.getBySessionId(secondEnvelope.sessionId)).toMatchObject({
+      sessionId: secondEnvelope.sessionId
+    })
+    expect(structuredWorkerIdentities.getBySessionId(replacementEnvelope.sessionId)).toMatchObject({
+      sessionId: replacementEnvelope.sessionId
+    })
     expect(hostClose).not.toHaveBeenCalled()
   })
 
