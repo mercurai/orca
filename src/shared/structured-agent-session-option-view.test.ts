@@ -408,6 +408,65 @@ describe('Codex legacy Fast provenance on sends', () => {
   })
 })
 
+describe('legacy Codex intent under a modern speed selector', () => {
+  const model = 'synthetic-modern-speed-model'
+  const tier = 'synthetic-modern-exact-fast-tier'
+
+  function selected(source: SessionOptionValueSource, fastMode: boolean, serviceTier?: string) {
+    const state = applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),
+      CODEX_SESSION_OPTION_CATALOG,
+      {
+        models: [
+          {
+            id: model,
+            label: model,
+            isDefault: false,
+            efforts: [],
+            serviceTiers: [{ value: tier, label: 'Fast' }]
+          }
+        ],
+        current: { model, defaulted: [] }
+      }
+    )
+    if (source !== 'unknown') {
+      state.record.values.fastMode = { value: fastMode, source }
+    }
+    if (serviceTier !== undefined) {
+      state.record.values.serviceTier = { value: serviceTier, source: 'dispatched' }
+    }
+    const before = structuredClone(state.record)
+    const options = structuredAgentSessionSendSelection(state)
+    expect(state.record).toEqual(before)
+    return options
+  }
+
+  it.each(['applied', 'dispatched', 'reported'] as const)(
+    'sends explicit false from %s as Standard',
+    (source) => {
+      expect(selected(source, false)).toEqual({ model, serviceTier: 'default' })
+    }
+  )
+
+  it.each(['applied', 'dispatched', 'reported'] as const)(
+    'retains explicit true from %s for host admission',
+    (source) => {
+      expect(selected(source, true)).toEqual({ model, fastMode: 'true' })
+    }
+  )
+
+  it.each(['unknown', 'default'] as const)(
+    'does not make an %s false value an explicit speed request',
+    (source) => {
+      expect(selected(source, false)).toEqual({ model })
+    }
+  )
+
+  it.each([false, true])('prefers a canonical tier to same-level legacy %s', (fastMode) => {
+    expect(selected('dispatched', fastMode, tier)).toEqual({ model, serviceTier: tier })
+  })
+})
+
 describe("a chat's model and effort, apart from the defaults filling them in", () => {
   const listed = CLI302.map((row) => row.id)
   // A resumed chat at rest that never picked a model: its host fills in the listing's default.
@@ -463,7 +522,9 @@ describe("a chat's model and effort, apart from the defaults filling them in", (
 
 describe('Codex model and effort without speed controls', () => {
   const model = 'synthetic-speedless-model'
-  const models = [{ id: model, label: 'Synthetic', isDefault: true, efforts: levels('low', 'high') }]
+  const models = [
+    { id: model, label: 'Synthetic', isDefault: true, efforts: levels('low', 'high') }
+  ]
   const state = (defaulted?: readonly ('model' | 'effort')[]) =>
     applyStructuredAgentSessionOptions(
       createStructuredAgentSessionOptionState('codex', CODEX_SESSION_OPTION_CATALOG),

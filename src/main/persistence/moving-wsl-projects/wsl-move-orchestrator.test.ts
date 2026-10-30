@@ -14,6 +14,47 @@ import {
 import { blocker, fakePorts, moved, ready, stateOf } from './wsl-move-orchestrator.test-support'
 
 describe('WslMoveOrchestrator', () => {
+  it('publishes user choices while saves are held and gives each save its own snapshot', async () => {
+    const release = Promise.withResolvers<void>()
+    const snapshots: ReadonlyMap<string, WslMoveOrchestratorRecord>[] = []
+    const ports = fakePorts({ save: (records) => {
+      snapshots.push(records)
+      return release.promise
+    } })
+    const orchestrator = new WslMoveOrchestrator(ports)
+    try {
+      orchestrator.releasedByUser('Ubuntu', 'removed')
+      orchestrator.releasedByUser('Debian', 'removed')
+      expect(stateOf(orchestrator, 'Ubuntu')).toMatchObject({ kind: 'parked', reason: 'declined' })
+      expect(stateOf(orchestrator, 'Debian')).toMatchObject({ kind: 'parked', reason: 'declined' })
+      expect(snapshots[0]?.has(wslMoveJournalKey('Debian'))).toBe(false)
+      expect(snapshots[1]?.has(wslMoveJournalKey('Debian'))).toBe(true)
+      expect(ports.publish).toHaveBeenLastCalledWith(orchestrator.list())
+    } finally {
+      release.resolve()
+    }
+  })
+
+  it('reports a rejected save without reverting the user choice or rejecting later steps', async () => {
+    const failed = Promise.withResolvers<void>()
+    const failure = new Error('sidecar unavailable')
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const ports = fakePorts({ save: () => failed.promise })
+    const orchestrator = new WslMoveOrchestrator(ports)
+    try {
+      orchestrator.releasedByUser('Ubuntu', 'removed')
+      failed.reject(failure)
+      await failed.promise.catch(() => {})
+      expect(warning).toHaveBeenCalledWith('[wsl-move] Orchestrator state not saved:', failure)
+      expect(stateOf(orchestrator, 'Ubuntu')).toMatchObject({ kind: 'parked', reason: 'declined' })
+      expect(ports.publish).toHaveBeenLastCalledWith(orchestrator.list())
+      orchestrator.hostAddedByUser('Ubuntu')
+      expect(stateOf(orchestrator, 'Ubuntu')).toEqual({ kind: 'pending' })
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
   it('moves two distros independently: one finishes, the busy one waits (fake transport)', async () => {
     const ports = fakePorts({
       preview: vi.fn(async (distro: string) =>

@@ -113,15 +113,25 @@ async function startOrcadManagedIdleExit(
       // Replacement must target only the daemon incarnation that agreed to retire.
       const retiringPid = getCurrentDaemonPid()
       const outcome = await stopForIdle(input, evidence, retireOrcadDaemonIfIdle)
-      // Clients/providers can return while the retirement reply is pending.
+      if (idleStopMayReleaseWslHolder(process.env, outcome)) {
+        try {
+          await requestOrcadWslHolderRelease(input.userDataPath)
+        } catch (error) {
+          console.error('[orcad] could not release the WSL distro holder:', error)
+        }
+      }
+      // Recheck after both retirement and holder publication; either await can admit new work.
+      const nonTerminalWork = await hasNonTerminalWork()
       const activity = input.rpc.readClientActivity()
       if (
+        nonTerminalWork ||
         hasChatProviders() ||
         activity.openConnections > 0 ||
         activity.requestsInFlight > 0 ||
         activity.lastRequestAt > evidence.quietSince
       ) {
         discardOrcadIdleStopRecord(input.userDataPath)
+        withdrawOrcadWslHolderRelease(input.userDataPath)
         const daemon = await recoverDaemonAfterCancelledIdleStop(outcome, {
           admissionClosed: isDaemonTerminalAdmissionClosed,
           retireAgain: () => retireOrcadDaemonIfIdle(),
@@ -133,18 +143,11 @@ async function startOrcadManagedIdleExit(
             await restartDaemon({ expectedDaemonPid: retiringPid, endpointMayBeGone: true })
           }
         })
-        if (daemon === 'serving' || (await hasNonTerminalWork())) {
+        if (nonTerminalWork || daemon === 'serving' || (await hasNonTerminalWork())) {
           return false
         }
         idleRecord.requestShutdown(requestIdleShutdown)
         return true
-      }
-      if (idleStopMayReleaseWslHolder(process.env, outcome)) {
-        try {
-          requestOrcadWslHolderRelease(input.userDataPath)
-        } catch (error) {
-          console.error('[orcad] could not release the WSL distro holder:', error)
-        }
       }
       idleRecord.requestShutdown(requestIdleShutdown)
       return true

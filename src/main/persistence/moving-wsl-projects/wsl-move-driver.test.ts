@@ -649,14 +649,14 @@ describe('moveProjectsToWslHost', () => {
     }
 
     it('is reset through the host first, then the new move runs', async () => {
-      world.catalog.set(seedStuck().migrationId, 'staged')
+      world.catalog.set((await seedStuck()).migrationId, 'staged')
       expect(await moveProjectsToWslHost(world.deps, request)).toMatchObject({ outcome: 'moved' })
       expect(journal().map((cutover) => cutover.migrationId)).not.toContain('stuck')
       expect(world.catalog.has('stuck')).toBe(false)
     })
 
     it('goes forward when the host committed it, and the new move waits for it to finish', async () => {
-      world.catalog.set(seedStuck().migrationId, 'committed')
+      world.catalog.set((await seedStuck()).migrationId, 'committed')
       expect(await moveProjectsToWslHost(world.deps, request)).toEqual({
         outcome: 'refused',
         code: 'wsl_move_finished_earlier_move'
@@ -669,7 +669,7 @@ describe('moveProjectsToWslHost', () => {
     })
 
     it('keeps the fence and refuses while the host cannot say', async () => {
-      seedStuck()
+      await seedStuck()
       world.deps.connectHost = async () => {
         const host = await createWslMoveWorld(userDataPath).deps.connectHost('Ubuntu')
         if (!host) {

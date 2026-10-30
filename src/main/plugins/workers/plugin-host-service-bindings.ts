@@ -75,8 +75,7 @@ export function bindPluginHostServices(input: {
     dispatchPluginNotification: (notification) => delegate.dispatchPluginNotification(notification),
     storage: {
       get: (key, itemKey) => forPlugin(key, () => storage.get(itemKey)),
-      set: (key, itemKey, value) =>
-        forPlugin(key, () => storage.set(itemKey, value)),
+      set: (key, itemKey, value) => forPlugin(key, () => storage.set(itemKey, value)),
       delete: (key, itemKey) => forPlugin(key, () => storage.delete(itemKey)),
       keys: (key) => forPlugin(key, () => storage.keys())
     },
@@ -87,8 +86,7 @@ export function bindPluginHostServices(input: {
     },
     settings: {
       getAll: (key) => forPlugin(key, () => settings.getAll()),
-      set: (key, itemKey, value) =>
-        forPlugin(key, () => settings.set(itemKey, value))
+      set: (key, itemKey, value) => forPlugin(key, () => settings.set(itemKey, value))
     }
   }
 }

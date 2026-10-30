@@ -9,7 +9,11 @@ function tierLabel(descriptor: SessionOptionDescriptor, tierId: string): string 
     descriptor.kind.type === 'select'
       ? descriptor.kind.choices.find((candidate) => candidate.value === tierId)
       : undefined
-  return nativeChatSessionChoiceLabel(choice ?? { value: tierId, label: tierId }, say, 'serviceTier')
+  return nativeChatSessionChoiceLabel(
+    choice ?? { value: tierId, label: tierId },
+    say,
+    'serviceTier'
+  )
 }
 
 function supportLabel(support: AgentSessionSpeed['support']): string {

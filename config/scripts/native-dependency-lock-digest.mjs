@@ -116,7 +116,9 @@ function closureFromLockfile(
 
 function isPlainRecord(value) {
   return (
-    value !== null && typeof value === 'object' && !Array.isArray(value) &&
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
   )
 }
@@ -135,7 +137,9 @@ function canonical(value, active = new Set()) {
   const result = Array.isArray(value)
     ? value.map((entry) => canonical(entry, active))
     : Object.fromEntries(
-        Object.keys(value).sort().map((key) => [key, canonical(value[key], active)])
+        Object.keys(value)
+          .sort()
+          .map((key) => [key, canonical(value[key], active)])
       )
   active.delete(value)
   return result
@@ -156,14 +160,16 @@ function lockedPackageMetadata(closure, packageRecords) {
       const locators = ['integrity', 'tarball'].filter((key) => Object.hasOwn(resolution, key))
       if (
         locators.length === 0 ||
-        locators.some((key) =>
-          typeof resolution[key] !== 'string' || resolution[key].trim().length === 0
+        locators.some(
+          (key) => typeof resolution[key] !== 'string' || resolution[key].trim().length === 0
         ) ||
         Object.hasOwn(resolution, 'directory') ||
         resolution.type === 'directory' ||
         (Object.hasOwn(resolution, 'tarball') && !/^https?:\/\//.test(resolution.tarball))
       ) {
-        throw new Error(`pnpm-lock.yaml has unsupported or empty package resolution metadata for ${id}`)
+        throw new Error(
+          `pnpm-lock.yaml has unsupported or empty package resolution metadata for ${id}`
+        )
       }
       return canonical(record)
     })

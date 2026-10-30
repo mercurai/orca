@@ -62,7 +62,6 @@ export function reportedCodexSessionOptions(
 
 export type { CodexSessionOptionCatalog } from './codex-structured-model-catalog'
 
-
 export async function readCodexStructuredSessionOptions(input: {
   connection: Pick<CodexAppServerConnection, 'request'>
   current: { model?: string; effort?: string; serviceTier?: string }
@@ -77,10 +76,11 @@ function composeLiveCodexCatalog(
   session: CodexSession,
   listing: ReturnType<typeof codexSessionCapabilities>
 ): StructuredAgentSessionLiveOptions {
-  const model = session.options.get('model') ?? session.reportedOptions.model
-  const effort = session.options.get('effort') ?? session.reportedOptions.effort
-  const serviceTier = session.options.get('serviceTier')
-  const pendingFast = serviceTier === undefined && session.options.get('fastMode') === 'true'
+  const { model, effort, serviceTier: appliedTier } = session.appliedTurnOptions ?? {}
+  const selectedTier = session.options.get('serviceTier')
+  const pendingFast = selectedTier === undefined && session.options.get('fastMode') === 'true'
+  const serviceTier = selectedTier ?? (pendingFast ? undefined : appliedTier)
+  const tierModel = selectedTier === undefined ? model : (session.options.get('model') ?? model)
   const catalog = composeCodexSessionOptionCatalog(listing, {
     current: {
       ...(model ? { model } : {}),
@@ -99,7 +99,7 @@ function composeLiveCodexCatalog(
     serviceTier !== undefined
       ? codexFastModeOfServiceTier(
           serviceTier,
-          listing.models.find((entry) => entry.id === catalog.current.model)
+          listing.models.find((entry) => entry.id === tierModel)
         )
       : catalogFastMode
   return {
@@ -135,7 +135,10 @@ export async function prepareLiveCodexSessionOptions(
   return () =>
     composeLiveCodexCatalog(
       session,
-      codexSessionCapabilities(session, session.options.get('model') ?? session.reportedOptions.model)
+      codexSessionCapabilities(
+        session,
+        session.options.get('model') ?? session.reportedOptions.model
+      )
     )
 }
 
@@ -245,7 +248,9 @@ function applyValidatedCodexStructuredSessionOption(
         : (model?.efforts.find((entry) => entry.value === requestedEffort)?.value ??
           model?.defaultEffort ??
           model?.efforts[0]?.value)
-  session.options.set('model', modelId)
+  if (modelId !== undefined) {
+    session.options.set('model', modelId)
+  }
   if (effort) {
     session.options.set('effort', effort)
   } else {

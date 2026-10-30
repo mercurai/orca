@@ -11,7 +11,6 @@ import { execFileCaptureOnWorker } from './exec-file-capture-worker'
 const workerAccess = vi.hoisted(() => ({ client: null as GitSpawnWorkerClient | null }))
 vi.mock('./git-spawn-worker-access', () => ({ getGitSpawnWorkerClient: () => workerAccess.client }))
 
-
 import type { SpawnWorkerRequest, SpawnWorkerResponse } from './git-spawn-worker-protocol'
 
 class FakeWorker extends EventEmitter {
@@ -187,19 +186,35 @@ describe('GitSpawnWorkerClient', () => {
     const workers: FakeWorker[] = []
     const client = newClient(workers)
     const unknown = vi.fn()
-    client.stream({ command: 'git', args: ['status'] }, {
-      onChunk: vi.fn(), onError: unknown, onClose: vi.fn()
-    })
+    client.stream(
+      { command: 'git', args: ['status'], cwd: '/repo' },
+      {
+        onChunk: vi.fn(),
+        onError: unknown,
+        onClose: vi.fn()
+      }
+    )
     workers[0]?.emit('exit', 1)
-    expect(unknown).toHaveBeenCalledWith(expect.objectContaining({ code: 'EGITSPAWNWORKER' }), 'unknown')
+    expect(unknown).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'EGITSPAWNWORKER' }),
+      'unknown'
+    )
 
     const proven = vi.fn()
-    client.stream({ command: 'git', args: ['status'] }, {
-      onChunk: vi.fn(), onError: proven, onClose: vi.fn()
-    })
+    client.stream(
+      { command: 'git', args: ['status'], cwd: '/repo' },
+      {
+        onChunk: vi.fn(),
+        onError: proven,
+        onClose: vi.fn()
+      }
+    )
     workers[1]?.reply({
-      type: 'errored', id: 2, error: { message: 'missing', name: 'Error' },
-      hasPid: false, terminating: false
+      type: 'errored',
+      id: 2,
+      error: { message: 'missing', name: 'Error' },
+      hasPid: false,
+      terminating: false
     })
     expect(proven).toHaveBeenCalledWith(expect.any(Error), false)
     client.dispose()

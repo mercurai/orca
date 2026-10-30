@@ -25,10 +25,7 @@ import {
   readWslHostRecordsQuietly,
   toWslHostStatus
 } from './wsl-host-connection-record'
-import {
-  sameWslDistro,
-  wslHostRunRefusal
-} from './wsl-host-add-admission'
+import { sameWslDistro, wslHostRunRefusal } from './wsl-host-add-admission'
 import type { WslOrcadConnection } from './wsl-orcad-connection'
 import { registerWslHost } from './wsl-host-registration'
 import { WslHostStatusBoard } from './wsl-host-status-board'
@@ -92,7 +89,11 @@ export class WslHostService {
 
   /** The factory closes over its connector even when a replacement is attached later. */
   connectionChangeListener(origin: () => WslHostConnector | null) {
-    return (distro: string, connection: WslOrcadConnection | null, status: WslOrcadConnectionStatus): Promise<void> =>
+    return (
+      distro: string,
+      connection: WslOrcadConnection | null,
+      status: WslOrcadConnectionStatus
+    ): Promise<void> =>
       this.connectionChanges.handle(distro, connection, status, () => {
         const connector = origin()
         return connector !== null && this.connector === connector
@@ -208,8 +209,12 @@ export class WslHostService {
     for (const record of this.records()) {
       const owns = (): boolean => {
         const current = this.recordForEnvironment(record.environmentId)
-        return this.connector === connector && this.disableGeneration === generation &&
-          current?.createdAt === record.createdAt && current.distroId === record.distroId
+        return (
+          this.connector === connector &&
+          this.disableGeneration === generation &&
+          current?.createdAt === record.createdAt &&
+          current.distroId === record.distroId
+        )
       }
       if (!owns()) continue
       await connector.disconnect(record.distro)
@@ -244,7 +249,21 @@ export class WslHostService {
     await ensureWslHostForRuntimeCall(environmentId, {
       record: this.recordForEnvironment(environmentId),
       connector,
-      current: (record) => this.connector === connector && this.connectionIsCurrent(record, generation),
+      current: (record) =>
+        this.connector === connector && this.connectionIsCurrent(record, generation),
+      refusal: (record) => {
+        const owner = this.recordForEnvironment(environmentId)
+        const owns =
+          this.connector === connector &&
+          this.disableGeneration === generation &&
+          owner?.createdAt === record.createdAt &&
+          owner.distroId === record.distroId
+        return wslHostConnectRefusal(
+          this.deps,
+          owns && this.removing.has(environmentId),
+          owns ? owner : null
+        )
+      },
       deps: this.deps,
       removing: this.removing,
       parked: this.parked,
@@ -322,7 +341,12 @@ export class WslHostService {
     if (!record || !connection) return
     const current = (): boolean =>
       this.connector === connector && this.connectionIsCurrent(record, generation)
-    const saved = await persistWslHostConnection(this.deps.userDataPath(), record, connection, current)
+    const saved = await persistWslHostConnection(
+      this.deps.userDataPath(),
+      record,
+      connection,
+      current
+    )
     if (saved.ok && saved.pairingChanged && current()) this.deps.pairingChanged(environmentId)
   }
 

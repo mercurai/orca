@@ -223,7 +223,12 @@ describe('runProcessOnWorker', () => {
       return Promise.resolve(LOCAL_RESULT)
     })
     const onChildTerminated = vi.fn()
-    const pending = runProcessOnWorker(table, { program: 'x', onChildTerminated }, 'head', inProcess)
+    const pending = runProcessOnWorker(
+      table,
+      { program: 'x', onChildTerminated },
+      'head',
+      inProcess
+    )
     table.failAll(new Error('worker exited'), 'EGITSPAWNWORKER')
     await expect(pending).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
     expect(sideEffects).toBe(1)

@@ -7,12 +7,16 @@ import { removeInstalledPlugin } from './installation/plugin-removal'
 import { PluginKvStore } from './plugin-storage-store'
 import { PluginSecretsStore } from './plugin-secrets-store'
 
-const writes = vi.hoisted((): {
-  hold: undefined | {
-    entered: () => void
-    release: Promise<void>
-  }
-} => ({ hold: undefined }))
+const writes = vi.hoisted(
+  (): {
+    hold:
+      | undefined
+      | {
+          entered: () => void
+          release: Promise<void>
+        }
+  } => ({ hold: undefined })
+)
 
 vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../shared/secure-file-async-write')>()
@@ -53,9 +57,10 @@ it.each(['storage.json', 'settings.json', 'secrets.json.enc'] as const)(
     const pluginsDataDir = join(root, 'data')
     const pluginKey = 'samples.lifetime'
     const directory = join(pluginsDataDir, pluginKey)
-    const create = () => fileName === 'secrets.json.enc'
-      ? new PluginSecretsStore(pluginsDataDir, pluginKey)
-      : new PluginKvStore(pluginsDataDir, pluginKey, fileName)
+    const create = () =>
+      fileName === 'secrets.json.enc'
+        ? new PluginSecretsStore(pluginsDataDir, pluginKey)
+        : new PluginKvStore(pluginsDataDir, pluginKey, fileName)
     await mkdir(join(pluginsDir, pluginKey), { recursive: true })
     const old = create()
     const queuedOld = create()
@@ -85,12 +90,16 @@ it.each(['storage.json', 'settings.json', 'secrets.json.enc'] as const)(
       await mkdir(join(pluginsDir, pluginKey), { recursive: true })
       const fresh = create()
       expect(await fresh.set('fresh', 'synthetic-current')).toMatchObject({ ok: true })
-      expect(old.get('fresh')).toEqual(fileName === 'secrets.json.enc'
-        ? { ok: false, error: 'plugin data lifetime expired' }
-        : undefined)
-      expect(queuedOld.get('fresh')).toEqual(fileName === 'secrets.json.enc'
-        ? { ok: false, error: 'plugin data lifetime expired' }
-        : undefined)
+      expect(old.get('fresh')).toEqual(
+        fileName === 'secrets.json.enc'
+          ? { ok: false, error: 'plugin data lifetime expired' }
+          : undefined
+      )
+      expect(queuedOld.get('fresh')).toEqual(
+        fileName === 'secrets.json.enc'
+          ? { ok: false, error: 'plugin data lifetime expired' }
+          : undefined
+      )
       if (old instanceof PluginKvStore) {
         expect(old.getAll()).toEqual({})
         expect(old.keys()).toEqual([])
@@ -99,9 +108,11 @@ it.each(['storage.json', 'settings.json', 'secrets.json.enc'] as const)(
       await old.delete('fresh')
       await queuedOld.delete('fresh')
       const current = fresh.get('fresh')
-      expect(current).toEqual(fileName === 'secrets.json.enc'
-        ? { ok: true, value: 'synthetic-current' }
-        : 'synthetic-current')
+      expect(current).toEqual(
+        fileName === 'secrets.json.enc'
+          ? { ok: true, value: 'synthetic-current' }
+          : 'synthetic-current'
+      )
       const bytes = await readFile(join(directory, fileName), 'utf8')
       expect(bytes).not.toContain('synthetic-retired')
       expect(bytes).not.toContain('synthetic-middle')

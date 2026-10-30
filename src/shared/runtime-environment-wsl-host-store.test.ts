@@ -1,4 +1,5 @@
-import { drainPendingPathWrites } from './path-write-serializer'
+import { drainPendingPathWrites, serializePathWrite } from './path-write-serializer'
+import { SecureWriteSupersededError } from './secure-file-async-write'
 import { withRuntimeEnvironmentMutation } from './runtime-environment-store-mutation'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -56,6 +57,17 @@ describe('WSL host environment store', async () => {
     vi.restoreAllMocks()
     rmSync(userDataPath, { recursive: true, force: true })
   })
+
+  async function pauseRemovalMarker() {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const completion = removeWslHostEnvironment(userDataPath, 'wsl:ubuntu', 100, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    return { release, completion }
+  }
 
   it('registers a paired environment that reads back with its WSL deployment', async () => {
     await addWslHostEnvironment(userDataPath, {
@@ -284,7 +296,7 @@ describe('WSL host environment store', async () => {
     })
     const before = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
     await expect(
-      await refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
+      refreshWslHostPairing(userDataPath, 'wsl:ubuntu', {
         pairingCode: code(43000, 'token-2'),
         localPort: 42001,
         remotePort: 6770
@@ -440,6 +452,171 @@ describe('WSL host environment store', async () => {
     expect(listEnvironments(userDataPath)).toEqual([])
     expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toBeNull()
   })
+
+  it('awaits a durable removal marker before starting either delete write', async () => {
+    await addWslHostEnvironment(userDataPath, {
+      id: 'wsl:ubuntu', name: 'Ubuntu (WSL)', pairingCode: code(42000), record, now: 100
+    })
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    let markerFinished = false
+    const file = await import('./runtime-environment-store-file')
+    const write = file.writeEnvironmentStoreAsync
+    vi.spyOn(file, 'writeEnvironmentStoreAsync').mockImplementation((...args) => {
+      expect(markerFinished).toBe(true)
+      return write(...args)
+    })
+    const removal = removeWslHostEnvironment(userDataPath, 'wsl:ubuntu', 100, async () => {
+      entered.resolve()
+      await release.promise
+      markerFinished = true
+    })
+    await entered.promise
+    try {
+      expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.createdAt).toBe(100)
+    } finally {
+      release.resolve()
+    }
+    await expect(removal).resolves.toBe(true)
+    expect(listEnvironments(userDataPath)).toEqual([])
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')).toBeNull()
+  })
+
+  it('keeps both records when an asynchronous removal marker rejects', async () => {
+    await addWslHostEnvironment(userDataPath, {
+      id: 'wsl:ubuntu', name: 'Ubuntu (WSL)', pairingCode: code(42000), record, now: 100
+    })
+    const failure = new Error('marker durability failed')
+    await expect(removeWslHostEnvironment(userDataPath, 'wsl:ubuntu', 100, async () => {
+      throw failure
+    })).rejects.toBe(failure)
+    expect(listEnvironments(userDataPath).map((entry) => entry.id)).toEqual(['wsl:ubuntu'])
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.createdAt).toBe(100)
+  })
+
+  it('preserves another environment added externally while its removal marker is held', async () => {
+    await addWslHostEnvironment(userDataPath, {
+      id: 'wsl:ubuntu', name: 'Ubuntu (WSL)', pairingCode: code(42000), record, now: 100
+    })
+    const held = await pauseRemovalMarker()
+    try {
+      const current = readPersistedEnvironmentStore(userDataPath).environments[0]
+      if (!current) throw new Error('missing environment')
+      writeFileSync(getEnvironmentStorePath(userDataPath), JSON.stringify({
+        version: 1,
+        environments: [current, { ...current, id: 'other', name: 'Other desktop' }]
+      }))
+    } finally {
+      held.release.resolve()
+    }
+    await expect(held.completion).resolves.toBe(true)
+    expect(readPersistedEnvironmentStore(userDataPath).environments.map(({ id }) => id)).toEqual(['other'])
+  })
+
+  it('refuses a replacement deployment observed after its removal marker', async () => {
+    await addWslHostEnvironment(userDataPath, {
+      id: 'wsl:ubuntu', name: 'Ubuntu (WSL)', pairingCode: code(42000), record, now: 100
+    })
+    const held = await pauseRemovalMarker()
+    try {
+      const current = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
+      if (!current) throw new Error('missing deployment')
+      writeFileSync(getWslHostDeploymentStorePath(userDataPath), JSON.stringify({
+        version: 1, deployments: [{ ...current, createdAt: 200 }]
+      }))
+    } finally {
+      held.release.resolve()
+    }
+    await expect(held.completion).resolves.toBe(false)
+    expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.createdAt).toBe(200)
+    expect(listEnvironments(userDataPath).map(({ id }) => id)).toEqual(['wsl:ubuntu'])
+  })
+
+  it.each(['environment', 'sidecar', 'deployment'] as const)(
+    'keeps both records when %s becomes unreadable while the removal marker is held',
+    async (target) => {
+      await addWslHostEnvironment(userDataPath, {
+        id: 'wsl:ubuntu', name: 'Ubuntu (WSL)', pairingCode: code(42000), record, now: 100
+      })
+      const held = await pauseRemovalMarker()
+      const environmentPath = getEnvironmentStorePath(userDataPath)
+      const deploymentPath = getWslHostDeploymentStorePath(userDataPath)
+      const sidecarPath = getRuntimeEnvironmentSidecarPath(userDataPath)
+      try {
+        if (target === 'environment') {
+          const current = readPersistedEnvironmentStore(userDataPath).environments[0]
+          writeFileSync(environmentPath, JSON.stringify({
+            version: 1, environments: [{ ...current, kind: 'future-wsl-host' }]
+          }))
+        } else if (target === 'sidecar') {
+          writeFileSync(sidecarPath, JSON.stringify({
+            version: 1,
+            entries: { 'wsl:ubuntu': { binding: { createdAt: 'future-format' } } }
+          }))
+        } else {
+          writeFileSync(deploymentPath, '{"version":1,"deployments":{}}')
+        }
+      } finally {
+        held.release.resolve()
+      }
+      const environmentBefore = readFileSync(environmentPath)
+      const deploymentBefore = readFileSync(deploymentPath)
+      const sidecarBefore = target === 'sidecar' ? readFileSync(sidecarPath) : undefined
+      await expect(held.completion).rejects.toThrow()
+      expect(readFileSync(environmentPath)).toEqual(environmentBefore)
+      expect(readFileSync(deploymentPath)).toEqual(deploymentBefore)
+      if (sidecarBefore) expect(readFileSync(sidecarPath)).toEqual(sidecarBefore)
+    }
+  )
+
+  it.each(['deployment', 'sidecar'] as const)(
+    'vetoes environment deletion if %s changes while the delete write is staged',
+    async (target) => {
+      await addWslHostEnvironment(userDataPath, {
+        id: 'wsl:ubuntu', name: 'Ubuntu (WSL)', pairingCode: code(42000), record, now: 100
+      })
+      const release = Promise.withResolvers<void>()
+      const entered = Promise.withResolvers<void>()
+      const requested = Promise.withResolvers<void>()
+      const blocked = serializePathWrite(getEnvironmentStorePath(userDataPath), async () => {
+        entered.resolve()
+        await release.promise
+      })
+      await entered.promise
+      const file = await import('./runtime-environment-store-file')
+      const write = file.writeEnvironmentStoreAsync
+      vi.spyOn(file, 'writeEnvironmentStoreAsync').mockImplementation((...args) => {
+        const writing = write(...args)
+        requested.resolve()
+        return writing
+      })
+      const removal = removeWslHostEnvironment(userDataPath, 'wsl:ubuntu', 100, async () => {})
+      const refused = expect(removal).rejects.toBeInstanceOf(SecureWriteSupersededError)
+      await requested.promise
+      try {
+        if (target === 'deployment') {
+          const current = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
+          if (!current) throw new Error('missing deployment')
+          writeFileSync(getWslHostDeploymentStorePath(userDataPath), JSON.stringify({
+            version: 1, deployments: [{ ...current, createdAt: 200_000 }]
+          }))
+        } else {
+          writeFileSync(getRuntimeEnvironmentSidecarPath(userDataPath), JSON.stringify({
+            version: 1,
+            entries: { 'wsl:ubuntu': { binding: { createdAt: 'future-format' } } }
+          }))
+        }
+      } finally {
+        release.resolve()
+        await blocked
+      }
+      await refused
+      expect(readPersistedEnvironmentStore(userDataPath).environments.map(({ id }) => id)).toEqual(['wsl:ubuntu'])
+      if (target === 'deployment') {
+        expect(findWslHostDeployment(userDataPath, 'wsl:ubuntu')?.createdAt).toBe(200_000)
+      }
+    }
+  )
 
   it('skips a removal callback when the deployment identity changed', async () => {
     await addWslHostEnvironment(userDataPath, {

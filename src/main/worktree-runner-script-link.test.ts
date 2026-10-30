@@ -17,7 +17,10 @@ vi.mock('fs', () => ({
 }))
 
 const { gitExecFileAsyncMock, readWorktreeGitPathMock } = vi.hoisted(() => ({
-  gitExecFileAsyncMock: vi.fn(async () => ({ stdout: '/mnt/c/src/app/.git/orca/setup-runner.sh\n', stderr: '' })),
+  gitExecFileAsyncMock: vi.fn(async () => ({
+    stdout: '/mnt/c/src/app/.git/orca/setup-runner.sh\n',
+    stderr: ''
+  })),
   readWorktreeGitPathMock: vi.fn(
     (_worktree: string, _relative: string, _roots: readonly string[]): string | null =>
       String.raw`C:\src\app\.git\worktrees\fix\orca\setup-runner.sh`

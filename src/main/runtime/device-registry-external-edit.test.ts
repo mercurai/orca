@@ -51,14 +51,17 @@ describe('device registry saves over an externally edited file', () => {
     const published = Promise.withResolvers<void>()
     const gate = Promise.withResolvers<void>()
     const original = DeviceRegistryStorage.prototype.write
-    vi.spyOn(DeviceRegistryStorage.prototype, 'write').mockImplementationOnce(
-      async function (this: DeviceRegistryStorage, devices, options, before) {
-        const written = await original.call(this, devices, options, before)
-        published.resolve()
-        await gate.promise
-        return written
-      }
-    )
+    vi.spyOn(DeviceRegistryStorage.prototype, 'write').mockImplementationOnce(async function (
+      this: DeviceRegistryStorage,
+      devices,
+      options,
+      before
+    ) {
+      const written = await original.call(this, devices, options, before)
+      published.resolve()
+      await gate.promise
+      return written
+    })
     const saving = registry.updateLastSeen(phone.deviceId)
     await published.promise
     removeOnDisk(desktop.deviceId)
@@ -74,11 +77,13 @@ describe('device registry saves over an externally edited file', () => {
     const entered = Promise.withResolvers<void>()
     const gate = Promise.withResolvers<void>()
     const original = secureFile.writeSecureFileAsync
-    vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementationOnce(async (path, content, options) => {
-      entered.resolve()
-      await gate.promise
-      return original(path, content, options)
-    })
+    vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementationOnce(
+      async (path, content, options) => {
+        entered.resolve()
+        await gate.promise
+        return original(path, content, options)
+      }
+    )
     const saving = registry.updateLastSeen(phone.deviceId)
     const outcome = expect(saving).rejects.toThrow()
     await entered.promise
@@ -190,16 +195,21 @@ describe('device registry saves over an externally edited file', () => {
       'Tab',
       { ephemeral: true }
     )
-    const writes = vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementationOnce(() => {
+    const cleanupAttempt = Promise.withResolvers<void>()
+    const writes = vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementationOnce(async () => {
+      cleanupAttempt.resolve()
       throw new Error('disk full')
     })
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
     const reloaded = new DeviceRegistry(dir)
-    await reloaded.addDevice('second desktop', 'runtime')
+    await cleanupAttempt.promise
+    expect(fileIds()).toContain(fork.deviceId)
+    expect(reloaded.getDevice(fork.deviceId)).toBeNull()
+    const added = await reloaded.addDevice('second desktop', 'runtime')
 
-    expect(writes).toHaveBeenCalledOnce()
-    expect(fileIds()).not.toContain(fork.deviceId)
+    expect(writes).toHaveBeenCalledTimes(2)
+    expect(fileIds()).toEqual([desktop.deviceId, added.deviceId])
     expect(reloaded.getDevice(fork.deviceId)).toBeNull()
   })
 

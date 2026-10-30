@@ -417,7 +417,6 @@ describe.each(GIT_SPAWN_MODES)('git exec admission lifetime (%s spawn)', (mode) 
   })
 })
 
-
 describe('unknown worker child lifetime', () => {
   it.each(['capture', 'run', 'stream'] as const)(
     'holds admission after an accepted %s request loses its worker without an acknowledgment',
@@ -428,7 +427,9 @@ describe('unknown worker child lifetime', () => {
           this.requests.push(message.type)
         }
         unref(): void {}
-        terminate(): Promise<number> { return Promise.resolve(0) }
+        terminate(): Promise<number> {
+          return Promise.resolve(0)
+        }
       }
       const worker = new LostWorker()
       vi.useFakeTimers()
@@ -438,9 +439,13 @@ describe('unknown worker child lifetime', () => {
       useGitSpawnMode('worker', () => worker)
       if (kind === 'run') installRunProcessWorkerRoute()
       const args = ['rebase', '--continue']
-      const pending = kind === 'stream'
-        ? gitStreamStdout(args, { cwd: '/unknown-fence', onStdout: () => {} })
-        : gitExecFileAsync(args, { cwd: '/unknown-fence', ...(kind === 'run' ? { terminationBarrier: true } : {}) })
+      const pending =
+        kind === 'stream'
+          ? gitStreamStdout(args, { cwd: '/unknown-fence', onStdout: () => {} })
+          : gitExecFileAsync(args, {
+              cwd: '/unknown-fence',
+              ...(kind === 'run' ? { terminationBarrier: true } : {})
+            })
       const rejected = expect(pending).rejects.toMatchObject({ code: 'EGITSPAWNWORKER' })
       try {
         await settleAdmissionGrant()

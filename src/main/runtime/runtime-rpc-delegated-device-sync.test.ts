@@ -46,7 +46,9 @@ afterEach(async () => {
 })
 
 async function sync(name: string) {
-  const result = await server['syncDelegatedMobileDevices'](parentDeviceId, [{ phoneKey: 'phone-1', name }])
+  const result = await server['syncDelegatedMobileDevices'](parentDeviceId, [
+    { phoneKey: 'phone-1', name }
+  ])
   return result.devices
 }
 

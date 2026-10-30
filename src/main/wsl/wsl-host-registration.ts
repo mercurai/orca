@@ -54,7 +54,9 @@ export async function registerWslHost(
   }
   const environmentId = defaultWslOrcadEnvironmentId(distro.name)
   const connected = await connectForWslHostAdd(connector, distro.name, () =>
-    generation === context.disableGeneration() && context.wsl() === connector && context.canRegister(environmentId)
+    generation === context.disableGeneration() &&
+    context.wsl() === connector &&
+    context.canRegister(environmentId)
       ? wslHostRunRefusal(context.deps)
       : wslHostAddRefusal('disabled', 'turnedOff')
   )

@@ -15,7 +15,6 @@ import { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
 import { createCodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { createCodexTurnOpenWaits } from './codex-structured-turn-open-wait'
 import type { CodexSession } from './codex-structured-session-state'
-import { resolvedCodexMessageOptions } from './codex-structured-message-options'
 import { startCodexTurn } from './codex-structured-turn-start'
 import { readLiveCodexSessionOptions } from './codex-structured-session-options'
 
@@ -28,8 +27,7 @@ const MODELS: AgentSessionModelOption[] = [
 async function hostRuns(
   saved: Record<string, string>,
   ageMs = 0,
-  child?: { tiers?: readonly string[]; reported?: string },
-  observeProjection?: (projected: Readonly<Record<string, string>> | undefined) => void
+  child?: { tiers?: readonly string[]; reported?: string }
 ) {
   let now = 1
   const store = new AgentModelCatalogStore({ now: () => now })

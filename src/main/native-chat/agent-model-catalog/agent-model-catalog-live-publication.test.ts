@@ -44,7 +44,8 @@ function liveProducerRig() {
   const pending = Promise.withResolvers<AgentModelCatalogSuccess>()
   let list = () => pending.promise
   const probe = vi.fn(() => list())
-  const store = new AgentModelCatalogStore({ now: () => 1_000 })
+  let now = 1_000
+  const store = new AgentModelCatalogStore({ now: () => now })
   const service = createAgentModelCatalogService({
     store,
     getConversation: (id) => {
@@ -63,6 +64,9 @@ function liveProducerRig() {
     pending,
     probe,
     fingerprint: selectedHomeFingerprint('/homes/selected'),
+    advance: (ms: number) => {
+      now += ms
+    },
     recover: () => {
       list = async () => listing('recovered')
     }
@@ -170,6 +174,7 @@ describe('completed live reports alongside canonical discovery', () => {
         if (kind === 'held unavailable') {
           expect(shown.unavailable).toEqual(unavailable)
         }
+        r.advance(1)
         r.store.expireFailure(r.fingerprint)
         r.recover()
         await r.service.demand({ agent: 'grok' })

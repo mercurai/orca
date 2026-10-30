@@ -198,7 +198,7 @@ describe('pairing a server that is already saved', () => {
       pairingCode: pairingCode('ws://192.0.2.10:6768')
     })
     await expect(
-      await addOrUpdateEnvironmentFromPairingCode(userDataPath, {
+      addOrUpdateEnvironmentFromPairingCode(userDataPath, {
         name: 'VM',
         pairingCode: pairingCode('ws://192.0.2.20:6768', 'vm-token'),
         source: 'ephemeral-vm'

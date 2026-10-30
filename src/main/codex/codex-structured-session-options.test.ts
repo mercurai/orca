@@ -55,6 +55,69 @@ async function primePicker(session: CodexSession): Promise<void> {
 }
 
 describe('structured Codex session options', () => {
+  it('does not replace pending legacy Fast intent with an inherited child tier', async () => {
+    const request = vi.fn()
+    const session = optionSession(request)
+    session.appliedTurnOptions = { model: 'gpt-live', serviceTier: 'previous-tier' }
+    session.options.set('fastMode', 'true')
+
+    const read = await readLiveCodexSessionOptions(session, undefined)
+    expect(read.current.fastMode).toBe(true)
+    expect(read.current).not.toHaveProperty('serviceTier')
+    expect(read.speed?.requested).toEqual({ legacyFast: true })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('maps selected speed under its next model without replacing child model or effort evidence', async () => {
+    const session = optionSession(
+      vi.fn(async (method: string) =>
+        method === 'model/list'
+          ? {
+              data: [
+                {
+                  model: 'gpt-live',
+                  supportedReasoningEfforts: [],
+                  serviceTiers: [{ id: 'current-fast-id', name: 'Fast' }]
+                },
+                {
+                  model: 'next-model',
+                  supportedReasoningEfforts: [],
+                  serviceTiers: [{ id: 'next-fast-id', name: 'Fast' }]
+                }
+              ],
+              nextCursor: null
+            }
+          : { config: {} }
+      )
+    )
+    session.appliedTurnOptions = { model: 'gpt-live', effort: 'high', serviceTier: 'current-fast-id' }
+    session.options = new Map([
+      ['model', 'next-model'],
+      ['effort', 'low'],
+      ['serviceTier', 'next-fast-id']
+    ])
+    await primePicker(session)
+
+    const read = await readLiveCodexSessionOptions(session, undefined)
+    expect(read.current).toMatchObject({
+      model: 'gpt-live',
+      effort: 'high',
+      serviceTier: 'next-fast-id',
+      fastMode: true
+    })
+    expect(read.speed).toMatchObject({
+      requested: { tierId: 'next-fast-id' },
+      support: 'available',
+      processing: { status: 'unknown' }
+    })
+    expect(read.speed).not.toHaveProperty('applied')
+    expect(Object.fromEntries(session.options)).toEqual({
+      model: 'next-model',
+      effort: 'low',
+      serviceTier: 'next-fast-id'
+    })
+  })
+
   it('reports the running speed when steering after a next-turn speed selection', async () => {
     const request = vi.fn(async (method: string, _params?: Record<string, unknown>) =>
       method === 'model/list'
@@ -159,6 +222,39 @@ describe('structured Codex session options', () => {
       [key]: value
     })
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('keeps a warm-catalog effort pick sparse when no model is known', async () => {
+    const request = vi.fn(async (method: string) =>
+      method === 'model/list'
+        ? {
+            data: [
+              {
+                model: 'synthetic-effort-model',
+                isDefault: true,
+                supportedReasoningEfforts: [{ reasoningEffort: 'high' }]
+              }
+            ],
+            nextCursor: null
+          }
+        : { config: {} }
+    )
+    const session = optionSession(request)
+    session.reportedOptions = {}
+    session.appliedTurnOptions = {}
+    await primePicker(session)
+    expect(session.catalogAccess?.store.get('codex-test-account')?.models[0]?.efforts).toEqual([
+      { value: 'high', label: 'High' }
+    ])
+    const listingCalls = request.mock.calls.length
+
+    await expect(applyCodexStructuredSessionOption(session, 'effort', 'high')).resolves.toStrictEqual({
+      effort: 'high'
+    })
+    expect(session.options.has('model')).toBe(false)
+    expect(session.reportedOptions).toEqual({})
+    expect(session.appliedTurnOptions).toEqual({})
+    expect(request).toHaveBeenCalledTimes(listingCalls)
   })
 
   it('drops an effort saved under another model on a cold model change', async () => {
@@ -524,9 +620,14 @@ describe('structured Codex session options', () => {
     session.options.set('serviceTier', 'priority-saved')
 
     const options = await readLiveCodexSessionOptions(session, undefined)
-    expect(options.current).not.toHaveProperty('serviceTier')
+    expect(options.current).toMatchObject({ serviceTier: 'priority-saved' })
     expect(options.current).not.toHaveProperty('fastMode')
     expect(options.models[0]?.serviceTiers).toBeUndefined()
+    expect(options.speed).toMatchObject({
+      requested: { tierId: 'priority-saved' },
+      support: 'unknown',
+      processing: { status: 'unknown' }
+    })
     await expect(
       startCodexTurn(session, {
         clientMessageId: 'message-unlisted',
@@ -676,6 +777,7 @@ describe('Codex service tiers', () => {
       })
     )
     session.reportedOptions = { model: 'gpt-6.1-sol' }
+    session.appliedTurnOptions = { model: 'gpt-6.1-sol' }
     await primePicker(session)
 
     await expect(
@@ -779,7 +881,8 @@ describe('Codex reported tier', () => {
     ['untouched', []],
     ['re-picked', ['priority', 'ultrafast']]
   ])('preserves a %s tier choice when switching models', async (_case, picks) => {
-    const session = optionSession(vi.fn(async () => listing))
+    const request = vi.fn(async (_method: string) => listing)
+    const session = optionSession(request)
     session.reportedOptions = {
       model: 'gpt-6.1-sol',
       serviceTier: 'ultrafast',
@@ -798,7 +901,13 @@ describe('Codex reported tier', () => {
     })
     await expect(
       applyCodexStructuredSessionOption(session, 'serviceTier', 'ultrafast')
-    ).resolves.toMatchObject({ serviceTier: 'ultrafast' })
+    ).rejects.toThrow('does not offer the ultrafast tier')
+    expect(Object.fromEntries(session.options)).toEqual({
+      model: 'gpt-6-luna',
+      ...(picks.length ? { serviceTier: 'ultrafast' } : {})
+    })
+    expect(session.reportedOptions.serviceTier).toBe('ultrafast')
+    expect(request.mock.calls.some(([method]) => method === 'turn/start')).toBe(false)
   })
 })
 
@@ -816,6 +925,7 @@ describe('Codex option picks before the model list arrives', () => {
       spawnToken: 'spawn-1'
     })
     expect(codex.connections[0].calls.some((call) => call.method === 'model/list')).toBe(false)
+    const before = await adapter.readOptions({ sessionId: 'session-1', fence: 7 })
     const pick = (key: string, value: string) =>
       adapter.setOption({ sessionId: 'session-1', key, value, fence: 7 })
 
@@ -826,13 +936,15 @@ describe('Codex option picks before the model list arrives', () => {
       effort: 'low',
       serviceTier: 'priority'
     })
-    expect((await adapter.readOptions({ sessionId: 'session-1', fence: 7 })).current).toMatchObject(
-      {
-        model: 'gpt-next',
-        effort: 'low',
-        serviceTier: 'priority'
-      }
-    )
+    const picked = await adapter.readOptions({ sessionId: 'session-1', fence: 7 })
+    expect(picked.current.model).toBe(before.current.model)
+    expect(picked.current.effort).toBe(before.current.effort)
+    expect(picked.current.serviceTier).toBe('priority')
+    expect(picked.speed).toMatchObject({
+      requested: { tierId: 'priority' },
+      processing: { status: 'unknown' }
+    })
+    expect(picked.speed).not.toHaveProperty('applied')
     await expect(
       adapter.dispatch({
         sessionId: 'session-1',
@@ -848,6 +960,24 @@ describe('Codex option picks before the model list arrives', () => {
     expect(codex.connections[0].calls.filter((call) => call.method === 'model/list')).toHaveLength(
       0
     )
+    await expect(pick('serviceTier', 'default')).resolves.toEqual({
+      model: 'gpt-next',
+      effort: 'low',
+      serviceTier: 'default'
+    })
+    await expect(
+      adapter.dispatch({
+        sessionId: 'session-1',
+        clientMessageId: 'explicit-standard',
+        body: USER_MESSAGE,
+        fence: 7
+      })
+    ).resolves.toMatchObject({ state: 'admitted' })
+    expect(codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+      model: 'gpt-next',
+      effort: 'low',
+      serviceTier: 'default'
+    })
     pending.resolve({ data: [], nextCursor: null })
   })
 })

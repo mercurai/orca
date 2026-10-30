@@ -303,11 +303,14 @@ export class WslMoveOrchestrator {
   }
 
   private saveAndPublish(): void {
-    try {
-      this.ports.save(this.records)
-    } catch (error) {
+    const onSaveError = (error: unknown): void => {
       // The sidecar is the orchestrator's memory, not the move's record: keep going in memory.
       console.warn('[wsl-move] Orchestrator state not saved:', error)
+    }
+    try {
+      void Promise.resolve(this.ports.save(new Map(this.records))).catch(onSaveError)
+    } catch (error) {
+      onSaveError(error)
     }
     this.ports.publish(this.list())
   }

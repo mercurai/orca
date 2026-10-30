@@ -21,9 +21,7 @@ export function acknowledgeCodexSpeed(
     return
   }
   host.speedAcknowledgedSequence = sequence
-  if (tierId !== undefined) {
-    host.speedApplied = { sequence, tierId, turnId }
-  }
+  host.speedApplied = tierId === undefined ? undefined : { sequence, tierId, turnId }
 }
 
 export function readCodexSessionSpeed(

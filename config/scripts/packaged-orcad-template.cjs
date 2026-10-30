@@ -132,7 +132,7 @@ async function finalizePackagedOrcadTemplate(resourcesDir, options) {
     resealOrcadTemplateManifest(templateDir, machO)
   }
   compactPackagedOrcadRipgrep(resourcesDir, targets)
-  referencePackagedOrcadBrowser(resourcesDir)
+  referencePackagedOrcadBrowser(resourcesDir, targets)
 }
 
 /** `inner-signing-list.txt` lines are app-relative Windows paths; keep the template's. */

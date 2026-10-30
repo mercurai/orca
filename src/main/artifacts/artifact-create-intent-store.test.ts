@@ -61,64 +61,110 @@ describe('artifact create intent store', () => {
     const userDataPath = await createUserDataPath()
     const gate = holdNextStagedIntent()
     const first = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/first.html', scope, 'first-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/first.html',
+      scope,
+      'first-key',
+      body
     )
     await gate.entered
     const second = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/second.html', scope, 'second-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/second.html',
+      scope,
+      'second-key',
+      body
     )
     gate.release()
     const outcomes = await Promise.allSettled([first, second])
     expect(outcomes.map((outcome) => outcome.status)).toEqual(['fulfilled', 'fulfilled'])
-    expect(getArtifactCreateIntent('local-profile', userDataPath, '/repo/first.html', scope))
-      .toMatchObject({ idempotencyKey: 'first-key' })
-    expect(getArtifactCreateIntent('local-profile', userDataPath, '/repo/second.html', scope))
-      .toMatchObject({ idempotencyKey: 'second-key' })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/first.html', scope)
+    ).toMatchObject({ idempotencyKey: 'first-key' })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/second.html', scope)
+    ).toMatchObject({ idempotencyKey: 'second-key' })
   })
 
   it('admits only one of two different sources competing for the final recovery slot', async () => {
     const userDataPath = await createUserDataPath()
     for (let index = 0; index < MAX_PENDING_ARTIFACT_CREATES - 1; index += 1) {
       await getOrCreateArtifactCreateIntent(
-        'local-profile', userDataPath, `/repo/full-${index}.html`, scope, `key-${index}`, body
+        'local-profile',
+        userDataPath,
+        `/repo/full-${index}.html`,
+        scope,
+        `key-${index}`,
+        body
       )
     }
     const gate = holdNextStagedIntent()
     const first = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/first.html', scope, 'first-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/first.html',
+      scope,
+      'first-key',
+      body
     )
     await gate.entered
     const second = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/second.html', scope, 'second-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/second.html',
+      scope,
+      'second-key',
+      body
     )
     gate.release()
     const outcomes = await Promise.allSettled([first, second])
-    expect(outcomes[0]).toMatchObject({ status: 'fulfilled', value: { idempotencyKey: 'first-key' } })
+    expect(outcomes[0]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'first-key' }
+    })
     expect(outcomes[1]).toMatchObject({
       status: 'rejected',
       reason: expect.objectContaining({ message: expect.stringMatching(/waiting for recovery/) })
     })
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    expect((await readdir(directory)).filter((name) => name.endsWith('.json')))
-      .toHaveLength(MAX_PENDING_ARTIFACT_CREATES)
+    expect((await readdir(directory)).filter((name) => name.endsWith('.json'))).toHaveLength(
+      MAX_PENDING_ARTIFACT_CREATES
+    )
   })
 
   it('cancels active and queued creates on clear while preserving a fresh same-source create', async () => {
     const userDataPath = await createUserDataPath()
     const gate = holdNextStagedIntent()
     const active = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/first.html', scope, 'old-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/first.html',
+      scope,
+      'old-key',
+      body
     )
     await gate.entered
     const queued = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/queued.html', scope, 'queued-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/queued.html',
+      scope,
+      'queued-key',
+      body
     )
     const operations = [active, queued]
     try {
       clearArtifactCreateIntents('local-profile', userDataPath)
       operations.push(
         getOrCreateArtifactCreateIntent(
-          'local-profile', userDataPath, '/repo/first.html', scope, 'fresh-key', body
+          'local-profile',
+          userDataPath,
+          '/repo/first.html',
+          scope,
+          'fresh-key',
+          body
         )
       )
     } finally {
@@ -126,12 +172,24 @@ describe('artifact create intent store', () => {
       await Promise.allSettled(operations)
     }
     const outcomes = await Promise.allSettled(operations)
-    expect(outcomes[0]).toMatchObject({ status: 'rejected', reason: expect.any(SecureWriteDiscardedError) })
-    expect(outcomes[1]).toMatchObject({ status: 'rejected', reason: expect.any(SecureWriteDiscardedError) })
-    expect(outcomes[2]).toMatchObject({ status: 'fulfilled', value: { idempotencyKey: 'fresh-key' } })
-    expect(getArtifactCreateIntent('local-profile', userDataPath, '/repo/queued.html', scope)).toBeNull()
-    expect(getArtifactCreateIntent('local-profile', userDataPath, '/repo/first.html', scope))
-      .toMatchObject({ idempotencyKey: 'fresh-key' })
+    expect(outcomes[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[2]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'fresh-key' }
+    })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/queued.html', scope)
+    ).toBeNull()
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/first.html', scope)
+    ).toMatchObject({ idempotencyKey: 'fresh-key' })
   })
 
   it('invalidates a queued create even when clear finds no directory', async () => {
@@ -145,17 +203,33 @@ describe('artifact create intent store', () => {
     })
     await entered.promise
     const stale = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/report.html', scope, 'old-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'old-key',
+      body
     )
     clearArtifactCreateIntents('local-profile', userDataPath)
     const fresh = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/report.html', scope, 'fresh-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'fresh-key',
+      body
     )
     release.resolve()
     const outcomes = await Promise.allSettled([stale, fresh])
     await held
-    expect(outcomes[0]).toMatchObject({ status: 'rejected', reason: expect.any(SecureWriteDiscardedError) })
-    expect(outcomes[1]).toMatchObject({ status: 'fulfilled', value: { idempotencyKey: 'fresh-key' } })
+    expect(outcomes[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'fresh-key' }
+    })
   })
 
   it('cancels a cleared intent after rename but before its write promise settles', async () => {
@@ -170,19 +244,36 @@ describe('artifact create intent store', () => {
       return result
     })
     const stale = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/report.html', scope, 'old-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'old-key',
+      body
     )
     await entered.promise
     clearArtifactCreateIntents('local-profile', userDataPath)
     const fresh = getOrCreateArtifactCreateIntent(
-      'local-profile', userDataPath, '/repo/report.html', scope, 'fresh-key', body
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'fresh-key',
+      body
     )
     release.resolve()
     const outcomes = await Promise.allSettled([stale, fresh])
-    expect(outcomes[0]).toMatchObject({ status: 'rejected', reason: expect.any(SecureWriteDiscardedError) })
-    expect(outcomes[1]).toMatchObject({ status: 'fulfilled', value: { idempotencyKey: 'fresh-key' } })
-    expect(getArtifactCreateIntent('local-profile', userDataPath, '/repo/report.html', scope))
-      .toMatchObject({ idempotencyKey: 'fresh-key' })
+    expect(outcomes[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'fresh-key' }
+    })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/report.html', scope)
+    ).toMatchObject({ idempotencyKey: 'fresh-key' })
   })
 
   it('retains the first key and exact request until the matching create completes', async () => {

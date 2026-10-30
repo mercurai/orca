@@ -68,15 +68,23 @@ it('cannot publish a call held in audit after removal and an identical reinstall
     await original.call(this, entry)
   })
   const oldCall = service.executeHostCall(
-    key, 'settings.set', { key: 'value', value: 'synthetic-old' }, 'worker'
+    key,
+    'settings.set',
+    { key: 'value', value: 'synthetic-old' },
+    'worker'
   )
   try {
     await entered.promise
     await removeThroughPluginIpc(key)
     await reinstall()
-    expect(await service.executeHostCall(
-      key, 'settings.set', { key: 'value', value: 'synthetic-current' }, 'worker'
-    )).toMatchObject({ ok: true })
+    expect(
+      await service.executeHostCall(
+        key,
+        'settings.set',
+        { key: 'value', value: 'synthetic-current' },
+        'worker'
+      )
+    ).toMatchObject({ ok: true })
     release.resolve()
     expect(await oldCall).toMatchObject({ ok: false, code: 'action_failed' })
     const current = new PluginKvStore(getPluginsDataDir(root), key, 'settings.json')
@@ -91,24 +99,37 @@ it('denies host-call admission during removal without changing capability metada
   const { root, service, key } = await settingsPlugin()
   const entered = Promise.withResolvers<void>()
   const release = Promise.withResolvers<void>()
-  const removal = service.removePlugin(key, async () => {
-    entered.resolve()
-    await release.promise
-    throw new Error('Controlled removal failure')
-  }).catch((error: unknown) => error)
+  const removal = service
+    .removePlugin(key, async () => {
+      entered.resolve()
+      await release.promise
+      throw new Error('Controlled removal failure')
+    })
+    .catch((error: unknown) => error)
   try {
     await entered.promise
     expect(service.getGrantedCapabilities(key)).toEqual(['settings:own'])
-    expect(await service.executeHostCall(
-      key, 'settings.set', { key: 'value', value: 'synthetic-rejected' }, 'worker'
-    )).toMatchObject({ ok: false })
-    expect(new PluginKvStore(getPluginsDataDir(root), key, 'settings.json').get('value'))
-      .toBeUndefined()
+    expect(
+      await service.executeHostCall(
+        key,
+        'settings.set',
+        { key: 'value', value: 'synthetic-rejected' },
+        'worker'
+      )
+    ).toMatchObject({ ok: false })
+    expect(
+      new PluginKvStore(getPluginsDataDir(root), key, 'settings.json').get('value')
+    ).toBeUndefined()
   } finally {
     release.resolve()
   }
   expect(await removal).toEqual(new Error('Controlled removal failure'))
-  expect(await service.executeHostCall(
-    key, 'settings.set', { key: 'value', value: 'synthetic-recovered' }, 'worker'
-  )).toMatchObject({ ok: true })
+  expect(
+    await service.executeHostCall(
+      key,
+      'settings.set',
+      { key: 'value', value: 'synthetic-recovered' },
+      'worker'
+    )
+  ).toMatchObject({ ok: true })
 })

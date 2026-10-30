@@ -306,16 +306,21 @@ describe('Windows server prebuild cache inputs', () => {
       const lock = readFileSync(lockPath, 'utf8')
       const entry = /(\n {2}node-pty@[^\n]+:\n {4}resolution: )\{([^\n}]+)\}/
       expect(lock).toMatch(entry)
-      const baseline = lock.replace(entry, (_match, prefix, body) =>
-        `${prefix}{${body}, tarball: 'https://example.invalid/node-pty-one.tgz'}`
+      const baseline = lock.replace(
+        entry,
+        (_match, prefix, body) =>
+          `${prefix}{${body}, tarball: 'https://example.invalid/node-pty-one.tgz'}`
       )
       writeFileSync(lockPath, baseline)
       const before = windowsPrebuildCacheIdentity({ ...options, repository }).key
-      const changed = field === 'integrity'
-        ? baseline.replace(entry, (_match, prefix, body) =>
-            `${prefix}{${body.replace(/integrity: [^,\s]+/, 'integrity: sha512-Y2hhbmdlZA==')}}`
-          )
-        : baseline.replace('node-pty-one.tgz', 'node-pty-two.tgz')
+      const changed =
+        field === 'integrity'
+          ? baseline.replace(
+              entry,
+              (_match, prefix, body) =>
+                `${prefix}{${body.replace(/integrity: [^,\s]+/, 'integrity: sha512-Y2hhbmdlZA==')}}`
+            )
+          : baseline.replace('node-pty-one.tgz', 'node-pty-two.tgz')
       expect(changed).not.toBe(baseline)
       writeFileSync(lockPath, changed)
       expect(windowsPrebuildCacheIdentity({ ...options, repository }).key).not.toBe(before)
@@ -328,13 +333,23 @@ describe('Windows server prebuild cache inputs', () => {
     const lock = readFileSync(lockPath, 'utf8')
     const entry = /(\n {2}node-pty@[^\n]+:\n {4}resolution: )\{([^\n}]+)\}/
     expect(lock).toMatch(entry)
-    writeFileSync(lockPath, lock.replace(entry, (_match, prefix, body) =>
-      `${prefix}{${body}, tarball: 'https://example.invalid/node-pty.tgz'}`
-    ))
+    writeFileSync(
+      lockPath,
+      lock.replace(
+        entry,
+        (_match, prefix, body) =>
+          `${prefix}{${body}, tarball: 'https://example.invalid/node-pty.tgz'}`
+      )
+    )
     const before = windowsPrebuildCacheIdentity({ ...options, repository }).key
-    writeFileSync(lockPath, lock.replace(entry, (_match, prefix, body) =>
-      `${prefix}{tarball: 'https://example.invalid/node-pty.tgz', ${body}}`
-    ))
+    writeFileSync(
+      lockPath,
+      lock.replace(
+        entry,
+        (_match, prefix, body) =>
+          `${prefix}{tarball: 'https://example.invalid/node-pty.tgz', ${body}}`
+      )
+    )
     expect(windowsPrebuildCacheIdentity({ ...options, repository }).key).toBe(before)
   })
 

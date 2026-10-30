@@ -257,25 +257,31 @@ export function registerWslHostHandlers(args: WslHostHandlerArgs): Promise<void>
   }
   // Install no API without a service, matching the preload gate.
   const existing = getWslHostService()
-  if (!existing && (!wslHostsServing() || (process.platform !== 'win32' && !readFakeWslHostsConfig()))) {
+  if (
+    !existing &&
+    (!wslHostsServing() || (process.platform !== 'win32' && !readFakeWslHostsConfig()))
+  ) {
     releaseHoldersWhileGatedOff(args.getUserDataPath())
     return Promise.resolve()
   }
   if (!existing && !pendingService) {
     const pending = startService(args)
     pendingService = pending
-    void pending.finally(() => {
-      if (pendingService === pending) pendingService = null
-    }).catch(() => {})
+    void pending
+      .finally(() => {
+        if (pendingService === pending) pendingService = null
+      })
+      .catch(() => {})
   }
   const ready = existing ? Promise.resolve(existing) : pendingService!
-  const useService = <T>(run: (wsl: WslHostService) => T): T | Promise<Awaited<T>> => {
+  const useService = <T>(run: (wsl: WslHostService) => T) => {
     if (existing) {
       if (getWslHostService() !== existing) throw new Error('WSL host service was replaced.')
       return run(existing)
     }
     return ready.then((service) => {
-      if (!service || getWslHostService() !== service) throw new Error('WSL hosts are not available in this build.')
+      if (!service || getWslHostService() !== service)
+        throw new Error('WSL hosts are not available in this build.')
       return run(service)
     })
   }
@@ -316,31 +322,37 @@ export function registerWslHostHandlers(args: WslHostHandlerArgs): Promise<void>
       request: { environmentId: string; intent?: unknown; withdrawPendingRemoval?: unknown }
     ) => useService((wsl) => wsl.connect(request.environmentId, wslHostConnectOptions(request)))
   )
-  ipcMain.handle('wslHosts:getCapability', () => useService((wsl): WslHostCapability => ({
-    serverFiles: wsl.hasServerFiles(),
-    acceptsNewWork: wslHostsGateOpen()
-  })))
+  ipcMain.handle('wslHosts:getCapability', () =>
+    useService((wsl): WslHostCapability => ({
+      serverFiles: wsl.hasServerFiles(),
+      acceptsNewWork: wslHostsGateOpen()
+    }))
+  )
   ipcMain.handle('wslHosts:getStatuses', () => useService((wsl) => wsl.getStatuses()))
   const visibleWork = new WslHostVisibleWorkByWindow()
-  ipcMain.handle('wslHosts:setVisibleWork', (event, request: { environmentIds: string[] }) => useService((wsl) => {
-    const sender = event.sender
-    if (typeof sender.isDestroyed === 'function' && sender.isDestroyed()) return
-    const windowId = sender.id
-    const ids = Array.isArray(request.environmentIds) ? request.environmentIds : []
-    if (!visibleWork.has(windowId)) {
-      const lifetime = abortWhenRendererGone(sender)
-      lifetime.signal.addEventListener(
-        'abort',
-        () => wsl.setVisibleWork(visibleWork.forget(windowId)),
-        { once: true }
-      )
-    }
-    wsl.setVisibleWork(visibleWork.report(windowId, ids))
-  }))
+  ipcMain.handle('wslHosts:setVisibleWork', (event, request: { environmentIds: string[] }) =>
+    useService((wsl) => {
+      const sender = event.sender
+      if (typeof sender.isDestroyed === 'function' && sender.isDestroyed()) return
+      const windowId = sender.id
+      const ids = Array.isArray(request.environmentIds) ? request.environmentIds : []
+      if (!visibleWork.has(windowId)) {
+        const lifetime = abortWhenRendererGone(sender)
+        lifetime.signal.addEventListener(
+          'abort',
+          () => wsl.setVisibleWork(visibleWork.forget(windowId)),
+          { once: true }
+        )
+      }
+      wsl.setVisibleWork(visibleWork.report(windowId, ids))
+    })
+  )
   // The user switched to a workspace on this host: the focus entry that may boot its distro.
-  ipcMain.handle('wslHosts:focusHost', (_event, request: { environmentId: string | null }) => useService((wsl) => {
-    // null: the user is on a workspace that isn't on a WSL host.
-    wsl.focusHost(typeof request?.environmentId === 'string' ? request.environmentId : null)
-  }))
+  ipcMain.handle('wslHosts:focusHost', (_event, request: { environmentId: string | null }) =>
+    useService((wsl) => {
+      // null: the user is on a workspace that isn't on a WSL host.
+      wsl.focusHost(typeof request?.environmentId === 'string' ? request.environmentId : null)
+    })
+  )
   return ready.then(() => undefined)
 }

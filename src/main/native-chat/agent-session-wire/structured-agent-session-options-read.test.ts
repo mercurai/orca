@@ -346,10 +346,17 @@ describe('a chat at rest, read by the host', () => {
       expect(provider.current).toMatchObject({ effort: 'high', serviceTier: 'rapid' })
       expect(provider.current).not.toHaveProperty('model')
       expect(provider.current).not.toHaveProperty('fastMode')
+      expect(native.options.get('model')).toBe('C')
+      expect(provider.speed).toMatchObject({ processing: { status: 'unknown' } })
+      expect(provider.speed).not.toHaveProperty('requested')
       const savedOptions: Record<string, string>[] = [{}, { model: 'C' }]
       for (const saved of savedOptions) {
         const host = await readAtRest({ options: saved }, [turnBody], true, models, true, provider)
         expect(host.current.serviceTier).toBe('rapid')
+        if (saved.model !== undefined) {
+          expect(host.current.model).toBe(saved.model)
+          expect(host.current.defaulted).not.toContain('model')
+        }
         const seed = getAgentSessionOptionCatalog('codex')!
         let state = applyStructuredAgentSessionModelCatalog(
           createStructuredAgentSessionOptionState('codex'),
@@ -364,6 +371,9 @@ describe('a chat at rest, read by the host', () => {
         state = applyStructuredAgentSessionOptions(state, seed, host)
         expect(structuredAgentSessionDrawnValues(state).serviceTier?.value).toBe('rapid')
         expect(state.record.values.model?.value).toBe(host.current.model)
+        if (saved.model !== undefined) {
+          expect(structuredAgentSessionSendSelection(state)?.model).toBe(saved.model)
+        }
       }
     }
     const turnBody = turn

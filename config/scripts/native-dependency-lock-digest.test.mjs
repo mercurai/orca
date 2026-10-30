@@ -258,7 +258,10 @@ describe('native dependency locked-source identity', () => {
     [
       'local directory source',
       (project) => {
-        project.packages['node-pty@1.1.0'].resolution = { type: 'directory', directory: '../mutable' }
+        project.packages['node-pty@1.1.0'].resolution = {
+          type: 'directory',
+          directory: '../mutable'
+        }
       }
     ],
     [

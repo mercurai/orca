@@ -174,7 +174,7 @@ describe('a chat that starts under the account', () => {
     await probed()
     service.providerStarted({
       ...agentSessionRecordFixture(),
-      provider: agent,
+      provider: 'grok',
       accountHome: { variable: 'GROK_HOME', path: HOME },
       location: {
         executionHostId: LOCAL_EXECUTION_HOST_ID,
@@ -183,7 +183,7 @@ describe('a chat that starts under the account', () => {
         workspaceKind: 'folder'
       }
     })
-    expect(store.hasActiveFailure(FINGERPRINT)).toBe(false)
+    await vi.waitFor(() => expect(store.hasActiveFailure(FINGERPRINT)).toBe(false))
     answerWith(async () => listing('gpt-live', 'probe'))
     expect(await service.read({ agent: 'grok', waitForListing: true })).not.toHaveProperty(
       'unavailable'

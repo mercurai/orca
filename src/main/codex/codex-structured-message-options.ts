@@ -61,8 +61,14 @@ export function readCodexAppliedInputOptions(
   session: CodexSession | undefined,
   input: Parameters<NonNullable<StructuredAgentSessionAdapter['readAppliedInputOptions']>>[0]
 ): ReturnType<NonNullable<StructuredAgentSessionAdapter['readAppliedInputOptions']>> {
-  if (!session || session.ended || session.connection.closed || session.fence !== input.fence ||
-      session.acquisitionGeneration !== input.acquisitionGeneration || !session.appliedTurnOptions) {
+  if (
+    !session ||
+    session.ended ||
+    session.connection.closed ||
+    session.fence !== input.fence ||
+    session.acquisitionGeneration !== input.acquisitionGeneration ||
+    !session.appliedTurnOptions
+  ) {
     return null
   }
   const active = session.appliedTurnOptions

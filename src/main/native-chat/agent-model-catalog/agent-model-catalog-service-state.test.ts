@@ -28,7 +28,11 @@ function rig() {
   let selected = '/synthetic/account-a'
   const store = new AgentModelCatalogStore({ now: () => now })
   const pending = Promise.withResolvers<AgentModelCatalogSuccess>()
-  const probe = vi.fn(() => pending.promise)
+  const probeEntered = Promise.withResolvers<void>()
+  const probe = vi.fn(() => {
+    probeEntered.resolve()
+    return pending.promise
+  })
   const service = createAgentModelCatalogService({
     store,
     getConversation: () => undefined,
@@ -52,6 +56,7 @@ function rig() {
     },
     pending,
     probe,
+    probeEntered: probeEntered.promise,
     selectedKey: () => key(selected),
     advance: (ms: number) => {
       now += ms
@@ -224,6 +229,7 @@ describe('account-scoped catalog confidence', () => {
         catalogState: 'loading',
         listingInProgress: true
       })
+      await r.probeEntered
       expect(
         await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })
       ).toMatchObject({
@@ -273,6 +279,7 @@ describe('account-scoped catalog confidence', () => {
     r.store.expireAgent('codex')
     try {
       await r.service.read({ agent: 'codex', workspacePath: null })
+      await r.probeEntered
       r.select('/synthetic/account-b')
       expect(
         await r.service.read({ agent: 'codex', workspacePath: null, savedOnly: true })

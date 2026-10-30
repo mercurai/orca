@@ -12,6 +12,7 @@ import {
   structuredAgentSessionOwnValue
 } from './structured-agent-session-option-state'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from './agent-chat-permission-mode'
+import { STANDARD_SERVICE_TIER } from './structured-agent-session-effective-tier'
 
 /** Derive held picks, host values and launch seeds without mutating the record; retain unlisted models.
  * Permission mode uses held, host, explicit launch mode, then seed. */
@@ -119,17 +120,22 @@ export function structuredAgentSessionSendSelection(
     structuredAgentSessionOwnValue(view.record, 'effort') ??
     (view.defaultsUnsent ? undefined : shown('effort'))
   if (view.record.agent === 'codex') {
-    const serviceTier = shown('serviceTier')
+    const tier = snapshot.find((descriptor) => descriptor.id === 'serviceTier')?.kind
+    const serviceTier = tier?.type === 'select' ? tier.currentValue : undefined
     const legacy = snapshot.find((descriptor) => descriptor.id === 'fastMode')
+    const trackedLegacy = view.record.values.fastMode
+    const legacySource = legacy?.valueSource ?? trackedLegacy?.source
+    const legacyValue =
+      legacy?.kind.type === 'boolean' ? legacy.kind.currentValue : trackedLegacy?.value
     const legacyIntent =
-      legacy?.valueSource === 'applied' ||
-      legacy?.valueSource === 'dispatched' ||
-      legacy?.valueSource === 'reported'
+      legacySource === 'applied' || legacySource === 'dispatched' || legacySource === 'reported'
     const speed: Record<string, string> | undefined =
       serviceTier !== undefined
         ? { serviceTier }
-        : legacyIntent && legacy?.kind.type === 'boolean'
-          ? { fastMode: String(legacy.kind.currentValue) }
+        : legacyIntent && typeof legacyValue === 'boolean'
+          ? tier?.type === 'select' && !legacyValue
+            ? { serviceTier: STANDARD_SERVICE_TIER }
+            : { fastMode: String(legacyValue) }
           : undefined
     return model || effort || speed
       ? { ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...speed }

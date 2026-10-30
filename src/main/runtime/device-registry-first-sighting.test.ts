@@ -26,7 +26,12 @@ function gatedWrite() {
   const gate = Promise.withResolvers<void>()
   const realWrite = DeviceRegistryStorage.prototype.write
   const write = vi.spyOn(DeviceRegistryStorage.prototype, 'write')
-  write.mockImplementationOnce(async function (this: DeviceRegistryStorage, devices, options, before) {
+  write.mockImplementationOnce(async function (
+    this: DeviceRegistryStorage,
+    devices,
+    options,
+    before
+  ) {
     entered.resolve()
     await gate.promise
     return realWrite.call(this, devices, options, before)

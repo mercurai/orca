@@ -147,7 +147,9 @@ export class RunProcessTable {
         entry.settle({
           kind: 'rejected',
           error: Object.assign(
-            new Error(`${error.message}; command outcome and child lifetime are unknown; reconciliation is required`),
+            new Error(
+              `${error.message}; command outcome and child lifetime are unknown; reconciliation is required`
+            ),
             code ? { code } : {}
           )
         })

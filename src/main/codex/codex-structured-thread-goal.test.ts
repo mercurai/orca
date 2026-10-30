@@ -224,13 +224,6 @@ describe('direct goal settings application', () => {
         },
         {
           clientMessageId: 'follow-up',
-          fence: 7,
-          payloadFingerprint: 'fingerprint',
-          dispatchState: 'pending',
-          providerItemId: null,
-          reason: null,
-          submittedAt: 1,
-          resolvedAt: null,
           options
         },
         { fence: 7, generation: acquisition.acquisitionGeneration, phase: 'ready' },

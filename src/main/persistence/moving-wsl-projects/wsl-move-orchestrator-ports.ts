@@ -50,7 +50,7 @@ export type WslMoveOrchestratorPorts = {
     unsavedWorkspaceIds: readonly string[]
   ) => Promise<WslMoveUseLocallyResult>
   load: () => Map<string, WslMoveOrchestratorRecord>
-  save: (records: ReadonlyMap<string, WslMoveOrchestratorRecord>) => void
+  save: (records: ReadonlyMap<string, WslMoveOrchestratorRecord>) => void | Promise<void>
   /** Returns the cancel. */
   schedule: (delayMs: number, run: () => void) => () => void
   /** One row per state change; `cause` is the preview or result behind it. */

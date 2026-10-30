@@ -98,9 +98,9 @@ export async function removeWslHostServer(
         userDataPath,
         record.environmentId,
         record.createdAt,
-        () => {
+        async () => {
           try {
-            noteServerKeptForPeers(userDataPath, record.environmentId, stopped)
+            await noteServerKeptForPeers(userDataPath, record.environmentId, stopped)
           } catch (error) {
             markerFailed = true
             markerError = error
@@ -123,26 +123,31 @@ export async function removeWslHostServer(
   }
 
   const { reason, reasonCode, reasonParams } = serverStop
-  await setWslHostPendingStop(userDataPath, record.environmentId, {
-    since: Date.now(),
-    reason,
-    ...(reasonCode ? { reasonCode } : {}),
-    ...(reasonCode && reasonParams ? { reasonParams } : {}),
-    verdict: serverStop.verdict ?? 'unverifiable'
-  }, record.createdAt)
+  await setWslHostPendingStop(
+    userDataPath,
+    record.environmentId,
+    {
+      since: Date.now(),
+      reason,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonCode && reasonParams ? { reasonParams } : {}),
+      verdict: serverStop.verdict ?? 'unverifiable'
+    },
+    record.createdAt
+  )
   return { serverStop: { ...serverStop, kept: true }, removed: false }
 }
 
 /** The marker is written before deletion so a crash cannot hide a peer-owned server. */
-function noteServerKeptForPeers(
+async function noteServerKeptForPeers(
   userDataPath: string,
   environmentId: string,
   serverStop: Extract<WslHostServerStop, { stopped: true }>
-): void {
+): Promise<void> {
   if (serverStop.keptForOtherDesktops) {
-    recordWslHostKeptForPeers(userDataPath, environmentId)
+    await recordWslHostKeptForPeers(userDataPath, environmentId)
   } else {
-    forgetWslHostKeptForPeers(userDataPath, environmentId)
+    await forgetWslHostKeptForPeers(userDataPath, environmentId)
   }
 }
 

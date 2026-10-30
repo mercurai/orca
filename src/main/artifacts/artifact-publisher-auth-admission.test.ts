@@ -4,10 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as secureWrites from '../../shared/secure-file-async-write'
 import { ArtifactPublisher } from './artifact-publisher'
-import {
-  clearArtifactCreateIntents,
-  getArtifactCreateIntent
-} from './artifact-create-intent-store'
+import { clearArtifactCreateIntents, getArtifactCreateIntent } from './artifact-create-intent-store'
 import {
   captureArtifactShareLifecycle,
   type ArtifactShareScope
@@ -69,7 +66,9 @@ describe('artifact publisher create admission', () => {
       publisher.share(request, 'synthetic-access-token', scope.apiOrigin, auth, 'first-key')
     ).rejects.toBe(failure)
     expect(fetch).not.toHaveBeenCalled()
-    expect(getArtifactCreateIntent(auth.profileId, userDataPath, request.sourceKey, scope)).toBeNull()
+    expect(
+      getArtifactCreateIntent(auth.profileId, userDataPath, request.sourceKey, scope)
+    ).toBeNull()
   })
 
   it.each(['source-switch', 'sign-out'] as const)(
@@ -101,7 +100,13 @@ describe('artifact publisher create admission', () => {
         }
       }
       const publisher = new ArtifactPublisher(userDataPath)
-      const pending = publisher.share(request, 'synthetic-access-token', scope.apiOrigin, auth, 'first-key')
+      const pending = publisher.share(
+        request,
+        'synthetic-access-token',
+        scope.apiOrigin,
+        auth,
+        'first-key'
+      )
       const refused = expect(pending).rejects.toBe(changed)
       try {
         await entered.promise
@@ -118,8 +123,15 @@ describe('artifact publisher create admission', () => {
       current = true
       auth.lifecycle = captureArtifactShareLifecycle(auth.profileId, userDataPath)
       expect(
-        (await publisher.share(request, 'synthetic-access-token', scope.apiOrigin, auth, 'retry-key'))
-          .artifact.slug
+        (
+          await publisher.share(
+            request,
+            'synthetic-access-token',
+            scope.apiOrigin,
+            auth,
+            'retry-key'
+          )
+        ).artifact.slug
       ).toBe(response.artifact.slug)
       expect(fetch).toHaveBeenCalledOnce()
       expect(fetch).toHaveBeenCalledWith(
@@ -131,7 +143,9 @@ describe('artifact publisher create admission', () => {
           })
         })
       )
-      expect(getArtifactCreateIntent(auth.profileId, userDataPath, request.sourceKey, scope)).toBeNull()
+      expect(
+        getArtifactCreateIntent(auth.profileId, userDataPath, request.sourceKey, scope)
+      ).toBeNull()
     }
   )
 })

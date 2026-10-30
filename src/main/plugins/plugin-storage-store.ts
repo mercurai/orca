@@ -84,7 +84,10 @@ export class PluginKvStore {
   }
 
   delete(key: string): Promise<void> {
-    return this.mutation.run(() => this.deleteUnserialized(key), () => undefined)
+    return this.mutation.run(
+      () => this.deleteUnserialized(key),
+      () => undefined
+    )
   }
 
   private async setUnserialized(key: string, value: PluginJsonValue): Promise<PluginKvWriteResult> {

@@ -37,7 +37,7 @@ export function adapterWithIndependentCatalog(
   }
   const demand = async () => {
     if (modelCatalog.shouldRefresh(access.fingerprint)) {
-      work.push(modelCatalog.refresh(access.fingerprint, 'codex', probe, probe))
+      work.push(modelCatalog.refresh(access.fingerprint, 'codex', probe))
     }
   }
   const adapter = baseAdapterFor(codex, { ...launch, codexHome: home }, events, {

@@ -337,7 +337,9 @@ export class GitSpawnWorkerClient {
       if (entry.pid !== undefined) this.markClosed(entry)
       // Why a copy per request: callers attach their own output to the error they receive.
       const own = Object.assign(
-        new Error(`${error.message}; command outcome and child lifetime are unknown; reconciliation is required`),
+        new Error(
+          `${error.message}; command outcome and child lifetime are unknown; reconciliation is required`
+        ),
         code ? { code } : {}
       )
       this.settle(entry, { kind: 'failed', error: own })

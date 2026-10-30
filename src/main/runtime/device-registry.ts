@@ -131,7 +131,13 @@ export class DeviceRegistry {
     await this.commit(nextDevices)
     const retained = this.devices.find((device) => device.deviceId === updated.deviceId)
     if (!retained || retained.credentialKind !== undefined || !retained.token) {
-      return this.createAndPersistDevice(this.devices, updated.name, updated.scope, pairingReach, updated.grants ?? [])
+      return this.createAndPersistDevice(
+        this.devices,
+        updated.name,
+        updated.scope,
+        pairingReach,
+        updated.grants ?? []
+      )
     }
     return { ...retained, token: retained.token }
   }
@@ -166,7 +172,11 @@ export class DeviceRegistry {
   ): Promise<DelegatedMobileDeviceEntry[]> {
     const priorChildren = this.devices.filter((device) => device.parentDeviceId === parent.deviceId)
     return this.serialized(async () => {
-      if (priorChildren.some((old) => !this.devices.some((device) => device.deviceId === old.deviceId))) {
+      if (
+        priorChildren.some(
+          (old) => !this.devices.some((device) => device.deviceId === old.deviceId)
+        )
+      ) {
         return []
       }
       // Why: the parent may have been revoked while this waited; never mint children under it then.
@@ -178,12 +188,19 @@ export class DeviceRegistry {
         const before = new Set(this.devices.map((device) => device.deviceId))
         await this.commit(nextDevices)
         if (!this.getDevice(parent.deviceId) || this.revocations.has(parent.deviceId)) {
-          const created = new Set(entries.filter((entry) => !before.has(entry.deviceId)).map((entry) => entry.deviceId))
-          await this.commit(this.devices.filter((device) => !created.has(device.deviceId)), { durable: true })
+          const created = new Set(
+            entries.filter((entry) => !before.has(entry.deviceId)).map((entry) => entry.deviceId)
+          )
+          await this.commit(
+            this.devices.filter((device) => !created.has(device.deviceId)),
+            { durable: true }
+          )
           throw new Error('delegated_device_parent_unavailable')
         }
       }
-      return entries.filter((entry) => this.devices.some((device) => device.deviceId === entry.deviceId))
+      return entries.filter((entry) =>
+        this.devices.some((device) => device.deviceId === entry.deviceId)
+      )
     })
   }
 
@@ -310,7 +327,10 @@ export class DeviceRegistry {
       }
       if (!this.getDevice(legacyDeviceId) || this.revocations.has(legacyDeviceId)) {
         if (fork.created) {
-          await this.commit(this.devices.filter((device) => device.deviceId !== fork.entry.deviceId), { durable: true })
+          await this.commit(
+            this.devices.filter((device) => device.deviceId !== fork.entry.deviceId),
+            { durable: true }
+          )
         }
         throw new DeviceKeyForkError('device_not_found')
       }
@@ -389,7 +409,11 @@ export class DeviceRegistry {
     // Why: a session-only browser's key died with the last host process; its row must not outlive it.
     if (this.devices.length !== read.devices.length) {
       const retained = new Set(this.devices.map((device) => device.deviceId))
-      this.storage.markRemoved(read.devices.filter((device) => !retained.has(device.deviceId)).map((device) => device.deviceId))
+      this.storage.markRemoved(
+        read.devices
+          .filter((device) => !retained.has(device.deviceId))
+          .map((device) => device.deviceId)
+      )
       void this.persistOrLog('drop session-only devices after restart', { durable: true })
     }
   }

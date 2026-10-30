@@ -16,6 +16,7 @@ export type WslHostRuntimeCallPort = {
   record: WslHostDeploymentRecord | null
   connector: WslHostConnector | null
   current: (record: WslHostDeploymentRecord) => boolean
+  refusal: (record: WslHostDeploymentRecord) => string | null
   deps: WslHostServiceDependencies
   removing: ReadonlySet<string>
   /** Hosts a confirmed stop parked: no runtime call reconnects them until the distro runs again. */
@@ -42,7 +43,7 @@ export async function ensureWslHostForRuntimeCall(
   }
   const reachability = await connector.reachability(record.distro, environmentId)
   if (!port.current(record)) {
-    throw new Error(wslHostRunRefusal(deps)?.message ?? wslHostNotConnectedMessage(record.distro))
+    throw new Error(port.refusal(record) ?? wslHostNotConnectedMessage(record.distro))
   }
   if (reachability === 'available') {
     return

@@ -1,6 +1,7 @@
 import { SecureWriteSupersededError } from './secure-file-async-write'
 import {
   captureEnvironmentStoreVersion,
+  captureRuntimeEnvironmentFileVersion,
   withRuntimeEnvironmentMutation
 } from './runtime-environment-store-mutation'
 /**
@@ -23,7 +24,10 @@ import {
 } from './runtime-environment-store-file'
 import { resolveEnvironmentFromStore } from './runtime-environment-store'
 import { readEnvironmentStoreRecords } from './runtime-environment-store-records'
-import { readRuntimeEnvironmentSidecar } from './runtime-environment-sidecar'
+import {
+  getRuntimeEnvironmentSidecarPath,
+  readRuntimeEnvironmentSidecar
+} from './runtime-environment-sidecar'
 import { findCollidingEnvironmentName } from './runtime-environment-name-collision'
 import {
   readWslHostDeployments,
@@ -274,13 +278,54 @@ async function removeWslHostEnvironmentWithinMutation(
   userDataPath: string,
   environmentId: string,
   expectedCreatedAt?: number,
-  beforeRemove?: () => void
+  beforeRemove?: () => void | Promise<void>
 ): Promise<boolean> {
+  if (!readWslHostRemovalStore(userDataPath, environmentId, expectedCreatedAt)) {
+    return false
+  }
+  await beforeRemove?.()
+  const environmentIsCurrent = captureEnvironmentStoreVersion(userDataPath)
+  const deploymentIsCurrent = captureRuntimeEnvironmentFileVersion(
+    getWslHostDeploymentStorePath(userDataPath)
+  )
+  const sidecarIsCurrent = captureRuntimeEnvironmentFileVersion(
+    getRuntimeEnvironmentSidecarPath(userDataPath)
+  )
+  const store = readWslHostRemovalStore(userDataPath, environmentId, expectedCreatedAt)
+  if (!store) {
+    return false
+  }
+  const filesAreCurrent = (): boolean => deploymentIsCurrent() && sidecarIsCurrent()
+  if (store.environments.some((entry) => entry.id === environmentId)) {
+    await writeEnvironmentStoreAsync(
+      userDataPath,
+      {
+        version: 1,
+        environments: store.environments.filter((entry) => entry.id !== environmentId)
+      },
+      { shouldPublish: () => environmentIsCurrent() && filesAreCurrent() }
+    )
+  }
+  const deletedEnvironmentIsCurrent = captureEnvironmentStoreVersion(userDataPath)
+  await writeWslHostDeploymentWithinMutation(
+    userDataPath,
+    environmentId,
+    null,
+    () => deletedEnvironmentIsCurrent() && filesAreCurrent()
+  )
+  return true
+}
+
+function readWslHostRemovalStore(
+  userDataPath: string,
+  environmentId: string,
+  expectedCreatedAt?: number
+) {
   if (
     expectedCreatedAt !== undefined &&
     findWslHostDeployment(userDataPath, environmentId)?.createdAt !== expectedCreatedAt
   ) {
-    return false
+    return null
   }
   if (readWslHostDeployments(userDataPath).unreadableEnvironmentIds.has(environmentId)) {
     throw new WslHostDeploymentStoreInvalidError(
@@ -299,15 +344,7 @@ async function removeWslHostEnvironmentWithinMutation(
       `Could not remove WSL host ${environmentId}; its saved environment or ownership links are unreadable.`
     )
   }
-  beforeRemove?.()
-  if (store.environments.some((entry) => entry.id === environmentId)) {
-    await writeEnvironmentStoreAsync(userDataPath, {
-      version: 1,
-      environments: store.environments.filter((entry) => entry.id !== environmentId)
-    })
-  }
-  await writeWslHostDeploymentWithinMutation(userDataPath, environmentId, null)
-  return true
+  return store
 }
 
 function samePairing(left: PairingOffer, right: PairingOffer): boolean {

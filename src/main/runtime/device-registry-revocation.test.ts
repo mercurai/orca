@@ -10,14 +10,14 @@ vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
   const actual = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...actual,
-    writeSecureJsonFileAsync: async (
-      ...args: Parameters<typeof actual.writeSecureJsonFileAsync>
+    writeSecureFileAsync: async (
+      ...args: Parameters<typeof actual.writeSecureFileAsync>
     ) => {
       if (failNextWrite.armed) {
         failNextWrite.armed = false
         throw new Error('disk full')
       }
-      return await actual.writeSecureJsonFileAsync(...args)
+      return await actual.writeSecureFileAsync(...args)
     }
   }
 })
@@ -32,6 +32,7 @@ import { DeviceRegistry } from './device-registry'
 const directories: string[] = []
 
 afterEach(() => {
+  failNextWrite.armed = false
   for (const directory of directories.splice(0)) {
     rmSync(directory, { recursive: true, force: true })
   }

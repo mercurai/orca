@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-const order = vi.hoisted(() => ({ calls: new Array<string>(), serving: true, barrier: null as Promise<void> | null, listener: null as ((...args: unknown[]) => void) | null, failure: false, active: null as string | null }))
+const order = vi.hoisted(() => ({
+  calls: new Array<string>(),
+  serving: true,
+  barrier: null as Promise<void> | null,
+  listener: null as ((...args: unknown[]) => void) | null,
+  failure: false,
+  active: null as string | null
+}))
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
   ipcMain: { removeHandler: vi.fn(), handle: vi.fn() }
@@ -43,7 +50,9 @@ vi.mock('../wsl/wsl-host-service', () => ({
       this.connector = connector
     }
     connectionChangeListener(origin: () => unknown): () => Promise<void> {
-      return async () => { if (origin() === this.connector) order.calls.push('change') }
+      return async () => {
+        if (origin() === this.connector) order.calls.push('change')
+      }
     }
     async remove(): Promise<{ stopped: true }> {
       order.calls.push('remove')
@@ -78,7 +87,10 @@ import { ipcMain } from 'electron'
 function register(): Promise<void> {
   return registerWslHostHandlers({
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: startup reads settings only through onSettingsChanged.
-    store: { getSettings: () => ({ activeRuntimeEnvironmentId: order.active }), onSettingsChanged: vi.fn() } as never,
+    store: {
+      getSettings: () => ({ activeRuntimeEnvironmentId: order.active }),
+      onSettingsChanged: vi.fn()
+    } as never,
     getUserDataPath: () => '/user-data',
     invalidateTransport: vi.fn()
   })
@@ -118,7 +130,9 @@ describe('WSL host startup: the bridge-port reconcile', () => {
     const barrier = Promise.withResolvers<void>()
     order.barrier = barrier.promise
     const ready = register()
-    const call = vi.mocked(ipcMain.handle).mock.calls.findLast(([name]) => name === 'wslHosts:remove')
+    const call = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.findLast(([name]) => name === 'wslHosts:remove')
     if (!call) throw new Error('Missing removal handler')
     const removing = Promise.resolve(call[1]({} as never, { environmentId: 'wsl:ubuntu' }))
     const refusal = expect(removing).rejects.toThrow('default host for new projects')

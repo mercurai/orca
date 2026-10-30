@@ -82,6 +82,7 @@ async function resting(options: Record<string, string>, provider: 'codex' | 'cla
     resolveAccountHome: async () => ({ variable: 'CODEX_HOME', path: SELECTED })
   })
   await rig.restart({ modelCatalog })
+  await modelCatalog.prepareSaved({ agent: provider, sessionId: SESSION, inSessionWorkspace: true })
   const pick = (key: string, value: string) => {
     const fields = { key, value }
     return rig.host.setOption(CALLER, {

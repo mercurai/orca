@@ -157,7 +157,12 @@ export async function withGitAdmission(
 
 export function gitSpawn(args: string[], callerOptions: GitSpawnOptions): ChildProcess {
   const options = routeLocalGitOptions(callerOptions)
-  const { wslDistro: _wslDistro, admissionTier: _admissionTier, hostGit: _hostGit, ...spawnOptions } = options
+  const {
+    wslDistro: _wslDistro,
+    admissionTier: _admissionTier,
+    hostGit: _hostGit,
+    ...spawnOptions
+  } = options
   const target = resolveGitSpawnTarget(args, options)
   const spawnStartedAt = performance.now()
   const child = spawn(target.binary, target.args, {

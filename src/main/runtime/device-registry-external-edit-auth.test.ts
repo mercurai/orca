@@ -118,7 +118,9 @@ describe('device registry auth checks see edits made on disk', () => {
   it('never shows a pending offer that was removed on disk', async () => {
     const registry = new DeviceRegistry(dir)
     const offer = await registry.getOrCreatePendingDevice('phone', 'mobile')
-    expect((await registry.getOrCreatePendingDevice('phone', 'mobile')).deviceId).toBe(offer.deviceId)
+    expect((await registry.getOrCreatePendingDevice('phone', 'mobile')).deviceId).toBe(
+      offer.deviceId
+    )
 
     removeOnDisk(offer.deviceId)
     const fresh = await registry.getOrCreatePendingDevice('phone', 'mobile')

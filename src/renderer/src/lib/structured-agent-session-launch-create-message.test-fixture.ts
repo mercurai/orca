@@ -8,6 +8,7 @@ import { resetStructuredAgentLaunchPersistenceForTests } from './agent-session/l
 import { resetStructuredAgentSessionSendsForTests } from '@/components/native-chat/structured-agent-session-message-sender'
 import { resetStructuredAgentSessionReadOwnersForTests } from '@/components/native-chat/structured-agent-session-read-owner'
 import { clearNativeChatDraftCacheForTests } from '@/components/native-chat/native-chat-draft-cache'
+import { resetHostModelCatalogSnapshotsForTests } from '@/runtime/host-model-catalog-snapshots'
 
 export function deferred<T>() {
   let resolve = (_value: T): void => {}
@@ -70,6 +71,7 @@ export function resetCreateMessageTestState(mocks: CreateMessageTestMocks): void
   resetStructuredAgentSessionSendsForTests()
   resetStructuredAgentSessionReadOwnersForTests()
   clearNativeChatDraftCacheForTests()
+  resetHostModelCatalogSnapshotsForTests()
   mocks.supports.mockResolvedValue(true)
   mocks.supportsMode.mockResolvedValue(true)
   mocks.admit.mockResolvedValue({ kind: 'admitted' })
