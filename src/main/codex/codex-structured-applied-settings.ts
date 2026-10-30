@@ -95,7 +95,10 @@ export class CodexAppliedSettings {
   }
 
   attempt(choices: Settings): () => void {
-    if (this.equivalent(choices)) {
+    if (
+      (choices.model === undefined || this.pendingModels.size === 0) &&
+      this.equivalent(choices)
+    ) {
       return () => {}
     }
     const write = { model: choices.model, effort: choices.effort }
@@ -108,9 +111,6 @@ export class CodexAppliedSettings {
   }
 
   private equivalent(choices: Settings): boolean {
-    if (choices.model !== undefined && this.pendingModels.size > 0) {
-      return false
-    }
     const keys = ['model', 'effort'] as const
     if (keys.some((key) => choices[key] !== undefined && choices[key] !== this.snapshot[key])) {
       return false
@@ -181,18 +181,23 @@ export class CodexAppliedSettings {
             onRefused?.()
             if (codexMethodUnavailable(error, 'thread/settings/update')) {
               this.unsupported = true
-              return
+              return 'unsupported' as const
             }
             rejected = true
           }
           throw error
         }
-        onApplied?.()
         replied = true
         check()
         await changed.promise
+        return 'confirmed' as const
       })()
-      await waitForPromiseWithSignal(Promise.race([work, expired.promise]), signal)
+      const outcome = await waitForPromiseWithSignal(Promise.race([work, expired.promise]), signal)
+      throwIfSignalAborted(signal)
+      if (this.ended || (outcome === 'confirmed' && !this.equivalent(choices))) {
+        throw new Error('codex settings confirmation changed')
+      }
+      if (outcome === 'confirmed') onApplied?.()
       return { ok: true }
     } catch {
       throwIfSignalAborted(signal)

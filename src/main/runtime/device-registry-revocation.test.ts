@@ -10,9 +10,7 @@ vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
   const actual = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...actual,
-    writeSecureFileAsync: async (
-      ...args: Parameters<typeof actual.writeSecureFileAsync>
-    ) => {
+    writeSecureFileAsync: async (...args: Parameters<typeof actual.writeSecureFileAsync>) => {
       if (failNextWrite.armed) {
         failNextWrite.armed = false
         throw new Error('disk full')

@@ -82,6 +82,143 @@ describe('quiesceWslMove', () => {
     })
   })
 
+  it('makes the source fence durable before the under-fence gate or Sleep', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const { deps, journal } = harness()
+    const write = deps.writeCutover
+    const gate = vi.fn(deps.gateInputs)
+    deps.gateInputs = gate
+    deps.writeCutover = async (record) => {
+      if (record.phase === 'source-fenced') {
+        entered.resolve()
+        await release.promise
+      }
+      await write(record)
+    }
+    const pending = quiesceWslMove(cutover(), scope, deps)
+    try {
+      await entered.promise
+      expect(gate).toHaveBeenCalledOnce()
+      expect(journal).toEqual([])
+      expect(deps.sleepWorkspaces).not.toHaveBeenCalled()
+    } finally {
+      release.resolve()
+      await pending
+    }
+    expect(journal).toEqual(['source-fenced', 'quiesced'])
+    await expect(pending).resolves.toMatchObject({ outcome: 'quiesced' })
+  })
+
+  it('returns the quiesced phase only after its write is durable', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const { deps, journal } = harness()
+    const write = deps.writeCutover
+    deps.writeCutover = async (record) => {
+      if (record.phase === 'quiesced') {
+        entered.resolve()
+        await release.promise
+      }
+      await write(record)
+    }
+    let settled = false
+    const pending = quiesceWslMove(cutover(), scope, deps).then((result) => {
+      settled = true
+      return result
+    })
+    try {
+      await entered.promise
+      // Drain this turn's Promise continuations while the controlled write stays pending.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(journal).toEqual(['source-fenced'])
+    } finally {
+      release.resolve()
+      await pending
+    }
+    expect(journal).toEqual(['source-fenced', 'quiesced'])
+    await expect(pending).resolves.toMatchObject({ outcome: 'quiesced' })
+  })
+
+  it.each([
+    ['source-fenced', 'fence-failed'],
+    ['quiesced', 'journal-failed']
+  ] as const)('handles an async %s write rejection as %s', async (phase, reason) => {
+    const { deps, removed } = harness()
+    const write = deps.writeCutover
+    deps.writeCutover = async (record) => {
+      if (record.phase === phase) {
+        throw new Error('durable write failed')
+      }
+      await write(record)
+    }
+    await expect(quiesceWslMove(cutover(), scope, deps)).resolves.toMatchObject({
+      outcome: 'refused',
+      reason,
+      detail: 'durable write failed',
+      fenceLifted: true
+    })
+    expect(removed).toEqual(phase === 'source-fenced' ? [] : ['move-1'])
+    if (phase === 'source-fenced') {
+      expect(deps.sleepWorkspaces).not.toHaveBeenCalled()
+    }
+  })
+
+  it('reports a lifted fence only after the refused move is durably removed', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const { deps, removed } = harness({
+      proveExited: async () => ({ verdict: 'live', sessionIds: ['session-1'] })
+    })
+    const remove = deps.removeCutover
+    deps.removeCutover = async (migrationId) => {
+      entered.resolve()
+      await release.promise
+      await remove(migrationId)
+    }
+    let settled = false
+    const pending = quiesceWslMove(cutover(), scope, deps).then((result) => {
+      settled = true
+      return result
+    })
+    try {
+      await entered.promise
+      // Let this turn's continuations settle while the controlled removal stays pending.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      expect(settled).toBe(false)
+      expect(removed).toEqual([])
+    } finally {
+      release.resolve()
+      await pending
+    }
+    expect(removed).toEqual(['move-1'])
+    await expect(pending).resolves.toMatchObject({
+      outcome: 'refused',
+      reason: 'terminals-live',
+      fenceLifted: true
+    })
+  })
+
+  it('keeps the fence when an async refusal removal rejects', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { deps } = harness({
+        proveExited: async () => ({ verdict: 'live', sessionIds: ['session-1'] }),
+        removeCutover: async () => {
+          throw new Error('durable removal failed')
+        }
+      })
+      await expect(quiesceWslMove(cutover(), scope, deps)).resolves.toMatchObject({
+        outcome: 'refused',
+        reason: 'terminals-live',
+        fenceLifted: false
+      })
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
   it('refuses with the blockers before fencing anything', async () => {
     const { deps, journal } = harness({
       gateInputs: async () => ({

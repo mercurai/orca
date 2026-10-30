@@ -249,7 +249,7 @@ describe('Codex captured message choices', () => {
     expect(comparison?.next.serviceTier).toBe('priority')
   })
 
-  it('preserves saved and applied speed when an effort-only turn succeeds', async () => {
+  it('preserves saved speed without claiming applied speed for an effort-only turn', async () => {
     const session = optionSession(vi.fn(async () => ({ turn: { id: 'effort-turn' } })))
     session.options = new Map([
       ['model', 'model-a'],
@@ -274,7 +274,17 @@ describe('Codex captured message choices', () => {
       serviceTier: 'priority',
       effort: 'high'
     })
-    expect(session.speedApplied).toMatchObject({ tierId: 'priority' })
+    expect(session.connection.request).toHaveBeenCalledWith(
+      'turn/start',
+      expect.not.objectContaining({ serviceTier: expect.anything() }),
+      expect.anything()
+    )
+    expect(session.connection.request).toHaveBeenCalledWith(
+      'turn/start',
+      expect.not.objectContaining({ model: expect.anything() }),
+      expect.anything()
+    )
+    expect(session.speedApplied).toBeUndefined()
   })
 
   it('keeps an active priority tier when only effort is captured', async () => {

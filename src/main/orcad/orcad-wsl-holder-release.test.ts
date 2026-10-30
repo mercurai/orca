@@ -7,7 +7,9 @@ import { ORCAD_MANAGED_ACTIVATION_ROOT_ENV } from '../../shared/orcad-managed-la
 import { RELAY_INSTALL_LOCK_NAME } from '../../shared/relay-install-lock-name'
 import { createAdapter } from '../daemon/daemon-pty-router-test-fixture'
 import { DaemonPtyRouter } from '../daemon/daemon-pty-router'
-import { installDaemonProvider } from '../daemon/daemon-provider-state'
+import { installDaemonProvider, replaceDaemonProvider } from '../daemon/daemon-provider-state'
+import { restartDaemon } from '../daemon/daemon-provider-restart'
+import { getLocalPtyProvider } from '../ipc/pty/provider/registry'
 import type { DaemonIdleRetirementResult } from '../daemon/daemon-pty-runtime-state'
 import { PROTOCOL_VERSION } from '../daemon/types'
 import {
@@ -25,6 +27,7 @@ import { SecureWriteDiscardedError } from '../../shared/secure-file-async-write'
 vi.mock('../native-chat/agent-session-wire/structured-agent-session-registry', () => ({
   getStructuredAgentSessionHost: () => ({ hasLoadedProviders: () => false })
 }))
+vi.mock('../daemon/daemon-provider-restart', () => ({ restartDaemon: vi.fn() }))
 vi.mock('./orcad-managed-idle-exit', async (importOriginal) => ({
   ...(await importOriginal<typeof ManagedIdleExit>()),
   installOrcadManagedIdleExit: vi.fn(() => () => {})
@@ -34,6 +37,13 @@ let root: string
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.mocked(restartDaemon).mockReset().mockImplementation(async () => {
+    replaceDaemonProvider(new DaemonPtyRouter({
+      current: createAdapter('replacement', [], undefined, PROTOCOL_VERSION),
+      legacy: []
+    }))
+    return { killedCount: 0 }
+  })
   root = mkdtempSync(join(tmpdir(), 'orcad-wsl-holder-release-'))
   vi.stubEnv(ORCAD_MANAGED_ACTIVATION_ROOT_ENV, join(root, 'fence'))
   vi.stubEnv(ORCAD_WSL_HOST_ENV, '1')
@@ -182,9 +192,14 @@ async function holdHolderReleaseWrite() {
 it('does not request shutdown until the holder release write settles', async () => {
   const held = await holdHolderReleaseWrite()
   const shutdowns: (() => boolean)[] = []
-  const stopping = idleStop({ state: 'retiring' }, {
-    onReady: (_activity, shutdown) => { shutdowns.push(shutdown) }
-  })
+  const stopping = idleStop(
+    { state: 'retiring' },
+    {
+      onReady: (_activity, shutdown) => {
+        shutdowns.push(shutdown)
+      }
+    }
+  )
   await held.requested.promise
   try {
     expect(shutdowns[0]).not.toHaveBeenCalled()
@@ -200,6 +215,37 @@ it('does not request shutdown until the holder release write settles', async () 
 it('rechecks returning clients after the holder release write settles', async () => {
   const held = await holdHolderReleaseWrite()
   let returnClient = () => {}
+  const stopping = idleStop(
+    { state: 'retiring' },
+    {
+      onReady: (activity) => {
+        returnClient = () => {
+          activity.openConnections = 1
+        }
+      }
+    }
+  )
+  await held.requested.promise
+  returnClient()
+  held.release.resolve()
+  await held.blocked
+  const result = await stopping
+  expect(result.stopped).toBe(false)
+  expect(result.shutdown).not.toHaveBeenCalled()
+  expect(restartDaemon).toHaveBeenCalledExactlyOnceWith({
+    expectedDaemonPid: 4242,
+    endpointMayBeGone: true
+  })
+  await expect(getLocalPtyProvider().spawn({ cols: 80, rows: 24 })).resolves.toEqual({
+    id: 'replacement-new'
+  })
+  expect(existsSync(orcadWslHolderReleasePath(root))).toBe(false)
+})
+
+it('withdraws the holder release and finishes stopping when returning-client recovery fails', async () => {
+  vi.mocked(restartDaemon).mockRejectedValueOnce(new Error('replacement unavailable'))
+  const held = await holdHolderReleaseWrite()
+  let returnClient = () => {}
   const stopping = idleStop({ state: 'retiring' }, {
     onReady: (activity) => { returnClient = () => { activity.openConnections = 1 } }
   })
@@ -208,8 +254,12 @@ it('rechecks returning clients after the holder release write settles', async ()
   held.release.resolve()
   await held.blocked
   const result = await stopping
-  expect(result.stopped).toBe(false)
-  expect(result.shutdown).not.toHaveBeenCalled()
+  expect(result.stopped).toBe(true)
+  expect(result.shutdown).toHaveBeenCalledExactlyOnceWith('idle', expect.any(Function))
+  expect(restartDaemon).toHaveBeenCalledExactlyOnceWith({
+    expectedDaemonPid: 4242,
+    endpointMayBeGone: true
+  })
   expect(existsSync(orcadWslHolderReleasePath(root))).toBe(false)
 })
 
@@ -230,12 +280,15 @@ it.each(['agent', 'migration', 'automation', 'emulator', 'activation'] as const)
   async (kind) => {
     const held = await holdHolderReleaseWrite()
     let busy = false
-    const stopping = idleStop({ state: 'retiring' }, {
-      agentStates: () => busy && kind === 'agent' ? [{ state: 'working' }] : [],
-      hasStagedMigration: () => busy && kind === 'migration',
-      automationsBusy: () => busy && kind === 'automation',
-      emulatorsBusy: async () => busy && kind === 'emulator'
-    })
+    const stopping = idleStop(
+      { state: 'retiring' },
+      {
+        agentStates: () => (busy && kind === 'agent' ? [{ state: 'working' }] : []),
+        hasStagedMigration: () => busy && kind === 'migration',
+        automationsBusy: () => busy && kind === 'automation',
+        emulatorsBusy: async () => busy && kind === 'emulator'
+      }
+    )
     await held.requested.promise
     try {
       busy = true

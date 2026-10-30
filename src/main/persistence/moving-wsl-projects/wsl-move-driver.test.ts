@@ -11,7 +11,11 @@ import {
 } from '../__fixtures__/wsl-mover/wsl-move-driver-world'
 import { wslMoveCutoverFixture } from '../__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { seedWslMoveCutover } from '../__fixtures__/wsl-mover/wsl-move-journal-seeding'
-import { listWslMoveCutovers, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import {
+  listWslMoveCutovers,
+  onWslMoveJournalChange,
+  writeWslMoveCutover
+} from './wsl-move-cutover-journal'
 import { WslMoveScopeChangedError, type WslMoveManifestExport } from './wsl-move-manifest-export'
 import {
   registerWslMoveDesktopRewriteStore,
@@ -501,6 +505,12 @@ describe('moveProjectsToWslHost', () => {
 
   it('retries the host step in the same run, backing off, until it lands', async () => {
     vi.useFakeTimers()
+    const rewritten = Promise.withResolvers<void>()
+    const unsubscribe = onWslMoveJournalChange((changedPath) => {
+      if (changedPath === userDataPath && journal()[0]?.phase === 'client-rewritten') {
+        rewritten.resolve()
+      }
+    })
     try {
       let attempts = 0
       registerWslMoveHostAutomationsStore({
@@ -521,10 +531,12 @@ describe('moveProjectsToWslHost', () => {
       expect(journal()[0].phase).toBe('destination-committed')
       await vi.advanceTimersByTimeAsync(20)
       expect(attempts).toBe(3)
+      await rewritten.promise
       expect(journal()[0].phase).toBe('client-rewritten')
       await vi.advanceTimersByTimeAsync(1_000)
       expect(attempts).toBe(3)
     } finally {
+      unsubscribe()
       cancelWslMoveRewriteRetryForTests()
       vi.useRealTimers()
     }

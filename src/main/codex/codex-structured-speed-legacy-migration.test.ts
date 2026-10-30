@@ -43,10 +43,20 @@ describe('saved Codex Fast migration', () => {
         spawnToken: 'legacy-fast-report',
         options: saved
       })
-      expect((await adapter.readOptions(identity)).current).toMatchObject({
-        model: MODEL,
+      const report = await adapter.readOptions(identity)
+      expect(report.current).toMatchObject({
+        model: 'gpt-live',
         fastMode: true
       })
+      expect(report.speed).toMatchObject({
+        requested: { legacyFast: true },
+        support: 'loading',
+        processing: { status: 'unknown' }
+      })
+      expect(report.speed).not.toHaveProperty('applied')
+      expect(
+        Object.fromEntries(adapter['sessions'].get(identity.sessionId)?.options ?? [])
+      ).toEqual(saved)
       expect(Object.fromEntries(restoredCodexSessionOptions(saved))).toEqual(saved)
     } finally {
       pending.resolve(listing)
@@ -126,9 +136,18 @@ describe('saved Codex Fast migration', () => {
         rejection: { neverReachedAgent: true }
       })
       expect(codex.connections[0].calls.filter((call) => call.method === 'turn/start')).toEqual([])
-      const saved = (await adapter.readOptions(identity)).current
-      expect(saved).toMatchObject({ model: MODEL, fastMode: true })
-      expect(saved).not.toHaveProperty('serviceTier')
+      const report = await adapter.readOptions(identity)
+      expect(report.current).toMatchObject({ model: 'gpt-live', fastMode: true })
+      expect(report.current).not.toHaveProperty('serviceTier')
+      expect(report.speed).toMatchObject({
+        requested: { legacyFast: true },
+        support: 'loading',
+        processing: { status: 'unknown' }
+      })
+      expect(report.speed).not.toHaveProperty('applied')
+      expect(
+        Object.fromEntries(adapter['sessions'].get(identity.sessionId)?.options ?? [])
+      ).toEqual({ model: MODEL, fastMode: 'true' })
     } finally {
       pending.resolve(listing)
       await adapter.closeAll()

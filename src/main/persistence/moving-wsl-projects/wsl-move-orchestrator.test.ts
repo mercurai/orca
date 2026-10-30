@@ -17,10 +17,12 @@ describe('WslMoveOrchestrator', () => {
   it('publishes user choices while saves are held and gives each save its own snapshot', async () => {
     const release = Promise.withResolvers<void>()
     const snapshots: ReadonlyMap<string, WslMoveOrchestratorRecord>[] = []
-    const ports = fakePorts({ save: (records) => {
-      snapshots.push(records)
-      return release.promise
-    } })
+    const ports = fakePorts({
+      save: (records) => {
+        snapshots.push(records)
+        return release.promise
+      }
+    })
     const orchestrator = new WslMoveOrchestrator(ports)
     try {
       orchestrator.releasedByUser('Ubuntu', 'removed')

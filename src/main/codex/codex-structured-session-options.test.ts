@@ -90,7 +90,11 @@ describe('structured Codex session options', () => {
           : { config: {} }
       )
     )
-    session.appliedTurnOptions = { model: 'gpt-live', effort: 'high', serviceTier: 'current-fast-id' }
+    session.appliedTurnOptions = {
+      model: 'gpt-live',
+      effort: 'high',
+      serviceTier: 'current-fast-id'
+    }
     session.options = new Map([
       ['model', 'next-model'],
       ['effort', 'low'],
@@ -248,7 +252,9 @@ describe('structured Codex session options', () => {
     ])
     const listingCalls = request.mock.calls.length
 
-    await expect(applyCodexStructuredSessionOption(session, 'effort', 'high')).resolves.toStrictEqual({
+    await expect(
+      applyCodexStructuredSessionOption(session, 'effort', 'high')
+    ).resolves.toStrictEqual({
       effort: 'high'
     })
     expect(session.options.has('model')).toBe(false)
@@ -973,7 +979,9 @@ describe('Codex option picks before the model list arrives', () => {
         fence: 7
       })
     ).resolves.toMatchObject({ state: 'admitted' })
-    expect(codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params).toMatchObject({
+    expect(
+      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params
+    ).toMatchObject({
       model: 'gpt-next',
       effort: 'low',
       serviceTier: 'default'

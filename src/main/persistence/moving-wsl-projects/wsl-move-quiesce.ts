@@ -26,8 +26,8 @@ export type WslMoveQuiesceDeps = {
     distro: string
   ) => Promise<WslMoveRestoreHintCapture>
   proveExited: (scope: WslMoveExitProofScope) => Promise<WslMoveExitProof>
-  writeCutover: (cutover: WslMoveCutover) => void
-  removeCutover: (migrationId: string) => void
+  writeCutover: (cutover: WslMoveCutover) => void | Promise<void>
+  removeCutover: (migrationId: string) => void | Promise<void>
   now: () => Date
   /** Between Sleep attempts; tests skip the wait. */
   wait?: (ms: number) => Promise<void>
@@ -130,7 +130,7 @@ async function quiesceUnderLock(
     updatedAt: deps.now().toISOString()
   }
   try {
-    deps.writeCutover(fenced)
+    await deps.writeCutover(fenced)
   } catch (error) {
     return {
       outcome: 'refused',
@@ -139,9 +139,11 @@ async function quiesceUnderLock(
       fenceLifted: true
     }
   }
-  const refuse = (refusal: Omit<Refusal, 'outcome' | 'fenceLifted'>): Refusal => {
+  const refuse = async (
+    refusal: Omit<Refusal, 'outcome' | 'fenceLifted'>
+  ): Promise<Refusal> => {
     try {
-      deps.removeCutover(fenced.migrationId)
+      await deps.removeCutover(fenced.migrationId)
       return { outcome: 'refused', ...refusal, fenceLifted: true }
     } catch (error) {
       console.warn('[wsl-move] Could not lift the fence after a refused quiesce:', error)
@@ -186,7 +188,7 @@ async function proveAndRecord(
   fenced: WslMoveCutover,
   scope: WslMoveQuiesceScope,
   deps: WslMoveQuiesceDeps,
-  refuse: (refusal: Omit<Refusal, 'outcome' | 'fenceLifted'>) => Refusal
+  refuse: (refusal: Omit<Refusal, 'outcome' | 'fenceLifted'>) => Promise<Refusal>
 ): Promise<WslMoveQuiesceResult> {
   // Sleeping removes pane processes, so use live-session evidence rather than the pane gate.
   const live = deps.livePtyIds(scope.workspaceIds)
@@ -212,7 +214,7 @@ async function proveAndRecord(
     terminalRestoreHints: restoreHints.hints.map((hint) => ({ ...hint }))
   }
   try {
-    deps.writeCutover(quiesced)
+    await deps.writeCutover(quiesced)
   } catch (error) {
     return refuse({ reason: 'journal-failed', detail: describe(error) })
   }

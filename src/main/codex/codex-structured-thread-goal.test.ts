@@ -11,6 +11,7 @@ const THREAD = 'thread-1'
 type AcquiredSettingsTestSeam = {
   settings: CodexAppliedSettings
   pending: Set<unknown>
+  pendingModels: Set<unknown>
   listeners: Set<unknown>
   readonly snapshot: Record<string, unknown>
 }
@@ -25,12 +26,17 @@ function acquiredSettingsTestSeam(adapter: unknown): AcquiredSettingsTestSeam {
     throw new Error('missing acquired settings')
   }
   const state = readRecord(settings)
-  if (!(state.pending instanceof Set) || !(state.listeners instanceof Set)) {
+  if (
+    !(state.pending instanceof Set) ||
+    !(state.pendingModels instanceof Set) ||
+    !(state.listeners instanceof Set)
+  ) {
     throw new Error('missing acquired settings collections')
   }
   return {
     settings,
     pending: state.pending,
+    pendingModels: state.pendingModels,
     listeners: state.listeners,
     get snapshot() {
       const snapshot = readRecord(settings).snapshot
@@ -188,13 +194,14 @@ describe('direct goal settings application', () => {
         threadId: 'thread-abc',
         threadSettings: { model, effort }
       })
-    const goal = (model = 'gpt-live', effort?: string) =>
+    const goal = (model = 'gpt-live', effort?: string, signal?: AbortSignal) =>
       adapter.changeThreadGoal({
         sessionId: 'session-1',
         fence: 7,
         change: { kind: 'status', status: 'active' },
         replacesGoal: false,
-        executionOptions: { model, ...(effort ? { effort } : {}) }
+        executionOptions: { model, ...(effort ? { effort } : {}) },
+        ...(signal ? { signal } : {})
       })
     const state = acquiredSettingsTestSeam(adapter)
     return { codex, adapter, apply, goal, settings: state.settings, state, acquisition }
@@ -226,7 +233,7 @@ describe('direct goal settings application', () => {
           clientMessageId: 'follow-up',
           options
         },
-        { fence: 7, generation: acquisition.acquisitionGeneration, phase: 'ready' },
+        { fence: 7, generation: acquisition.acquisitionGeneration },
         adapter
       )
     const proof = () =>
@@ -474,8 +481,11 @@ describe('direct goal settings application', () => {
       const { codex, adapter, apply, settings, state } = await fixture(10)
       vi.useFakeTimers()
       try {
+        expect(state.pending.size).toBe(0)
+        expect(state.pendingModels.size).toBe(0)
         apply('S', 'medium')
         const pending = state.pending
+        const pendingModels = state.pendingModels
         let fields = 0,
           visits = 0
         const add = pending.add.bind(pending)
@@ -506,19 +516,21 @@ describe('direct goal settings application', () => {
           })
           return add(write)
         })
-        const iterate = pending[Symbol.iterator].bind(pending)
-        vi.spyOn(pending, Symbol.iterator).mockImplementation(() => {
-          const iterator = iterate()
-          const next = iterator.next.bind(iterator)
-          vi.spyOn(iterator, 'next').mockImplementation(() => {
-            const result = next()
-            if (!result.done) {
-              visits++
-            }
-            return result
+        for (const tracked of [pending, pendingModels]) {
+          const iterate = tracked[Symbol.iterator].bind(tracked)
+          vi.spyOn(tracked, Symbol.iterator).mockImplementation(() => {
+            const iterator = iterate()
+            const next = iterator.next.bind(iterator)
+            vi.spyOn(iterator, 'next').mockImplementation(() => {
+              const result = next()
+              if (!result.done) {
+                visits++
+              }
+              return result
+            })
+            return iterator
           })
-          return iterator
-        })
+        }
         for (let i = 0; i < n; i++) {
           settings.attempt({
             get model() {
@@ -536,9 +548,11 @@ describe('direct goal settings application', () => {
           })
         }
         expect(pending.size).toBe(n)
+        expect(pendingModels.size).toBe(n)
         const buildFields = fields
         expect(fields).toBeLessThanOrEqual(8 * n)
         expect(visits).toBe(0) // Snapshot mismatches never enumerate/copy prior tokens.
+        expect(new Set([...pending, ...pendingModels]).size).toBe(n)
         const q = { model: 'unique-final-C', effort: 'high' }
         const install = settings.install(codex.connections[0], 'thread-abc', q, 10)
         await Promise.resolve()
@@ -554,8 +568,12 @@ describe('direct goal settings application', () => {
         expect(await install).toEqual({ ok: true })
         const application = { fields, visits }
         expect(fields).toBeLessThanOrEqual(8 * (n + 1))
-        expect(visits).toBeLessThanOrEqual(2 * (n + 1))
+        // Count the model ledger's existing readback scan as well as both FIFO passes.
+        expect(visits).toBeLessThanOrEqual(3 * (n + 1))
         expect(pending.size).toBe(0)
+        expect(pendingModels.size).toBe(n)
+        expect(new Set([...pending, ...pendingModels]).size).toBe(n)
+        expect(settings.knownModel()).toBeUndefined()
         fields = 0
         visits = 0
         const calls = codex.connections[0].calls.length
@@ -566,12 +584,16 @@ describe('direct goal settings application', () => {
         expect({ fields, visits }).toEqual({ fields: 0, visits: 0 })
         expect(state.listeners.size).toBe(0)
         expect(vi.getTimerCount()).toBe(0)
+        expect(pendingModels.size).toBe(n)
         for (let i = 0; i < n; i++) {
           settings.attempt({ model: `unended-${i}` })
         }
         expect(pending.size).toBe(n)
+        expect(pendingModels.size).toBe(2 * n)
+        expect(new Set([...pending, ...pendingModels]).size).toBe(2 * n)
         await adapter.closeSession('session-1')
         expect(pending.size).toBe(0)
+        expect(pendingModels.size).toBe(0)
         console.info('settings-perf', {
           n,
           pattern,
@@ -580,9 +602,9 @@ describe('direct goal settings application', () => {
           noiseFields: 0,
           noiseVisits: 0,
           application,
-          retainedUnknown: n,
-          retainedAfterProof: 0,
-          retainedAtEnd: pending.size
+          unresolvedBeforeProof: { generic: n, models: n, distinct: n },
+          retainedAfterLiteralProof: { generic: 0, models: n, distinct: n },
+          retainedAtEnd: { generic: pending.size, models: pendingModels.size }
         })
         expect(state.snapshot).toEqual({})
         expect(state.listeners.size).toBe(0)
@@ -593,6 +615,27 @@ describe('direct goal settings application', () => {
       }
     }
   )
+
+  it.each([100, 1000])('retires both ledgers after %i definite refusals without ending', async (n) => {
+    const { adapter, settings, state } = await fixture()
+    try {
+      const refuse = Array.from({ length: n }, (_, index) =>
+        settings.attempt({ model: `refused-${index}`, effort: 'high' })
+      )
+      expect(state.pending.size).toBe(n)
+      expect(state.pendingModels.size).toBe(n)
+      expect(new Set([...state.pending, ...state.pendingModels]).size).toBe(n)
+      expect(settings.knownModel()).toBeUndefined()
+
+      for (const discard of refuse) discard()
+
+      expect(state.pending.size).toBe(0)
+      expect(state.pendingModels.size).toBe(0)
+      expect(settings.knownModel()).toBe('gpt-live')
+    } finally {
+      await adapter.closeAll()
+    }
+  })
 
   it('keeps an earlier unknown token when a retry reuses the same choice object and is definitely rejected', async () => {
     const { codex, adapter, apply, settings, state } = await fixture(10)
@@ -610,15 +653,27 @@ describe('direct goal settings application', () => {
   })
 
   it('bounds an acknowledged but unapplied update, and cancels its waiter on connection end', async () => {
-    const { codex, adapter, goal, apply, state } = await fixture(10)
+    const { codex, adapter, goal, apply, state, acquisition } = await fixture(10)
+    const active = () =>
+      adapter.readAppliedInputOptions({
+        sessionId: 'session-1',
+        fence: 7,
+        acquisitionGeneration: acquisition.acquisitionGeneration,
+        next: {}
+      })?.active
     vi.useFakeTimers()
     try {
       const pending = goal('model-b', 'high')
+      await vi.advanceTimersByTimeAsync(0)
+      expect(active()).not.toHaveProperty('model')
+      expect(active()).not.toHaveProperty('effort')
       await vi.advanceTimersByTimeAsync(10)
       expect(await pending).toMatchObject({
         ok: false,
         rejected: expect.stringContaining('did not confirm')
       })
+      expect(active()).not.toHaveProperty('model')
+      expect(active()).not.toHaveProperty('effort')
       expect(codex.connections[0].calls.some((r) => r.method === 'thread/goal/set')).toBe(false)
       expect(state.listeners.size).toBe(0)
       expect(vi.getTimerCount()).toBe(0)
@@ -637,6 +692,76 @@ describe('direct goal settings application', () => {
       await adapter.closeAll()
     }
   })
+
+  it('does not certify a matching readback after expiry wins before promise jobs flush', async () => {
+    const { codex, adapter, goal, apply, state, acquisition } = await fixture(10)
+    vi.useFakeTimers()
+    try {
+      const pending = goal('model-b', 'high')
+      await vi.advanceTimersByTimeAsync(0)
+      vi.advanceTimersByTime(10)
+      apply('model-b', 'high')
+
+      expect(await pending).toMatchObject({
+        ok: false,
+        rejected: expect.stringContaining('did not confirm')
+      })
+      const proof = adapter.readAppliedInputOptions({
+        sessionId: 'session-1',
+        fence: 7,
+        acquisitionGeneration: acquisition.acquisitionGeneration,
+        next: {}
+      })
+      expect(proof?.active).not.toHaveProperty('model')
+      expect(proof?.active).not.toHaveProperty('effort')
+      expect(codex.connections[0].calls.some((call) => call.method === 'thread/goal/set')).toBe(false)
+      expect(state.listeners.size).toBe(0)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+      await adapter.closeAll()
+    }
+  })
+
+  it.each(['superseded', 'ended', 'cancelled'] as const)(
+    'does not certify a %s confirmation before its waiter resumes',
+    async (mode) => {
+      const { codex, adapter, goal, apply, state, acquisition } = await fixture(10)
+      vi.useFakeTimers()
+      try {
+        const authority = new AbortController()
+        const pending = goal('model-b', 'high', authority.signal)
+        await vi.advanceTimersByTimeAsync(0)
+        apply('model-b', 'high')
+        if (mode === 'superseded') {
+          apply('model-c', 'low')
+        } else if (mode === 'ended') {
+          state.settings.end()
+        } else {
+          authority.abort(new Error('stopped'))
+        }
+
+        expect(await pending).toMatchObject({
+          ok: false,
+          rejected: expect.stringContaining('did not confirm')
+        })
+        const proof = adapter.readAppliedInputOptions({
+          sessionId: 'session-1',
+          fence: 7,
+          acquisitionGeneration: acquisition.acquisitionGeneration,
+          next: {}
+        })
+        expect(proof?.active).not.toHaveProperty('model')
+        expect(proof?.active).not.toHaveProperty('effort')
+        expect(codex.connections[0].calls.some((call) => call.method === 'thread/goal/set')).toBe(false)
+        expect(state.listeners.size).toBe(0)
+        expect(vi.getTimerCount()).toBe(0)
+      } finally {
+        vi.useRealTimers()
+        await adapter.closeAll()
+      }
+    }
+  )
 })
 
 it('stops a settings wait as a definite pre-goal rejection without leaving an active waiter', async () => {

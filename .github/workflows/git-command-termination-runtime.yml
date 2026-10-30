@@ -19,9 +19,15 @@ on:
       - 'src/main/native-chat/agent-model-catalog/**'
       - 'src/packages/process-host/**'
       - 'src/main/codex/codex-structured-session-options.test.ts'
+      - 'src/main/codex/codex-structured-applied-settings.ts'
+      - 'src/main/codex/codex-structured-thread-goal.test.ts'
       - 'src/main/codex/codex-structured-speed-*.test.ts'
       - 'src/main/orca-profiles/profile-cloud-session-store.test.ts'
       - 'src/main/orcad/orcad-host-cleanup.test.ts'
+      - 'src/main/orcad/orcad-wsl-holder-release*.ts'
+      - 'src/main/orcad/orcad-managed-idle-exit*.ts'
+      - 'src/main/persistence/moving-wsl-projects/wsl-move-driver*.ts'
+      - 'src/main/persistence/moving-wsl-projects/wsl-move-quiesce*.ts'
       - 'src/shared/structured-agent-session-speed*.test.ts'
       - 'src/shared/native-chat/input/native-chat-session-option-defaults.ts'
       - 'src/shared/native-chat/input/native-chat-session-option-defaults.test.ts'
@@ -128,6 +134,7 @@ jobs:
           src/main/ssh/orcad-runtime-maintenance.test.ts
           src/main/wsl/wsl-host-service.test.ts
           src/main/persistence/moving-wsl-projects/wsl-move-driver.test.ts
+          src/main/persistence/moving-wsl-projects/wsl-move-quiesce.test.ts
           src/main/wsl/wsl-host-service-wake.test.ts
           src/main/wsl/wsl-host-early-wake.test.ts
           src/main/wsl/wsl-host-queued-pairing.test.ts
