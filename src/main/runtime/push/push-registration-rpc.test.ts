@@ -128,8 +128,8 @@ describe('revokeMobileDevice', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('phone', 'mobile')
-    server['deviceRegistry']!.setPushRegistration(device.deviceId, {
+    const device = await server['deviceRegistry']!.addDevice('phone', 'mobile')
+    await server['deviceRegistry']!.setPushRegistration(device.deviceId, {
       registrationId: 'reg-1',
       filter: {},
       expiresAt: Date.now() + 7 * 86400_000
@@ -149,7 +149,7 @@ describe('revokeMobileDevice', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('phone', 'mobile')
+    const device = await server['deviceRegistry']!.addDevice('phone', 'mobile')
 
     expect(await server.revokeMobileDevice(device.deviceId)).toBe(true)
     expect(server.getPushUnregisterOutbox().pending()).toEqual([])

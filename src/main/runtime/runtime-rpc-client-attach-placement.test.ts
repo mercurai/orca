@@ -35,7 +35,11 @@ describe('a client attaching to a host, layout-owner build', () => {
       wsPort: 0
     })
     await server.start()
-    const offer = server.createPairingOffer({ address: '127.0.0.1', name: 'p', scope: 'runtime' })
+    const offer = await server.createPairingOffer({
+      address: '127.0.0.1',
+      name: 'p',
+      scope: 'runtime'
+    })
     if (!offer.available) {
       throw new Error('WebSocket pairing unavailable')
     }
@@ -59,7 +63,11 @@ describe('a client attaching to a host, layout-owner build', () => {
       wsPort: 0
     })
     await server.start()
-    const offer = server.createPairingOffer({ address: '127.0.0.1', name: 'p', scope: 'runtime' })
+    const offer = await server.createPairingOffer({
+      address: '127.0.0.1',
+      name: 'p',
+      scope: 'runtime'
+    })
     if (!offer.available) {
       throw new Error('WebSocket pairing unavailable')
     }

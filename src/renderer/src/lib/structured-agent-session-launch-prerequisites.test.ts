@@ -52,7 +52,6 @@ describe('legacy opening action prerequisites through real launch orchestration'
   it.each([
     ['model', 'picked-model'],
     ['effort', 'low'],
-    ['serviceTier', 'priority'],
     ['fastMode', 'true'],
     ['permissionMode', 'full-access']
   ])(
@@ -101,6 +100,63 @@ describe('legacy opening action prerequisites through real launch orchestration'
       }
     }
   )
+
+  // Codex speed is one retained intent: a refusal pauses the prompt instead of handing it back.
+  it('pauses the legacy prompt on a refused Codex speed and resumes on explicit Standard', async () => {
+    const { launch, create } = legacyAction(undefined, async (field, encoded) =>
+      encoded === 'priority' ? refusedOption : acceptedOption(field, encoded)
+    )
+    let settled = false
+    void launch.launchResult.then(
+      () => (settled = true),
+      () => (settled = true)
+    )
+    const held = holdStructuredAgentSessionLaunchOption(launch.sessionId, 'serviceTier', 'priority')!
+    await vi.waitFor(() => expect(createParams()).toBeDefined())
+    create.resolve(created())
+    await expect(held).resolves.toMatchObject({ kind: 'refused' })
+    for (let index = 0; index < 20; index += 1) {
+      await Promise.resolve()
+    }
+    expect(settled).toBe(false)
+    expect(draft(launch.sessionId)).toBe('opening text')
+    expect(mocks.call.mock.calls.some(([, method]) => method === 'agentSession.send')).toBe(false)
+    const standard = holdStructuredAgentSessionLaunchOption(launch.sessionId, 'serviceTier', 'default')!
+    await expect(standard).resolves.toMatchObject({ kind: 'accepted' })
+    const receipt = await launch.launchResult
+    expect(receipt).not.toHaveProperty('configurationFailure')
+    await expect(launch.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+  })
+
+  it.each(['true', 'false'])(
+    'sends explicit Codex fastMode=%s to the host before the legacy opening message',
+    async (fastMode) => {
+      const { launch, create } = legacyAction({ fastMode }, async (field, encoded) =>
+        acceptedOption(field, encoded)
+      )
+      await vi.waitFor(() => expect(createParams()).toBeDefined())
+      create.resolve(created())
+      await expect(launch.promptDeliveryResult).resolves.toMatchObject({ delivered: true })
+      expect(optionCalls()).toEqual([expect.objectContaining({ key: 'fastMode', value: fastMode })])
+      const methods = mocks.call.mock.calls.map(([, method]) => method)
+      expect(methods.indexOf('agentSession.setOption')).toBeLessThan(
+        methods.indexOf('agentSession.send')
+      )
+    }
+  )
+
+  it('does not write an explicit fastMode for Claude, which rides the create request', async () => {
+    const { launch, create } = legacyAction(
+      { fastMode: 'true' },
+      async (field, encoded) => acceptedOption(field, encoded),
+      'local',
+      'claude'
+    )
+    await vi.waitFor(() => expect(createParams()).toBeDefined())
+    create.resolve(created())
+    await launch.promptDeliveryResult
+    expect(optionCalls().filter((call) => call.key === 'fastMode')).toEqual([])
+  })
 
   it.each([false, true])(
     'keeps held unknown nonblocking only without explicit action (%s)',

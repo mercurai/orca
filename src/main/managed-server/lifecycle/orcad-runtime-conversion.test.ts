@@ -85,7 +85,7 @@ beforeEach(() => {
       throw new Error('deploy without a fence')
     }
     if (!listEnvironments(path).some((entry) => entry.id === owner)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id: owner,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -229,7 +229,8 @@ describe('converting an SSH host into a managed server', () => {
 
   it('commits first time with the pairing the tunnel re-paired to while it opened', async () => {
     mocks.ensureTunnel.mockImplementation(async (path: string, id: string) => {
-      refreshManagedOrcadPairing(
+      // The server refused the stored token; the tunnel paired again over SSH.
+      await refreshManagedOrcadPairing(
         path,
         id,
         encodePairingOffer({
@@ -410,7 +411,8 @@ describe('backing out a conversion whose server is registered but never committe
     expect(listEnvironments(userDataPath)).toEqual([])
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toEqual([])
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toBeUndefined()
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    // The next start finds no server to re-fence the host to.
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toBeUndefined()
   })
 
@@ -442,7 +444,7 @@ describe('backing out a conversion whose server is registered but never committe
   it('clears a stale journal a stopped server left, so the host converts again', async () => {
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     const [environment] = listEnvironments(userDataPath)
-    removeManagedOrcadEnvironment(userDataPath, environment!.id)
+    await removeManagedOrcadEnvironment(userDataPath, environment!.id)
     store.updateSshTarget(TARGET.id, { orcadFence: undefined })
     await expect(convert()).resolves.toMatchObject({ outcome: 'converted' })
     expect(listOrcadMigrationSourceCutovers(userDataPath)).toHaveLength(1)
@@ -471,7 +473,7 @@ describe('a converted host across a downgrade and back', () => {
 
   it('goes back to managed after a downgrade that changed nothing', async () => {
     await convertRetained()
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
     expect(visibleRepos(store, () => userDataPath)).toEqual([])
   })
@@ -487,7 +489,11 @@ describe('a converted host across a downgrade and back', () => {
       kind: 'git',
       connectionId: TARGET.id
     })
-    reconcileManagedOrcadSshTargets(userDataPath, store, () => new Date('2026-10-05T00:00:00Z'))
+    await reconcileManagedOrcadSshTargets(
+      userDataPath,
+      store,
+      () => new Date('2026-10-05T00:00:00Z')
+    )
     expect(store.getSshTarget(TARGET.id)?.orcadFence).toMatchObject({
       sourceChangedAt: '2026-10-05T00:00:00.000Z'
     })
@@ -502,7 +508,7 @@ describe('a converted host across a downgrade and back', () => {
   it('restores a fence the profile lost from the registered managed server', async () => {
     await convertRetained()
     store.updateSshTarget(TARGET.id, { orcadFence: undefined })
-    reconcileManagedOrcadSshTargets(userDataPath, store)
+    await reconcileManagedOrcadSshTargets(userDataPath, store)
     expect(getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))).toBe(
       listEnvironments(userDataPath)[0]?.id
     )

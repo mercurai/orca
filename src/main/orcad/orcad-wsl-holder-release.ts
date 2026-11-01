@@ -2,10 +2,9 @@
  * Lets a WSL distro stop once its orcad idle-stops with nothing left to keep (R40). The desktop's
  * holder keeps the distro up; it reads this request and ends after orcad's pid exits.
  */
-import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { ORCAD_WSL_HOLDER_RELEASE_FILENAME } from '../../shared/orcad-idle-exit'
-import { writeSecureFile } from '../../shared/secure-file'
+import { removeSecureFile, writeSecureFileAsync } from '../../shared/secure-file-async-write'
 import { ORCAD_WSL_HOST_ENV } from '../ipc/wsl-guest-windows-drive-path'
 import type { OrcadDaemonRetirement } from './orcad-daemon-retirement'
 
@@ -24,8 +23,11 @@ export function idleStopMayReleaseWslHolder(
   return env[ORCAD_WSL_HOST_ENV] === '1' && daemon.retirement === 'retired'
 }
 
-export function requestOrcadWslHolderRelease(userDataPath: string, pid = process.pid): void {
-  writeSecureFile(orcadWslHolderReleasePath(userDataPath), `${pid}\n`)
+export async function requestOrcadWslHolderRelease(
+  userDataPath: string,
+  pid = process.pid
+): Promise<void> {
+  await writeSecureFileAsync(orcadWslHolderReleasePath(userDataPath), `${pid}\n`)
 }
 
 /**
@@ -40,7 +42,7 @@ export function withdrawOrcadWslHolderRelease(
     return
   }
   try {
-    rmSync(orcadWslHolderReleasePath(userDataPath), { force: true })
+    removeSecureFile(orcadWslHolderReleasePath(userDataPath))
   } catch (error) {
     console.error('[orcad] could not withdraw the WSL holder release request:', error)
   }

@@ -1,7 +1,7 @@
 import { getRuntimeEnvironmentStatus } from './runtime-environment-status-probe'
 import { getPreferredPairedRuntimeConnection } from '../../../shared/runtime-environments'
 import { ELECTRON_REMOTE_RUNTIME_CLIENT_CAPABILITIES } from '../../../shared/electron-remote-runtime-client-capabilities'
-import { resolveEnvironment, markEnvironmentUsed } from '../../../shared/runtime-environment-store'
+import { resolveEnvironment } from '../../../shared/runtime-environment-store'
 import {
   requireWslHostWithoutStart,
   resolveManagedRuntimeEnvironment,
@@ -255,7 +255,9 @@ function markEnvironmentUsedFromResponse(
   response: RuntimeRpcResponse<unknown>
 ): void {
   if (response.ok === true) {
-    markEnvironmentUsed(userDataPath, environmentId, { runtimeId: response._meta.runtimeId })
+    recordRuntimeEnvironmentUsage(userDataPath, environmentId, {
+      runtimeId: response._meta.runtimeId
+    })
   }
 }
 

@@ -150,7 +150,7 @@ function parseReleaseEntry(
   }
 }
 
-// REST exposes older builds the short Atom feed omits; use only for explicit picker requests.
+/** REST includes older builds for the picker and routine Mercurai checks; use account quota when available. */
 export async function listReleaseBuilds(
   channel: ReleaseChannel,
   platform: NodeJS.Platform = process.platform

@@ -10,6 +10,7 @@ import {
 } from '../../../shared/native-chat/input/native-chat-session-option-defaults'
 import type { structuredSessionSelectionController } from './structured-agent-session-selection-controller'
 import type { StructuredLaunchState } from './agent-session/launch/structured-agent-session-launch-registry'
+import { isSupersededBySpeedPick } from './structured-agent-session-launch-blocked-speed'
 import { StructuredAgentSessionLaunchCancelledError } from './agent-session/launch/structured-agent-session-launch-recovery'
 
 export type LegacyPrerequisites = {
@@ -80,7 +81,9 @@ export function createLegacyPrerequisites(
         } else if (
           required &&
           (outcome.kind === 'refused' || outcome.kind === 'unknown') &&
-          outcome.failure
+          outcome.failure &&
+          // A late refusal of an older speed must not fail the action after a newer pick.
+          !(operation && isSupersededBySpeedPick(state, controller, key, operation.identity))
         ) {
           finish(outcome.failure)
         } else {
@@ -115,7 +118,10 @@ export function createLegacyPrerequisites(
         enroll(key, operation.value, requested?.[key] !== undefined, operation)
       }
       const value = compatible?.[key]
-      if (value !== undefined && !context.has(key) && !direct.has(key) && key !== 'fastMode') {
+      // Explicit Codex speed reaches the host before the legacy opening send; other agents'
+      // fastMode rides the create request. Absent values stay absent, so false and true both send.
+      const sentDirectly = key !== 'fastMode' || state.intent.agent === 'codex'
+      if (value !== undefined && !context.has(key) && !direct.has(key) && sentDirectly) {
         if (!pending) {
           direct.add(key)
           enroll(key, value, requested?.[key] !== undefined)

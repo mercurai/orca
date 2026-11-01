@@ -1,5 +1,6 @@
 // Journal unconfirmed drafts synchronously on unload; journal returned additions immediately because crashes skip unload and their source is deleted.
 
+import { preserveDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
 import type { UnconfirmedDraftChange } from './native-chat-composer-draft-memory'
 import {
   withNativeChatComposerDraftAddition,
@@ -119,7 +120,11 @@ export function replayNativeChatComposerDraftJournal(
       pruneNativeChatComposerDraftJournal(entry.scopeKey, entry.at)
       continue
     }
-    drafts.set(entry.scopeKey, entry.draft)
+    // Explicit removal stays destructive; a newer whole-draft edit retains committed receipts.
+    drafts.set(
+      entry.scopeKey,
+      entry.draft ? preserveDraftRecoveryReceipts(entry.draft, stored ?? null) : null
+    )
     if (!entry.draft) {
       removedAt.set(entry.scopeKey, entry.at)
     }

@@ -32,7 +32,7 @@ import {
   type HardenedPathCacheEntry
 } from './secure-path-metadata-snapshot'
 
-const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'])
+export const UNSUPPORTED_DIRECTORY_FSYNC_CODES = new Set(['EINVAL', 'ENOTSUP', 'EOPNOTSUPP'])
 
 // Why: read paths poll (~2/s, #4901); a metadata-keyed cache keeps an unchanged file from being re-verified and re-logged.
 let hardenedPathsThisProcess = new SecurePathHardeningCache<HardenedPathCacheEntry>(
@@ -61,7 +61,8 @@ function hardenWindowsDirectoryOnce(dirPath: string): void {
   })
 }
 
-function hardenSecurePathOnce(targetPath: string, isDirectory: boolean): boolean {
+/** Exported for `secure-file-async-write`. */
+export function hardenSecurePathOnce(targetPath: string, isDirectory: boolean): boolean {
   if (isDirectory && process.platform === 'win32') {
     hardenWindowsDirectoryOnce(targetPath)
     return true
@@ -230,7 +231,7 @@ function isPermissionDeniedError(error: unknown): boolean {
 }
 
 /** Caches the current metadata snapshot for a just-hardened path, or clears it if the path is gone. */
-function rememberHardenedPath(targetPath: string, isDirectory: boolean): void {
+export function rememberHardenedPath(targetPath: string, isDirectory: boolean): void {
   const entry = getHardenedPathCacheEntry(targetPath, isDirectory)
   if (entry) {
     hardenedPathsThisProcess.set(targetPath, entry)

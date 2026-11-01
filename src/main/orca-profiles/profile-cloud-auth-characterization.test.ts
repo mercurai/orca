@@ -1,9 +1,10 @@
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type * as ProfileCloudClient from './profile-cloud-client'
-import type * as SecureFile from '../../shared/secure-file'
+import type * as SecureFileAsyncWrite from '../../shared/secure-file-async-write'
 import type { OrcaCloudSession } from './profile-cloud-session-store'
 
 const net = vi.hoisted(() => ({
@@ -16,16 +17,19 @@ const net = vi.hoisted(() => ({
 
 const disk = vi.hoisted(() => ({ failSessionWrites: 0 }))
 
-vi.mock('../../shared/secure-file', async (importOriginal) => {
-  const original = await importOriginal<typeof SecureFile>()
+vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
+  const original = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...original,
-    writeSecureJsonFile: (path: string, value: unknown) => {
+    writeSecureJsonFileAsync: async (
+      ...args: Parameters<typeof original.writeSecureJsonFileAsync>
+    ) => {
+      const [path] = args
       if (path.endsWith('account-session.json.enc') && disk.failSessionWrites > 0) {
         disk.failSessionWrites--
         throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
       }
-      return original.writeSecureJsonFile(path, value)
+      return await original.writeSecureJsonFileAsync(...args)
     }
   }
 })
@@ -180,6 +184,7 @@ describe('cloud auth characterization', () => {
     await expect(connectCurrentOrcaProfile(userDataPath)).resolves.toMatchObject({
       status: 'failed'
     })
+    expect(disk.failSessionWrites).toBe(0)
     expect(getCurrentOrcaProfileAuthStatus(userDataPath)).toMatchObject({ state: 'local' })
   })
 
@@ -542,6 +547,8 @@ describe('cloud auth characterization', () => {
       for (let renewal = 0; renewal < 13; renewal++) {
         await readRelayAuthContext(authConfig(), userDataPath).catch(() => null)
       }
+      expect(disk.failSessionWrites).toBe(0)
+      await drainPendingPathWrites()
       vi.resetModules()
       const store = await import('./profile-cloud-session-store')
       const session = store.readOrcaCloudSession(

@@ -43,15 +43,15 @@ function moveSized(delta: number) {
 }
 
 describe('WSL move manifest budget', () => {
-  it('records a move right at the budget', () => {
+  it('records a move right at the budget', async () => {
     const move = moveSized(0)
     expect(wslMoveManifestRequestBytes(move.manifest)).toBe(WSL_MOVE_MANIFEST_REQUEST_BUDGET_BYTES)
-    writeWslMoveCutover(userDataPath, move)
+    await writeWslMoveCutover(userDataPath, move)
     expect(listWslMoveCutovers(userDataPath)).toHaveLength(1)
   })
 
-  it('refuses a move one byte over, with a plain message and nothing fenced', () => {
-    expect(() => writeWslMoveCutover(userDataPath, moveSized(1))).toThrow(
+  it('refuses a move one byte over, with a plain message and nothing fenced', async () => {
+    await expect(writeWslMoveCutover(userDataPath, moveSized(1))).rejects.toThrow(
       /too large to move in one step.*Move fewer projects at a time/
     )
     expect(listWslMoveCutovers(userDataPath)).toEqual([])

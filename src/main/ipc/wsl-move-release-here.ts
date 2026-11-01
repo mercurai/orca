@@ -237,7 +237,7 @@ async function releaseOneMoveHere(
   }
   // Written here just before the release (the record keeps the choice), and undone if it refuses.
   const revertHere = automations.applyHere()
-  const release = releaseWslMove(userDataPath, move)
+  const release = await releaseWslMove(userDataPath, move)
   if (!release.released) {
     try {
       revertHere()

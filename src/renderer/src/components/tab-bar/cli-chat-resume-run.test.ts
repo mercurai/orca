@@ -250,7 +250,8 @@ describe('CLI identity resume through the existing launch owner', () => {
               ? { cliSource: { workspaceId: 'wt-1', paneKey: `host-tab-1:${HOST_LEAF}` } }
               : {})
           }
-        })
+        }),
+        undefined
       )
       expect(mocks.toast).not.toHaveBeenCalled()
     }

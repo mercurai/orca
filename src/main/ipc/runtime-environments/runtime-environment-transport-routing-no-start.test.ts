@@ -7,7 +7,9 @@ const mocks = vi.hoisted(() => ({
   environments: new Map<string, Environment>(),
   resolveManaged: vi.fn(),
   wslCheck: vi.fn(async () => {}),
-  statusProbe: vi.fn(async () => ({ id: 'status.get', ok: true, result: {}, _meta: {} }))
+  statusProbe: vi.fn(async () => ({ id: 'status.get', ok: true, result: {}, _meta: {} })),
+  usage: vi.fn(),
+  request: vi.fn()
 }))
 
 vi.mock('electron', () => ({ BrowserWindow: { getAllWindows: () => [] } }))
@@ -30,6 +32,17 @@ vi.mock('./runtime-environment-managed-tunnel', async () => {
     }
   }
 })
+vi.mock('../../../shared/runtime-environments', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getPreferredPairedRuntimeConnection: () => ({ endpoint: 'ws://127.0.0.1:1' })
+}))
+vi.mock('../../../shared/runtime-environment-usage-detached', () => ({
+  markEnvironmentUsedDetached: mocks.usage
+}))
+vi.mock('./runtime-environment-abortable-requests', () => ({
+  sendRemoteRuntimeRequestAbortable: mocks.request,
+  sendRemoteRuntimeConnectionRequestAbortable: mocks.request
+}))
 vi.mock('./runtime-environment-status-probe', () => ({
   getRuntimeEnvironmentStatus: mocks.statusProbe
 }))
@@ -99,5 +112,33 @@ describe("a no-start caller's status probe", () => {
       undefined,
       true
     )
+  })
+})
+
+describe('successful runtime calls and usage bookkeeping', () => {
+  it('returns a successful mutation when the environment disappears before usage is recorded', async () => {
+    const response = {
+      id: 'update',
+      ok: true,
+      result: { saved: true },
+      _meta: { runtimeId: 'r' }
+    }
+    mocks.environments.set('paired', { id: 'paired', createdAt: 1 })
+    mocks.resolveManaged.mockResolvedValue({ id: 'paired', createdAt: 1 })
+    mocks.request.mockResolvedValue(response)
+    mocks.usage.mockImplementationOnce(() => {
+      throw new Error('environment removed')
+    })
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      await expect(callRuntimeEnvironment('/u', 'paired', 'terminal.send', {})).resolves.toEqual(
+        response
+      )
+      expect(mocks.request).toHaveBeenCalledOnce()
+      expect(mocks.usage).toHaveBeenCalledWith('/u', 'paired', { runtimeId: 'r' })
+      expect(warning).toHaveBeenCalledOnce()
+    } finally {
+      warning.mockRestore()
+    }
   })
 })

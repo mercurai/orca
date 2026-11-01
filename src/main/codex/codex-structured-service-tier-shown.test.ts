@@ -15,7 +15,6 @@ import { CodexBackgroundTaskTracker } from './codex-background-task-tracker'
 import { createCodexDispatchEchoes } from './codex-structured-dispatch-echo'
 import { createCodexTurnOpenWaits } from './codex-structured-turn-open-wait'
 import type { CodexSession } from './codex-structured-session-state'
-import { resolvedCodexMessageOptions } from './codex-structured-message-options'
 import { startCodexTurn } from './codex-structured-turn-start'
 import { readLiveCodexSessionOptions } from './codex-structured-session-options'
 
@@ -28,8 +27,7 @@ const MODELS: AgentSessionModelOption[] = [
 async function hostRuns(
   saved: Record<string, string>,
   ageMs = 0,
-  child?: { tiers?: readonly string[]; reported?: string },
-  observeProjection?: (projected: Readonly<Record<string, string>> | undefined) => void
+  child?: { tiers?: readonly string[]; reported?: string }
 ) {
   let now = 1
   const store = new AgentModelCatalogStore({ now: () => now })
@@ -93,11 +91,16 @@ async function hostRuns(
     offline = true
     await store.refresh('codex-account', 'codex', () => Promise.reject(new Error('offline')))
   }
-  observeProjection?.(await resolvedCodexMessageOptions(session, saved))
-  await startCodexTurn(session, {
-    clientMessageId: 'message-1',
-    body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'go' }] }
-  })
+  try {
+    await startCodexTurn(session, {
+      clientMessageId: 'message-1',
+      body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'go' }] }
+    })
+  } catch (error) {
+    expect(request.mock.calls.some(([method]) => method === 'turn/start')).toBe(false)
+    expect(session.options.get('serviceTier')).toBe(saved.serviceTier)
+    throw error
+  }
   const firstTurn = request.mock.calls.find(([method]) => method === 'turn/start')?.[1]
   await readLiveCodexSessionOptions(session, undefined)
   return {
@@ -129,40 +132,39 @@ function shownTier(state: StructuredAgentSessionOptionState): string | undefined
 }
 
 describe("a Codex chat's speed, shown and sent", () => {
-  it('uses installed tiers through discovery failure, retaining only reported opaque exceptions', async () => {
-    for (const [child, tier, runs] of [
-      [{ tiers: ['priority'] }, 'priority', 'default'],
-      [{ tiers: ['ultrafast'] }, 'priority', 'default'],
-      [{}, 'priority', 'default'],
-      [{ tiers: [] }, 'priority', 'default'],
-      [{ tiers: [], reported: 'opaque' }, 'opaque', 'opaque'],
-      [{ tiers: [], reported: 'ultrafast' }, 'ultrafast', 'ultrafast']
+  it('refuses paid speed after discovery failure, including reported opaque tiers', async () => {
+    for (const [child, tier] of [
+      [{ tiers: ['priority'] }, 'priority'],
+      [{ tiers: ['ultrafast'] }, 'priority'],
+      [{}, 'priority'],
+      [{ tiers: [] }, 'priority'],
+      [{ tiers: [], reported: 'opaque' }, 'opaque'],
+      [{ tiers: [], reported: 'ultrafast' }, 'ultrafast']
     ] as const) {
-      await expect(hostRuns({ model: 'm2', serviceTier: tier }, 120_000, child)).resolves.toEqual({
-        firstTurn: runs,
-        shown: 'reported' in child ? child.reported : undefined,
-        afterLiveRead: tier
+      await expect(
+        hostRuns({ model: 'm2', serviceTier: tier }, 120_000, child)
+      ).rejects.toMatchObject({
+        kind: 'speedSupportUnknown'
       })
     }
   })
-  it('shows what the host runs, an older host as it sends it, and keeps the saved tier', async () => {
-    for (const [saved, shown, olderShown, runs] of [
-      [{ model: 'm2', serviceTier: 'priority' }, 'default', 'default', 'default'],
-      [{ model: 'm2', serviceTier: 'flex' }, 'default', 'flex', 'default'],
-      [{ model: 'm1', serviceTier: 'priority' }, 'priority', 'priority', 'priority']
-    ] as const) {
-      expect(shownTier(answered(saved, false))).toBe(olderShown)
-      for (const ageMs of [0, 2 * 60_000]) {
-        await expect(
-          hostRuns(saved, ageMs, undefined, (projected) => {
-            expect(projected).toBeDefined()
-            expect(shownTier(answered({ ...saved, ...projected }, true))).toBe(shown)
-          })
-        ).resolves.toEqual({
-          firstTurn: runs,
-          afterLiveRead: saved.serviceTier
-        })
+
+  it('preserves unavailable selection on modern and older hosts without dispatching a downgrade', async () => {
+    for (const tier of ['priority', 'flex']) {
+      const saved = { model: 'm2', serviceTier: tier }
+      for (const marksDefaults of [true, false]) {
+        expect(shownTier(answered(saved, marksDefaults))).toBe(tier)
       }
+      await expect(hostRuns(saved)).rejects.toMatchObject({ kind: 'speedUnavailable' })
+    }
+  })
+
+  it('sends the exact advertised tier and retains it through live reads and model changes', async () => {
+    for (const tier of ['priority', 'flex']) {
+      await expect(hostRuns({ model: 'm1', serviceTier: tier })).resolves.toEqual({
+        firstTurn: tier,
+        afterLiveRead: tier
+      })
     }
     const back = commitStructuredAgentSessionOption(
       answered({ model: 'm2', serviceTier: 'flex' }, true),

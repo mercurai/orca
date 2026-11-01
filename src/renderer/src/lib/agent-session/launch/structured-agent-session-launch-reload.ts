@@ -1,3 +1,4 @@
+import { recoverStructuredLaunchDrafts } from '../../structured-agent-session-launch-draft-recovery'
 import {
   restoreStructuredAgentSessionLaunchIntent,
   type StructuredAgentSessionLaunchIntent
@@ -15,6 +16,7 @@ import {
 } from './structured-agent-session-launch-registry'
 import {
   initialStructuredLaunchSelection,
+  restoreStructuredLaunchHeldOptions,
   structuredLaunchSelectionController
 } from '../../structured-agent-session-launch-options'
 
@@ -41,6 +43,10 @@ export function restorePersistedStructuredLaunchState(
       ...(record.firstMessage ? { firstMessage: record.firstMessage } : {}),
       ...(record.optionsMode ? { optionsMode: record.optionsMode } : {}),
       ...(record.options ? { options: record.options } : {}),
+      ...(record.createCanonicalOptions
+        ? { createCanonicalOptions: record.createCanonicalOptions }
+        : {}),
+      ...(record.createSpeedAuthority ? { createSpeedAuthority: record.createSpeedAuthority } : {}),
       ...(record.explicitLaunchOptions
         ? { explicitLaunchOptions: record.explicitLaunchOptions }
         : {}),
@@ -69,11 +75,14 @@ export function restorePersistedStructuredLaunchState(
     cancelled: false,
     onVisibilityChanged: undefined,
     callers,
+    ...(record.heldPromptDrafts ? { heldPromptDrafts: record.heldPromptDrafts } : {}),
     selection: initialStructuredLaunchSelection(intent)
   }
   callers.outcome = record.lifecycle === 'failed' ? 'failed' : 'unknown'
   callers.failedAt = record.failedAt
   structuredLaunchSelectionController(state)
+  restoreStructuredLaunchHeldOptions(state, record.heldOptions ?? {})
   setStructuredLaunchState(state)
+  void recoverStructuredLaunchDrafts(state)
   return state
 }

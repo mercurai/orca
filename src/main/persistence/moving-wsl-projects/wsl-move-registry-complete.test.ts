@@ -134,9 +134,11 @@ function registerRegistry(): void {
   })
 }
 
-function recordRendererStores(migrationId = 'move-1'): void {
+async function recordRendererStores(migrationId = 'move-1'): Promise<void> {
   for (const storeId of WSL_MOVE_RENDERER_REWRITE_STORE_IDS) {
-    expect(recordWslMoveRendererStoreRewritten(testState.dir, { migrationId, storeId })).toEqual({
+    expect(
+      await recordWslMoveRendererStoreRewritten(testState.dir, { migrationId, storeId })
+    ).toEqual({
       recorded: true
     })
   }
@@ -209,7 +211,7 @@ afterEach(async () => {
 describe('WSL move with the complete desktop rewrite registry', () => {
   it('takes a committed move through client-rewritten to retained', async () => {
     expect(isWslMoveDesktopRewriteRegistryComplete()).toBe(true)
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     loadWslMoveFence(testState.dir)
 
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
@@ -222,7 +224,7 @@ describe('WSL move with the complete desktop rewrite registry', () => {
       browserCookieCopy: { outcome: 'fresh-partition' }
     })
 
-    recordRendererStores()
+    await recordRendererStores()
     const [rewritten] = journal()
     expect(rewritten?.phase).toBe('client-rewritten')
     // Each registered store exactly once.
@@ -239,18 +241,20 @@ describe('WSL move with the complete desktop rewrite registry', () => {
   })
 
   it('refuses a later move of the distro only until the earlier one is retained', async () => {
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     const next = {
       ...wslMoveCutoverFixture('move-2', 'prepared', {}, { repoIds: ['repo-b'] }),
       supersedesMigrationId: 'move-1'
     }
-    expect(() => writeWslMoveCutover(testState.dir, next)).toThrow('wsl_move_already_in_flight')
+    await expect(writeWslMoveCutover(testState.dir, next)).rejects.toThrow(
+      'wsl_move_already_in_flight'
+    )
 
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
-    recordRendererStores()
+    await recordRendererStores()
     await retain()
 
-    writeWslMoveCutover(testState.dir, next)
+    await writeWslMoveCutover(testState.dir, next)
     expect(journal().map((entry) => [entry.migrationId, entry.phase])).toEqual([
       ['move-1', 'retained'],
       ['move-2', 'prepared']
@@ -258,7 +262,7 @@ describe('WSL move with the complete desktop rewrite registry', () => {
   })
 
   it('changes nothing with the gate closed', async () => {
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     const ui = store.getUI()
     const session = store.getWorkspaceSession()
@@ -266,7 +270,7 @@ describe('WSL move with the complete desktop rewrite registry', () => {
     await runGatedWslMoveDesktopRewritePass({ userDataPath: testState.dir })
     await runWslMoveStartupRewrite({ userDataPath: testState.dir })
     expect(
-      recordWslMoveRendererStoreRewritten(testState.dir, {
+      await recordWslMoveRendererStoreRewritten(testState.dir, {
         migrationId: 'move-1',
         storeId: 'quick-open-history'
       })
@@ -291,7 +295,7 @@ describe('WSL move with the complete desktop rewrite registry', () => {
 
   it("holds an open window's saves from the rewrite until its reloaded page has loaded", async () => {
     windowOpen = true
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     loadWslMoveFence(testState.dir)
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
     expect(isWslMoveWindowWriteHeld()).toBe(true)
@@ -303,7 +307,7 @@ describe('WSL move with the complete desktop rewrite registry', () => {
     pageLoaded?.()
     expect(isWslMoveWindowWriteHeld()).toBe(false)
     // A later pass finds every window-owned store rewritten: no second hold, no second reload.
-    recordRendererStores()
+    await recordRendererStores()
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
     await new Promise((resolve) => setImmediate(resolve))
     expect(isWslMoveWindowWriteHeld()).toBe(false)
@@ -311,7 +315,7 @@ describe('WSL move with the complete desktop rewrite registry', () => {
   })
 
   it('holds and reloads nothing when no window is open', async () => {
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     loadWslMoveFence(testState.dir)
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
     await new Promise((resolve) => setImmediate(resolve))

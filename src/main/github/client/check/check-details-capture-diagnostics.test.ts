@@ -24,7 +24,8 @@ const { spawnMock, resolverMock, signalMock, forceMock, captureCap } = vi.hoiste
 }))
 vi.mock('node:child_process', async (original) => ({ ...(await original()), spawn: spawnMock }))
 vi.mock('../../github-api-repository', () => ({ resolveGitHubRepoExecution: resolverMock }))
-vi.mock('@orca/process-host/process-tree-termination', () => ({
+vi.mock('@orca/process-host/process-tree-termination', async (original) => ({
+  ...(await original()),
   signalProcessTree: signalMock,
   forceTerminateProcessTree: forceMock
 }))

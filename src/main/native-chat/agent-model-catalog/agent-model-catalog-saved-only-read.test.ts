@@ -172,7 +172,8 @@ describe('a saved-only catalog read', () => {
     expect(
       await service.read({ agent: 'grok', sessionId: record.sessionId, waitForListing: true })
     ).toEqual({
-      origin: 'unknown'
+      origin: 'unknown',
+      catalogState: 'unknown'
     })
     expect(probe).not.toHaveBeenCalled()
 
@@ -206,7 +207,10 @@ describe('a saved-only catalog read', () => {
 
   it('answers unknown with nothing saved, and starts no listing for it', async () => {
     const { store, probe, service } = rig()
-    expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({ origin: 'unknown' })
+    expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(store.pendingListing(FINGERPRINT)).toBeNull()
     expect(probe).not.toHaveBeenCalled()
   })
@@ -222,6 +226,7 @@ describe('a saved-only catalog read', () => {
     advance(AGENT_MODEL_CATALOG_FAILURE_TTL_MS)
     expect(await service.read({ agent: 'grok', savedOnly: true })).toEqual({
       origin: 'unknown',
+      catalogState: 'unknown',
       unavailable: SIGNED_OUT
     })
     expect(probe).not.toHaveBeenCalled()
@@ -269,11 +274,18 @@ it('returns a snapshot before a cold worktree selector resolves', async () => {
     }
   }
   try {
-    expect(await service.read(request)).toEqual({ origin: 'unknown' })
+    expect(await service.read(request)).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     expect(account).not.toHaveBeenCalled()
     void service.demand(request)
-    expect(await service.read(request)).toEqual({ origin: 'unknown', listingInProgress: true })
-    expect(await service.read({ ...request, savedOnly: true })).toEqual({ origin: 'unknown' })
+    expect(await service.read(request)).toEqual({
+      origin: 'unknown',
+      catalogState: 'loading',
+      listingInProgress: true
+    })
+    expect(await service.read({ ...request, savedOnly: true })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     expect(account).not.toHaveBeenCalled()
   } finally {
     service.stop()
@@ -307,7 +319,7 @@ it('observes a bound scope immediately while another account and default writer 
     ).toMatchObject({ models: [{ id: 'kept', isDefault: false }] })
     expect(
       await service.read({ agent: 'grok', workspacePath: '/unresolved', savedOnly: true })
-    ).toEqual({ origin: 'unknown' })
+    ).toEqual({ origin: 'unknown', catalogState: 'unknown' })
     expect(resolveAccountHome).toHaveBeenCalledTimes(calls)
   } finally {
     service.stop()
@@ -357,7 +369,10 @@ it.each(['success', 'failure'] as const)(
       await old
       expect(store.get(FINGERPRINT)).toBeNull()
       expect(store.failureDetail(FINGERPRINT)).toBe('new account failure')
-      expect(service.snapshot({ agent: 'grok', savedOnly: true })).toEqual({ origin: 'unknown' })
+      expect(service.snapshot({ agent: 'grok', savedOnly: true })).toEqual({
+        origin: 'unknown',
+        catalogState: 'unknown'
+      })
     } finally {
       service.stop()
     }
@@ -389,7 +404,10 @@ it('starts a new listing instead of joining a retired workspace invocation', asy
     const first = service.demand(request)
     await vi.waitFor(() => expect(probe).toHaveBeenCalledOnce())
     revision += 2
-    expect(service.snapshot({ ...request, savedOnly: true })).toEqual({ origin: 'unknown' })
+    expect(service.snapshot({ ...request, savedOnly: true })).toEqual({
+      origin: 'unknown',
+      catalogState: 'unknown'
+    })
     await service.demand(request)
     expect(probe).toHaveBeenCalledTimes(2)
     stale.resolve(listing('retired'))

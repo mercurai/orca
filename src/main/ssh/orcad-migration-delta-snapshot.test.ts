@@ -76,7 +76,7 @@ beforeEach(() => {
   mocks.deploy.mockImplementation(async (path: string, args: { name: string }) => {
     const id = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))!
     if (!listEnvironments(path).some((entry) => entry.id === id)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -106,6 +106,7 @@ const now = () => new Date('2026-10-03T00:00:00.000Z')
 
 const HOST_ID = `ssh:${TARGET.id}` as const
 
+/** An unsaved editor draft in the host's session partition, as the renderer saves it. */
 function saveDraft(worktreeId: string, content: string): void {
   store.setWorkspaceSession(
     {
@@ -131,6 +132,7 @@ function savedDraft(worktreeId: string): string | undefined {
     ?.dirtyDraftContent
 }
 
+/** Converted with source retirement off, then an older build adds what `addOnOlderBuild` adds. */
 async function convertedThenAdded(addOnOlderBuild: () => string): Promise<string> {
   await expect(
     convertSshTargetToManagedOrcad(userDataPath, {
@@ -143,12 +145,12 @@ async function convertedThenAdded(addOnOlderBuild: () => string): Promise<string
   ).resolves.toMatchObject({ outcome: 'converted' })
   const worktreeId = addOnOlderBuild()
   saveDraft(worktreeId, 'draft before the move')
-  reconcileManagedOrcadSshTargets(userDataPath, store, now)
+  await reconcileManagedOrcadSshTargets(userDataPath, store, now)
   expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeDefined()
   return worktreeId
 }
 
-/** Run the user edit before answering census to model typing during preflight. */
+/** The census answers only after `whileChecking` ran, as a user typing during the check would. */
 function deltaMoveTypingDuringTerminalCheck(whileChecking: () => void) {
   return runOrcadDeltaMove({
     userDataPath,
@@ -219,7 +221,8 @@ describe('a draft typed while a delta move checks terminals', () => {
       outcome: 'moved'
     })
     expect(savedDraft(worktreeId)).toBe('draft before the move')
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    // Back to managed, and the next start finds the source as the delta baseline recorded it.
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
   })
 })

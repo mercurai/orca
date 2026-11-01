@@ -36,11 +36,11 @@ vi.mock('../telemetry/client', () => ({ track }))
 import { registerWslMoveHandlers } from './wsl-move-handlers'
 
 let userDataPath: string
-beforeEach(() => {
+beforeEach(async () => {
   userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-ipc-'))
   vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
   registerWslMoveDesktopRewriteStore({ id: 'renderer-a', side: 'renderer' })
-  seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+  await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
   flushStorageData.mockReset()
   track.mockReset()
   registerWslMoveHandlers(
@@ -63,12 +63,12 @@ const invoke = (channel: string, request?: unknown, senderId = MAIN_WINDOW_ID) =
   handlers.get(channel)?.({ sender: sender(senderId) }, request)
 
 describe('WSL move IPC', () => {
-  it('lists pending renderer rewrites and records one', () => {
+  it('lists pending renderer rewrites and records one', async () => {
     expect(invoke('wslMove:listPendingRendererRewrites')).toMatchObject([
       { migrationId: 'move-1', storeIds: ['renderer-a'] }
     ])
     expect(
-      invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
+      await invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
     ).toEqual({ recorded: true })
     // Its only registered store is now recorded, so the move finishes its rewrite.
     expect(listWslMoveCutovers(userDataPath)[0]).toMatchObject({
@@ -83,27 +83,27 @@ describe('WSL move IPC', () => {
     'renderer-a',
     { migrationId: 'move-1' },
     { migrationId: 1, storeId: 2 }
-  ])('refuses a malformed request %j', (request) => {
-    expect(invoke('wslMove:recordStoreRewritten', request)).toEqual({
+  ])('refuses a malformed request %j', async (request) => {
+    expect(await invoke('wslMove:recordStoreRewritten', request)).toEqual({
       recorded: false,
       reason: 'unknown-store'
     })
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
   })
 
-  it('answers empty and refuses with the gate closed', () => {
+  it('answers empty and refuses with the gate closed', async () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     expect(invoke('wslMove:listPendingRendererRewrites')).toEqual([])
     expect(
-      invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
+      await invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
     ).toEqual({ recorded: false, reason: 'gated-off' })
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
   })
 
-  it('keeps listing unfinished moves and pending rewrites in serve-only, and nothing when closed', () => {
+  it('keeps listing unfinished moves and pending rewrites in serve-only, and nothing when closed', async () => {
     rmSync(userDataPath, { recursive: true, force: true })
     userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-ipc-'))
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-2', 'destination-committed', { automationsToReenable: ['automation-1'] })
     )
@@ -145,18 +145,22 @@ describe('WSL move IPC', () => {
     }
   })
 
-  it('writes the window storage to disk before the ledger entry', () => {
+  it('writes the window storage to disk before the ledger entry', async () => {
     flushStorageData.mockImplementation(() => {
       expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
     })
-    invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
+    await invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
     expect(flushStorageData).toHaveBeenCalledOnce()
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual(['renderer-a'])
   })
 
-  it('records only for the main window, whose storage holds the renderer stores', () => {
+  it('records only for the main window, whose storage holds the renderer stores', async () => {
     expect(
-      invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' }, 8)
+      await invoke(
+        'wslMove:recordStoreRewritten',
+        { migrationId: 'move-1', storeId: 'renderer-a' },
+        8
+      )
     ).toEqual({ recorded: false, reason: 'not-main-window' })
     expect(flushStorageData).not.toHaveBeenCalled()
     expect(listWslMoveCutovers(userDataPath)[0]?.rewrittenStores).toEqual([])
@@ -201,9 +205,9 @@ describe('WSL move IPC', () => {
   // "p5 moved after this project" refused the undo after killing p1's terminals.
   it('refuses a superseded undo before it stops anything on the host', async () => {
     const rewritten = { rewrittenStores: ['renderer-a'] }
-    invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
-    seedWslMoveCutover(userDataPath, { ...cutover('move-1', 'retained'), ...rewritten })
-    seedWslMoveCutover(userDataPath, {
+    await invoke('wslMove:recordStoreRewritten', { migrationId: 'move-1', storeId: 'renderer-a' })
+    await seedWslMoveCutover(userDataPath, { ...cutover('move-1', 'retained'), ...rewritten })
+    await seedWslMoveCutover(userDataPath, {
       ...cutover(
         'move-2',
         'retained',

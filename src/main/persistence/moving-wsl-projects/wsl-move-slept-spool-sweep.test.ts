@@ -23,10 +23,10 @@ function spool(userDataPath: string, migrationId: string): string {
 
 describe('WSL move slept spool sweep', () => {
   // A kill at `quiesced` left its 25 KB document behind after the rollback.
-  it("removes the spools of moves the journal no longer holds and keeps a live move's", () => {
+  it("removes the spools of moves the journal no longer holds and keeps a live move's", async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-spool-sweep-'))
     roots.push(userDataPath)
-    seedWslMoveCutover(userDataPath, wslMoveCutoverFixture('move-live', 'quiesced'))
+    await seedWslMoveCutover(userDataPath, wslMoveCutoverFixture('move-live', 'quiesced'))
     const live = spool(userDataPath, 'move-live')
     const orphan = spool(userDataPath, 'move-reset')
 

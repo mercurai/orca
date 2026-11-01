@@ -160,7 +160,7 @@ async function refreshStoredCloudSession(
     ) {
       throw new StaleCloudSessionMutationError()
     }
-    const saved = commitCloudSessionRotation(
+    const saved = await commitCloudSessionRotation(
       active.profile.id,
       userDataPath,
       ticket,

@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { runInNewContext } from 'node:vm'
 import { parse } from 'yaml'
 import { describe, expect, it } from 'vitest'
 import { classifyPrJobs } from './pr-code-change-scope.mjs'
@@ -72,6 +73,16 @@ function resolveIdentity({
 }
 
 describe('CI native cache ownership', () => {
+  it('disables native restoration and saving for explicit cache isolation', () => {
+    expect(native.inputs['cache-mode'].default).toBe('auto')
+    for (const step of native.runs.steps.filter((entry) =>
+      entry.uses?.startsWith('actions/cache')
+    )) {
+      const expression = step.if.replaceAll(/inputs\.([\w-]+)/g, 'inputs["$1"]')
+      expect(runInNewContext(expression, { inputs: { 'cache-mode': 'off' } })).toBe(false)
+    }
+  })
+
   it('routes every configured native cache input to native preparation', () => {
     expect(inputs.length).toBeGreaterThan(0)
     for (const file of inputs) {
@@ -171,6 +182,7 @@ describe('CI native cache ownership', () => {
     expect(job.steps.indexOf(build)).toBeLessThan(job.steps.indexOf(electron))
     expect(electron.uses).toBe('./.github/actions/prepare-native-runtime')
     expect(electron.with).toEqual({
+      'cache-mode': "${{ inputs.cache_mode || 'auto' }}",
       'native-runtime': 'electron',
       'node-version': '${{ steps.deps.outputs.node-version }}'
     })
@@ -225,6 +237,7 @@ describe('CI native cache ownership', () => {
     expect(electron.background).toBeUndefined()
     expect(electron.uses).toBe('./.github/actions/prepare-native-runtime')
     expect(electron.with).toEqual({
+      'cache-mode': "${{ inputs.cache_mode || 'auto' }}",
       'native-runtime': 'electron',
       'node-version': '${{ steps.deps.outputs.node-version }}'
     })

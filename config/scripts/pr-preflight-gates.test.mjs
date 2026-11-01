@@ -89,6 +89,7 @@ it('plans shards apart from preflight while verify still requires preflight', ()
   }
   for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
     const admitted = runInNewContext(workflow.jobs.test.if, {
+      inputs: {},
       cancelled: () => false,
       needs: { code_paths: { result: 'success', outputs: { test: 'true' } }, unit_plan: { result } }
     })
@@ -166,6 +167,7 @@ it.each([
   const [static_analysis, typecheck] = scenario.phases ?? ['true', 'true']
   expect(workflow.jobs.e2e.needs).toEqual(['code_paths', 'preflight'])
   const admitted = runInNewContext(workflow.jobs.e2e.if, {
+    inputs: {},
     cancelled: () => scenario.cancelled ?? false,
     needs: {
       code_paths: {
@@ -183,6 +185,7 @@ it.each(['true', 'false'])(
   (reused) => {
     const scope = classifyPrJobs(['src/main/runtime/orca-runtime.ts'])
     const context = {
+      inputs: {},
       steps: {
         readiness: { outputs: { reused } },
         filter: {
@@ -196,7 +199,12 @@ it.each(['true', 'false'])(
     const outputs = Object.fromEntries(
       ['static_analysis', 'typecheck', 'e2e_should_run'].map((name) => [
         name,
-        String(runInNewContext(workflow.jobs.code_paths.outputs[name].slice(3, -2), context))
+        String(
+          runInNewContext(workflow.jobs.code_paths.outputs[name].slice(3, -2), {
+            inputs: {},
+            ...context
+          })
+        )
       ])
     )
     expect(outputs).toEqual({
@@ -205,10 +213,10 @@ it.each(['true', 'false'])(
       e2e_should_run: 'true'
     })
     const needs = { code_paths: { result: 'success', outputs }, preflight: { result: 'skipped' } }
-    expect(runInNewContext(preflight.if, { needs })).toBe(reused !== 'true')
-    expect(runInNewContext(workflow.jobs.e2e.if, { needs, cancelled: () => false })).toBe(
-      reused === 'true'
-    )
+    expect(runInNewContext(preflight.if, { inputs: {}, needs })).toBe(reused !== 'true')
+    expect(
+      runInNewContext(workflow.jobs.e2e.if, { inputs: {}, needs, cancelled: () => false })
+    ).toBe(reused === 'true')
     expect(workflow.jobs.verify.needs).not.toContain('e2e')
   }
 )
@@ -253,12 +261,12 @@ it.each([
       outputs: Object.fromEntries(Object.entries(scope).map(([key, value]) => [key, String(value)]))
     }
   }
-  expect(runInNewContext(preflight.if, { needs })).toBe(
+  expect(runInNewContext(preflight.if, { inputs: {}, needs })).toBe(
     expected.static_analysis || expected.typecheck
   )
-  expect(runInNewContext(compiler.env.PREFLIGHT_PHASE_SELECTED.slice(3, -2), { needs })).toBe(
-    expected.typecheck
-  )
+  expect(
+    runInNewContext(compiler.env.PREFLIGHT_PHASE_SELECTED.slice(3, -2), { inputs: {}, needs })
+  ).toBe(expected.typecheck)
   expect(scope.test).toBe(expected.typecheck)
 })
 
@@ -321,6 +329,7 @@ it('prepares an isolated Node 18 executable before the existing Node 24 dependen
   for (const outcome of ['success', 'failure', 'cancelled', 'skipped', '', undefined]) {
     expect(
       runInNewContext(capture.if, {
+        inputs: {},
         needs: { code_paths: { outputs: { managed_hook_node18: 'true' } } },
         steps: { node18_runtime: { outcome } }
       })

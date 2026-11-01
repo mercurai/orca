@@ -52,6 +52,7 @@ function discardsCreateIntent(error: unknown): boolean {
 type ArtifactPublishAuthContext = {
   profileId: string
   scope: ArtifactShareScope
+  lifecycle: string
   assertCurrent: () => void
 }
 
@@ -133,7 +134,7 @@ export class ArtifactPublisher {
         this.removeCreateIntent(request, auth, created.intent)
         return { change: 'created', item }
       }
-      const record = getArtifactShareRecord(
+      const record = await getArtifactShareRecord(
         auth.profileId,
         this.userDataPath,
         request.sourceKey,
@@ -148,7 +149,7 @@ export class ArtifactPublisher {
             throw error
           }
           auth.assertCurrent()
-          removeArtifactShareRecords(auth.profileId, this.userDataPath, auth.scope, {
+          await removeArtifactShareRecords(auth.profileId, this.userDataPath, auth.scope, {
             sourceKey: request.sourceKey,
             slug: record.slug
           })
@@ -191,7 +192,7 @@ export class ArtifactPublisher {
         body: artifactWriteBody(request)
       })
       auth.assertCurrent()
-      refreshArtifactShareRecordExpiration(
+      await refreshArtifactShareRecordExpiration(
         auth.profileId,
         this.userDataPath,
         request.sourceKey,
@@ -212,17 +213,24 @@ export class ArtifactPublisher {
     pending: ArtifactCreateIntent | null
   ): Promise<ArtifactCreateOutcome> {
     const replaying = pending !== null
-    const intent =
-      pending ??
-      getOrCreateArtifactCreateIntent(
-        auth.profileId,
-        this.userDataPath,
-        request.sourceKey,
-        auth.scope,
-        idempotencyKey,
-        artifactWriteBody(request)
-      )
+    let intent: ArtifactCreateIntent
+    try {
+      intent =
+        pending ??
+        (await getOrCreateArtifactCreateIntent(
+          auth.profileId,
+          this.userDataPath,
+          request.sourceKey,
+          auth.scope,
+          idempotencyKey,
+          artifactWriteBody(request)
+        ))
+    } catch (error) {
+      auth.assertCurrent()
+      throw error
+    }
     let response: ArtifactCreateResponse
+    auth.assertCurrent()
     try {
       response = await artifactRequest<ArtifactCreateResponse>(apiUrl, token, '', {
         method: 'POST',
@@ -243,13 +251,19 @@ export class ArtifactPublisher {
       throw error
     }
     auth.assertCurrent()
-    saveArtifactShareRecord(auth.profileId, this.userDataPath, request.sourceKey, {
-      slug: response.artifact.slug,
-      editToken: response.editToken,
-      shareUrl: response.shareUrl,
-      expiresAt: response.artifact.expiresAt,
-      ...auth.scope
-    })
+    await saveArtifactShareRecord(
+      auth.profileId,
+      this.userDataPath,
+      request.sourceKey,
+      {
+        slug: response.artifact.slug,
+        editToken: response.editToken,
+        shareUrl: response.shareUrl,
+        expiresAt: response.artifact.expiresAt,
+        ...auth.scope
+      },
+      auth.lifecycle
+    )
     return {
       editToken: response.editToken,
       intent,

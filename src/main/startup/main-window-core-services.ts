@@ -30,7 +30,7 @@ export function attachMainWindowCoreServices(
     markExpectedRendererReload: (webContentsId: number) => void
     recordRendererReload: (ignoreCache: boolean) => void
   }
-): void {
+): Promise<void> {
   const store = state.store
   const runtime = state.runtime
   const stats = state.stats
@@ -65,7 +65,7 @@ export function attachMainWindowCoreServices(
   }
   // Server status probes start inside registerCoreHandlers; held hosts must be marked first.
   holdLaunchReconnectOptOuts(store.getSshTargets())
-  registerCoreHandlers(
+  const coreServicesReady = registerCoreHandlers(
     store,
     runtime,
     stats,
@@ -157,4 +157,5 @@ export function attachMainWindowCoreServices(
   rateLimits.attach(window)
   // Quota probes spawn CLIs/use network; defer to show/focus refresh so they do not compete with first paint.
   rateLimits.start({ fetchImmediately: false })
+  return coreServicesReady
 }

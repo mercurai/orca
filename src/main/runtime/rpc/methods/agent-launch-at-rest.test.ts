@@ -317,25 +317,40 @@ it.each([true, false])(
   }
 )
 
-it('omits unsupported-only Codex Fast overrides and retains saved defaults', async () => {
-  const runtime = launchRuntime()
-  const create = vi.spyOn(structuredCreate, 'createStructuredAgentSessionForWorktree')
-  const created = await agentLaunchSurfaceFactory(
-    rpcContext(runtime, PHONE)
-  ).createStructuredSession({
-    worktreeId: 'wt-7',
-    agent: 'codex',
-    withoutPrompt: true,
-    options: { fastMode: true }
-  })
-  expect(create.mock.calls[0]?.[0]).not.toHaveProperty('options')
-  expect(rig.store.getRecord(created.sessionId)?.options).toEqual({
-    model: 'gpt-5.6-sol',
-    effort: 'medium'
-  })
-  expect(rig.adapter.acquire).not.toHaveBeenCalled()
-  create.mockRestore()
-})
+it.each([true, false])(
+  'preserves explicit legacy Codex Fast %s with saved defaults before acquisition',
+  async (fastMode) => {
+    const runtime = launchRuntime()
+    const create = vi.spyOn(structuredCreate, 'createStructuredAgentSessionForWorktree')
+    try {
+      const created = await agentLaunchSurfaceFactory(
+        rpcContext(runtime, PHONE)
+      ).createStructuredSession({
+        worktreeId: 'wt-7',
+        agent: 'codex',
+        withoutPrompt: true,
+        options: { fastMode }
+      })
+      expect(create).toHaveBeenCalledOnce()
+      expect(create.mock.calls[0]?.[0]).toMatchObject({
+        agent: 'codex',
+        worktree: 'id:wt-7',
+        atRest: true
+      })
+      expect(create.mock.calls[0]?.[0].options).toEqual({ fastMode: String(fastMode) })
+      expect(rig.store.getRecord(created.sessionId)?.options).toEqual({
+        model: 'gpt-5.6-sol',
+        effort: 'medium',
+        fastMode: String(fastMode)
+      })
+      expect((await rig.host.journalSnapshot(created.sessionId)).submissions).toEqual([])
+      expect(rig.adapter.acquire).not.toHaveBeenCalled()
+      expect(rig.adapter.dispatch).not.toHaveBeenCalled()
+    } finally {
+      create.mockRestore()
+    }
+  }
+)
 
 it.each(['before', 'after'] as const)(
   'cancellation %s the create commit respects its receipt',

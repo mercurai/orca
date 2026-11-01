@@ -11,7 +11,7 @@ import {
 import {
   listOrcadMigrationCutoverChainForTarget,
   listOrcadMigrationSourceCutovers,
-  writeOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 
 /** Resolves false when the server answers that it can't; throws when it can't be reached. */
@@ -64,7 +64,8 @@ async function enableOnce(
   const moved = new Map(
     cutover.manifest.payload.dormantState?.automations?.map((entry) => [entry.id, entry])
   )
-  const unreachable: string[] = []
+  const attempted = new Set(ids)
+  const unreachable = new Set<string>()
   let leftDisabled = 0
   for (const id of ids) {
     const automation = moved.get(id)
@@ -77,18 +78,27 @@ async function enableOnce(
       }
     } catch (error) {
       console.warn('[ssh] Could not re-enable a moved automation on its server:', error)
-      unreachable.push(id)
+      unreachable.add(id)
     }
   }
-  const current = listOrcadMigrationSourceCutovers(userDataPath).find(
-    (entry) => entry.migrationId === migrationId
-  )
-  if (current) {
-    writeOrcadMigrationSourceCutover(userDataPath, {
+  await updateOrcadMigrationSourceCutover(userDataPath, migrationId, (current) => {
+    if (
+      !isRetainedOrcadMigrationSourceCutover(current) ||
+      current.manifestSha256 !== cutover.manifestSha256
+    ) {
+      throw new Error('orcad_migration_destination_state_mismatch')
+    }
+    return {
       ...current,
-      automationsToEnableOnServer: unreachable
-    })
-  }
+      automationsToEnableOnServer: (current.automationsToEnableOnServer ?? []).filter(
+        (id) => !attempted.has(id) || unreachable.has(id)
+      )
+    }
+  }).catch((error: unknown) => {
+    if (!(error instanceof Error) || error.message !== 'orcad_migration_cutover_missing') {
+      throw error
+    }
+  })
   return leftDisabled
 }
 

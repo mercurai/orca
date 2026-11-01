@@ -27,7 +27,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('refuses a valid request because this process serves no SSH git, without writing state', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const { store, setWorktreeMeta } = makeStore()
 
     await expect(
@@ -44,7 +44,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects sparse checkout requests', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const { store } = makeStore()
 
     await expect(
@@ -59,7 +59,7 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 
   it('rejects path and runtime target mismatches', async () => {
-    seedRuntime(userDataPath, projectRoot)
+    await seedRuntime(userDataPath, projectRoot)
     const { store } = makeStore()
 
     await expect(
@@ -83,8 +83,8 @@ describe('adoptProvisionedRootSshCheckout', () => {
   })
 })
 
-function seedRuntime(userDataPath: string, root: string): void {
-  upsertEphemeralVmRuntime(userDataPath, {
+async function seedRuntime(userDataPath: string, root: string): Promise<void> {
+  await upsertEphemeralVmRuntime(userDataPath, {
     id: 'runtime-1',
     recipeId: 'sandbox',
     recipe: {

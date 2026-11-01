@@ -50,8 +50,24 @@ function saveEnvironment(name = 'server') {
 }
 
 describe('Active Server after a saved host is removed', () => {
-  it('survives a failed watch installation and repairs on the next settings read', () => {
-    const environment = saveEnvironment()
+  it('tells renderers when the CLI saves a new server (#25251)', async () => {
+    await saveEnvironment('existing')
+    const onRegistryChanged = vi.fn()
+    const stopWatching = watchRuntimeEnvironmentPreference(
+      preferenceStore(null),
+      userDataPath,
+      onRegistryChanged
+    )
+    try {
+      await saveEnvironment('cli-added')
+      await vi.waitFor(() => expect(onRegistryChanged).toHaveBeenCalled(), { timeout: 5_000 })
+    } finally {
+      stopWatching()
+    }
+  })
+
+  it('survives a failed watch installation and repairs on the next settings read', async () => {
+    const environment = await saveEnvironment()
     const store = preferenceStore(environment.id)
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
     let stopWatching: (() => void) | undefined
@@ -73,12 +89,12 @@ describe('Active Server after a saved host is removed', () => {
   })
 
   it('notifies the running renderer when the CLI atomically replaces the registry', async () => {
-    const environment = saveEnvironment()
+    const environment = await saveEnvironment()
     const store = preferenceStore(environment.id)
     const stopWatching = watchRuntimeEnvironmentPreference(store, userDataPath)
     try {
       await new Promise<void>((resolve) => setImmediate(resolve))
-      removeEnvironment(userDataPath, environment.id)
+      await removeEnvironment(userDataPath, environment.id)
       await vi.waitFor(() => expect(store.getSettings().activeRuntimeEnvironmentId).toBeNull(), {
         timeout: 5_000
       })
@@ -92,20 +108,17 @@ describe('Active Server after a saved host is removed', () => {
   })
 
   it('keeps following the registry after earlier replacements', async () => {
-    const kept = saveEnvironment('kept')
-    const removed = saveEnvironment('removed')
+    const kept = await saveEnvironment('kept')
+    const removed = await saveEnvironment('removed')
     const store = preferenceStore(removed.id)
     const stopWatching = watchRuntimeEnvironmentPreference(store, userDataPath)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      // Unrelated replacements move the registry to new inodes first.
-      saveEnvironment('first')
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      saveEnvironment('second')
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      await saveEnvironment('first')
+      await saveEnvironment('second')
       expect(store.getSettings().activeRuntimeEnvironmentId).toBe(removed.id)
 
-      removeEnvironment(userDataPath, removed.id)
+      await removeEnvironment(userDataPath, removed.id)
       await vi.waitFor(() => expect(store.getSettings().activeRuntimeEnvironmentId).toBeNull(), {
         timeout: 5_000
       })
@@ -115,27 +128,11 @@ describe('Active Server after a saved host is removed', () => {
     }
   })
 
-  it('tells renderers when the CLI saves a new server (#25251)', async () => {
-    saveEnvironment('existing')
-    const onRegistryChanged = vi.fn()
-    const stopWatching = watchRuntimeEnvironmentPreference(
-      preferenceStore(null),
-      userDataPath,
-      onRegistryChanged
-    )
-    try {
-      saveEnvironment('cli-added')
-      await vi.waitFor(() => expect(onRegistryChanged).toHaveBeenCalled(), { timeout: 5_000 })
-    } finally {
-      stopWatching()
-    }
-  })
-
-  it('repairs a CLI removal before settings can route to the deleted pairing', () => {
-    const environment = saveEnvironment()
+  it('repairs a CLI removal before settings can route to the deleted pairing', async () => {
+    const environment = await saveEnvironment()
     const store = preferenceStore(environment.id)
     const before = store.getSettings()
-    removeEnvironment(userDataPath, environment.id)
+    await removeEnvironment(userDataPath, environment.id)
 
     const settings = readSettingsWithRuntimeEnvironmentPreference(store, userDataPath)
 
@@ -149,12 +146,12 @@ describe('Active Server after a saved host is removed', () => {
     expect(store.updateSettings).toHaveBeenCalledOnce()
   })
 
-  it('does not select a same-name replacement or another saved server', () => {
-    const removed = saveEnvironment()
+  it('does not select a same-name replacement or another saved server', async () => {
+    const removed = await saveEnvironment()
     const store = preferenceStore(removed.id)
-    removeEnvironment(userDataPath, removed.id)
-    const replacement = saveEnvironment()
-    saveEnvironment('other')
+    await removeEnvironment(userDataPath, removed.id)
+    const replacement = await saveEnvironment()
+    await saveEnvironment('other')
 
     expect(replacement.id).not.toBe(removed.id)
     expect(
@@ -162,8 +159,8 @@ describe('Active Server after a saved host is removed', () => {
     ).toBeNull()
   })
 
-  it('keeps a saved host even when its endpoint is offline', () => {
-    const environment = saveEnvironment()
+  it('keeps a saved host even when its endpoint is offline', async () => {
+    const environment = await saveEnvironment()
     const store = preferenceStore(environment.id)
     const settings = store.getSettings()
 
@@ -173,8 +170,8 @@ describe('Active Server after a saved host is removed', () => {
 
   it.each(['missing', 'corrupt', 'unsupported'] as const)(
     'preserves the preference when the registry is %s',
-    (kind) => {
-      const environment = saveEnvironment()
+    async (kind) => {
+      const environment = await saveEnvironment()
       const store = preferenceStore(environment.id)
       const registryPath = getEnvironmentStorePath(userDataPath)
       if (kind === 'missing') {
@@ -198,10 +195,10 @@ describe('Active Server after a saved host is removed', () => {
     expect(store.updateSettings).not.toHaveBeenCalled()
   })
 
-  it('does not swallow a settings write failure after confirming removal', () => {
-    const environment = saveEnvironment()
+  it('does not swallow a settings write failure after confirming removal', async () => {
+    const environment = await saveEnvironment()
     const store = preferenceStore(environment.id)
-    removeEnvironment(userDataPath, environment.id)
+    await removeEnvironment(userDataPath, environment.id)
     store.updateSettings.mockImplementation((): GlobalSettings => {
       throw new Error('settings write failed')
     })

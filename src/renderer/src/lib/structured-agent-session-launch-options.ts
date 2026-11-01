@@ -2,6 +2,10 @@ import {
   createLegacyPrerequisites,
   type LegacyPrerequisites
 } from './structured-agent-session-launch-prerequisites'
+import {
+  CodexSpeedSelectionError,
+  prepareCodexSpeedWireOptions
+} from '@/runtime/codex-speed-selection'
 import { useSyncExternalStore } from 'react'
 import { structuredSessionSelectionController } from './structured-agent-session-selection-controller'
 import type {
@@ -23,9 +27,14 @@ import {
 import { callStructuredAgentSession } from '@/runtime/structured-agent-session-client'
 import { RuntimeRpcCallError } from '@/runtime/runtime-rpc-result'
 import { createBrowserUuid } from '@/lib/browser-uuid'
-import type { StructuredAgentLaunchReceipt } from './agent-session/launch/structured-agent-session-launch-recovery'
+import {
+  StructuredAgentSessionLaunchCancelledError,
+  type StructuredAgentLaunchReceipt
+} from './agent-session/launch/structured-agent-session-launch-recovery'
 import {
   getStructuredLaunchStateBySessionId,
+  notifyStructuredLaunchListeners,
+  registerStructuredLaunchHeldOptionsReader,
   subscribeStructuredAgentLaunchStatus,
   type StructuredLaunchState
 } from './agent-session/launch/structured-agent-session-launch-registry'
@@ -34,6 +43,16 @@ import {
   agentSessionThrownFailure,
   type AgentSessionWriteFailure
 } from '../../../shared/agent-session-write-failure'
+import {
+  isCodexLaunchSpeedKey,
+  isStructuredLaunchSpeedBlocked,
+  isSupersededBySpeedPick,
+  noteStructuredLaunchSpeedReplacement,
+  otherCodexLaunchSpeedKey,
+  retainedStructuredLaunchSpeed,
+  retainStructuredLaunchSpeed,
+  waitForStructuredLaunchSpeedChange
+} from './structured-agent-session-launch-blocked-speed'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { StructuredAgentSessionLaunchIntent } from './launch-structured-agent-session'
 
@@ -53,7 +72,9 @@ export function initialStructuredLaunchSelection(
   return {
     seed: intent.seedOptions,
     ...(intent.explicitLaunchOptions ? { explicit: intent.explicitLaunchOptions } : {}),
-    ...(intent.target.kind !== 'local' && !intent.seedOptions ? { seedPending: true } : {})
+    ...(intent.target.kind !== 'local' && !intent.seedOptions && !intent.createPrepared
+      ? { seedPending: true }
+      : {})
   }
 }
 
@@ -72,6 +93,15 @@ export const structuredLaunchSelectionController = (state: StructuredLaunchState
       state.intent.agent
     )
     launchControllers.set(state, controller)
+    // Durable launch records follow the held picks as the host answers them.
+    let recorded = JSON.stringify(structuredLaunchHeldOptions(state))
+    controller.subscribe(() => {
+      const held = JSON.stringify(structuredLaunchHeldOptions(state))
+      if (held !== recorded) {
+        recorded = held
+        notifyStructuredLaunchListeners()
+      }
+    })
   }
   return controller
 }
@@ -81,7 +111,21 @@ const receipts = new WeakMap<StructuredLaunchState, StructuredAgentLaunchReceipt
 export function structuredLaunchOptionOverlay(
   state: StructuredLaunchState
 ): Record<string, string> {
-  return selectionController(state).overlay()
+  const controller = selectionController(state)
+  const overlay = controller.overlay()
+  // One speed intent: an older speed operation still settles on its reply but no longer shows,
+  // is created with, or restores over the newest pick or the refused speed retained as intent.
+  for (const key of Object.keys(overlay)) {
+    const operation = controller.current(key)
+    if (operation && isSupersededBySpeedPick(state, controller, key, operation.identity)) {
+      delete overlay[key]
+    }
+  }
+  const refused = retainedStructuredLaunchSpeed(state)
+  if (refused && !isSupersededBySpeedPick(state, controller, refused.key, refused.identity)) {
+    overlay[refused.key] = refused.value
+  }
+  return overlay
 }
 
 /** Hold picks only before publication; published/missing launches use the normal session option path. */
@@ -93,7 +137,11 @@ export function holdStructuredAgentSessionLaunchOption(
   picker?: StructuredAgentSessionOptionState
 ): Promise<StructuredLaunchOptionOutcome> | null {
   const state = getStructuredLaunchStateBySessionId(sessionId)
-  if (!state || state.cancelled || state.callers.outcome === 'published') {
+  if (
+    !state ||
+    state.cancelled ||
+    (state.callers.outcome === 'published' && !isStructuredLaunchSpeedBlocked(sessionId, id))
+  ) {
     return null
   }
   if (state.selection.seedPending) {
@@ -102,12 +150,125 @@ export function holdStructuredAgentSessionLaunchOption(
   const model = picker
     ? (structuredAgentSessionOptionPicks(picker, { [id]: encoded })[0]?.modelId ?? null)
     : (state.selection.seed?.model ?? null)
-  const operation = selectionController(state).issue(id, encoded, model)
+  const controller = selectionController(state)
+  const operation = controller.issue(id, encoded, model)
+  supersedeOtherCodexSpeedKey(state, controller, id)
+  // A refused speed is tried again under a newly picked model; a newly picked speed replaces it.
+  const again = noteStructuredLaunchSpeedReplacement(state, id)
+  if (again) {
+    void selectionController(state).issue(again.key, again.value, model)
+  }
+  notifyStructuredLaunchListeners()
   const receipt = receipts.get(state)
   if (receipt) {
     void applyStructuredLaunchHeldOptions(state, receipt, false)
   }
   return operation.result
+}
+
+/** A newer pick of either Codex speed key retires an unsent older pick of the other, so the
+ *  older one cannot be sent or restored over the newer. */
+function supersedeOtherCodexSpeedKey(
+  state: StructuredLaunchState,
+  controller: ReturnType<typeof structuredSessionSelectionController>,
+  key: string
+): void {
+  const other = otherCodexLaunchSpeedKey(state, key)
+  const older = other ? controller.current(other) : undefined
+  if (older && !older.outcome && !older.transmitted) {
+    controller.settle(older, { kind: 'superseded' })
+  }
+}
+
+/** Picks not yet answered by the host, and a refused speed awaiting a replacement; a reload
+ *  restores exactly these. */
+export function structuredLaunchHeldOptions(state: StructuredLaunchState): Record<string, string> {
+  // Only a controller a pick already created: reading must not acquire one for every launch.
+  const controller = launchControllers.get(state)
+  if (!controller) {
+    return {}
+  }
+  // A refused speed is kept as intent unless a newer pick already exists, which can be in memory
+  // before the retained value is cleared; older pending speed picks never ride beside the winner.
+  const refused = retainedStructuredLaunchSpeed(state)
+  return {
+    ...(refused && !isSupersededBySpeedPick(state, controller, refused.key, refused.identity)
+      ? { [refused.key]: refused.value }
+      : {}),
+    ...Object.fromEntries(
+      controller
+        .pending()
+        .filter(
+          (operation) =>
+            !isSupersededBySpeedPick(state, controller, operation.key, operation.identity)
+        )
+        .map((operation) => [operation.key, operation.value])
+    )
+  }
+}
+
+registerStructuredLaunchHeldOptionsReader(structuredLaunchHeldOptions)
+
+export function getStructuredAgentSessionLaunchHeldOptions(
+  sessionId: string
+): Record<string, string> {
+  const state = getStructuredLaunchStateBySessionId(sessionId)
+  return state ? structuredLaunchHeldOptions(state) : {}
+}
+
+/** A refused held speed pick is kept as intent; one answered after a newer pick is not. */
+async function sendLaunchSelectionOption(
+  controller: ReturnType<typeof structuredSessionSelectionController>,
+  target: RuntimeClientTarget,
+  sessionId: string,
+  fence: number,
+  operation: { key: string; value: string },
+  options: { expectedEnvironmentPairingRevision?: number }
+): Promise<StructuredLaunchOptionOutcome> {
+  const { key, value } = operation
+  const before = controller.current(key)
+  const outcome = await setStructuredSessionSelectionOption(
+    target,
+    sessionId,
+    fence,
+    key,
+    value,
+    options,
+    () => controller.isCurrent() && !getStructuredLaunchStateBySessionId(sessionId)?.cancelled
+  )
+  const state = getStructuredLaunchStateBySessionId(sessionId)
+  if (
+    state &&
+    before &&
+    outcome.kind === 'refused' &&
+    launchControllers.get(state) === controller &&
+    isCodexLaunchSpeedKey(state, key) &&
+    controller.current(key) === before &&
+    !isSupersededBySpeedPick(state, controller, key, before.identity)
+  ) {
+    retainStructuredLaunchSpeed(state, {
+      key,
+      value,
+      failure: outcome.failure,
+      identity: before.identity
+    })
+  }
+  return outcome
+}
+
+/** A reloaded launch takes its persisted picks back as operations, model first. Records written
+ *  now hold one speed key; an older record holding both keeps the existing tier-over-fast winner. */
+export function restoreStructuredLaunchHeldOptions(
+  state: StructuredLaunchState,
+  held: Readonly<Record<string, string>>
+): void {
+  const model = held.model ?? state.selection.seed?.model ?? null
+  const controller = selectionController(state)
+  const rank = (id: string): number => (id === 'model' ? 0 : id === 'fastMode' ? 1 : 2)
+  for (const [id, encoded] of Object.entries(held).sort(([a], [b]) => rank(a) - rank(b))) {
+    void controller.issue(id, encoded, id === 'model' ? encoded : model)
+    supersedeOtherCodexSpeedKey(state, controller, id)
+  }
 }
 
 export async function setStructuredSessionSelectionOption(
@@ -116,10 +277,24 @@ export async function setStructuredSessionSelectionOption(
   fence: number,
   key: string,
   value: string,
-  options: { expectedEnvironmentPairingRevision?: number } = {}
+  options: { expectedEnvironmentPairingRevision?: number } = {},
+  /** False once the owner retired or the launch was cancelled while capabilities were prepared. */
+  isCurrent: () => boolean = () => true
 ): Promise<StructuredLaunchOptionOutcome> {
-  const fields = { key, value }
   try {
+    // A speed pick is negotiated against this host right before it is sent; nothing is sent when
+    // the host cannot be proved to apply exactly that speed.
+    const prepared = await prepareCodexSpeedWireOptions({
+      target,
+      sessionId,
+      options: { [key]: value }
+    })
+    if (!isCurrent()) {
+      return { kind: 'superseded' }
+    }
+    const wireKey =
+      key === 'serviceTier' && prepared.options?.serviceTier === undefined ? 'fastMode' : key
+    const fields = { key: wireKey, value: prepared.options?.[wireKey] ?? value }
     const result = await callStructuredAgentSession<
       AgentSessionMutationResult<AgentSessionOptionResult>
     >(
@@ -138,17 +313,26 @@ export async function setStructuredSessionSelectionOption(
         },
         ...fields
       },
-      options
+      // The conversation owner's continued pairing revision outranks the one captured for speed.
+      { ...prepared.authority, ...options }
     )
-    return result.ok
-      ? { kind: 'accepted', options: result.value.options ?? { [key]: value } }
-      : { kind: 'refused', failure: agentSessionRefusalFailure(result.refusal) }
+    if (!result.ok) {
+      return { kind: 'refused', failure: agentSessionRefusalFailure(result.refusal) }
+    }
+    const accepted = result.value.options ?? { [key]: value }
+    if (wireKey === key) {
+      return { kind: 'accepted', options: accepted }
+    }
+    // A legacy host answers in its own key; the chat keeps the speed that was picked.
+    const { [wireKey]: _legacyKey, ...rest } = accepted
+    return { kind: 'accepted', options: { ...rest, [key]: value } }
   } catch (error) {
     const failure = agentSessionThrownFailure(
       error,
       error instanceof RuntimeRpcCallError ? error.code : undefined
     )
-    return failure.kind === 'unconfirmed'
+    // Speed negotiation fails before anything is sent, so it is a refusal, never an unknown write.
+    return failure.kind === 'unconfirmed' && !(error instanceof CodexSpeedSelectionError)
       ? { kind: 'unknown', failure }
       : { kind: 'refused', failure }
   }
@@ -170,12 +354,12 @@ export async function applyStructuredLaunchExplicitOptions(
       controller,
       (key, value) =>
         controller.request((options) =>
-          setStructuredSessionSelectionOption(
+          sendLaunchSelectionOption(
+            controller,
             intent.target,
             receipt.sessionId,
             receipt.fence,
-            key,
-            value,
+            { key, value },
             options
           )
         ),
@@ -187,15 +371,60 @@ export async function applyStructuredLaunchExplicitOptions(
     receipts.set(state, receipt)
     phase.advance?.()
   }
-  const failure = await phase.decision
+  let failure = await phase.decision
+  // A refused held speed pauses the launch and its prompt until the user picks a replacement, even
+  // when no explicit action required it; an unrelated required failure is returned as it is.
+  while (
+    retainedStructuredLaunchSpeed(state) &&
+    (failure === undefined || retainedStructuredLaunchSpeed(state)?.failure === failure)
+  ) {
+    const owner = selectionController(state)
+    await waitForStructuredLaunchSpeedChange(state, owner)
+    if (state.cancelled) {
+      throw new StructuredAgentSessionLaunchCancelledError()
+    }
+    // A retired owner cannot send the picked speed: fail before the opening send, keeping the draft.
+    if (!owner.isCurrent()) {
+      throw new Error('Conversation selection owner retired.')
+    }
+    await applyStructuredLaunchHeldOptions(state, receipt)
+    failure = retainedStructuredLaunchSpeed(state)?.failure
+  }
   return failure ? { ...receipt, configurationFailure: failure } : receipt
 }
 
 const createHeld = new WeakMap<StructuredLaunchState, readonly SelectionOperation[]>()
 
-/** Freeze identities, so a later equal-valued choice is a distinct operation. */
-export function holdStructuredLaunchCreatePicks(state: StructuredLaunchState): void {
-  createHeld.set(state, selectionController(state).freeze(createHeld.get(state)))
+/** The unsent picks a create payload is previewed from, before speed authorization is awaited. */
+export function previewStructuredLaunchCreatePicks(
+  state: StructuredLaunchState
+): readonly SelectionOperation[] {
+  return selectionController(state)
+    .pending()
+    .filter((operation) => !operation.transmitted)
+}
+
+/** Freeze identities, so a later equal-valued choice is a distinct operation. A pick made after the
+ *  preview is not in the payload: it stays unsent for the normal option path, never marked created. */
+export function holdStructuredLaunchCreatePicks(
+  state: StructuredLaunchState,
+  previewed?: readonly SelectionOperation[]
+): void {
+  const controller = selectionController(state)
+  const frozen = controller.freeze(createHeld.get(state))
+  const kept = previewed ? frozen.filter((operation) => previewed.includes(operation)) : frozen
+  for (const operation of frozen) {
+    if (kept.includes(operation)) {
+      continue
+    }
+    // An older speed pick the newer one outranks is retired, never left unsent for the flush.
+    if (isSupersededBySpeedPick(state, controller, operation.key, operation.identity)) {
+      controller.settle(operation, { kind: 'superseded' })
+    } else {
+      operation.transmitted = false
+    }
+  }
+  createHeld.set(state, kept)
 }
 
 export function settleStructuredLaunchCreateOptions(
@@ -224,14 +453,7 @@ export function flushStructuredSessionSelectionOptions(
   }
   controller.flush((operation) =>
     controller.request((options) =>
-      setStructuredSessionSelectionOption(
-        target,
-        sessionId,
-        fence,
-        operation.key,
-        operation.value,
-        options
-      )
+      sendLaunchSelectionOption(controller, target, sessionId, fence, operation, options)
     )
   )
   return undefined

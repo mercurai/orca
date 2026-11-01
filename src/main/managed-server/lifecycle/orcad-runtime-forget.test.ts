@@ -36,16 +36,16 @@ vi.mock('./orcad-managed-tunnel', () => ({
 const { forgetManagedOrcadEnvironment, stopManagedOrcadEnvironment } =
   await import('./orcad-runtime-decommission')
 
-let harness: ReturnType<typeof createManagedLifecycleHarness>
+let harness: Awaited<ReturnType<typeof createManagedLifecycleHarness>>
 
 const policy = (isActive = false) => ({
   isActiveEnvironment: () => isActive,
   retireLocalState: mocks.retire
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.resetAllMocks()
-  harness = createManagedLifecycleHarness()
+  harness = await createManagedLifecycleHarness()
   mocks.state.store = harness.targetStore
   mocks.connect.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:2841'))
   mocks.resolveContext.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:2841'))
@@ -63,7 +63,7 @@ describe('a managed server whose host is gone (P1-E)', () => {
   })
 
   it('is forgotten locally without contacting the host, which frees its SSH target', async () => {
-    writeOrcadMigrationSourceCutover(harness.userDataPath, {
+    await writeOrcadMigrationSourceCutover(harness.userDataPath, {
       ...orcadMigrationCutoverFixture('migration-1', 'ssh-1', { environmentId: 'environment-1' }),
       phase: 'destination-committed',
       sourceRetainedAt: '2026-10-01T00:00:00.000Z'

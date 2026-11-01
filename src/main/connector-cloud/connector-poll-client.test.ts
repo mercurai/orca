@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONNECTOR_PATHS } from '../../shared/connector-cloud-contract'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import type { Delivery } from '../external-conversations/external-conversation-types'
 import { connectorReplyInstructions } from './connector-deliveries'
 import { connectorProjects } from './connector-places'
@@ -27,6 +28,7 @@ const [project] = connectorProjects({
 
 let userDataPath: string
 let fake: FakeConnectorCloud
+const clients: ConnectorPollClient[] = []
 
 /** `events` stands for one process's outbox; a new one models a restart. */
 function startClient(seam = fakeSeam(), events = new ConnectorTurnEvents(userDataPath, 'ada')) {
@@ -38,6 +40,7 @@ function startClient(seam = fakeSeam(), events = new ConnectorTurnEvents(userDat
     machine,
     random: () => 0.5
   })
+  clients.push(client)
   client.start()
   return { client, machine, ...seam }
 }
@@ -46,6 +49,7 @@ function startClient(seam = fakeSeam(), events = new ConnectorTurnEvents(userDat
 const settle = async (ms = 0): Promise<void> => {
   for (let step = 0; step < 50; step++) {
     await vi.advanceTimersByTimeAsync(ms / 50)
+    await drainPendingPathWrites()
   }
 }
 
@@ -67,7 +71,11 @@ beforeEach(() => {
   fake = new FakeConnectorCloud()
 })
 
-afterEach(() => {
+afterEach(async () => {
+  for (const client of clients.splice(0)) {
+    client.stop()
+  }
+  await drainPendingPathWrites()
   vi.useRealTimers()
   rmSync(userDataPath, { recursive: true, force: true })
 })
@@ -403,6 +411,7 @@ describe('ConnectorPollClient', () => {
         at: turn
       })
     }
+    await drainPendingPathWrites()
     const stored = JSON.parse(
       readFileSync(join(userDataPath, 'connector-turn-outbox.json'), 'utf8')
     ).turnEnds
@@ -503,6 +512,7 @@ describe('ConnectorPollClient', () => {
       stopReason: 'success',
       at: 9
     })
+    await drainPendingPathWrites()
     expect(existsSync(join(userDataPath, 'connector-turn-outbox.json'))).toBe(true)
     fake.online = true
     await settle(30_000)

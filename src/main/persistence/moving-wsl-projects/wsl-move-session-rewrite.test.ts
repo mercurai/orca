@@ -27,7 +27,7 @@ const scope = wslMoveRewriteScope({
   ),
   rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
   destinationHostId: HOST,
-  recordSeededHostWorkspaceIds: () => {}
+  recordSeededHostWorkspaceIds: async () => {}
 })
 
 const source = wslMoverProfile('mixed-windows-wsl', 'source')

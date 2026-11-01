@@ -335,12 +335,84 @@ function resolveStyleKey(mobileDir, file, exportName, key, seen = new Set()) {
 // Do not evaluate expressions: theme arithmetic can drift and census must not become second renderer.
 // A same-module const naming a literal (the composer's text size) is still a literal.
 function isLiteralAtOrAboveFloor(mobileDir, parsed, initializer) {
-  const value = ts.isIdentifier(initializer) ? declarationOf(parsed, initializer.text) : initializer
+  const value = ts.isIdentifier(initializer)
+    ? immutableLiteralOf(parsed, initializer.text)
+    : initializer
   return (
     value !== null &&
     ts.isNumericLiteral(value) &&
     Number(value.text) >= textInputFontSizeFloor(mobileDir)
   )
+}
+
+// Every binding of a name in the module: a second declaration or a shadowing parameter makes the name ambiguous.
+function bindingsNamed(parsed, name) {
+  const found = []
+  const visit = (node) => {
+    if (
+      (ts.isVariableDeclaration(node) ||
+        ts.isParameter(node) ||
+        ts.isBindingElement(node) ||
+        ts.isFunctionDeclaration(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isImportSpecifier(node) ||
+        ts.isNamespaceImport(node) ||
+        ts.isImportClause(node)) &&
+      node.name !== undefined &&
+      ts.isIdentifier(node.name) &&
+      node.name.text === name
+    ) {
+      found.push(node)
+    }
+    ts.forEachChild(node, visit)
+  }
+  ts.forEachChild(parsed, visit)
+  return found
+}
+
+function isReassigned(parsed, name) {
+  let assigned = false
+  const visit = (node) => {
+    if (
+      (ts.isBinaryExpression(node) &&
+        node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+        ts.isIdentifier(node.left) &&
+        node.left.text === name) ||
+      ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+        (node.operator === ts.SyntaxKind.PlusPlusToken ||
+          node.operator === ts.SyntaxKind.MinusMinusToken) &&
+        ts.isIdentifier(node.operand) &&
+        node.operand.text === name)
+    ) {
+      assigned = true
+    }
+    ts.forEachChild(node, visit)
+  }
+  ts.forEachChild(parsed, visit)
+  return assigned
+}
+
+// Only the one top-level `const NAME = <number>` that nothing shadows or assigns counts as a literal; mutable or ambiguous names could hold a below-floor size at render.
+function immutableLiteralOf(parsed, name) {
+  const bindings = bindingsNamed(parsed, name)
+  if (bindings.length !== 1) {
+    return null
+  }
+  const [declaration] = bindings
+  if (
+    !ts.isVariableDeclaration(declaration) ||
+    !ts.isVariableDeclarationList(declaration.parent) ||
+    !(declaration.parent.flags & ts.NodeFlags.Const) ||
+    !ts.isVariableStatement(declaration.parent.parent) ||
+    !ts.isSourceFile(declaration.parent.parent.parent) ||
+    declaration.initializer === undefined ||
+    !ts.isNumericLiteral(declaration.initializer) ||
+    isReassigned(parsed, name)
+  ) {
+    return null
+  }
+  return declaration.initializer
 }
 
 function fontSizeIn(mobileDir, parsed, file, object) {

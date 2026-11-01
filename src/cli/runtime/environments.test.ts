@@ -37,9 +37,9 @@ function pairingCode(endpoint = 'ws://127.0.0.1:6768', keyFill = 1): string {
 describe('CLI runtime environments', () => {
   const posixModeIt = process.platform === 'win32' ? it.skip : it
 
-  it('saves, resolves, and removes a paired environment', () => {
+  it('saves, resolves, and removes a paired environment', async () => {
     const userDataPath = temporaryProfile()
-    const saved = addEnvironmentFromPairingCode(userDataPath, {
+    const saved = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'workstation',
       pairingCode: pairingCode(),
       now: 100
@@ -55,15 +55,15 @@ describe('CLI runtime environments', () => {
     })
     expect(statSync(getEnvironmentStorePath(userDataPath)).isFile()).toBe(true)
 
-    const removed = removeEnvironment(userDataPath, 'workstation')
+    const removed = await removeEnvironment(userDataPath, 'workstation')
     expect(removed.id).toBe(saved.id)
     expect(listEnvironments(userDataPath)).toEqual([])
   })
 
-  posixModeIt('stores paired environments with owner-only POSIX permissions', () => {
+  posixModeIt('stores paired environments with owner-only POSIX permissions', async () => {
     const userDataPath = temporaryProfile()
 
-    addEnvironmentFromPairingCode(userDataPath, {
+    await addEnvironmentFromPairingCode(userDataPath, {
       name: 'workstation',
       pairingCode: pairingCode(),
       now: 100
@@ -73,21 +73,21 @@ describe('CLI runtime environments', () => {
     expect((statSync(getEnvironmentStorePath(userDataPath)).mode & 0o777).toString(8)).toBe('600')
   })
 
-  it('rejects an environment with the same name', () => {
+  it('rejects an environment with the same name', async () => {
     const userDataPath = temporaryProfile()
-    const first = addEnvironmentFromPairingCode(userDataPath, {
+    const first = await addEnvironmentFromPairingCode(userDataPath, {
       name: 'workstation',
       pairingCode: pairingCode('ws://127.0.0.1:1111'),
       now: 100
     })
 
-    expect(() =>
+    await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'workstation',
         pairingCode: pairingCode('ws://127.0.0.1:2222', 2),
         now: 200
       })
-    ).toThrow('A server named "workstation" already exists.')
+    ).rejects.toThrow('A server named "workstation" already exists.')
     expect(listEnvironments(userDataPath)).toHaveLength(1)
     expect(resolveEnvironmentPairingOffer(userDataPath, 'workstation').endpoint).toBe(
       'ws://127.0.0.1:1111'
@@ -95,21 +95,21 @@ describe('CLI runtime environments', () => {
     expect(listEnvironments(userDataPath)[0]?.id).toBe(first.id)
   })
 
-  it('refuses saving the same server twice and points at Settings, which can switch its connection', () => {
+  it('refuses duplicate pairing and points to Settings for connection changes', async () => {
     const userDataPath = temporaryProfile()
-    addEnvironmentFromPairingCode(userDataPath, {
+    await addEnvironmentFromPairingCode(userDataPath, {
       name: 'workstation',
       pairingCode: pairingCode('ws://192.0.2.10:6768'),
       now: 100
     })
 
-    expect(() =>
+    await expect(
       addEnvironmentFromPairingCode(userDataPath, {
         name: 'workstation over relay',
         pairingCode: pairingCode('ws://198.51.100.7:6768'),
         now: 200
       })
-    ).toThrow('already paired as "workstation"')
+    ).rejects.toThrow('already paired as "workstation"')
     expect(listEnvironments(userDataPath)).toHaveLength(1)
   })
 })

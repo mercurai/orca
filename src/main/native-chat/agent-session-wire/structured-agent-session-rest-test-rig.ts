@@ -31,7 +31,7 @@ import {
 } from './structured-agent-session-host-test-data'
 import { STRUCTURED_AGENT_SESSION_IDLE_MS } from './structured-agent-session-idle-sweep'
 import {
-  closeTestJournalHostDatabases,
+  closeTestJournalHostDatabase,
   openTestJournalHostDatabase
 } from '../agent-session-journal/journal-host-database-test-support'
 import { createStructuredAgentSessionLogger } from './structured-agent-session-logger'
@@ -214,7 +214,7 @@ export async function createRestTestRig(
     },
     dispose: async () => {
       await rig.host.flushAllStreamedEvents().catch(() => undefined)
-      await closeTestJournalHostDatabases()
+      await closeTestJournalHostDatabase(root)
       await rm(root, { recursive: true, force: true })
     }
   }

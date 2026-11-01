@@ -53,8 +53,8 @@ describe(ORCAD_PEER_DESKTOPS_METHOD, () => {
     return server
   }
 
-  function pair(server: OrcaRuntimeRpcServer, name: string, scope: 'runtime' | 'mobile') {
-    const offer = server.createPairingOffer({ address: '127.0.0.1', name, scope })
+  async function pair(server: OrcaRuntimeRpcServer, name: string, scope: 'runtime' | 'mobile') {
+    const offer = await server.createPairingOffer({ address: '127.0.0.1', name, scope })
     if (!offer.available) {
       throw new Error('pairing unavailable')
     }
@@ -102,7 +102,7 @@ describe(ORCAD_PEER_DESKTOPS_METHOD, () => {
 
   it('advertises the check, and a desktop with control, multiplex and one-shot sockets sees no peers', async () => {
     const server = await startServer()
-    const startup = pair(server, 'CLI 10/28/2026', 'runtime')
+    const startup = await pair(server, 'CLI 10/28/2026', 'runtime')
     const status = await oneShot<RuntimeStatus>(startup, 'status.get')
     expect(status.ok && status.result.capabilities).toContain(
       ORCAD_PEER_DESKTOPS_RUNTIME_CAPABILITY
@@ -118,7 +118,7 @@ describe(ORCAD_PEER_DESKTOPS_METHOD, () => {
 
   it('tells two desktops sharing one startup token apart, and keeps one through a reconnect', async () => {
     const server = await startServer()
-    const startup = pair(server, 'CLI 10/28/2026', 'runtime')
+    const startup = await pair(server, 'CLI 10/28/2026', 'runtime')
     const stable = await socket(startup)
     await stable.request(ORCAD_DECLARE_CLIENT_METHOD, { clientInstanceId: STABLE })
     const dev = await socket(startup)
@@ -146,13 +146,13 @@ describe(ORCAD_PEER_DESKTOPS_METHOD, () => {
 
   it('sanitizes a peer name and ignores phones', async () => {
     const server = await startServer()
-    const stable = pair(server, 'Orca', 'runtime')
+    const stable = await pair(server, 'Orca', 'runtime')
     await (await socket(stable)).request(ORCAD_DECLARE_CLIENT_METHOD, { clientInstanceId: STABLE })
-    const dev = pair(server, 'Orca‮\nDev​', 'runtime')
+    const dev = await pair(server, 'Orca‮\nDev​', 'runtime')
     await (await socket(dev)).request(ORCAD_DECLARE_CLIENT_METHOD, { clientInstanceId: DEV })
     expect(await peerNames(stable, STABLE)).toEqual(['OrcaDev'])
 
-    const phone = await socket(pair(server, 'Phone', 'mobile'))
+    const phone = await socket(await pair(server, 'Phone', 'mobile'))
     const refused = await phone.request(ORCAD_DECLARE_CLIENT_METHOD, {
       clientInstanceId: 'phone-installation'
     })
@@ -164,7 +164,7 @@ describe(ORCAD_PEER_DESKTOPS_METHOD, () => {
   // is gone past the reconnect grace, Dev is the last Orca, and its own Remove may tear down.
   it('lets the last Orca tear down once the other one has been gone past the grace', async () => {
     const server = await startServer()
-    const startup = pair(server, 'CLI 10/28/2026', 'runtime')
+    const startup = await pair(server, 'CLI 10/28/2026', 'runtime')
     const stable = await socket(startup)
     await stable.request(ORCAD_DECLARE_CLIENT_METHOD, { clientInstanceId: STABLE })
     const dev = await socket(startup)

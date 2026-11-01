@@ -1,4 +1,7 @@
-/** Share host-local key ownership across IPC/RPC so paired clients save where usage polling runs; remain Electron-free. */
+/**
+ * The GLM Coding Plan key on this host, shared by the desktop's IPC and the runtime RPC so a
+ * paired client saves it where the usage poller runs. Nothing here may import Electron.
+ */
 import {
   clearZcodePlanApiKey,
   getZcodePlanApiKeyProtection,
@@ -35,7 +38,7 @@ function apiKeyUnreadable(): ReturnType<typeof savedCredentialUnreadable> {
   })
 }
 
-/** Reject save when this host cannot open the existing seal; forgetting remains allowed. */
+/** For a paired client's save; forgetting is always allowed, since nobody here can read the file. */
 export function assertZcodePlanApiKeyOpensHere(): void {
   if (apiKeyUnreadable() === 'sealed-elsewhere') {
     refuseCredentialSealedElsewhere('GLM Coding Plan API key')
@@ -50,15 +53,15 @@ function refreshAfterChange(rateLimits: UsageRefresher | null, action: 'save' | 
   )
 }
 
-export function saveZcodePlanApiKeyCredential(
+export async function saveZcodePlanApiKeyCredential(
   rateLimits: UsageRefresher | null,
   key: unknown
-): ZcodePlanCredentialsStatus {
-  // Runtime-check IPC/RPC input; compile-time types do not constrain the wire.
+): Promise<ZcodePlanCredentialsStatus> {
+  // Why: the value arrives as unknown over IPC/RPC; the declared type is compile-time only.
   if (typeof key !== 'string') {
     throw new Error('GLM Coding Plan API key must be a string')
   }
-  saveZcodePlanApiKey(key)
+  await saveZcodePlanApiKey(key)
   refreshAfterChange(rateLimits, 'save')
   return getZcodePlanCredentialsStatus()
 }

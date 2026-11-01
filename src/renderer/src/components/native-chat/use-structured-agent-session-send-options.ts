@@ -1,4 +1,6 @@
 import { useCallback } from 'react'
+import { translate } from '@/i18n/i18n'
+import { CodexSpeedSelectionError } from '@/runtime/codex-speed-selection'
 import type { StructuredAgentSessionSendControl } from '../../../../shared/structured-agent-session-send-mutation'
 import {
   structuredAgentSessionMessageSelection,
@@ -15,11 +17,25 @@ export function useStructuredAgentSessionSendOptions(
   source: Pick<
     ReturnType<typeof useStructuredAgentSessionOptionState>,
     'optionStateRef' | 'optionView' | 'takesSendOptions' | 'takesSelection'
-  >
+  > &
+    Partial<Pick<ReturnType<typeof useStructuredAgentSessionOptionState>, 'controller'>>
 ): () => Pick<StructuredAgentSessionSendControl, 'options' | 'selection'> {
-  const { optionStateRef, optionView, takesSendOptions, takesSelection } = source
+  const { optionStateRef, optionView, takesSendOptions, takesSelection, controller } = source
   return useCallback(() => {
     if (!takesSendOptions && !takesSelection) {
+      // A host that takes no options cannot carry a speed still being changed; sending would
+      // silently run the turn at the old speed.
+      if (
+        optionStateRef.current.record.agent === 'codex' &&
+        (controller?.isPending('serviceTier') || controller?.isPending('fastMode'))
+      ) {
+        throw new CodexSpeedSelectionError(
+          translate(
+            'components.native-chat.composer.speedStatus.waitForChange',
+            'Wait for the speed change to finish before sending, or update Orca on the execution host.'
+          )
+        )
+      }
       return {}
     }
     // Read held picks directly because launch acceptance can precede this render’s props.
@@ -33,5 +49,5 @@ export function useStructuredAgentSessionSendOptions(
     return takesSelection
       ? { selection: structuredAgentSessionMessageSelection(view) }
       : { options: structuredAgentSessionSendSelection(view) }
-  }, [launch, optionStateRef, optionView, sessionId, takesSendOptions, takesSelection])
+  }, [controller, launch, optionStateRef, optionView, sessionId, takesSendOptions, takesSelection])
 }

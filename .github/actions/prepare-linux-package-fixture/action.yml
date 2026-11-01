@@ -1,6 +1,10 @@
 name: Prepare cached Linux package fixture
 description: Restore Docker build layers; only the main warmer builds and saves missing images.
 inputs:
+  cache-mode:
+    description: Use off to disable persistent cache restoration and saving.
+    required: false
+    default: auto
   fixture:
     description: Directory name below config/docker.
     required: true
@@ -21,6 +25,7 @@ runs:
   using: composite
   steps:
     - name: Restore fixture image
+      if: inputs.cache-mode != 'off'
       id: cache
       uses: actions/cache/restore@v5
       continue-on-error: true
@@ -39,7 +44,7 @@ runs:
       run: bash "$GITHUB_ACTION_PATH/load-fixture.sh"
 
     - name: Save fixture image
-      if: inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.image.outputs.built == 'true'
+      if: inputs.cache-mode != 'off' && (inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.image.outputs.built == 'true')
       uses: actions/cache/save@v5
       continue-on-error: true
       with:

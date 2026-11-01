@@ -161,9 +161,9 @@ function moveScope(): WslMoveQuiesceScope {
   }
 }
 
-function prepareMove() {
+async function prepareMove() {
   const prepared = wslMoveCutoverFixture('move-1', 'prepared', {}, {}, undefined, DISTRO)
-  writeWslMoveCutover(userDataPath, prepared)
+  await writeWslMoveCutover(userDataPath, prepared)
   return prepared
 }
 
@@ -240,7 +240,7 @@ describe.skipIf(process.platform === 'win32' && !WSL_DISTRO)(
         )
 
         const result = await quiesceWslMove(
-          prepareMove(),
+          await prepareMove(),
           moveScope(),
           quiesceDeps(async () => {
             await sleepPane(SESSION_A)
@@ -284,7 +284,7 @@ describe.skipIf(process.platform === 'win32' && !WSL_DISTRO)(
         await run(daemon.otherAdapter, SESSION_B, reportCwd, 'B')
 
         const result = await quiesceWslMove(
-          prepareMove(),
+          await prepareMove(),
           moveScope(),
           quiesceDeps(() => sleepPane(SESSION_A))
         )

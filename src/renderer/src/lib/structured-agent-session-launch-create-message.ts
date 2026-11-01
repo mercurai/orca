@@ -2,11 +2,9 @@ import {
   structuredLaunchCompatibleOptions,
   structuredLaunchRequestedOptions
 } from '../../../shared/native-chat/input/native-chat-session-option-defaults'
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
 import type { StructuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
 import { AGENT_CHAT_PERMISSION_MODE_OPTION_ID } from '../../../shared/agent-chat-permission-mode'
 import type { StructuredLaunchState } from './agent-session/launch/structured-agent-session-launch-registry'
-import { notifyStructuredLaunchListeners } from './agent-session/launch/structured-agent-session-launch-registry'
 import {
   prepareStructuredLaunchPromptForCreate,
   prepareLegacyStructuredLaunchPrompts
@@ -17,128 +15,184 @@ import {
   structuredAgentSessionOptionView,
   structuredAgentSessionSendSelection
 } from '../../../shared/structured-agent-session-option-view'
+import { structuredAgentSessionDrawnValues } from '../../../shared/structured-agent-session-option-snapshot'
+import { encodeStructuredAgentSessionOptionValue } from '../../../shared/structured-agent-session-option-codec'
 import { firstFrameOptionState } from '@/components/native-chat/use-structured-agent-session-option-state'
 import {
   applyStructuredLaunchHeldOptions,
   applyStructuredLaunchExplicitOptions,
   holdStructuredLaunchCreatePicks,
+  previewStructuredLaunchCreatePicks,
   structuredLaunchOptionOverlay,
   settleStructuredLaunchCreateOptions
 } from './structured-agent-session-launch-options'
-import { structuredAgentSessionDrawnValues } from '../../../shared/structured-agent-session-option-snapshot'
-import { encodeStructuredAgentSessionOptionValue } from '../../../shared/structured-agent-session-option-codec'
 
-/** Freeze what create carries once; an ambiguous reply always replays the same payload.
- *  `hostTakesExplicitOptions`: the host advertises the create options-mode capability. */
+/** Preview negotiated options; claim the first message only after speed authorization. */
 export function prepareStructuredLaunchCreateMessage(
   state: StructuredLaunchState,
-  hostTakesExplicitOptions: boolean
-): void {
+  createMessageSupport: boolean,
+  hostTakesExplicitOptions = false
+): {
+  params: StructuredAgentSessionCreateParams
+  commit?: () => StructuredAgentSessionCreateParams
+} {
   const { intent } = state
   if (intent.createPrepared) {
-    return
+    return { params: intent.params }
   }
-  if (!hostTakesExplicitOptions) {
-    omitStructuredLaunchPermissionMode(state)
-  }
-  // Options without a model overlay the host's remembered model selection.
+  const previewed = previewStructuredLaunchCreatePicks(state)
+  const explicit = hostTakesExplicitOptions
+    ? state.selection.explicit
+    : compatibleExplicitLaunchOptions(state.selection.explicit)
   const optionsMode: StructuredAgentSessionCreateParams['optionsMode'] =
-    hostTakesExplicitOptions && state.selection.explicit?.model !== undefined
+    hostTakesExplicitOptions && explicit?.model !== undefined
       ? 'replace-model-selection'
       : undefined
-  if (intent.createMessageSupport !== true) {
-    prepareLegacyStructuredLaunchPrompts(intent.sessionId)
-    intent.createPrepared = true
-    notifyStructuredLaunchListeners()
-    return
-  }
-  const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
-  const { options: requested, selection } = structuredLaunchCreateOptions(state)
+  const { options: requested, selection } =
+    createMessageSupport || !intent.explicitLaunchOptions
+      ? structuredLaunchCreateOptions(state, createMessageSupport, explicit)
+      : {}
   const options =
-    requested && state.selection.explicit && !optionsMode
+    requested && explicit && !optionsMode
       ? structuredLaunchCompatibleOptions(intent.agent, requested)
       : requested
   const params = {
     ...intent.params,
-    ...(firstMessage
-      ? { firstMessage: { ...firstMessage, ...(selection !== undefined ? { selection } : {}) } }
-      : {}),
     ...(options ? { options } : {}),
     ...(optionsMode ? { optionsMode } : {})
   }
-  intent.params = {
-    ...params,
-    envelope: {
-      ...params.envelope,
-      payloadFingerprint: structuredAgentSessionCreateFingerprint({
-        sessionId: intent.sessionId,
-        ...params
-      })
+  return {
+    params,
+    commit: () => {
+      // A legacy create is followed by setOption for every pick, so only a modern one freezes them.
+      if (createMessageSupport) {
+        holdStructuredLaunchCreatePicks(state, previewed)
+      }
+      if (!hostTakesExplicitOptions) {
+        intent.explicitLaunchOptions = explicit
+        state.selection = { ...state.selection, explicit }
+      }
+      // A joiner may hand off the CLI source while speed authorization awaits.
+      const {
+        options: _currentOptions,
+        optionsMode: _currentMode,
+        ...currentFields
+      } = intent.params
+      const currentParams = {
+        ...currentFields,
+        ...(params.options ? { options: params.options } : {}),
+        ...(params.optionsMode ? { optionsMode: params.optionsMode } : {})
+      }
+      if (!createMessageSupport) {
+        prepareLegacyStructuredLaunchPrompts(intent.sessionId)
+        return currentParams
+      }
+      const firstMessage = prepareStructuredLaunchPromptForCreate(intent.sessionId, intent.target)
+      return {
+        ...currentParams,
+        ...(firstMessage
+          ? { firstMessage: { ...firstMessage, ...(selection !== undefined ? { selection } : {}) } }
+          : {})
+      }
     }
   }
-  intent.createPrepared = true
-  notifyStructuredLaunchListeners()
 }
 
-/** Hosts before options-mode may refuse an action's mode (older permission tables): the chat takes
- *  the host's new-chat default, as a phone launch does, and no later setOption re-applies it. */
-function omitStructuredLaunchPermissionMode(state: StructuredLaunchState): void {
-  const explicit = state.intent.explicitLaunchOptions
+/** Older hosts retain their own new-chat permission default. */
+function compatibleExplicitLaunchOptions(
+  explicit: Readonly<Record<string, string>> | undefined
+): Readonly<Record<string, string>> | undefined {
   if (explicit?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] === undefined) {
-    return
+    return explicit
   }
   const { [AGENT_CHAT_PERMISSION_MODE_OPTION_ID]: _omitted, ...rest } = explicit
-  const kept = Object.keys(rest).length ? rest : undefined
-  state.intent.explicitLaunchOptions = kept
-  state.selection = { ...state.selection, explicit: kept }
+  return Object.keys(rest).length ? rest : undefined
 }
 
 /** The first turn uses held picks over the action's choices over the chat's shown selection. */
-function structuredLaunchCreateOptions(state: StructuredLaunchState): {
+function structuredLaunchCreateOptions(
+  state: StructuredLaunchState,
+  createMessageSupport: boolean,
+  explicit: Readonly<Record<string, string>> | undefined
+): {
   options?: Readonly<Record<string, string>>
   selection?: Readonly<Record<string, string>>
 } {
   const { intent } = state
   const overlay = structuredLaunchOptionOverlay(state)
-  const requested = structuredLaunchRequestedOptions({ ...state.selection, held: overlay })
+  const requested = structuredLaunchRequestedOptions({ explicit, held: overlay })
   const firstFrame = firstFrameOptionState(intent.agent, intent.target, {
     newLaunch: !intent.params.resumeFrom,
     worktree: intent.params.worktree,
     seedsModel: intent.seedOptions?.model !== undefined
   })
-  // Create has always carried options, so any host takes what the chat shows.
   const view = structuredAgentSessionOptionView(
     firstFrame,
     intent.seedOptions,
     { ...requested, ...overlay },
-    state.selection.explicit
+    explicit
   )
   const drawn = structuredAgentSessionDrawnValues(view)
-  // Model and effort remain raw action input; tier retains its existing display projection.
   const held = Object.fromEntries(
     Object.entries(overlay).map(([id, encoded]) => {
-      const value = id === 'model' || id === 'effort' ? undefined : drawn[id]?.value
+      // Model and effort remain raw action input. Speed intent must reach admission unchanged;
+      // drawing a fallback cannot authorize it.
+      const exact =
+        id === 'model' ||
+        id === 'effort' ||
+        (intent.agent === 'codex' && (id === 'serviceTier' || id === 'fastMode'))
+      const value = exact ? undefined : drawn[id]?.value
       const shown = value === undefined ? null : encodeStructuredAgentSessionOptionValue(id, value)
       return [id, shown ?? encoded]
     })
   )
-  holdStructuredLaunchCreatePicks(state)
-  const options =
-    requested?.model !== undefined
-      ? requested.model === overlay.model
-        ? { ...requested, ...held }
-        : requested
-      : {
-          ...structuredAgentSessionSendSelection(view),
-          ...requested,
-          ...held
-        }
-  return {
+  const selection = intent.sendSelectionSupport
+    ? structuredAgentSessionMessageSelection(view)
+    : undefined
+  const result = (options: Readonly<Record<string, string>>) => ({
     ...(Object.keys(options).length ? { options } : {}),
-    ...(intent.sendSelectionSupport
-      ? { selection: structuredAgentSessionMessageSelection(view) }
-      : {})
+    ...(selection !== undefined ? { selection } : {})
+  })
+  if (requested?.model !== undefined) {
+    return result(requested.model === overlay.model ? { ...requested, ...held } : requested)
   }
+  const {
+    model: seededModel,
+    effort: seededEffort,
+    permissionMode: seededPermission,
+    serviceTier: seededTier,
+    fastMode: seededFast,
+    ...independentSeed
+  } = intent.seedOptions ?? {}
+  const sent = structuredAgentSessionSendSelection(view)
+  const { serviceTier: _drawnTier, fastMode: _drawnFast, ...nonSpeed } = sent ?? {}
+  const speedPicks = requested ?? held
+  const speed =
+    speedPicks.serviceTier !== undefined
+      ? { serviceTier: speedPicks.serviceTier }
+      : speedPicks.fastMode !== undefined
+        ? { fastMode: speedPicks.fastMode }
+        : seededTier !== undefined
+          ? { serviceTier: seededTier }
+          : seededFast !== undefined
+            ? { fastMode: seededFast }
+            : {}
+  const keepsSeedModel =
+    intent.target.kind !== 'local' || (intent.agent === 'codex' && Object.keys(speed).length > 0)
+  return result({
+    ...independentSeed,
+    ...(intent.agent !== 'codex' && seededTier !== undefined ? { serviceTier: seededTier } : {}),
+    ...(intent.agent !== 'codex' && seededFast !== undefined ? { fastMode: seededFast } : {}),
+    ...(keepsSeedModel && seededModel !== undefined ? { model: seededModel } : {}),
+    ...(keepsSeedModel && seededEffort !== undefined ? { effort: seededEffort } : {}),
+    ...(!createMessageSupport && seededPermission !== undefined
+      ? { permissionMode: seededPermission }
+      : {}),
+    ...(intent.agent === 'codex' ? nonSpeed : sent),
+    ...requested,
+    ...held,
+    ...(intent.agent === 'codex' ? speed : {})
+  })
 }
 
 /** Later picks use the normal option path without holding publication behind startup. */
@@ -149,7 +203,7 @@ export function publishStructuredLaunchCreateOptions(
   if (state.intent.createMessageSupport !== true) {
     return applyStructuredLaunchExplicitOptions(state, receipt)
   }
-  settleStructuredLaunchCreateOptions(state, state.intent.params.options ?? {})
+  settleStructuredLaunchCreateOptions(state, state.intent.createCanonicalOptions ?? {})
   void applyStructuredLaunchHeldOptions(state, receipt, false).catch((error: unknown) => {
     console.warn('[native-chat] applying a launch option failed', error)
   })

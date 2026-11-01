@@ -46,7 +46,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     await server.start()
     try {
       expect(server.getDeviceRegistry()?.listDevices()).toHaveLength(0)
-      // Before STA-2370, an unpaired desktop exposed all interfaces.
+      // Why: the exposure regression — before STA-2370 this bound 0.0.0.0 with zero devices paired.
       expect(wsTransportOf(server)?.resolvedHost).toBe('127.0.0.1')
       expect(new URL(server.getWebSocketEndpoint()!).hostname).toBe('127.0.0.1')
     } finally {
@@ -77,7 +77,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
       expect(wsTransportOf(server)?.resolvedHost).toBe('0.0.0.0')
       expect(new URL(server.getWebSocketEndpoint()!).hostname).toBe('0.0.0.0')
-      // Reuse the advertised port so existing QR endpoints remain valid.
+      // Why: the widen reuses the same port so the QR's already-advertised endpoint stays valid.
       expect(wsTransportOf(server)?.resolvedPort).toBe(loopbackPort)
     } finally {
       await server.stop()
@@ -106,10 +106,11 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
   it('binds all interfaces at startup when a previously-connected device can reconnect', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
-    // Previously connected devices may reconnect without another pairing action.
+    // Why: a device that has actually connected (lastSeenAt > 0) may reconnect, so the listener must be
+    // reachable at startup without waiting for a new pairing action.
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.getOrCreatePendingDevice('Paired phone', 'mobile')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.getOrCreatePendingDevice('Paired phone', 'mobile')
+    await registry.updateLastSeen(device.deviceId)
 
     const server = new OrcaRuntimeRpcServer({
       methods: [],
@@ -135,9 +136,11 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
   it('stays on loopback at startup for a pending device that has never connected', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
-    // Unscanned pending offers are not reconnects and must leave the listener loopback.
+    // Why: a pending device (offer created but never connected: lastSeenAt === 0) is not a reconnect, so
+    // the listener must stay loopback — this distinguishes the reconnect widen from a blanket any-device
+    // widen (a revert to listDevices().length > 0 would wrongly expose the LAN here).
     const registry = new DeviceRegistry(userDataPath)
-    registry.getOrCreatePendingDevice('Pending phone', 'mobile')
+    await registry.getOrCreatePendingDevice('Pending phone', 'mobile')
 
     const server = new OrcaRuntimeRpcServer({
       methods: [],
@@ -164,10 +167,16 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
   it('stays on loopback at startup after a "This computer only" grant has connected', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
-    // Local-only browser grants also get lastSeenAt; counting them would expose every interface on next launch against the chosen policy.
+    // Why: the local web client authenticating marks its grant lastSeenAt > 0 like any other socket, so a
+    // blanket "any connected device" widen republished the runtime on every interface one launch later —
+    // exactly what the user declined by picking "This computer only".
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.getOrCreatePendingDevice('Runtime local', 'runtime', 'this-computer')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.getOrCreatePendingDevice(
+      'Runtime local',
+      'runtime',
+      'this-computer'
+    )
+    await registry.updateLastSeen(device.deviceId)
 
     const server = new OrcaRuntimeRpcServer({
       methods: [],
@@ -187,7 +196,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
   it('binds all interfaces at startup for a connected device paired before pairingReach existed', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
-    // Older grants imply network reach; retain reconnect exposure when the field is absent.
+    // Why: registries written by older desktops only ever held network-reach grants; a missing field must
+    // keep the reconnect widen or an already-paired phone would be stranded by the upgrade.
     const legacyDevice = {
       deviceId: 'legacy-device',
       name: 'Legacy phone',
@@ -231,14 +241,15 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     await server.start()
     let deviceId: string
     try {
-      const local = server.createPairingOffer({
+      const local = await server.createPairingOffer({
         address: '127.0.0.1',
         scope: 'runtime',
         reach: 'this-computer'
       })
       expect(local.available).toBe(true)
-      // Re-advertised pending tokens gaining network reach need that policy persisted or restart leaves LAN unserved.
-      const network = server.createPairingOffer({
+      // Why: without `rotate` the same pending token is re-advertised, now for off-host reach. The mark must
+      // widen with it — keeping it this-computer would leave the LAN link unserved after the next launch.
+      const network = await server.createPairingOffer({
         address: '100.64.1.20',
         scope: 'runtime',
         reach: 'network'
@@ -246,7 +257,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
       expect(network.available).toBe(true)
       deviceId = network.available ? network.deviceId : ''
       expect(deviceId).toBe(local.available ? local.deviceId : '')
-      server.getDeviceRegistry()?.updateLastSeen(deviceId)
+      await server.getDeviceRegistry()?.updateLastSeen(deviceId)
     } finally {
       await server.stop()
     }
@@ -279,7 +290,9 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     await server.start()
     try {
       const loopbackPort = wsTransportOf(server)!.resolvedPort
-      // Local-only clients can precede LAN opt-in; rebind disconnects them, so reuse the port for their existing links.
+      // Why: a "This computer only" link never widens, so unlike before, a local client can already be
+      // connected when a later LAN offer opts in. The rebind terminates it (ws cannot move a listener), so
+      // the port must be reused or the already-issued local link could never reconnect.
       const client = new WebSocket(`ws://127.0.0.1:${loopbackPort}`)
       await new Promise<void>((resolve, reject) => {
         client.once('open', () => resolve())
@@ -327,10 +340,15 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
       expect(offer.available).toBe(true)
       expect(wsTransportOf(server)?.resolvedHost).toBe('0.0.0.0')
 
-      // Relay brokers retain session wiring identity; replace its transport, not its connection/binary/revocation state.
+      // Why: DesktopRelayService captures the wiring once at construction and hands it to every relay
+      // broker, so the widen must swap the transport under the SAME wiring — replacing the wiring would
+      // strand relay sockets on a dead object (lost connection IDs, binary handling, revocation targeting).
       expect(server.getMobileSocketWiring()).toBe(wiringBeforeWiden)
 
-      // Prove the wiring swap functionally: pre-widen wiring must revoke through the new wide transport, not merely retain object identity.
+      // Why: object identity alone would pass even if the post-widen transport were never re-attached to the
+      // captured wiring. Prove the swap functionally — route a revocation through the pre-widen wiring and
+      // assert it reaches the NEW (0.0.0.0) transport, confirming attachTransport ran on the same wiring
+      // after the rebind. A revert that leaves the wiring pointed at the stopped loopback transport fails here.
       const widenedTransport = wsTransportOf(server)
       expect(widenedTransport).toBeDefined()
       const terminateSpy = vi.spyOn(widenedTransport!, 'terminateClientConnections')
@@ -361,7 +379,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
       await Promise.all([server.ensureNetworkExposure(), server.ensureNetworkExposure()])
 
-      // Coalesce concurrent offers into one networkExposurePromise or stop/start races can strand the listener on another port.
+      // Why: two racing pairing offers must share one rebind via networkExposurePromise — two competing
+      // stop/start races would fight for the port and could strand the listener on a random one.
       expect(widenSpy).toHaveBeenCalledTimes(1)
       expect(wsTransportOf(server)?.resolvedHost).toBe('0.0.0.0')
     } finally {
@@ -383,7 +402,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     await server.start()
     try {
       const loopbackPort = wsTransportOf(server)?.resolvedPort
-      // Fail wide bind after loopback stops, then allow same-port loopback recovery so serving and retry survive.
+      // Why: force the wide bind to throw AFTER the loopback listener is stopped, then let the loopback
+      // recovery bind through — proving no stranded/closed socket and a retry-able state.
       const target = server as unknown as {
         startWebSocketTransport: (opts: { host: string }) => Promise<unknown>
         wsBoundHost: string | null
@@ -400,15 +420,16 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
         address: '100.64.1.20',
         connectionMode: 'local-only'
       })
-      // Failed exposure must return unavailable rather than advertise an unserved LAN endpoint (STA-2370).
+      // Why: a failed widen must NOT advertise a LAN endpoint with no LAN listener behind it — the offer is
+      // reported unavailable (STA-2370). A revert that swallows the widen failure would return available:true.
       expect(offer.available).toBe(false)
       if (!offer.available) {
         expect(offer.reason).toBe('network_exposure_failed')
       }
-      // Recovery must keep loopback serving at the original port.
+      // Why: the listener must keep serving on loopback (same port) rather than being left stranded/closed.
       expect(wsTransportOf(server)?.resolvedHost).toBe('127.0.0.1')
       expect(wsTransportOf(server)?.resolvedPort).toBe(loopbackPort)
-      // Retain loopback bound-host state so the next offer retries.
+      // Why: wsBoundHost stays loopback so a later pairing offer retries the widen.
       expect(target.wsBoundHost).toBe('127.0.0.1')
     } finally {
       await server.stop()
@@ -429,7 +450,9 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
     await server.start()
     try {
-      // Fail metadata persistence after successful wide bind; keep that listener tracked for shutdown, never orphaned by loopback recovery.
+      // Why: fail metadata publication AFTER the wide bind already succeeded. The live 0.0.0.0 listener must
+      // stay tracked in activeTransports — a revert that runs loopback recovery here orphans a running wide
+      // listener (an untracked 0.0.0.0 socket outside stop(): the exact STA-2370 exposure).
       const target = server as unknown as {
         writeMetadata: () => void
         wsBoundHost: string | null
@@ -450,7 +473,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
         connectionMode: 'local-only'
       })
       expect(injected).toBe(true)
-      // Wide listener already succeeded; metadata failure must preserve available pairing and exactly one tracked transport.
+      // Why: only metadata persistence failed; the wide bind succeeded, so pairing is available and the wide
+      // listener is tracked (not orphaned) — bound to all interfaces, exactly one WebSocket transport.
       expect(offer.available).toBe(true)
       expect(wsTransportOf(server)?.resolvedHost).toBe('0.0.0.0')
       expect(target.activeTransports.filter((t) => t instanceof WebSocketTransport)).toHaveLength(1)
@@ -487,7 +511,7 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     let wideStopSpy: ReturnType<typeof vi.spyOn> = null
     vi.spyOn(target, 'startWebSocketTransport').mockImplementation(async (opts) => {
       if (opts.host === '0.0.0.0') {
-        // Hold rebind after loopback stop to race shutdown against pending exposure.
+        // Why: hold the widen mid-flight (loopback already stopped) so stop() must race the rebind.
         await wideStartGate
         const result = await original(opts)
         wideStopSpy = vi.spyOn(result.transport, 'stop')
@@ -496,14 +520,16 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
       return original(opts)
     })
 
-    // Start shutdown while exposure is still in flight.
+    // Why: begin a pairing widen but do not await it, then start shutdown while it is still in-flight.
     const widen = server.ensureNetworkExposure()
     const stopping = server.stop()
     releaseWideStart()
     await Promise.all([widen.catch(() => {}), stopping])
 
     try {
-      // Shutdown must await/fence exposure before snapshotting transports or a late wide bind leaks past stop (STA-2370).
+      // Why: STA-2370 — stop() must fence and await the in-flight widen so the freshly-bound wide listener is
+      // snapshotted and stopped, never written back into the cleared arrays as a live 0.0.0.0 leak. A revert
+      // (no fence) leaves the wide transport in activeTransports after stop() and never calls its stop().
       expect(target.activeTransports).toHaveLength(0)
       expect(wideStopSpy).not.toBeNull()
       expect(wideStopSpy).toHaveBeenCalled()
@@ -520,7 +546,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
       userDataPath,
       enableWebSocket: true,
       wsPort: 0,
-      // Explicit unattended-host bind policy must beat every implicit widening path.
+      // Why both: an unattended host passes an explicit answer, and it must outrank every
+      // implicit widen — otherwise "default loopback" is only true until something else wins.
       exposeNetworkByDefault: true,
       pinnedBindHost: '127.0.0.1'
     })
@@ -536,10 +563,12 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
   it('stays pinned to loopback even after a device has connected once', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-rpc-'))
-    // A loopback pin must survive first network pairing and restart; reconnect defaults cannot widen it silently.
+    // Why this case specifically: the unpinned default widens at the NEXT startup once any
+    // network-reach device has connected. A loopback orcad would therefore go wide one
+    // restart after its first client paired — silently, and without the operator asking.
     const registry = new DeviceRegistry(userDataPath)
-    const device = registry.getOrCreatePendingDevice('CLI', 'runtime', 'network')
-    registry.updateLastSeen(device.deviceId)
+    const device = await registry.getOrCreatePendingDevice('CLI', 'runtime', 'network')
+    await registry.updateLastSeen(device.deviceId)
 
     const server = new OrcaRuntimeRpcServer({
       methods: [],
@@ -578,7 +607,8 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
 
     await server.start()
     try {
-      // Remote pairing RPCs must not override the operator's bind pin.
+      // A paired client can reach this RPC. Without the pin's refusal it would rebind the
+      // listener to every interface, undoing the operator's bind policy from the outside.
       const offer = await server.createMobilePairingOffer({
         address: '100.64.1.20',
         connectionMode: 'local-only'
@@ -632,7 +662,10 @@ describe('OrcaRuntimeRpcServer WebSocket bind host (STA-2370)', () => {
     )
     await server.stop()
 
-    // After shutdown, refuse fresh exposure requests too; racing-widen tests alone miss reopening a stopped listener.
+    // Why: STA-2370 — the `stopping` fence must reject a widen that arrives on its own AFTER shutdown, not
+    // only one already in-flight during stop() (covered above via the pending-exposure await). Reverting the
+    // `stopping` guard alone still passes the race test, but here ensureNetworkExposure would re-enter
+    // widenWebSocketBind and re-open a 0.0.0.0 listener on a server that is supposed to be down.
     await server.ensureNetworkExposure()
     expect(widenSpy).not.toHaveBeenCalled()
   })

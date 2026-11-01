@@ -176,7 +176,7 @@ describe('WSL direct Git reads', () => {
         wslDistro: DISTRO
       })
 
-      expect(execFileMock.mock.calls[0]?.[0]).toBe('wsl.exe')
+      expect(execFileMock.mock.calls[0]?.[0]).toMatch(/wsl\.exe$/i)
       expect(execFileMock.mock.calls[0]?.[1]).toEqual([
         '-d',
         DISTRO,
@@ -764,7 +764,7 @@ describe('WSL direct Git reads', () => {
         wslDistro: DISTRO
       })
 
-      expect(execFileMock.mock.calls[0]?.[0]).toBe('git')
+      expect(execFileMock.mock.calls[0]?.[0]).toMatch(/git(\.exe)?$/i)
     })
   })
 
@@ -794,7 +794,7 @@ describe('WSL direct Git reads', () => {
       })
 
       expect(fileSystem.stat).toHaveBeenCalledTimes(1)
-      expect(spawnMock.mock.calls[0]?.[0]).toBe('wsl.exe')
+      expect(spawnMock.mock.calls[0]?.[0]).toMatch(/wsl\.exe$/i)
       releaseStat?.()
       await expect(pending).resolves.toBe(true)
 
@@ -804,7 +804,7 @@ describe('WSL direct Git reads', () => {
         stdio: ['ignore', 'pipe', 'pipe']
       })
       expect(fileSystem.stat).toHaveBeenCalledTimes(1)
-      expect(spawnMock.mock.calls[1]?.[0]).toBe('git')
+      expect(spawnMock.mock.calls[1]?.[0]).toMatch(/git(\.exe)?$/i)
     })
   })
 
@@ -871,8 +871,8 @@ describe('WSL direct Git reads', () => {
           stdio: ['ignore', 'pipe', 'pipe']
         })
 
-        expect(spawnMock.mock.calls[0]?.[0]).toBe('git')
-        expect(spawnMock.mock.calls[1]?.[0]).toBe('wsl.exe')
+        expect(spawnMock.mock.calls[0]?.[0]).toMatch(/git(\.exe)?$/i)
+        expect(spawnMock.mock.calls[1]?.[0]).toMatch(/wsl\.exe$/i)
         expect(fileSystem.stat).toHaveBeenCalledTimes(1)
 
         await prepareWslLinkedWorktreeGitRouting(String.raw`C:\repo`, DISTRO, {
@@ -885,7 +885,7 @@ describe('WSL direct Git reads', () => {
           stdio: ['ignore', 'pipe', 'pipe']
         })
         expect(fileSystem.stat).toHaveBeenCalledTimes(2)
-        expect(spawnMock.mock.calls[2]?.[0]).toBe('git')
+        expect(spawnMock.mock.calls[2]?.[0]).toMatch(/git(\.exe)?$/i)
       } finally {
         nowSpy.mockRestore()
       }

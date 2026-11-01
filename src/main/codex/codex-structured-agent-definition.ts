@@ -1,5 +1,9 @@
 import type { DirectoryAccountAgentDefinition } from '../native-chat/agent-session-wire/structured-agent-definition'
 import { CODEX_STRUCTURED_HANDLE_NAMESPACE } from '../../shared/agent-session-provider-handle-encoding'
+import {
+  normalizeCodexRestingOptionPick,
+  readCodexRestingSpeed
+} from './codex-structured-resting-speed'
 import { isCodexTurnOptionKey } from './codex-structured-turn-start'
 
 export const CODEX_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {
@@ -19,7 +23,9 @@ export const CODEX_STRUCTURED_AGENT: DirectoryAccountAgentDefinition = {
     approvalEnforcement: 'provider'
   },
   restingOptions: {
-    acceptsKey: isCodexTurnOptionKey,
+    acceptsKey: (key) => key === 'fastMode' || isCodexTurnOptionKey(key),
+    normalizePick: normalizeCodexRestingOptionPick,
+    readSpeed: readCodexRestingSpeed,
     // No built-in list: the client fills the current model from its own unknown-model defaults.
     fallbackModels: () => null,
     // A running child answers only the effort its thread reported, never the model's default.

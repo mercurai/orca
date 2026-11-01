@@ -97,7 +97,7 @@ beforeEach(() => {
   mocks.deploy.mockImplementation(async (path: string, args: { name: string }) => {
     const id = getManagedOrcadFenceEnvironmentId(store.getSshTarget(TARGET.id))!
     if (!listEnvironments(path).some((entry) => entry.id === id)) {
-      addManagedOrcadEnvironment(path, {
+      await addManagedOrcadEnvironment(path, {
         id,
         name: args.name,
         pairingCode: encodePairingOffer({
@@ -125,7 +125,7 @@ afterEach(async () => {
 
 const now = () => new Date('2026-10-03T00:00:00.000Z')
 
-/** Model an older build adding repo-2 and renaming retained repo-1 after conversion. */
+/** Converted with source retirement off, then an older build adds repo-2 and renames repo-1. */
 async function convertedThenChangedOnOlderBuild(): Promise<void> {
   await expect(
     convertSshTargetToManagedOrcad(userDataPath, {
@@ -138,7 +138,7 @@ async function convertedThenChangedOnOlderBuild(): Promise<void> {
   ).resolves.toMatchObject({ outcome: 'converted' })
   store.addRepo(repo('repo-2', '/srv/tool'))
   store.updateRepo(store.getRepo('repo-1')!, { displayName: 'app-renamed' })
-  reconcileManagedOrcadSshTargets(userDataPath, store, now)
+  await reconcileManagedOrcadSshTargets(userDataPath, store, now)
   expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeDefined()
 }
 
@@ -278,7 +278,7 @@ async function reopenWithOlderBuildRelayRows(rows: Partial<PersistedState>): Pro
   mocks.state.targetStore = sshStore
 }
 
-/** Lose both commit and later reads, as on a mid-commit tunnel drop. */
+/** The delta's commit and every read after it fail, as when the tunnel drops mid-commit. */
 function loseContactAtDeltaCommit(): () => void {
   const read = destination.readState.getMockImplementation()!
   let lost = false
@@ -314,7 +314,8 @@ describe('moving what an older build added to a converted host', () => {
     expect(journals.every((journal) => journal.sourceRetainedAt)).toBe(true)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
     expect(visibleRepos(store, () => userDataPath)).toEqual([])
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    // Back to managed, and a start with nothing new keeps it there.
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
   })
 
@@ -367,7 +368,7 @@ describe('moving what an older build added to a converted host', () => {
     })
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
     expect(visibleRepos(store, () => userDataPath)).toEqual([])
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
     expect(destination.commits).toBe(1)
   })
@@ -377,7 +378,7 @@ describe('moving what an older build added to a converted host', () => {
     await deltaMove()
     // A second trip to an older build adds another project.
     store.addRepo(repo('repo-3', '/srv/docs'))
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeDefined()
     const plan = planOrcadDeltaMove(userDataPath, store, store.getSshTarget(TARGET.id)!)
     expect(plan.added.map((row) => row.id)).toEqual(['repo-3'])
@@ -391,7 +392,7 @@ describe('moving what an older build added to a converted host', () => {
     await convertedThenChangedOnOlderBuild()
     await olderBuildSessionAfterDowngrade()
     expect(store.getSshRemotePtyLeases(TARGET.id)).toHaveLength(1)
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
 
     const plan = planOrcadDeltaMove(userDataPath, store, store.getSshTarget(TARGET.id)!)
     expect(plan.blockers).toEqual([])
@@ -400,6 +401,7 @@ describe('moving what an older build added to a converted host', () => {
       'project-group',
       'repository'
     ])
+    // The relay answers with no terminals, so the expired lease is proven exited.
     await expect(deltaMove()).resolves.toMatchObject({ outcome: 'moved' })
     const delta = listOrcadMigrationSourceCutovers(userDataPath).find(
       (journal) => journal.supersedesMigrationId
@@ -415,7 +417,7 @@ describe('moving what an older build added to a converted host', () => {
   it('moves while a downgrade’s terminal still runs, leaving its lease to the bridge', async () => {
     await convertedThenChangedOnOlderBuild()
     await olderBuildSessionAfterDowngrade()
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     await expect(deltaMove(now, 'live')).resolves.toMatchObject({ outcome: 'moved' })
     const delta = listOrcadMigrationSourceCutovers(userDataPath).find(
       (journal) => journal.supersedesMigrationId
@@ -466,7 +468,7 @@ describe('moving what an older build added to a converted host', () => {
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
   })
 
-  // Interrupted older deltas may include a moved group still referenced by their new row.
+  // Codex repro: an older build's delta exported the moved group its new row sits in.
   it('resumes an older build’s interrupted delta that exported a moved group', async () => {
     const group = store.createProjectGroup({
       name: 'Apps',
@@ -494,7 +496,7 @@ describe('moving what an older build added to a converted host', () => {
       now: () => new Date(delta!.manifest.createdAt)
     })
     expect(manifest.payload.projectGroups.map((entry) => entry.id)).toEqual([group.id])
-    writeOrcadMigrationSourceCutover(userDataPath, {
+    await writeOrcadMigrationSourceCutover(userDataPath, {
       ...delta!,
       manifest,
       manifestSha256: manifest.manifestSha256
@@ -557,11 +559,11 @@ describe('moving what an older build added to a converted host', () => {
     const reconnect = loseContactAtDeltaCommit()
     await expect(deltaMove()).rejects.toThrow('socket closed')
     reconnect()
-    // Model a crash after journal write but before the migration mark returned.
+    // What a crash before the mark came back leaves: the delta journal, a fence without its mark.
     const environmentId = store.getSshTarget(TARGET.id)!.orcadFence!.environmentId
     store.updateSshTarget(TARGET.id, { orcadFence: { environmentId } })
     expect(visibleRepos(store, () => userDataPath)).toHaveLength(2)
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeDefined()
     await expect(deltaMove()).resolves.toMatchObject({ outcome: 'moved' })
   })
@@ -569,6 +571,7 @@ describe('moving what an older build added to a converted host', () => {
 
 const HOST_ID = `ssh:${TARGET.id}` as const
 
+/** An unsaved editor draft in the host's session partition, as either build would save it. */
 function saveDraft(worktreeId: string, content: string): void {
   store.setWorkspaceSession(
     {
@@ -606,6 +609,7 @@ async function convertKeepingSource(): Promise<void> {
   ).resolves.toMatchObject({ outcome: 'converted' })
 }
 
+/** Everything of the host's that this build keeps for a downgrade, as stored. */
 function retainedRows(): string {
   return JSON.stringify({
     repos: store.getRepos(),
@@ -619,7 +623,7 @@ function retainedRows(): string {
 const expectAllRetained = () =>
   expect(listOrcadMigrationSourceCutovers(userDataPath).every((j) => j.sourceRetainedAt)).toBe(true)
 
-/** Committed connects retain source rows without a retirement step. */
+/** What a connect does with a committed head; there is no retirement step any more. */
 async function connectAgain(): Promise<void> {
   const target = store.getSshTarget(TARGET.id)!
   const environmentId = target.orcadFence!.environmentId
@@ -638,7 +642,7 @@ async function connectAgain(): Promise<void> {
   })
 }
 
-/** Reopen profile and journals from disk to model restart. */
+/** A restart: the profile and journals are re-read from disk by a fresh store. */
 async function restart(): Promise<void> {
   await store.flushPendingOrThrowAsync()
   await closeTestStores()
@@ -646,7 +650,7 @@ async function restart(): Promise<void> {
   // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: SshConnectionStore wraps the real test store it is given.
   sshStore = new SshConnectionStore(store as never)
   mocks.state.targetStore = sshStore
-  reconcileManagedOrcadSshTargets(userDataPath, store, now)
+  await reconcileManagedOrcadSshTargets(userDataPath, store, now)
 }
 
 describe('a retained source is never deleted', () => {
@@ -687,12 +691,12 @@ describe('a retained source is never deleted', () => {
     expectAllRetained()
   })
 
-  // Identity changes mark the source changed; edits inside moved projects remain retained only.
+  // The trade-off: identity drives "changed", so an edit inside a moved project only stays kept.
   it('keeps an older build’s draft edit without marking the host changed', async () => {
     saveDraft('repo-1::/srv/app', 'draft before migration')
     await convertKeepingSource()
     saveDraft('repo-1::/srv/app', 'draft after downgrade')
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     expect(store.getSshTarget(TARGET.id)?.orcadFence?.sourceChangedAt).toBeUndefined()
 
     await connectAgain()
@@ -713,7 +717,7 @@ describe('a retained source is never deleted', () => {
     expect(retainedRows()).toBe(kept)
 
     store.addRepo(repo('repo-3', '/srv/docs'))
-    reconcileManagedOrcadSshTargets(userDataPath, store, now)
+    await reconcileManagedOrcadSshTargets(userDataPath, store, now)
     const changed = retainedRows()
     await keepOrcadServerVersion({
       userDataPath,

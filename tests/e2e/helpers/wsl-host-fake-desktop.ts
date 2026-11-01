@@ -32,7 +32,10 @@ export const STOPPED = [{ name: 'Ubuntu', state: 'stopped', version: 2 }]
 export async function launchDesktopWithFakeWsl(
   fake: Record<string, unknown>,
   testInfo: Parameters<typeof forwardElectronProcessLogs>[1],
-  options: { internalGate?: boolean; beforeLaunch?: (userDataDir: string) => void } = {}
+  options: {
+    internalGate?: boolean
+    beforeLaunch?: (userDataDir: string) => void | Promise<unknown>
+  } = {}
 ): Promise<{
   app: ElectronApplication
   page: Page
@@ -44,7 +47,7 @@ export async function launchDesktopWithFakeWsl(
     path.join(userDataDir, 'orca-data.json'),
     `${JSON.stringify(getE2ECompletedOnboardingProfile(), null, 2)}\n`
   )
-  options.beforeLaunch?.(userDataDir)
+  await options.beforeLaunch?.(userDataDir)
   const { ELECTRON_RUN_AS_NODE: _unused, ...cleanEnv } = process.env
   void _unused
   const isolation = createElectronHomeIsolation({
@@ -83,7 +86,10 @@ export function launchDesktopWithFakeWslPairing(
   pairingCode: string,
   testInfo: Parameters<typeof forwardElectronProcessLogs>[1],
   fakeOverrides: Record<string, unknown> = {},
-  options: { internalGate?: boolean; beforeLaunch?: (userDataDir: string) => void } = {}
+  options: {
+    internalGate?: boolean
+    beforeLaunch?: (userDataDir: string) => void | Promise<unknown>
+  } = {}
 ): ReturnType<typeof launchDesktopWithFakeWsl> {
   return launchDesktopWithFakeWsl(
     {

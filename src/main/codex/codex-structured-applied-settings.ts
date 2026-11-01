@@ -25,12 +25,19 @@ export function codexMethodUnavailable(error: unknown, method: string): boolean 
 export class CodexAppliedSettings {
   private snapshot: Settings = {}
   private readonly pending = new Set<Settings>()
+  private readonly pendingModels = new Set<Settings>()
+  private observedModel: string | undefined
   private readonly listeners = new Set<() => void>()
   private ended = false
   private unsupported = false
 
   observe(value: unknown): void {
     const row = readRecord(value)
+    if (typeof row.model === 'string' && row.model !== this.observedModel) {
+      this.observedModel = row.model
+      const matched = [...this.pendingModels].find((write) => write.model === row.model)
+      if (matched) this.pendingModels.delete(matched)
+    }
     const previous = this.snapshot
     this.snapshot = {
       ...(typeof row.model === 'string' ? { model: row.model } : {}),
@@ -68,22 +75,39 @@ export class CodexAppliedSettings {
     }
   }
 
+  /** A pending model write can make an older observation stale. */
+  knownModel(): string | undefined {
+    if (this.ended || this.pendingModels.size > 0) {
+      return undefined
+    }
+    return this.observedModel
+  }
+
   end(): void {
     this.ended = true
     this.snapshot = {}
     this.pending.clear()
+    this.pendingModels.clear()
+    this.observedModel = undefined
     for (const listener of this.listeners) {
       listener()
     }
   }
 
   attempt(choices: Settings): () => void {
-    if (this.equivalent(choices)) {
+    if (
+      (choices.model === undefined || this.pendingModels.size === 0) &&
+      this.equivalent(choices)
+    ) {
       return () => {}
     }
     const write = { model: choices.model, effort: choices.effort }
     this.pending.add(write)
-    return () => this.pending.delete(write)
+    if (write.model !== undefined) this.pendingModels.add(write)
+    return () => {
+      this.pending.delete(write)
+      this.pendingModels.delete(write)
+    }
   }
 
   private equivalent(choices: Settings): boolean {
@@ -157,18 +181,23 @@ export class CodexAppliedSettings {
             onRefused?.()
             if (codexMethodUnavailable(error, 'thread/settings/update')) {
               this.unsupported = true
-              return
+              return 'unsupported' as const
             }
             rejected = true
           }
           throw error
         }
-        onApplied?.()
         replied = true
         check()
         await changed.promise
+        return 'confirmed' as const
       })()
-      await waitForPromiseWithSignal(Promise.race([work, expired.promise]), signal)
+      const outcome = await waitForPromiseWithSignal(Promise.race([work, expired.promise]), signal)
+      throwIfSignalAborted(signal)
+      if (this.ended || (outcome === 'confirmed' && !this.equivalent(choices))) {
+        throw new Error('codex settings confirmation changed')
+      }
+      if (outcome === 'confirmed') onApplied?.()
       return { ok: true }
     } catch {
       throwIfSignalAborted(signal)

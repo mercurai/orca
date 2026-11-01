@@ -161,7 +161,7 @@ function processGroupExists(processGroupId: number): boolean {
   }
 }
 
-function killRoot(child: ChildProcess, signal?: NodeJS.Signals): void {
+export function killRoot(child: ChildProcess, signal?: NodeJS.Signals): void {
   try {
     child.kill(signal)
   } catch {

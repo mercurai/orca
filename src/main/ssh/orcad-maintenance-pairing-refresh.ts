@@ -9,13 +9,14 @@ import type { ServeReadiness } from '../server/serve-readiness'
 import { tunneledOrcadPairingCode } from './orcad-tunneled-pairing'
 
 /** Saves the pairing a managed server published after an update, rollback or restart. */
-export function refreshMaintainedOrcadPairing(
+export async function refreshMaintainedOrcadPairing(
   userDataPath: string,
   environmentId: string,
   readiness: ServeReadiness
-): KnownRuntimeEnvironment {
-  // Reuse the enrolled grant after restart so pairing cannot replace this desktop’s identity (#29042).
-  // Re-read because census may have repaired pairing or moved the tunnel port meanwhile.
+): Promise<KnownRuntimeEnvironment> {
+  // Why the enrolled grant: a restarted orcad offers a new device once this one has paired, and
+  // taking it would change who this desktop is to the host (as WSL's #29042 found). Re-read: the
+  // census may have repaired a refused pairing, or moved an unbindable tunnel port, meanwhile.
   const current = resolveEnvironment(userDataPath, environmentId)
   const localPort = getOrcadSshDeployment(current)?.localPort
   if (localPort === undefined) {
@@ -23,5 +24,7 @@ export function refreshMaintainedOrcadPairing(
   }
   const enrolled = getPreferredPairingOffer(current)
   const pairingCode = tunneledOrcadPairingCode(readiness, localPort, enrolled)
-  return refreshManagedOrcadPairing(userDataPath, environmentId, pairingCode)
+  return await refreshManagedOrcadPairing(userDataPath, environmentId, pairingCode, undefined, {
+    expectedPairingRevision: current.pairingRevision ?? current.createdAt
+  })
 }

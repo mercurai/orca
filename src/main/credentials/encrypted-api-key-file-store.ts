@@ -1,12 +1,13 @@
 import { getSecretStore } from '../../shared/secret-store'
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { hardenExistingSecureFile, isUnreadableError } from '../../shared/secure-file'
 import {
-  hardenExistingSecureFile,
-  isUnreadableError,
-  writeSecureFile
-} from '../../shared/secure-file'
+  ignoreDiscardedSecureWrite,
+  removeSecureFile,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import type { SecretAtRestProtection } from '../../shared/secret-at-rest-protection'
 import { ApiKeyFileUnreadableError } from './api-key-file-unreadable-error'
 
@@ -15,7 +16,7 @@ type EncryptedApiKeyFileStore = {
   envelopeFile: () => { path: string; envelopePrefix: string }
   protection: () => SecretAtRestProtection | null
   has: () => boolean
-  save: (key: string) => void
+  save: (key: string) => Promise<void>
   read: () => string | null
   clear: () => void
 }
@@ -112,13 +113,17 @@ export function createEncryptedApiKeyFileStore({
     }
   }
 
-  function save(key: string): void {
+  async function save(key: string): Promise<void> {
+    await ignoreDiscardedSecureWrite(() => saveUnlessCleared(key))
+  }
+
+  async function saveUnlessCleared(key: string): Promise<void> {
     const trimmed = key.trim()
     if (!trimmed) {
       throw new Error(`${providerLabel} API key is required`)
     }
     if (getSecretStore().isEncryptionAvailable()) {
-      writeSecureFile(
+      await writeSecureFileAsync(
         getApiKeyPath(),
         encodeApiKeyEnvelope('encrypted', getSecretStore().encryptString(trimmed)),
         { durable: true }
@@ -129,7 +134,7 @@ export function createEncryptedApiKeyFileStore({
     console.warn(
       `[${logScope}] safeStorage encryption unavailable — storing ${providerLabel} API key in plaintext`
     )
-    writeSecureFile(
+    await writeSecureFileAsync(
       getApiKeyPath(),
       encodeApiKeyEnvelope('plaintext', Buffer.from(trimmed, 'utf8')),
       { durable: true }
@@ -172,7 +177,7 @@ export function createEncryptedApiKeyFileStore({
 
   function clear(): void {
     cachedApiKey = null
-    rmSync(getApiKeyPath(), { force: true })
+    removeSecureFile(getApiKeyPath())
   }
 
   return {

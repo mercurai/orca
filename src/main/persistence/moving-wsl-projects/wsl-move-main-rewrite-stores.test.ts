@@ -130,7 +130,7 @@ describe('WSL move main rewrite stores', () => {
   })
 
   it('rewrites and records each store on disk, then finishes the rewrite', async () => {
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     loadWslMoveFence(testState.dir)
 
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
@@ -172,7 +172,7 @@ describe('WSL move main rewrite stores', () => {
   })
 
   it('re-runs a store whose ledger entry a crash lost, changing nothing', async () => {
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     loadWslMoveFence(testState.dir)
     await runWslMoveDesktopRewritePass({ userDataPath: testState.dir })
     const before = persisted()
@@ -182,7 +182,7 @@ describe('WSL move main rewrite stores', () => {
       recursive: true,
       force: true
     })
-    seedWslMoveCutover(testState.dir, committedMove(['ui-routing', 'session-globals']))
+    await seedWslMoveCutover(testState.dir, committedMove(['ui-routing', 'session-globals']))
     registerWslMoveMainRewriteStores(store)
     const seed = vi.spyOn(store, 'setWorkspaceSession')
 
@@ -197,7 +197,7 @@ describe('WSL move main rewrite stores', () => {
   })
 
   it('never re-seeds a tab the user closed after a seed whose flush timed out', async () => {
-    seedWslMoveCutover(testState.dir, committedMove())
+    await seedWslMoveCutover(testState.dir, committedMove())
     loadWslMoveFence(testState.dir)
     const flush = store.flushPendingOrThrowAsync.bind(store)
     const hangThirdFlush = vi
@@ -224,7 +224,7 @@ describe('WSL move main rewrite stores', () => {
   })
 
   it('does nothing for a move that has not committed', async () => {
-    seedWslMoveCutover(testState.dir, {
+    await seedWslMoveCutover(testState.dir, {
       ...committedMove(),
       phase: 'blobs-transferred'
     })

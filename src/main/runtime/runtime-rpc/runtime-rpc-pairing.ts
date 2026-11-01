@@ -53,7 +53,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return this.pushUnregisterOutbox
   }
 
-  setMobileRelayBinding(deviceId: string, binding: RelayDeviceBinding): boolean {
+  async setMobileRelayBinding(deviceId: string, binding: RelayDeviceBinding): Promise<boolean> {
     const current = this.deviceRegistry?.getDevice(deviceId)
     if (
       current?.scope !== 'mobile' ||
@@ -66,12 +66,12 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
       (current.relayBinding.relayHostId !== binding.relayHostId ||
         current.relayBinding.ownerIdentityKey !== binding.ownerIdentityKey)
     ) {
-      // Switching account/host must durably revoke the old cloud credential family even while that account is offline.
-      if (!this.queueRelayDeviceRevoke(current.relayBinding)) {
+      // Why: switching the owning account/host must not strand the old cloud credential family, even if that account is offline.
+      if (!(await this.queueRelayDeviceRevoke(current.relayBinding))) {
         return false
       }
     }
-    const updated = this.deviceRegistry?.setRelayBinding(deviceId, binding) ?? false
+    const updated = (await this.deviceRegistry?.setRelayBinding(deviceId, binding)) ?? false
     if (updated) {
       this.mobileRelayPairingProvider?.onDemandStateChanged?.()
     }
@@ -97,7 +97,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
       ? new MobileDesktopRelay({
           hosts,
           listPhones: () => this.listRelayedPhones(),
-          // Share local stream allocator so relayed ids cannot collide on phone sockets.
+          // Why: one allocator with local streams, so relayed ids never collide on the phone's socket.
           allocateStreamId: allocateTerminalSubscriptionStreamId,
           nativeChatDefault: (agent) => isStructuredNativeChatDefaultFor(this.runtime, agent)
         })
@@ -120,7 +120,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     const computerName = this.runtime.readMachineName()
     return (this.deviceRegistry?.listDevices() ?? [])
       .filter(
-        // Phones delegated by another desktop remain that desktop's relay responsibility.
+        // Why: phones another desktop relays here are that desktop's to relay, not ours.
         (device) =>
           device.scope === 'mobile' && device.lastSeenAt > 0 && device.parentDeviceId === undefined
       )
@@ -135,16 +135,17 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     return ws?.endpoint ?? null
   }
 
-  createPairingOffer(args: {
+  async createPairingOffer(args: {
     address?: string | null
     name?: string
     rotate?: boolean
     scope?: DeviceScope
-    // Persist local-only policy on grants so reconnect cannot expose every interface; other callers default to network reach (STA-2370).
+    // Why: STA-2370 — recorded on the grant so a "This computer only" client reconnecting cannot make the
+    // next launch bind every interface. Defaults to network reach, which is what every other caller means.
     reach?: RuntimePairingReach
-    // Grant administrative permissions only at pairing, never as later device upgrades.
+    // Why: administrative permissions exist only when granted here, never added to a paired device later.
     grants?: readonly RuntimeDeviceGrant[]
-  }):
+  }): Promise<
     | PairingOfferUnavailable
     | {
         available: true
@@ -152,7 +153,8 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
         endpoint: string
         deviceId: string
         webClientUrl: string | null
-      } {
+      }
+  > {
     if (this.pairingInitializationFailure) {
       return this.pairingInitializationFailure
     }
@@ -183,8 +185,8 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
       const reach = args.reach ?? 'network'
       const grants = args.grants ?? []
       device = args.rotate
-        ? this.deviceRegistry.rotatePendingDevice(deviceName, scope, reach, grants)
-        : this.deviceRegistry.getOrCreatePendingDevice(deviceName, scope, reach, grants)
+        ? await this.deviceRegistry.rotatePendingDevice(deviceName, scope, reach, grants)
+        : await this.deviceRegistry.getOrCreatePendingDevice(deviceName, scope, reach, grants)
     } catch (error) {
       console.error('[runtime] Failed to persist pairing credential:', error)
       return pairingUnavailable('device_registry_unavailable', DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE)
@@ -197,7 +199,7 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
       publicKeyB64,
       pairedDeviceId: device.deviceId,
       scope,
-      // Runtime clients pin host identity; mobile does not need these extra QR bytes.
+      // Why runtime scope only: mobile never pins it, and every byte densifies the phone's QR.
       ...(hostDescriptor && scope === 'runtime' ? { hostDescriptor } : {})
     })
     return {
@@ -210,12 +212,19 @@ export class RuntimeRpcPairing extends RuntimeRpcNetworkExposure {
     }
   }
 
-  protected queueOrRetainRelayDeviceRevoke(deviceId: string, binding: RelayDeviceBinding): void {
-    if (this.queueRelayDeviceRevoke(binding)) {
+  /**
+   * Why: the outbox is the only durable cleanup record for a minted invite. When it can't be
+   * written, keep the binding on the device so cleanup keeps a reference instead of orphaning it.
+   */
+  protected async queueOrRetainRelayDeviceRevoke(
+    deviceId: string,
+    binding: RelayDeviceBinding
+  ): Promise<void> {
+    if (await this.queueRelayDeviceRevoke(binding)) {
       return
     }
     try {
-      this.deviceRegistry?.setRelayBinding(deviceId, binding)
+      await this.deviceRegistry?.setRelayBinding(deviceId, binding)
     } catch (error) {
       console.error('[runtime] Failed to retain an unrevoked Relay binding:', error)
     }

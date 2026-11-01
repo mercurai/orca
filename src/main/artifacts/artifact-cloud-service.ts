@@ -34,6 +34,8 @@ import { OrcaCloudRequestError } from '../orca-profiles/profile-cloud-client'
 type ArtifactAuthContext = {
   profileId: string
   scope: ArtifactShareScope
+  /** Share-index lifecycle captured with the auth; re-checked inside the serialized save. */
+  lifecycle: string
   assertCurrent: () => void
 }
 
@@ -73,6 +75,7 @@ function authContext(
   return {
     profileId: active.profile.id,
     scope,
+    lifecycle: lifecycleGeneration,
     assertCurrent: () => {
       const current = ensureActiveOrcaProfile(userDataPath)
       const cloudCurrent =
@@ -159,7 +162,7 @@ export class ArtifactCloudService {
     request: ArtifactCloudOptions & { sourceKey: string }
   ): Promise<ArtifactCloudOperation<ArtifactPublishedLink | null>> {
     return this.withAuth(request, async (_token, _apiUrl, auth) => {
-      const record = getArtifactShareRecord(
+      const record = await getArtifactShareRecord(
         auth.profileId,
         this.userDataPath,
         request.sourceKey,
@@ -193,7 +196,7 @@ export class ArtifactCloudService {
     return this.withAuth(request, (token, apiUrl, auth) =>
       this.publisher.runForSource(request.sourceKey, auth, async () => {
         auth.assertCurrent()
-        const record = getArtifactShareRecord(
+        const record = await getArtifactShareRecord(
           auth.profileId,
           this.userDataPath,
           request.sourceKey,
@@ -215,7 +218,7 @@ export class ArtifactCloudService {
             }
           )
           auth.assertCurrent()
-          refreshArtifactShareRecordExpiration(
+          await refreshArtifactShareRecordExpiration(
             auth.profileId,
             this.userDataPath,
             request.sourceKey,
@@ -235,7 +238,7 @@ export class ArtifactCloudService {
     return this.withAuth(request, (token, apiUrl, auth) =>
       this.publisher.runForSource(request.sourceKey, auth, async () => {
         auth.assertCurrent()
-        const record = getArtifactShareRecord(
+        const record = await getArtifactShareRecord(
           auth.profileId,
           this.userDataPath,
           request.sourceKey,
@@ -248,7 +251,7 @@ export class ArtifactCloudService {
           auth.assertCurrent()
           await deleteArtifactRequest(apiUrl, token, `/${record.slug}`, record.editToken)
           auth.assertCurrent()
-          removeArtifactShareRecords(auth.profileId, this.userDataPath, auth.scope, {
+          await removeArtifactShareRecords(auth.profileId, this.userDataPath, auth.scope, {
             sourceKey: request.sourceKey,
             slug: record.slug
           })
@@ -263,7 +266,9 @@ export class ArtifactCloudService {
         auth.assertCurrent()
         await deleteArtifactRequest(apiUrl, token, `/${encodeURIComponent(id)}`)
         auth.assertCurrent()
-        removeArtifactShareRecords(auth.profileId, this.userDataPath, auth.scope, { slug: id })
+        await removeArtifactShareRecords(auth.profileId, this.userDataPath, auth.scope, {
+          slug: id
+        })
       })
     )
   }
@@ -274,7 +279,7 @@ export class ArtifactCloudService {
   ): Promise<ArtifactCloudOperation<T>> {
     const apiUrl = resolveArtifactCloudApiUrl(options.apiUrl)
     const active = ensureActiveOrcaProfile(this.userDataPath)
-    prepareArtifactCloudUse(active.profile, this.userDataPath)
+    await prepareArtifactCloudUse(active.profile, this.userDataPath)
     if (options.authToken?.trim()) {
       if (!allowsArtifactCloudAuthOverride()) {
         throw new Error(

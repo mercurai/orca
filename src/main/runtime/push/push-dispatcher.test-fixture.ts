@@ -49,7 +49,7 @@ export function createHarness(options: {
   } as unknown as PushGatewayClient
   const registry: PushDispatcherRegistry = {
     listDevices: () => options.devices,
-    setPushRegistration: (deviceId, value) => {
+    setPushRegistration: async (deviceId, value) => {
       cleared.push(value === null ? deviceId : null)
       return true
     }

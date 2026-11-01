@@ -18,6 +18,7 @@ import { structuredLaunchFailure } from '../../structured-agent-session-launch-f
 import {
   deleteStructuredLaunchStateIfCurrent,
   notifyStructuredLaunchListeners,
+  readStructuredLaunchHeldOptions,
   retireStructuredAgentSessionLaunchCancellationTombstone,
   type StructuredLaunchState
 } from './structured-agent-session-launch-registry'
@@ -31,7 +32,12 @@ function cleanupLaunchState(state: StructuredLaunchState): void {
 }
 
 export function maybeCleanupLaunchState(state: StructuredLaunchState): void {
-  if (state.callers.outcome === 'failed' || structuredLaunchCallersHavePendingWork(state.callers)) {
+  if (
+    state.callers.outcome === 'failed' ||
+    Boolean(state.heldPromptDrafts?.length) ||
+    structuredLaunchCallersHavePendingWork(state.callers) ||
+    Object.keys(readStructuredLaunchHeldOptions(state)).length > 0
+  ) {
     return
   }
   cleanupLaunchState(state)

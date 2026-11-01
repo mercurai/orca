@@ -170,7 +170,7 @@ describe('mobile launch retry authority', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(directory)
-    const mobile = server['deviceRegistry'].addDevice('test-phone', 'mobile')
+    const mobile = await server['deviceRegistry'].addDevice('test-phone', 'mobile')
     const replies: RpcResponse[] = []
     // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: with no pairing provider or physical socket, this admission path reads only clientCapabilities.
     const authenticatedSocket = {

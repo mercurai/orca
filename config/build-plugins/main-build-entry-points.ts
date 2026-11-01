@@ -29,6 +29,7 @@ export const MAIN_BUILD_ENTRY_POINTS: Record<string, string> = {
   'command-path-directory-worker-entry': resolve(
     'src/main/ipc/command-path-directory-worker-entry.ts'
   ),
+  'git-spawn-worker-entry': resolve('src/main/git/command-runner/git-spawn-worker-entry.ts'),
   // Focus-triggered usage probes must not block UI on cold CreateProcessW (#27362).
   'worker-thread-child-process-entry': resolve(
     'src/main/worker-thread-child-process/worker-thread-child-process-entry.ts'

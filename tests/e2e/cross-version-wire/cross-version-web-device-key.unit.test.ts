@@ -85,7 +85,7 @@ function host(capabilities: readonly string[], implementation = CURRENT_HOST) {
       publicKeyB64: Buffer.from(desktop.publicKey).toString('base64')
     },
     onReady: (socket) => authenticated.push(socket),
-    onText: (socket, plaintext, reply) => {
+    onText: async (socket, plaintext, reply) => {
       const request: Record<string, unknown> = JSON.parse(plaintext)
       requests.push(request)
       const ok = (result: unknown) =>
@@ -94,7 +94,7 @@ function host(capabilities: readonly string[], implementation = CURRENT_HOST) {
         ok({ capabilities })
       } else if (request.method === REGISTER_DEVICE_KEY_METHOD) {
         // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the host's zod schema already accepted these params in production; the test sends the same shape.
-        ok(registerSocketDeviceKey(registry, socket, request.params as never))
+        ok(await registerSocketDeviceKey(registry, socket, request.params as never))
       } else {
         ok({})
       }
@@ -217,8 +217,8 @@ afterEach(() => {
 describe('a browser moving from its pairing code to a device key', () => {
   it('registers a non-extractable key, then connects with it and no request token', async () => {
     currentHost = host([DEVICE_KEY_RUNTIME_CAPABILITY])
-    const paired = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(paired.deviceId)
+    const paired = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(paired.deviceId)
     const browser = browserFor(paired.token, 'persistent', 'persisted')
 
     await browser.transport.waitForConnected(5_000)
@@ -246,8 +246,8 @@ describe('a browser moving from its pairing code to a device key', () => {
 
   it('a re-pair recovers with its fresh code after a downgrade refuses the old key', async () => {
     currentHost = host([DEVICE_KEY_RUNTIME_CAPABILITY])
-    const first = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(first.deviceId)
+    const first = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(first.deviceId)
     const store = createMemoryWebDeviceKeyStore()
     const migrated = browserFor(first.token, 'persistent', 'persisted', store, 1)
     await migrated.transport.waitForConnected(5_000)
@@ -255,8 +255,8 @@ describe('a browser moving from its pairing code to a device key', () => {
 
     currentHost.wiring.dispose?.()
     currentHost = host([], releasedHost)
-    const fresh = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(fresh.deviceId)
+    const fresh = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(fresh.deviceId)
     const repaired = browserFor(fresh.token, 'persistent', 'persisted', store, 2)
     await repaired.transport.waitForConnected(5_000)
     expect(currentHost.authenticated.at(-1)?.device.deviceToken).toBe(fresh.token)
@@ -265,8 +265,8 @@ describe('a browser moving from its pairing code to a device key', () => {
 
   it('keeps its pairing code against a released host', async () => {
     currentHost = host([], releasedHost)
-    const paired = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(paired.deviceId)
+    const paired = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(paired.deviceId)
     const browser = browserFor(paired.token, 'persistent', 'persisted')
 
     await browser.transport.waitForConnected(5_000)
@@ -278,8 +278,8 @@ describe('a browser moving from its pairing code to a device key', () => {
 
   it('keeps an existing stored code exactly as before where no key can be kept', async () => {
     currentHost = host([DEVICE_KEY_RUNTIME_CAPABILITY, DEVICE_KEY_EPHEMERAL_RUNTIME_CAPABILITY])
-    const paired = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(paired.deviceId)
+    const paired = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(paired.deviceId)
     const browser = browserFor(paired.token, 'session-no-ed25519', 'persisted')
 
     await browser.transport.waitForConnected(5_000)
@@ -290,8 +290,8 @@ describe('a browser moving from its pairing code to a device key', () => {
 
   it('a session-only pairing registers an ephemeral key and forgets the code', async () => {
     currentHost = host([DEVICE_KEY_RUNTIME_CAPABILITY, DEVICE_KEY_EPHEMERAL_RUNTIME_CAPABILITY])
-    const paired = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(paired.deviceId)
+    const paired = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(paired.deviceId)
     const browser = browserFor(paired.token, 'session-no-ed25519', 'session')
 
     await browser.transport.waitForConnected(5_000)
@@ -303,13 +303,13 @@ describe('a browser moving from its pairing code to a device key', () => {
 
   it('deletes the key and the pairing only when the host revokes this key', async () => {
     currentHost = host([DEVICE_KEY_RUNTIME_CAPABILITY])
-    const paired = currentHost.registry.addDevice('Browser', 'runtime')
-    currentHost.registry.updateLastSeen(paired.deviceId)
+    const paired = await currentHost.registry.addDevice('Browser', 'runtime')
+    await currentHost.registry.updateLastSeen(paired.deviceId)
     const browser = browserFor(paired.token, 'persistent', 'persisted')
     await browser.transport.waitForConnected(5_000)
     const keyedId = currentHost.authenticated.at(-1)!.device.deviceId
 
-    currentHost.registry.removeDevice(keyedId)
+    await currentHost.registry.removeDevice(keyedId)
     browser.transport.ws?.close()
     await vi.waitFor(() => expect(browser.transport.state).toBe('auth-failed'), { timeout: 5_000 })
     expect(browser.forgetPairing).toHaveBeenCalledOnce()

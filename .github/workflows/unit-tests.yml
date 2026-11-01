@@ -3,6 +3,14 @@ name: Unit tests
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Exact source commit; omitted for existing callers.
+        type: string
+        default: ''
+      cache_mode:
+        description: Use off to disable persistent dependency and build caches.
+        type: string
+        default: auto
       node_versions:
         description: JSON array of Node.js major versions to test.
         required: true
@@ -13,6 +21,12 @@ on:
         required: false
         default: blacksmith-4vcpu-ubuntu-2404
         type: string
+
+      max_workers:
+        description: Explicit Vitest worker limit; zero preserves the existing runner policy.
+        required: false
+        default: 0
+        type: number
 
       browser_contract:
         description: Include the PR external Chromium browser contract in relay integration.
@@ -80,10 +94,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: node
           node-version: ${{ matrix.node }}
           cache-electron-package: 'true'
@@ -103,7 +119,7 @@ jobs:
 
       - name: Resolve unit module cache
         id: module-cache
-        if: inputs.module_cache == 'cold' || inputs.module_cache == 'warm'
+        if: inputs.cache_mode != 'off' && (inputs.module_cache == 'cold' || inputs.module_cache == 'warm')
         env:
           ORCA_UNIT_SHARD_INDEX: ${{ matrix.shard.index }}
           ORCA_UNIT_SHARD_COUNT: ${{ matrix.shard.count }}
@@ -114,7 +130,7 @@ jobs:
       # Source edits are keyed per module by Vitest plus vitest-module-cache-resolution-key.ts.
       - name: Restore unit module cache
         id: module-cache-restore
-        if: inputs.module_cache == 'warm' && steps.module-cache.outputs.key != ''
+        if: inputs.cache_mode != 'off' && (inputs.module_cache == 'warm' && steps.module-cache.outputs.key != '')
         continue-on-error: true
         uses: actions/cache/restore@v5
         with:
@@ -154,7 +170,7 @@ jobs:
           export ORCA_SHARD_SOURCE_SHA
           node config/scripts/run-vitest.mjs run --config config/vitest.config.ts \
             --shard=${{ matrix.shard.index }}/${{ matrix.shard.count }} \
-            ${{ inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && '--maxWorkers=8' || (runner.arch == 'ARM64' || inputs.runner == 'blacksmith-4vcpu-ubuntu-2404' || inputs.runner == 'ubuntu-24.04') && '--maxWorkers=4' || '' }}
+            ${{ inputs.max_workers > 0 && format('--maxWorkers={0}', inputs.max_workers) || inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && '--maxWorkers=8' || (runner.arch == 'ARM64' || inputs.runner == 'blacksmith-4vcpu-ubuntu-2404' || inputs.runner == 'ubuntu-24.04') && '--maxWorkers=4' || '' }}
 
       - name: Seal unit module cache
         id: module-cache-seal
@@ -167,7 +183,7 @@ jobs:
         run: node config/scripts/ci-unit-module-cache.mjs seal
 
       - name: Save unit module cache
-        if: steps.module-cache-seal.outputs.ready == 'true'
+        if: inputs.cache_mode != 'off' && (steps.module-cache-seal.outputs.ready == 'true')
         continue-on-error: true
         uses: actions/cache/save@v5
         with:
@@ -200,11 +216,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
       - uses: ./.github/actions/install-node-dependencies
         id: root_dependencies
         with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
           native-runtime: none
           node-version: ${{ matrix.node }}
           cache-dependency-path: |
@@ -230,7 +248,7 @@ jobs:
           ORCA_BACKGROUND_LAUNCH: '1'
           ORCA_BROWSER_EXECUTABLE: ${{ steps.browser_executable.outputs.executable }}
         run: |
-          pnpm exec vitest run --config config/vitest.config.ts \
+          pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }} \
             src/main/orcad/external-chromium-browser-process.integration.test.ts
 
       # These two tests import the cloud relay workspace directly. Keeping them in one job
@@ -248,6 +266,6 @@ jobs:
         env:
           ORCA_BACKGROUND_LAUNCH: '1'
         run: >-
-          pnpm exec vitest run --config config/vitest.config.ts
+          pnpm exec vitest run --config config/vitest.config.ts ${{ github.repository == 'mercurai/orca' && '--maxWorkers=2' || '' }}
           tests/e2e/relay-region-compatibility.unit.test.ts
           tests/e2e/relay-region-correction.unit.test.ts

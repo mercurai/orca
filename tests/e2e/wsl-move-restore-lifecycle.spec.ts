@@ -576,7 +576,7 @@ test('"Use on this computer again" after reloads and a restart brings back slept
     })
 
     // The move committed: startup runs its desktop rewrite and retention, as after a real move.
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       session.userDataDir,
       wslMoveCutoverFixture('move-1', 'destination-committed', {}, { repoIds: [repoId] })
     )

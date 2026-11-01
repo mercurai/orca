@@ -6,7 +6,11 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   gitOptions: vi.fn(),
   registerRoots: vi.fn(),
+  fingerprint: vi.fn(async () => null),
   running: vi.fn(async () => true)
+}))
+vi.mock('../../../runtime/repo-worktree-admin-fingerprint', () => ({
+  readRepoWorktreeAdminFingerprintShared: mocks.fingerprint
 }))
 vi.mock('../../../wsl-background-distro-gate', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -108,4 +112,19 @@ describe('detected worktree scan for a stopped WSL distro', () => {
     await listDetectedGitWorktrees(store, repo)
     expect(mocks.list).toHaveBeenCalledOnce()
   })
+
+  it.each(['\\\\wsl.localhost\\Ubuntu-24.04\\repo', '\\\\wsl$\\Ubuntu-24.04\\repo'])(
+    'does not fingerprint a stopped WSL UNC repo with empty Git options: %s',
+    async (repoPath) => {
+      mocks.gitOptions.mockReturnValue({})
+      mocks.running.mockResolvedValue(false)
+
+      await expect(
+        listDetectedGitWorktrees(store, { ...repo, path: repoPath })
+      ).rejects.toBeInstanceOf(WslDistroStoppedError)
+
+      expect(mocks.fingerprint).not.toHaveBeenCalled()
+      expect(mocks.list).not.toHaveBeenCalled()
+    }
+  )
 })

@@ -24,31 +24,33 @@ function rewriteRegistry(dir: string, mutate: (devices: Record<string, unknown>[
 }
 
 describe('DeviceRegistry push registrations', () => {
-  it('persists a registration across a restart', () => {
+  it('persists a registration across a restart', async () => {
     const dir = userDataDir()
-    const device = new DeviceRegistry(dir).addDevice('phone', 'mobile')
-    expect(new DeviceRegistry(dir).setPushRegistration(device.deviceId, REGISTRATION)).toBe(true)
+    const device = await new DeviceRegistry(dir).addDevice('phone', 'mobile')
+    expect(await new DeviceRegistry(dir).setPushRegistration(device.deviceId, REGISTRATION)).toBe(
+      true
+    )
 
     expect(new DeviceRegistry(dir).getDevice(device.deviceId)?.pushRegistration).toEqual(
       REGISTRATION
     )
   })
 
-  it('clears a registration when the gateway reports the token dead', () => {
+  it('clears a registration when the gateway reports the token dead', async () => {
     const dir = userDataDir()
     const registry = new DeviceRegistry(dir)
-    const device = registry.addDevice('phone', 'mobile')
-    registry.setPushRegistration(device.deviceId, REGISTRATION)
+    const device = await registry.addDevice('phone', 'mobile')
+    await registry.setPushRegistration(device.deviceId, REGISTRATION)
 
-    expect(registry.setPushRegistration(device.deviceId, null)).toBe(true)
+    expect(await registry.setPushRegistration(device.deviceId, null)).toBe(true)
     expect(new DeviceRegistry(dir).getDevice(device.deviceId)?.pushRegistration).toBeUndefined()
   })
 
   it.each([1_770_000_000_000, 'unused'])(
     'ignores the obsolete registeredAt field (%s)',
-    (registeredAt) => {
+    async (registeredAt) => {
       const dir = userDataDir()
-      const device = new DeviceRegistry(dir).addDevice('phone', 'mobile')
+      const device = await new DeviceRegistry(dir).addDevice('phone', 'mobile')
       rewriteRegistry(dir, (devices) => {
         for (const entry of devices) {
           entry.pushRegistration = { ...REGISTRATION, registeredAt }
@@ -61,17 +63,17 @@ describe('DeviceRegistry push registrations', () => {
     }
   )
 
-  it('refuses to register a runtime-scoped device', () => {
+  it('refuses to register a runtime-scoped device', async () => {
     const dir = userDataDir()
     const registry = new DeviceRegistry(dir)
-    const cli = registry.addDevice('cli', 'runtime')
+    const cli = await registry.addDevice('cli', 'runtime')
 
-    expect(registry.setPushRegistration(cli.deviceId, REGISTRATION)).toBe(false)
+    expect(await registry.setPushRegistration(cli.deviceId, REGISTRATION)).toBe(false)
   })
 
-  it('loads a registry written before push existed', () => {
+  it('loads a registry written before push existed', async () => {
     const dir = userDataDir()
-    const device = new DeviceRegistry(dir).addDevice('phone', 'mobile')
+    const device = await new DeviceRegistry(dir).addDevice('phone', 'mobile')
     rewriteRegistry(dir, (devices) => {
       for (const entry of devices) {
         delete entry.pushRegistration
@@ -90,9 +92,9 @@ describe('DeviceRegistry push registrations', () => {
     ['an array filter', { ...REGISTRATION, filter: [] }],
     ['a missing filter', { ...REGISTRATION, filter: undefined }],
     ['a non-object', 'nonsense']
-  ])('keeps the device but drops %s', (_name, pushRegistration) => {
+  ])('keeps the device but drops %s', async (_name, pushRegistration) => {
     const dir = userDataDir()
-    const device = new DeviceRegistry(dir).addDevice('phone', 'mobile')
+    const device = await new DeviceRegistry(dir).addDevice('phone', 'mobile')
     rewriteRegistry(dir, (devices) => {
       for (const entry of devices) {
         entry.pushRegistration = pushRegistration
@@ -104,9 +106,9 @@ describe('DeviceRegistry push registrations', () => {
     expect(reloaded.getDevice(device.deviceId)?.pushRegistration).toBeUndefined()
   })
 
-  it('drops only the unknown members of a stored filter', () => {
+  it('drops only the unknown members of a stored filter', async () => {
     const dir = userDataDir()
-    const device = new DeviceRegistry(dir).addDevice('phone', 'mobile')
+    const device = await new DeviceRegistry(dir).addDevice('phone', 'mobile')
     rewriteRegistry(dir, (devices) => {
       for (const entry of devices) {
         entry.pushRegistration = {

@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { runCoalescedProbe, type CoalescedProbes } from '../git/coalesced-probe'
 import type { GitHubRepoContext } from './github-repository-identity'
 
-type LocalGitConfigPaths = {
+export type LocalGitConfigPaths = {
   commonConfigPath: string
   worktreeConfigPath: string
 }
@@ -29,7 +29,8 @@ export async function readLocalGitConfigSignature(
   )
 }
 
-function withConfigSignatureDeadline(
+/** Resolves undefined rather than waiting on a read the filesystem may never finish. */
+export function withConfigSignatureDeadline(
   read: Promise<string | undefined>
 ): Promise<string | undefined> {
   return new Promise((settle) => {
@@ -66,7 +67,7 @@ async function readUncachedLocalGitConfigSignature(repoPath: string): Promise<st
   return signatures.flat().join('\0')
 }
 
-async function readConfigPathSignatures(
+export async function readConfigPathSignatures(
   configPath: string,
   visited = new Set<string>()
 ): Promise<string[]> {
@@ -211,7 +212,9 @@ function resolveIncludedConfigPath(includePath: string, baseDir: string): string
   return resolve(baseDir, includePath)
 }
 
-async function resolveLocalGitConfigPaths(repoPath: string): Promise<LocalGitConfigPaths | null> {
+export async function resolveLocalGitConfigPaths(
+  repoPath: string
+): Promise<LocalGitConfigPaths | null> {
   const dotGitPath = join(repoPath, '.git')
   try {
     const dotGitStats = await stat(dotGitPath)

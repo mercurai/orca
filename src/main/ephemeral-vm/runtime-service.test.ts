@@ -174,7 +174,7 @@ describe('ephemeral VM runtime service', () => {
       create: 'unused',
       destroy: nodeCommand(cleanupPath)
     }
-    upsertEphemeralVmRuntime(userDataPath, {
+    await upsertEphemeralVmRuntime(userDataPath, {
       id: 'runtime-1',
       recipeId: recipe.id,
       recipe,
@@ -536,7 +536,7 @@ describe('ephemeral VM runtime service', () => {
       resume: nodeCommand(resumePath),
       destroyDisabled: true
     }
-    upsertEphemeralVmRuntime(userDataPath, {
+    await upsertEphemeralVmRuntime(userDataPath, {
       id: 'runtime-1',
       recipeId: recipe.id,
       recipe,
@@ -600,7 +600,7 @@ describe('ephemeral VM runtime service', () => {
       resume: nodeCommand(resumePath),
       destroyDisabled: true
     }
-    upsertEphemeralVmRuntime(userDataPath, {
+    await upsertEphemeralVmRuntime(userDataPath, {
       id: 'runtime-1',
       recipeId: recipe.id,
       recipe,

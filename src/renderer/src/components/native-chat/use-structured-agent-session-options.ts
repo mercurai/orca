@@ -1,5 +1,6 @@
 import type { StructuredAgentSessionOptionsArgs } from './structured-agent-session-options-contract'
 import { toast } from 'sonner'
+import { isStructuredLaunchSpeedBlocked } from '@/lib/structured-agent-session-launch-blocked-speed'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { structuredAgentSessionSeedCatalog } from '../../../../shared/structured-agent-session-seed-catalog'
 import type { SessionOptionsSurface } from '../../../../shared/native-chat/input/native-chat-session-options'
@@ -131,7 +132,7 @@ export function useStructuredAgentSessionOptions(args: StructuredAgentSessionOpt
       ) {
         return false
       }
-      if (!transportEnabled || fence === null) {
+      if (!transportEnabled || fence === null || isStructuredLaunchSpeedBlocked(sessionId, id)) {
         const applied = holdStructuredAgentSessionLaunchOption(sessionId, id, encoded, view)
         void applied?.then((outcome) => {
           if (outcome.kind === 'refused' && outcome.failure) {
@@ -224,7 +225,7 @@ export function useStructuredAgentSessionOptions(args: StructuredAgentSessionOpt
     optionSnapshot,
     optionSurface,
     setStructuredOption,
-    sendSource: { optionStateRef, optionView, takesSendOptions, takesSelection },
+    sendSource: { optionStateRef, optionView, takesSendOptions, takesSelection, controller },
     unavailable: hostCatalog.unavailable
   }
 }

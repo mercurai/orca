@@ -64,7 +64,7 @@ export function registerWslMoveHandlers(
   )
   ipcMain.handle(
     'wslMove:recordStoreRewritten',
-    (event: RendererEvent, request: unknown): WslMoveRecordStoreRewrittenResult => {
+    async (event: RendererEvent, request: unknown): Promise<WslMoveRecordStoreRewrittenResult> => {
       // Renderer input: anything but two strings is an unknown store.
       if (
         typeof request !== 'object' ||

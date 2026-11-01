@@ -7,7 +7,16 @@ import {
   artifactContentByteLength,
   artifactWriteRequestByteLength
 } from '../../shared/artifacts'
-import { bestEffortFsyncDirectorySync, writeSecureFile } from '../../shared/secure-file'
+import {
+  discardPendingPathWrites,
+  pathDiscardEpoch,
+  serializePathWrite
+} from '../../shared/path-write-serializer'
+import { bestEffortFsyncDirectorySync } from '../../shared/secure-file'
+import {
+  SecureWriteDiscardedError,
+  writeSecureFileAsync
+} from '../../shared/secure-file-async-write'
 import { getOrcaProfileDirectory } from '../orca-profiles/profile-storage-paths'
 import type { ArtifactWriteBody } from './artifact-cloud-request'
 import type { ArtifactShareScope } from './artifact-share-record-store'
@@ -158,7 +167,47 @@ export function getOrCreateArtifactCreateIntent(
   scope: ArtifactShareScope,
   idempotencyKey: string,
   body: ArtifactWriteBody
-): ArtifactCreateIntent {
+): Promise<ArtifactCreateIntent> {
+  const directory = intentDirectory(profileId, userDataPath)
+  const epoch = pathDiscardEpoch(directory)
+  const isCurrent = () => pathDiscardEpoch(directory) === epoch
+  return serializePathWrite(directory, async () => {
+    if (!isCurrent()) {
+      throw new SecureWriteDiscardedError(directory)
+    }
+    let intent: ArtifactCreateIntent
+    try {
+      intent = await createIntentUnserialized(
+        profileId,
+        userDataPath,
+        sourceKey,
+        scope,
+        idempotencyKey,
+        body,
+        isCurrent
+      )
+    } catch (error) {
+      if (!isCurrent()) {
+        throw new SecureWriteDiscardedError(directory)
+      }
+      throw error
+    }
+    if (!isCurrent()) {
+      throw new SecureWriteDiscardedError(directory)
+    }
+    return intent
+  })
+}
+
+async function createIntentUnserialized(
+  profileId: string,
+  userDataPath: string,
+  sourceKey: string,
+  scope: ArtifactShareScope,
+  idempotencyKey: string,
+  body: ArtifactWriteBody,
+  shouldPublish: () => boolean
+): Promise<ArtifactCreateIntent> {
   if (artifactContentByteLength(body.content) > ARTIFACT_MAX_CONTENT_BYTES) {
     throw new Error('Artifact content exceeds the 10 MiB limit.')
   }
@@ -186,9 +235,8 @@ export function getOrCreateArtifactCreateIntent(
   if (Buffer.byteLength(serializedIntent, 'utf8') > MAX_ARTIFACT_CREATE_INTENT_BYTES) {
     throw new Error('Artifact create recovery record exceeds the supported size.')
   }
-  writeSecureFile(intentPath(profileId, userDataPath, sourceKey, scope), serializedIntent, {
-    durable: true
-  })
+  const path = intentPath(profileId, userDataPath, sourceKey, scope)
+  await writeSecureFileAsync(path, serializedIntent, { durable: true, shouldPublish })
   return intent
 }
 
@@ -217,6 +265,7 @@ export function removeArtifactCreateIntent(
 
 export function clearArtifactCreateIntents(profileId: string, userDataPath: string): void {
   const directory = intentDirectory(profileId, userDataPath)
+  discardPendingPathWrites(directory)
   if (!existsSync(directory)) {
     return
   }

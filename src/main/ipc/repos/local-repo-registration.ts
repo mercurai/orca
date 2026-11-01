@@ -5,6 +5,7 @@ import { isFolderRepo } from '../../../shared/repo-kind'
 import { DEFAULT_REPO_BADGE_COLOR } from '../../../shared/constants'
 import { normalizeRuntimePathForComparison } from '../../../shared/cross-platform-path'
 import { awaitWindowsHostGitEnvironmentReady } from '../../git/runner'
+import { bindGitCaller } from '../../git/command-runner/git-operation-executor'
 import {
   inspectGitRepoForRegistrationAsync,
   getGitRepoRootAsync,
@@ -16,7 +17,7 @@ import { detectRepoIconAndUpstream } from '../../repo-icon-autodetect'
 import { prepareLocalWorktreeRootForRepo } from '../../worktree-root-preparation'
 import { describeWslUncAccessDenied } from '../../wsl/wsl-unc-access-denied'
 
-export async function addLocalRepoFromPath(
+async function registerLocalRepoFromPath(
   store: Store,
   path: string,
   kind: 'git' | 'folder' = 'git',
@@ -126,3 +127,5 @@ export async function addLocalRepoFromPath(
   await prepareLocalWorktreeRootForRepo(store, repo)
   return { repo, alreadyExisted: false }
 }
+
+export const addLocalRepoFromPath = bindGitCaller('repos:register', registerLocalRepoFromPath)

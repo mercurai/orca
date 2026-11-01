@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, renderHook } from '@testing-library/react'
+import { createElement, startTransition, Suspense } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { normalizeRepoSourceControlAiOverrides } from '../../../../../../shared/source-control-ai-repo-settings'
 import { normalizeSourceControlAiSettings } from '../../../../../../shared/source-control-ai-settings'
@@ -45,6 +46,87 @@ const withRecipe = (commandInputTemplate: string): RepoSourceControlAiOverrides 
 })
 
 describe('useRepositorySourceControlAiGlobalUx', () => {
+  it.each(['repository', 'writer'] as const)(
+    'keeps committed writes isolated from a suspended %s change',
+    async (change) => {
+      const committedWriter = vi
+        .fn<(repoId: string, updates: SourceControlAiRepoUpdate) => Promise<boolean>>()
+        .mockResolvedValue(true)
+      const nextWriter = vi
+        .fn<(repoId: string, updates: SourceControlAiRepoUpdate) => Promise<boolean>>()
+        .mockResolvedValue(true)
+      const suspendedRender = vi.fn()
+      const neverCommits = new Promise<void>(() => {})
+      const persistedRepoAi = withRecipe('committed template')
+      const { result, rerender, unmount } = renderHook(
+        ({ repoId, updateRepo, suspend }) => {
+          const api = useRepositorySourceControlAiGlobalUx({
+            repoId,
+            persistedRepoAi,
+            settings: null,
+            source,
+            updateRepo
+          })
+          if (suspend) {
+            suspendedRender()
+            throw neverCommits
+          }
+          return api
+        },
+        {
+          initialProps: {
+            repoId: 'repo-committed',
+            updateRepo: committedWriter,
+            suspend: false
+          },
+          wrapper: ({ children }) => createElement(Suspense, { fallback: null }, children)
+        }
+      )
+      try {
+        const committedApi = result.current
+        act(() => {
+          startTransition(() =>
+            rerender({
+              repoId: change === 'repository' ? 'repo-speculative' : 'repo-committed',
+              updateRepo: change === 'writer' ? nextWriter : committedWriter,
+              suspend: true
+            })
+          )
+        })
+        expect(suspendedRender).toHaveBeenCalled()
+        expect(result.current).toBe(committedApi)
+
+        await act(async () => {
+          committedApi.updateEnablement(true)
+          committedApi.updateActionMode('fixChecks', 'override')
+        })
+
+        expect(committedWriter.mock.calls.map(([repoId]) => repoId)).toEqual([
+          'repo-committed',
+          'repo-committed'
+        ])
+        expect(nextWriter).not.toHaveBeenCalled()
+        const saved = committedWriter.mock.lastCall?.[1].sourceControlAi
+        expect(saved).toMatchObject({ enabled: true })
+        expect(saved?.actionOverrides).toHaveProperty('fixChecks')
+        expect(result.current.displayRepoAi.enabled).toBe(true)
+        expect(result.current.displayRepoAi.actionOverrides).toHaveProperty('fixChecks')
+
+        act(() => rerender({ repoId: 'repo-next', updateRepo: nextWriter, suspend: false }))
+        await act(async () => result.current.updateEnablement(false))
+
+        expect(nextWriter).toHaveBeenCalledOnce()
+        expect(nextWriter.mock.lastCall).toEqual([
+          'repo-next',
+          expect.objectContaining({ sourceControlAi: expect.objectContaining({ enabled: false }) })
+        ])
+        expect(committedWriter).toHaveBeenCalledTimes(2)
+      } finally {
+        unmount()
+      }
+    }
+  )
+
   it('keeps dirty preferences after failed or same-agent saves and clears the old namespace after a successful switch', async () => {
     const preferences = {
       agentId: 'codex',

@@ -7,7 +7,7 @@ import { loadOrCreateE2EEKeypair } from './e2ee-keypair'
 import { E2EE_KEYPAIR_FILENAME } from './mobile-pairing-files'
 
 describe('loadOrCreateE2EEKeypair', () => {
-  it('advertises the public key derived from the stored secret, leaving the file untouched', () => {
+  it('advertises the public key derived from the stored secret, leaving the file untouched', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-e2ee-'))
     const real = nacl.box.keyPair()
     const other = nacl.box.keyPair()
@@ -20,7 +20,7 @@ describe('loadOrCreateE2EEKeypair', () => {
     writeFileSync(file, contents, { mode: 0o600 })
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const keypair = loadOrCreateE2EEKeypair(userDataPath)
+    const keypair = await loadOrCreateE2EEKeypair(userDataPath)
 
     expect(keypair.publicKeyB64).toBe(Buffer.from(real.publicKey).toString('base64'))
     expect(Buffer.from(keypair.publicKey).equals(Buffer.from(real.publicKey))).toBe(true)

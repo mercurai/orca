@@ -48,7 +48,6 @@ import { deliverPluginEvent } from './plugin-event-delivery'
 import { PluginInstallationState } from './installation/plugin-installation-state'
 
 export class PluginService {
-  readonly options: PluginServiceOptions
   private readonly audit: PluginAuditLog
   private readonly workerController: PluginWorkerController
   private readonly contentVerifier = new PluginContentVerifier()
@@ -67,8 +66,7 @@ export class PluginService {
     notifyChanged: () => this.notifyChanged(false)
   })
 
-  constructor(options: PluginServiceOptions) {
-    this.options = options
+  constructor(readonly options: PluginServiceOptions) {
     this.contentPacks = new PluginContentPackRegistry(this.contentVerifier, (pluginKey) =>
       Boolean(this.options.getPluginKillListEntry?.(pluginKey))
     )
@@ -254,16 +252,23 @@ export class PluginService {
       pluginKey,
       request: { method, params },
       surface,
-      resolvePolicy: (boundPluginKey) => ({
-        grantedCapabilities: this.getGrantedCapabilities(boundPluginKey),
-        services: this.runtimeDelegate
-          ? bindPluginHostServices({
-              delegate: this.runtimeDelegate,
-              pluginsDataDir: getPluginsDataDir(this.options.userDataPath)
-            })
-          : null,
-        audit: this.audit
-      })
+      resolvePolicy: (boundPluginKey) => {
+        const plugin = this.findValidPlugin(boundPluginKey)
+        const removing = plugin !== null && this.installed.isRemoving(plugin)
+        return {
+          grantedCapabilities: removing ? null : this.getGrantedCapabilities(boundPluginKey),
+          services:
+            this.runtimeDelegate && !removing
+              ? bindPluginHostServices({
+                  delegate: this.runtimeDelegate,
+                  pluginsDataDir: getPluginsDataDir(this.options.userDataPath),
+                  pluginKey: boundPluginKey,
+                  invokePluginCommand: this.invokeCommand.bind(this)
+                })
+              : null,
+          audit: this.audit
+        }
+      }
     })
   }
 

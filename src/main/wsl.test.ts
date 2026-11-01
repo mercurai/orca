@@ -55,7 +55,10 @@ function withPlatform<T>(value: NodeJS.Platform, fn: () => T): T {
   try {
     return fn()
   } finally {
-    Object.defineProperty(process, 'platform', { configurable: true, value: original })
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: original
+    })
   }
 }
 
@@ -65,7 +68,10 @@ async function withPlatformAsync<T>(value: NodeJS.Platform, fn: () => Promise<T>
   try {
     return await fn()
   } finally {
-    Object.defineProperty(process, 'platform', { configurable: true, value: original })
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: original
+    })
   }
 }
 
@@ -409,7 +415,7 @@ describe('WSL availability cache', () => {
     runProcessMock.mockResolvedValue(exited(''))
 
     await withPlatformAsync('win32', async () => {
-      await expect(isWslAvailableAsync()).resolves.toBe(true)
+      expect(await isWslAvailableAsync()).toBe(true)
     })
     expect(runProcessMock).toHaveBeenCalledWith(
       expect.objectContaining({

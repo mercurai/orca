@@ -168,8 +168,9 @@ export async function callStructuredAgentSession<TResult>(
   /** For a caller that checked the remote host's compatibility itself, just before. */
   options: {
     skipCompatibilityCheck?: true
-    beforeSend?: () => void
     expectedEnvironmentPairingRevision?: number
+    expectedEnvironmentRuntimeId?: string
+    beforeSend?: () => void
   } = {}
 ): Promise<TResult> {
   if (

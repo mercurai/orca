@@ -1,5 +1,8 @@
 import '../runtime/rpc/unused-default-rpc-methods.test-fixture'
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type * as NodeOs from 'node:os'
 
 const { defaultRouteInterfaceNamesMock, handleMock, networkInterfacesMock } = vi.hoisted(() => ({
@@ -21,7 +24,6 @@ vi.mock('qrcode', () => ({
   }
 }))
 
-// Mock interface enumeration only; integration fixtures still need real os.tmpdir.
 vi.mock('os', async (importOriginal) => ({
   ...(await importOriginal<typeof NodeOs>()),
   networkInterfaces: networkInterfacesMock
@@ -31,14 +33,10 @@ vi.mock('../runtime/windows-default-route-interfaces', () => ({
   getWindowsDefaultRouteInterfaceNames: defaultRouteInterfaceNamesMock
 }))
 
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { registerMobileHandlers } from './mobile'
 import { NETWORK_EXPOSURE_FAILED_GUIDANCE } from '../runtime/network-exposure-guidance'
 import { createMobileRpcSurfaceRuntime } from '../runtime/runtime-rpc-mobile-method-allowlist-fixtures'
 import { OrcaRuntimeRpcServer } from '../runtime/runtime-rpc'
-import { WebSocketTransport } from '../runtime/rpc/ws-transport'
 
 // Match production's IPv4-only widened listener.
 function registerWithListener(stub: Record<string, unknown>, bindHost = '0.0.0.0'): void {
@@ -441,7 +439,7 @@ describe('registerMobileHandlers', () => {
   })
 
   it('generates runtime-scoped pairing urls for web and desktop clients', async () => {
-    const createPairingOffer = vi.fn().mockReturnValue({
+    const createPairingOffer = vi.fn().mockResolvedValue({
       available: true,
       pairingUrl: 'orca://pair#runtime',
       webClientUrl: 'http://100.64.1.20:6768/web-index.html?pairing=runtime',
@@ -488,7 +486,7 @@ describe('registerMobileHandlers', () => {
     ensureNetworkExposure: Mock
   } => ({
     getNetworkExposureBindHost: () => '0.0.0.0',
-    createPairingOffer: vi.fn().mockReturnValue({
+    createPairingOffer: vi.fn().mockResolvedValue({
       available: true,
       pairingUrl: 'orca://pair#runtime',
       webClientUrl: `http://${address}/web-index.html?pairing=runtime`,
@@ -668,8 +666,8 @@ describe('registerMobileHandlers', () => {
     })
   })
 
-  it('revokes runtime access through the runtime server', () => {
-    const revokeRuntimeAccess = vi.fn().mockReturnValue(true)
+  it('revokes runtime access through the runtime server', async () => {
+    const revokeRuntimeAccess = vi.fn().mockResolvedValue(true)
     const rpcServer = {
       getDeviceRegistry: () => ({}),
       revokeRuntimeAccess
@@ -677,9 +675,10 @@ describe('registerMobileHandlers', () => {
 
     registerMobileHandlers(rpcServer as never)
 
-    expect(handlers.get('mobile:revokeRuntimeAccess')?.(null, { deviceId: 'runtime-1' })).toEqual({
-      revoked: true
+    const reply = await handlers.get('mobile:revokeRuntimeAccess')?.(null, {
+      deviceId: 'runtime-1'
     })
+    expect(reply).toEqual({ revoked: true })
     expect(revokeRuntimeAccess).toHaveBeenCalledWith('runtime-1')
   })
 
@@ -795,10 +794,8 @@ describe('registerMobileHandlers', () => {
 describe('runtime pairing bind host', () => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
 
-  const wsTransportOf = (server: OrcaRuntimeRpcServer): WebSocketTransport | undefined =>
-    (server['activeTransports'] as unknown[]).find(
-      (transport): transport is WebSocketTransport => transport instanceof WebSocketTransport
-    )
+  const listenerHost = (server: OrcaRuntimeRpcServer): string =>
+    new URL(server.getWebSocketEndpoint() ?? '').hostname
 
   beforeEach(() => {
     handlers.clear()
@@ -821,54 +818,53 @@ describe('runtime pairing bind host', () => {
     return server
   }
 
+  const requestPairingDevice = async (
+    address: string,
+    reach: 'this-computer' | 'network'
+  ): Promise<string> => {
+    const offer = await handlers.get('mobile:getRuntimePairingUrl')?.(null, {
+      address,
+      rotate: true,
+      reach
+    })
+    expect(offer).toMatchObject({ available: true })
+    if (
+      typeof offer !== 'object' ||
+      offer === null ||
+      !('deviceId' in offer) ||
+      typeof offer.deviceId !== 'string'
+    ) {
+      throw new Error('Runtime pairing did not return a device ID')
+    }
+    return offer.deviceId
+  }
+
   it('keeps a real listener on loopback for a local link and widens it only for an off-host one', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-mobile-ipc-'))
     const server = await startServer(userDataPath)
 
     try {
       registerMobileHandlers(server)
-      expect(wsTransportOf(server)?.resolvedHost).toBe('127.0.0.1')
+      expect(listenerHost(server)).toBe('127.0.0.1')
 
-      await expect(
-        handlers.get('mobile:getRuntimePairingUrl')?.(null, {
-          address: '127.0.0.1',
-          rotate: true,
-          reach: 'this-computer'
-        })
-      ).resolves.toMatchObject({ available: true })
-      // This-computer pairing must not permanently expose the runtime to the LAN.
-      expect(wsTransportOf(server)?.resolvedHost).toBe('127.0.0.1')
+      await requestPairingDevice('127.0.0.1', 'this-computer')
+      expect(listenerHost(server)).toBe('127.0.0.1')
 
-      await expect(
-        handlers.get('mobile:getRuntimePairingUrl')?.(null, {
-          address: '100.64.1.20',
-          rotate: true,
-          reach: 'network'
-        })
-      ).resolves.toMatchObject({ available: true })
-      // Off-host reach still requires widening.
-      expect(wsTransportOf(server)?.resolvedHost).toBe('0.0.0.0')
+      await requestPairingDevice('100.64.1.20', 'network')
+      expect(listenerHost(server)).toBe('0.0.0.0')
     } finally {
       await server.stop()
     }
   })
 
-  // Authenticated local links must not cause the next launch to bind every interface.
   it('still binds loopback on the next launch after the local link has been used', async () => {
     const userDataPath = mkdtempSync(join(tmpdir(), 'orca-mobile-ipc-'))
     const server = await startServer(userDataPath)
     let deviceId: string
     try {
       registerMobileHandlers(server)
-      const offer = (await handlers.get('mobile:getRuntimePairingUrl')?.(null, {
-        address: '127.0.0.1',
-        rotate: true,
-        reach: 'this-computer'
-      })) as { available: true; deviceId: string }
-      expect(offer.available).toBe(true)
-      deviceId = offer.deviceId
-      // Model authentication updating grant lastSeenAt, including local clients.
-      server.getDeviceRegistry()?.updateLastSeen(deviceId)
+      deviceId = await requestPairingDevice('127.0.0.1', 'this-computer')
+      await server.getDeviceRegistry()?.updateLastSeen(deviceId)
     } finally {
       await server.stop()
     }
@@ -881,7 +877,7 @@ describe('runtime pairing bind host', () => {
           ?.listDevices()
           .some((device) => device.deviceId === deviceId && device.lastSeenAt > 0)
       ).toBe(true)
-      expect(wsTransportOf(relaunched)?.resolvedHost).toBe('127.0.0.1')
+      expect(listenerHost(relaunched)).toBe('127.0.0.1')
     } finally {
       await relaunched.stop()
     }
@@ -892,21 +888,15 @@ describe('runtime pairing bind host', () => {
     const server = await startServer(userDataPath)
     try {
       registerMobileHandlers(server)
-      const offer = (await handlers.get('mobile:getRuntimePairingUrl')?.(null, {
-        address: '100.64.1.20',
-        rotate: true,
-        reach: 'network'
-      })) as { available: true; deviceId: string }
-      expect(offer.available).toBe(true)
-      server.getDeviceRegistry()?.updateLastSeen(offer.deviceId)
+      const deviceId = await requestPairingDevice('100.64.1.20', 'network')
+      await server.getDeviceRegistry()?.updateLastSeen(deviceId)
     } finally {
       await server.stop()
     }
 
     const relaunched = await startServer(userDataPath)
     try {
-      // Genuine off-host grants must preserve reconnect reach after restart.
-      expect(wsTransportOf(relaunched)?.resolvedHost).toBe('0.0.0.0')
+      expect(listenerHost(relaunched)).toBe('0.0.0.0')
     } finally {
       await relaunched.stop()
     }

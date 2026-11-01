@@ -1,6 +1,7 @@
-import type { AgentSessionOptionCatalog, CatalogModel } from './agent-session-option-catalog'
+import type { AgentSessionSpeed } from './agent-session-speed'
+import { structuredAgentSessionOptionCatalog } from './structured-agent-session-speed'
+import type { AgentSessionOptionCatalog } from './agent-session-option-catalog'
 import { discoveredModel } from './structured-agent-session-discovered-model'
-import type { AgentType } from './agent-status-types'
 import {
   createStructuredAgentSessionOptionRecord,
   replaceStructuredAgentSessionAnsweredValues,
@@ -24,31 +25,17 @@ import {
   encodeStructuredAgentSessionOptionValue
 } from './structured-agent-session-option-codec'
 
+export { structuredAgentSessionOptionCatalog } from './structured-agent-session-speed'
 export {
   canSetStructuredAgentSessionOption,
   lockedStructuredAgentSessionOptionSnapshot,
   structuredAgentSessionOptionSnapshot
 } from './structured-agent-session-option-snapshot'
 
-export function structuredAgentSessionOptionCatalog(
-  seed: AgentSessionOptionCatalog,
-  result: AgentSessionOptionsResult,
-  agent?: AgentType
-): AgentSessionOptionCatalog {
-  const models: CatalogModel[] = result.models.map((model) =>
-    discoveredModel(model, result.fastModeSupport?.supported === true, agent)
-  )
-  if (result.current.model && !models.some((model) => model.id === result.current.model)) {
-    models.push({
-      id: result.current.model,
-      label: result.current.model,
-      options: seed.unknownModelOptions ?? []
-    })
-  }
-  return { ...seed, models, defaultModelIsCliDefault: true }
-}
-
 export type StructuredAgentSessionOptionState = {
+  speed?: AgentSessionSpeed
+  /** The model whose live answer supplied speed facts; held picks cannot inherit its acceptance. */
+  speedModelId?: string
   catalog: AgentSessionOptionCatalog | null
   /** Catalog provenance, not current-child eligibility: seed stays a placeholder until the host answers;
    * builtin then enables the static list without naming a model the host may replace. */
@@ -223,6 +210,8 @@ export function applyStructuredAgentSessionOptions(
       : result.listedModelIds?.length
         ? result.listedModelIds
         : undefined,
+    speed: result.speed,
+    speedModelId: result.current.model ?? result.models.find((model) => model.isDefault)?.id,
     permissionMode: result.current.permissionMode ?? null,
     reportedPermissionMode: result.current.reportedPermissionMode
   }

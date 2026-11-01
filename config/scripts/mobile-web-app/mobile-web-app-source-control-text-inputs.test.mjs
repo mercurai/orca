@@ -225,6 +225,59 @@ describe('the size a text input declares, as the census reads it', () => {
     }
   })
 
+  // Only an immutable, unshadowed same-module const counts as a literal; each case would read 16 if the binding were ignored.
+  it.each([
+    ['a let that is reassigned below the floor', ['let TEXT_SIZE = 16', 'TEXT_SIZE = 12']],
+    ['a let that is never reassigned', ['let TEXT_SIZE = 16']],
+    ['a var', ['var TEXT_SIZE = 16']],
+    ['a const incremented in place', ['const TEXT_SIZE = 16', 'TEXT_SIZE -= 4']],
+    [
+      'a const redeclared in the module',
+      ['const TEXT_SIZE = 16', 'function f() { const TEXT_SIZE = 12 }']
+    ],
+    ['a const naming a below-floor literal', ['const TEXT_SIZE = 14']]
+  ])('refuses %s as a floor-meeting literal', (_label, declarations) => {
+    const root = plant({
+      'src/ui/Field.tsx': [
+        "import { styles } from './field-styles'",
+        'export const Field = () => <TextInput style={styles.input} />'
+      ].join('\n'),
+      'src/ui/field-styles.ts': [
+        ...declarations,
+        'export const styles = { input: { fontSize: TEXT_SIZE } }'
+      ].join('\n')
+    })
+    try {
+      expect(
+        textInputFontSizeOffenders(root, { local: ['src/ui/Field.tsx', 'src/ui/field-styles.ts'] })
+      ).toEqual([`src/ui/field-styles.ts:${declarations.length + 1}`])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses a const that a parameter shadows where the size is read', () => {
+    const root = plant({
+      'src/ui/Field.tsx': [
+        "import { styles } from './field-styles'",
+        'export const Field = () => <TextInput style={styles.input} />'
+      ].join('\n'),
+      'src/ui/field-styles.ts': [
+        'const TEXT_SIZE = 16',
+        'export const styles = themedStyleSheet((TEXT_SIZE: number) => ({',
+        '  input: { fontSize: TEXT_SIZE }',
+        '}))'
+      ].join('\n')
+    })
+    try {
+      expect(
+        textInputFontSizeOffenders(root, { local: ['src/ui/Field.tsx', 'src/ui/field-styles.ts'] })
+      ).toEqual(['src/ui/field-styles.ts:3'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   // Test below/at/above floor: high-only control could pass if census ignored literals; boundary catches off-by-one.
   it.each([
     ['under the floor, which is the offence the seam exists for', 15, ['src/ui/Sized.tsx:1']],

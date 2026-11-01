@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { OrcaCloudAuthConfig } from './profile-cloud-auth-config'
 import type * as ProfileCloudClient from './profile-cloud-client'
-import type * as SecureFile from '../../shared/secure-file'
+import type * as SecureFileAsyncWrite from '../../shared/secure-file-async-write'
 import type * as Fs from 'node:fs'
 import type * as ProfileIndexStore from './profile-index-store'
 import type { ActiveOrcaProfileState } from './profile-index-store'
@@ -14,6 +14,7 @@ const { refreshMock, selectOrgMock, linkMock, linked, writeFailure, removeFailur
   () => {
     const writeFailure: { code: string | null; onlyFile?: string; times?: number } = { code: null }
     const removeFailure: { code: string | null } = { code: null }
+    // The profile index's cloud link for profile-1.
     const linked: { cloud: unknown } = { cloud: undefined }
     return {
       refreshMock: vi.fn(),
@@ -26,7 +27,7 @@ const { refreshMock, selectOrgMock, linkMock, linked, writeFailure, removeFailur
   }
 )
 
-// Simulate Windows antivirus holding a session file open against deletion.
+// Stands in for a session file that cannot be deleted (Windows antivirus holding it open).
 vi.mock('node:fs', async (importOriginal) => {
   const original = await importOriginal<typeof Fs>()
   return {
@@ -50,20 +51,25 @@ vi.mock('electron', () => ({
   }
 }))
 
-vi.mock('../../shared/secure-file', async (importOriginal) => {
-  const original = await importOriginal<typeof SecureFile>()
+vi.mock('@orca/process-host', () => ({
+  runProcess: vi.fn(),
+  runProcessSync: vi.fn()
+}))
+
+// Stands in for a profile directory that stops accepting writes (disk full, a locked file).
+vi.mock('../../shared/secure-file-async-write', async (importOriginal) => {
+  const original = await importOriginal<typeof SecureFileAsyncWrite>()
   return {
     ...original,
-    writeSecureJsonFile: (path: string, value: unknown) => {
-      if (writeFailure.code && (!writeFailure.onlyFile || path.endsWith(writeFailure.onlyFile))) {
+    writeSecureJsonFileAsync: async (path: string, value: unknown) => {
+      const { code } = writeFailure
+      if (code && (!writeFailure.onlyFile || path.endsWith(writeFailure.onlyFile))) {
         if (writeFailure.times !== undefined && --writeFailure.times <= 0) {
           writeFailure.code = null
         }
-        throw Object.assign(new Error(`${writeFailure.code}: write failed`), {
-          code: writeFailure.code
-        })
+        throw Object.assign(new Error(`${code}: write failed`), { code })
       }
-      return original.writeSecureJsonFile(path, value)
+      return await original.writeSecureJsonFileAsync(path, value)
     }
   }
 })
@@ -86,6 +92,7 @@ vi.mock('./profile-index-store', async (importOriginal) => ({
 }))
 
 import { OrcaCloudRequestError } from './profile-cloud-client'
+import { drainPendingPathWrites } from '../../shared/path-write-serializer'
 import { readFreshOrcaCloudSession } from './profile-cloud-session-refresh'
 import { selectCloudOrg } from './profile-cloud-org-selection'
 import {
@@ -117,7 +124,8 @@ const cloud = {
 // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: refresh reads only profile.id and profile.cloud.
 const active = { profile: { id: 'profile-1', cloud } } as ActiveOrcaProfileState
 
-// Parent tokens return the same child during grace; later reuse revokes the whole family.
+// The auth server's rotation contract: the parent token answers 200 for the grace window,
+// after which any reuse revokes the family and every token in it answers 401.
 function createRotatingAuthServer(now: () => number, reportedCloud = cloud) {
   let generation = 0
   let current = 'refresh-0'
@@ -166,7 +174,7 @@ function createRotatingAuthServer(now: () => number, reportedCloud = cloud) {
   }
 }
 
-// Match the relay broker’s renewal cadence and swallowed failures.
+// The relay broker renews on a ~10 s cadence and swallows every failure.
 async function runBrokerRenewals(count: number): Promise<void> {
   for (let i = 0; i < count; i++) {
     await readFreshOrcaCloudSession(config, active, userDataPath).catch(() => undefined)
@@ -174,10 +182,11 @@ async function runBrokerRenewals(count: number): Promise<void> {
   }
 }
 
-function signIn(): void {
-  signInCloudSession('profile-1', userDataPath, {
+function signIn(): Promise<void> {
+  return signInCloudSession('profile-1', userDataPath, {
     accessToken: 'access-0',
     refreshToken: 'refresh-0',
+    // Already inside the refresh skew, so the first read rotates.
     expiresAt: Date.now() + 1_000,
     organizations: [],
     capabilities: { flags: { 'relay.use': true }, refreshedAt: Date.now() },
@@ -185,6 +194,7 @@ function signIn(): void {
   })
 }
 
+// A restart: fresh modules, so only what reached disk survives.
 async function restart() {
   vi.resetModules()
   return {
@@ -208,7 +218,7 @@ describe('cloud session refresh-token rotation', () => {
     selectOrgMock.mockReset()
     linkMock.mockReset()
     linked.cloud = cloud
-    linkMock.mockImplementation((_profileId: string, next: unknown) => {
+    linkMock.mockImplementation(async (_profileId: string, next: unknown) => {
       linked.cloud = next
       return { activeProfileId: 'profile-1', profiles: [] }
     })
@@ -222,7 +232,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('keeps a rotated token when the session file cannot be written, so it is never replayed', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     writeFailure.code = 'ENOSPC'
 
     await runBrokerRenewals(12)
@@ -231,17 +241,18 @@ describe('cloud session refresh-token rotation', () => {
     expect(server.sent).toEqual(['refresh-0'])
     const stored = readCloudSession('profile-1', userDataPath)
     expect(stored.status === 'found' && stored.session.refreshToken).toBe('refresh-1')
+    // A restart must not read the spent token back from disk.
     expect(existsSync(getOrcaCloudSessionPath('profile-1', userDataPath))).toBe(false)
   })
 
   it('keeps an unsaved rotation when a later capability save also fails', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     Object.assign(writeFailure, { code: 'EPERM', onlyFile: 'account-session.json.enc' })
 
     for (let renewal = 0; renewal < 12; renewal++) {
       await readFreshOrcaCloudSession(config, active, userDataPath).catch(() => undefined)
-      expect(() =>
+      await expect(
         commitCloudSessionCapabilities(
           'profile-1',
           userDataPath,
@@ -250,7 +261,7 @@ describe('cloud session refresh-token rotation', () => {
             capabilities: { flags: { 'relay.use': true }, refreshedAt: Date.now() }
           }
         )
-      ).toThrow('EPERM')
+      ).rejects.toThrow('EPERM')
       vi.advanceTimersByTime(BROKER_RETRY_MS)
     }
 
@@ -260,7 +271,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('ends the renewal loop on a 401 even when the revocation cannot be written', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     server.revoke()
     const ticketBeforeRevocation = takeCloudSessionTicket('profile-1', userDataPath)
     writeFailure.code = 'ENOSPC'
@@ -272,17 +283,18 @@ describe('cloud session refresh-token rotation', () => {
 
     expect(server.sent).toEqual(['refresh-0'])
     expect(readCloudSession('profile-1', userDataPath).status).toBe('missing')
-    expect(
+    // A server reply begun before the revocation must not bring the session back.
+    await expect(
       commitCloudSessionCapabilities('profile-1', userDataPath, ticketBeforeRevocation, {
         capabilities: { flags: {}, refreshedAt: 1 }
       })
-    ).toBeNull()
+    ).resolves.toBeNull()
     expect(readCloudSession('profile-1', userDataPath).status).toBe('missing')
   })
 
   it('ends the renewal loop on a 401 even when the session file cannot be removed', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     server.revoke()
     removeFailure.code = 'EBUSY'
 
@@ -297,7 +309,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('keeps a rotated token when an org switch began mid-refresh', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     const respond = refreshMock.getMockImplementation()!
     refreshMock.mockImplementationOnce(async (...args: [unknown, OrcaCloudSession]) => {
       beginCloudSessionRelink('profile-1', userDataPath)
@@ -314,7 +326,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('does not write spent tokens back when a refresh rotates during org selection', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     let resolveSelect!: (value: unknown) => void
     selectOrgMock.mockReturnValue(new Promise((resolve) => (resolveSelect = resolve)))
     const selecting = selectCloudOrg({
@@ -338,7 +350,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('refreshes through the shared single-flight when org selection gets a 401', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     selectOrgMock.mockRejectedValueOnce(new OrcaCloudRequestError(401)).mockResolvedValueOnce({
       cloud: { ...cloud, activeOrgId: 'org-2' },
       organizations: [],
@@ -360,7 +372,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('relinks to the org the server reports when nothing relinked meanwhile', async () => {
     createRotatingAuthServer(Date.now, { ...cloud, activeOrgId: 'org-2' })
-    signIn()
+    await signIn()
 
     await readFreshOrcaCloudSession(config, active, userDataPath)
 
@@ -375,10 +387,8 @@ describe('cloud session refresh-token rotation', () => {
 
   it('saves the rotated tokens even when relinking to a server-reported org fails', async () => {
     const server = createRotatingAuthServer(Date.now, { ...cloud, activeOrgId: 'org-2' })
-    signIn()
-    linkMock.mockImplementation(() => {
-      throw new Error('EBUSY: profile index locked')
-    })
+    await signIn()
+    linkMock.mockRejectedValue(new Error('EBUSY: profile index locked'))
 
     await runBrokerRenewals(12)
 
@@ -389,10 +399,10 @@ describe('cloud session refresh-token rotation', () => {
   })
 
   it('refuses a capability reply begun before the org moved, even after it moved back', async () => {
-    signIn()
+    await signIn()
     const ticket = takeCloudSessionTicket('profile-1', userDataPath)
     for (const orgId of ['org-2', 'org-1']) {
-      commitCloudSessionCapabilities(
+      await commitCloudSessionCapabilities(
         'profile-1',
         userDataPath,
         takeCloudSessionTicket('profile-1', userDataPath),
@@ -403,35 +413,33 @@ describe('cloud session refresh-token rotation', () => {
       )
     }
 
-    expect(
+    await expect(
       commitCloudSessionCapabilities('profile-1', userDataPath, ticket, {
         cloud,
         capabilities: { flags: { stale: true }, refreshedAt: Date.now() }
       })
-    ).toBeNull()
+    ).resolves.toBeNull()
   })
 
   it('still accepts a later capability update after a failed relink', async () => {
     createRotatingAuthServer(Date.now, { ...cloud, activeOrgId: 'org-2' })
-    signIn()
-    linkMock.mockImplementationOnce(() => {
-      throw new Error('EBUSY: profile index locked')
-    })
+    await signIn()
+    linkMock.mockRejectedValueOnce(new Error('EBUSY: profile index locked'))
 
     await readFreshOrcaCloudSession(config, active, userDataPath)
 
-    expect(
+    await expect(
       commitCloudSessionCapabilities(
         'profile-1',
         userDataPath,
         takeCloudSessionTicket('profile-1', userDataPath),
         { capabilities: { flags: { 'relay.use': true }, refreshedAt: Date.now() } }
       )
-    ).not.toBeNull()
+    ).resolves.not.toBeNull()
   })
 
   it('fails a non-rotating save as before and keeps the still-valid session file', async () => {
-    signIn()
+    await signIn()
     selectOrgMock.mockResolvedValue({
       cloud: { ...cloud, activeOrgId: 'org-2' },
       organizations: [],
@@ -444,11 +452,12 @@ describe('cloud session refresh-token rotation', () => {
       'ENOSPC'
     )
 
+    // The file still holds refresh-0, which was never spent, so a restart stays signed in.
     expect(existsSync(getOrcaCloudSessionPath('profile-1', userDataPath))).toBe(true)
   })
 
   it('reports org selection as done when the link already moved to the selected org', async () => {
-    signIn()
+    await signIn()
     let resolveSelect!: (value: unknown) => void
     selectOrgMock.mockReturnValue(new Promise((resolve) => (resolveSelect = resolve)))
     const reply = {
@@ -457,7 +466,8 @@ describe('cloud session refresh-token rotation', () => {
       capabilities: { flags: { 'relay.use': true }, refreshedAt: Date.now() }
     }
     const selecting = selectCloudOrg({ config, active, userDataPath, orgId: 'org-2' })
-    commitCloudSessionCapabilities(
+    // A capability refresh that reports org-2 relinks first.
+    await commitCloudSessionCapabilities(
       'profile-1',
       userDataPath,
       takeCloudSessionTicket('profile-1', userDataPath),
@@ -471,10 +481,12 @@ describe('cloud session refresh-token rotation', () => {
 
   it('keeps a rotation that one failed write could not store, across renewals and a restart', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     Object.assign(writeFailure, { code: 'EBUSY', onlyFile: 'account-session.json.enc', times: 1 })
 
     await runBrokerRenewals(13)
+    // The retry that stores the rotation runs on the write lane; a restart sees only what landed.
+    await drainPendingPathWrites()
     const { owner } = await restart()
 
     expect(server.sent).toEqual(['refresh-0'])
@@ -484,7 +496,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('writes the latest token at quit once the write and the stale-file delete stop failing', async () => {
     createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     Object.assign(writeFailure, { code: 'EBUSY', onlyFile: 'account-session.json.enc' })
     removeFailure.code = 'EBUSY'
 
@@ -492,6 +504,7 @@ describe('cloud session refresh-token rotation', () => {
     writeFailure.code = null
     removeFailure.code = null
     flushUnsavedOrcaCloudSessions()
+    await drainPendingPathWrites()
     const { owner } = await restart()
 
     const stored = owner.readCloudSession('profile-1', userDataPath)
@@ -500,7 +513,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('asks for sign-in after a restart when the rotation could never be saved, without a loop', async () => {
     const server = createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     Object.assign(writeFailure, { code: 'ENOSPC', onlyFile: 'account-session.json.enc' })
 
     await runBrokerRenewals(3)
@@ -518,7 +531,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('still discards a rotation that lands after sign-out', async () => {
     createRotatingAuthServer(Date.now)
-    signIn()
+    await signIn()
     const respond = refreshMock.getMockImplementation()!
     refreshMock.mockImplementationOnce(async (...args: [unknown, OrcaCloudSession]) => {
       signOutCloudSession('profile-1', userDataPath)
@@ -534,7 +547,7 @@ describe('cloud session refresh-token rotation', () => {
 
   it('keeps the session on a 5xx', async () => {
     refreshMock.mockRejectedValue(new OrcaCloudRequestError(503))
-    signIn()
+    await signIn()
     writeFailure.code = 'ENOSPC'
 
     await expect(readFreshOrcaCloudSession(config, active, userDataPath)).rejects.toThrow(

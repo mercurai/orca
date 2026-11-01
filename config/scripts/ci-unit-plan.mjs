@@ -15,35 +15,13 @@ export function prepareUnitPlan(env = process.env) {
   const fullShardCount = Number(requestedCount)
   const files = discoverUnitFiles()
   let plan
-  try {
-    // From the workflow, not the payload file: background steps can read it mid-rewrite.
-    const event = { pull_request: { draft: env.ORCA_PULL_REQUEST_DRAFT === 'true' } }
-    if (env.GITHUB_EVENT_NAME !== 'pull_request') {
-      throw new Error('Full reference run')
-    }
-    const diff = runProcessSync({
-      program: 'git',
-      args: ['diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD'],
-      maxOutputBytes: 16 * 1024 * 1024
-    })
-    if (diff.code !== 0 || diff.timedOut) {
-      throw new Error('Changed paths unavailable')
-    }
-    plan = planUnitSelection({
-      files,
-      changed: diff.stdout.split('\0').filter(Boolean),
-      graph: collectUnitDependencyGraph,
-      timings: readTimingBaseline('unit').timings,
-      event,
-      mode: env.ORCA_UNIT_SELECTION_MODE,
-      fullShardCount
-    })
-  } catch (error) {
+  if (env.ORCA_UNIT_FULL_MODE === 'true') {
     plan = {
       version: 1,
-      mode: 'shadow',
+      mode: 'full',
       selectionAvailable: false,
-      reason: String(error),
+      selectedTests: [],
+      reason: 'Explicit full qualification',
       files,
       candidateFiles: files,
       executionFiles: files,
@@ -52,10 +30,53 @@ export function prepareUnitPlan(env = process.env) {
         count: fullShardCount
       }))
     }
+  } else {
+    try {
+      // From the workflow, not the payload file: background steps can read it mid-rewrite.
+      const event = { pull_request: { draft: env.ORCA_PULL_REQUEST_DRAFT === 'true' } }
+      if (env.GITHUB_EVENT_NAME !== 'pull_request') {
+        throw new Error('Full reference run')
+      }
+      const diff = runProcessSync({
+        program: 'git',
+        args: ['diff', '--name-only', '--no-renames', '-z', 'HEAD^1', 'HEAD'],
+        maxOutputBytes: 16 * 1024 * 1024
+      })
+      if (diff.code !== 0 || diff.timedOut) {
+        throw new Error('Changed paths unavailable')
+      }
+      plan = planUnitSelection({
+        files,
+        changed: diff.stdout.split('\0').filter(Boolean),
+        graph: collectUnitDependencyGraph,
+        timings: readTimingBaseline('unit').timings,
+        event,
+        mode: env.ORCA_UNIT_SELECTION_MODE,
+        fullShardCount
+      })
+    } catch (error) {
+      plan = {
+        version: 1,
+        mode: 'shadow',
+        selectionAvailable: false,
+        reason: String(error),
+        files,
+        candidateFiles: files,
+        executionFiles: files,
+        shards: Array.from({ length: fullShardCount }, (_, index) => ({
+          index: index + 1,
+          count: fullShardCount
+        }))
+      }
+    }
   }
   writeAssignment('ci-shards/unit-selection.json', plan)
   if (env.GITHUB_OUTPUT) {
     appendFileSync(env.GITHUB_OUTPUT, `shards=${JSON.stringify(plan.shards)}\n`)
+    appendFileSync(
+      env.GITHUB_OUTPUT,
+      `selected_tests=${JSON.stringify(plan.selectedTests ?? (plan.mode === 'selected' ? plan.executionFiles : []))}\n`
+    )
   }
   if (env.GITHUB_STEP_SUMMARY) {
     appendFileSync(

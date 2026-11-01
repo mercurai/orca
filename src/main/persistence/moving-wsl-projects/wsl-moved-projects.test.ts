@@ -35,13 +35,13 @@ const record = (phase: Parameters<typeof cutover>[1]) =>
   cutover('move-1', phase, {}, { repoIds: ['repo-1'], folderWorkspaceIds: ['notes'] })
 
 describe('listWslMovedProjects', () => {
-  it('lists nothing while a move is only taking the projects', () => {
-    seedWslMoveCutover(dir, record('blobs-transferred'))
+  it('lists nothing while a move is only taking the projects', async () => {
+    await seedWslMoveCutover(dir, record('blobs-transferred'))
     expect(listWslMovedProjects(repos, folders)).toEqual([])
   })
 
-  it("lists only this machine's rows the host owns, with the host's distro", () => {
-    seedWslMoveCutover(dir, record('destination-committed'))
+  it("lists only this machine's rows the host owns, with the host's distro", async () => {
+    await seedWslMoveCutover(dir, record('destination-committed'))
     expect(listWslMovedProjects(repos, folders)).toEqual([
       {
         kind: 'repo',
@@ -60,8 +60,8 @@ describe('listWslMovedProjects', () => {
     ])
   })
 
-  it('never lists an SSH row that shares a moved id', () => {
-    seedWslMoveCutover(dir, record('retained'))
+  it('never lists an SSH row that shares a moved id', async () => {
+    await seedWslMoveCutover(dir, record('retained'))
     const ssh = [{ id: 'repo-1', displayName: 'Remote', path: '/r', connectionId: 'target-1' }]
     expect(listWslMovedProjects(ssh, [])).toEqual([])
   })

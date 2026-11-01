@@ -23,11 +23,11 @@ function removeOnDisk(deviceId: string): void {
   writeFileSync(path, JSON.stringify(rows.filter((row) => row.deviceId !== deviceId)))
 }
 
-function delegatedRegistry() {
+async function delegatedRegistry() {
   const registry = new DeviceRegistry(dir)
-  const desktop = registry.addDevice('desktop', 'runtime')
-  registry.updateLastSeen(desktop.deviceId)
-  const [child] = registry.upsertDelegatedMobileDevices(desktop, [
+  const desktop = await registry.addDevice('desktop', 'runtime')
+  await registry.updateLastSeen(desktop.deviceId)
+  const [child] = await registry.upsertDelegatedMobileDevices(desktop, [
     { phoneKey: 'phone-1', name: 'Pixel' }
   ])
   if (!child) {
@@ -42,15 +42,15 @@ function delegatedRegistry() {
 }
 
 describe('delegated phone auth follows its parent desktop', () => {
-  it('accepts a delegated phone while its desktop is paired', () => {
-    const { registry, child, principal } = delegatedRegistry()
+  it('accepts a delegated phone while its desktop is paired', async () => {
+    const { registry, child, principal } = await delegatedRegistry()
 
     expect(registry.validateToken(child.token)?.deviceId).toBe(child.deviceId)
     expect(registry.resolveAuthenticatedPrincipal(principal)?.deviceId).toBe(child.deviceId)
   })
 
-  it('refuses it once an admin removes the desktop on disk', () => {
-    const { registry, desktop, child, principal } = delegatedRegistry()
+  it('refuses it once an admin removes the desktop on disk', async () => {
+    const { registry, desktop, child, principal } = await delegatedRegistry()
 
     removeOnDisk(desktop.deviceId)
 
@@ -58,18 +58,18 @@ describe('delegated phone auth follows its parent desktop', () => {
     expect(registry.resolveAuthenticatedPrincipal(principal)).toBeNull()
   })
 
-  it('refuses it when the desktop row is removed without the cascade', () => {
-    const { registry, desktop, child, principal } = delegatedRegistry()
+  it('refuses it when the desktop row is removed without the cascade', async () => {
+    const { registry, desktop, child, principal } = await delegatedRegistry()
 
-    expect(registry.removeDevice(desktop.deviceId)).toBe(true)
+    expect(await registry.removeDevice(desktop.deviceId)).toBe(true)
 
     expect(registry.validateToken(child.token)).toBeNull()
     expect(registry.resolveAuthenticatedPrincipal(principal)).toBeNull()
   })
 
-  it('leaves phones paired directly to this host alone', () => {
-    const { registry, desktop } = delegatedRegistry()
-    const phone = registry.addDevice('phone', 'mobile')
+  it('leaves phones paired directly to this host alone', async () => {
+    const { registry, desktop } = await delegatedRegistry()
+    const phone = await registry.addDevice('phone', 'mobile')
 
     removeOnDisk(desktop.deviceId)
 

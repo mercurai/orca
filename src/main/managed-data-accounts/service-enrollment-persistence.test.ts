@@ -12,7 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import SyncDatabase from '../sqlite/sync-database'
-import * as secureFile from '../../shared/secure-file'
+import * as secureFile from '../../shared/secure-file-async-write'
 import { ManagedDataAccountService } from './service'
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -51,9 +51,9 @@ describe.each(['opencode', 'devin'] as const)('committed %s enrollment', (provid
     'keeps captured credentials when metadata persistence reports %s failure',
     async (failure) => {
       const metadata = join(root, 'managed', provider, 'accounts.json')
-      const write = secureFile.writeSecureFile
-      vi.spyOn(secureFile, 'writeSecureFile').mockImplementation((...args) => {
-        const result = write(...args)
+      const write = secureFile.writeSecureFileAsync
+      vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementation(async (...args) => {
+        const result = await write(...args)
         if (args[0] !== metadata) {
           return result
         }
@@ -76,8 +76,8 @@ describe.each(['opencode', 'devin'] as const)('committed %s enrollment', (provid
 
   it('cleans an unregistered profile when metadata fails before publication', async () => {
     const metadata = join(root, 'managed', provider, 'accounts.json')
-    const write = secureFile.writeSecureFile
-    vi.spyOn(secureFile, 'writeSecureFile').mockImplementation((...args) => {
+    const write = secureFile.writeSecureFileAsync
+    vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementation(async (...args) => {
       if (args[0] === metadata) {
         throw new Error('pre-publication write failure')
       }
@@ -90,10 +90,10 @@ describe.each(['opencode', 'devin'] as const)('committed %s enrollment', (provid
 
   it('keeps credentials when published metadata is unreadable', async () => {
     const metadata = join(root, 'managed', provider, 'accounts.json')
-    const write = secureFile.writeSecureFile
+    const write = secureFile.writeSecureFileAsync
     let published = ''
-    vi.spyOn(secureFile, 'writeSecureFile').mockImplementation((...args) => {
-      const result = write(...args)
+    vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementation(async (...args) => {
+      const result = await write(...args)
       if (args[0] !== metadata) {
         return result
       }
@@ -111,7 +111,7 @@ describe.each(['opencode', 'devin'] as const)('committed %s enrollment', (provid
 
   it('keeps credentials when metadata existence cannot be checked', async () => {
     const metadata = join(root, 'managed', provider, 'accounts.json')
-    const write = secureFile.writeSecureFile
+    const write = secureFile.writeSecureFileAsync
     const exists = filesystem.existsSync
     const stat = filesystem.lstatSync
     let inaccessible = false
@@ -124,8 +124,8 @@ describe.each(['opencode', 'devin'] as const)('committed %s enrollment', (provid
       }
       return stat(...args)
     })
-    vi.spyOn(secureFile, 'writeSecureFile').mockImplementation((...args) => {
-      const result = write(...args)
+    vi.spyOn(secureFile, 'writeSecureFileAsync').mockImplementation(async (...args) => {
+      const result = await write(...args)
       if (args[0] !== metadata) {
         return result
       }
@@ -141,23 +141,28 @@ describe.each(['opencode', 'devin'] as const)('committed %s enrollment', (provid
 
   it('preserves a profile registered with another UUID case', async () => {
     const metadata = join(root, 'managed', provider, 'accounts.json')
-    const write = secureFile.writeSecureFile
-    const writer = vi.spyOn(secureFile, 'writeSecureFile').mockImplementation((...args) => {
-      const result = write(...args)
-      if (args[0] !== metadata) {
-        return result
-      }
-      const state = service.list(provider)
-      writeFileSync(
-        metadata,
-        JSON.stringify({
-          ...state,
-          accounts: state.accounts.map((account) => ({ ...account, id: account.id.toUpperCase() })),
-          activeAccountId: state.activeAccountId?.toUpperCase()
-        })
-      )
-      throw new Error('post-publication UUID case change')
-    })
+    const write = secureFile.writeSecureFileAsync
+    const writer = vi
+      .spyOn(secureFile, 'writeSecureFileAsync')
+      .mockImplementation(async (...args) => {
+        const result = await write(...args)
+        if (args[0] !== metadata) {
+          return result
+        }
+        const state = service.list(provider)
+        writeFileSync(
+          metadata,
+          JSON.stringify({
+            ...state,
+            accounts: state.accounts.map((account) => ({
+              ...account,
+              id: account.id.toUpperCase()
+            })),
+            activeAccountId: state.activeAccountId?.toUpperCase()
+          })
+        )
+        throw new Error('post-publication UUID case change')
+      })
     await expect(service.add(provider, source, 'Work')).rejects.toThrow('UUID case change')
     writer.mockRestore()
     const registered = service.list(provider).accounts[0]

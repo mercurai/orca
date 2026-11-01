@@ -4,17 +4,39 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WslHostDeploymentRecord } from '../../shared/wsl-host-deployment-store'
 import type { WslHostServerStop } from '../../shared/wsl-host-types'
+import { serializePathWrite } from '../../shared/path-write-serializer'
 
-const store = vi.hoisted(() => ({ removed: new Array<string>(), pending: new Array<string>() }))
+const store = vi.hoisted(() => ({
+  removed: new Array<string>(),
+  pending: new Array<string>(),
+  current: true,
+  actions: 0,
+  supersedeOnRemove: false
+}))
 vi.mock('../../shared/runtime-environment-wsl-host-store', () => ({
-  removeWslHostEnvironment: (_userData: string, environmentId: string) => {
+  findWslHostDeployment: () =>
+    store.current ? { createdAt: 1, distroId: '00000000-0000-4000-8000-000000000001' } : null,
+  removeWslHostEnvironment: async (
+    _userData: string,
+    environmentId: string,
+    _expected: number,
+    beforeRemove: () => void | Promise<void>
+  ) => {
+    if (store.supersedeOnRemove) store.current = false
+    if (!store.current) return false
+    await beforeRemove()
     store.removed.push(environmentId)
+    return true
   },
   setWslHostPendingStop: (_userData: string, environmentId: string) => {
     store.pending.push(environmentId)
   }
 }))
-vi.mock('./wsl-host-user-actions', () => ({ noteWslHostUserAction: () => {} }))
+vi.mock('./wsl-host-user-actions', () => ({
+  noteWslHostUserAction: () => {
+    store.actions += 1
+  }
+}))
 
 import {
   forgetWslHostKeptForPeers,
@@ -50,15 +72,18 @@ describe('a WSL host kept for another Orca', () => {
     userData = mkdtempSync(join(tmpdir(), 'orca-wsl-kept-'))
     store.removed = []
     store.pending = []
+    store.current = true
+    store.actions = 0
+    store.supersedeOnRemove = false
   })
   afterEach(() => rmSync(userData, { recursive: true, force: true }))
 
-  it('is remembered until a later Remove proves its server stopped', () => {
+  it('is remembered until a later Remove proves its server stopped', async () => {
     expect(wasWslHostKeptForPeers(userData, 'wsl:ubuntu')).toBe(false)
-    recordWslHostKeptForPeers(userData, 'wsl:ubuntu')
-    recordWslHostKeptForPeers(userData, 'wsl:ubuntu')
+    await recordWslHostKeptForPeers(userData, 'wsl:ubuntu')
+    await recordWslHostKeptForPeers(userData, 'wsl:ubuntu')
     expect(wasWslHostKeptForPeers(userData, 'wsl:ubuntu')).toBe(true)
-    forgetWslHostKeptForPeers(userData, 'wsl:ubuntu')
+    await forgetWslHostKeptForPeers(userData, 'wsl:ubuntu')
     expect(wasWslHostKeptForPeers(userData, 'wsl:ubuntu')).toBe(false)
   })
 
@@ -73,6 +98,37 @@ describe('a WSL host kept for another Orca', () => {
 
     await removeWslHostServer(userData, connector({ stopped: true }), RECORD)
     expect(wasWslHostKeptForPeers(userData, 'wsl:ubuntu')).toBe(false)
+  })
+
+  it('does not publish a peer marker or user action for a superseded removal', async () => {
+    const stopped = Promise.withResolvers<WslHostServerStop>()
+    const entered = Promise.withResolvers<void>()
+    const old = connector({ stopped: true })
+    old.stopServer = () => {
+      entered.resolve()
+      return stopped.promise
+    }
+    const removal = removeWslHostServer(userData, old, RECORD)
+    await entered.promise
+    store.current = false
+    stopped.resolve({ stopped: true, keptForOtherDesktops: ['Orca Dev'] })
+    await expect(removal).resolves.toMatchObject({ removed: false })
+    expect(wasWslHostKeptForPeers(userData, RECORD.environmentId)).toBe(false)
+    expect(store.removed).toEqual([])
+    expect(store.actions).toBe(0)
+  })
+
+  it('does not publish a peer marker when ownership changes before the serialized removal', async () => {
+    store.supersedeOnRemove = true
+    const removal = await removeWslHostServer(
+      userData,
+      connector({ stopped: true, keptForOtherDesktops: ['Orca Dev'] }),
+      RECORD
+    )
+    expect(removal.removed).toBe(false)
+    expect(wasWslHostKeptForPeers(userData, RECORD.environmentId)).toBe(false)
+    expect(store.removed).toEqual([])
+    expect(store.actions).toBe(0)
   })
 
   it('keeps the host listed when the record cannot be saved', async () => {
@@ -91,5 +147,32 @@ describe('a WSL host kept for another Orca', () => {
       serverStop: { stopped: false, verdict: 'live' }
     })
     expect(store.pending).toEqual(['wsl:ubuntu'])
+    expect(store.removed).toEqual([])
+    expect(store.actions).toBe(0)
+  })
+
+  it('serializes the whole peer-list mutation while a prior file write is held', async () => {
+    const path = join(userData, 'orca-wsl-hosts-kept-for-peers.json')
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const blocked = serializePathWrite(path, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const operations = [
+      recordWslHostKeptForPeers(userData, 'wsl:ubuntu'),
+      recordWslHostKeptForPeers(userData, 'wsl:debian'),
+      forgetWslHostKeptForPeers(userData, 'wsl:ubuntu')
+    ]
+    try {
+      expect(wasWslHostKeptForPeers(userData, 'wsl:ubuntu')).toBe(false)
+      expect(wasWslHostKeptForPeers(userData, 'wsl:debian')).toBe(false)
+    } finally {
+      release.resolve()
+      await Promise.all([blocked, ...operations])
+    }
+    expect(wasWslHostKeptForPeers(userData, 'wsl:ubuntu')).toBe(false)
+    expect(wasWslHostKeptForPeers(userData, 'wsl:debian')).toBe(true)
   })
 })

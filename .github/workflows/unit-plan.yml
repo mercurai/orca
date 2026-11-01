@@ -4,6 +4,18 @@ name: Unit plan
 on:
   workflow_call:
     inputs:
+      ref:
+        description: Exact source commit; omitted for existing callers.
+        type: string
+        default: ''
+      cache_mode:
+        description: Use off to disable persistent dependency and build caches.
+        type: string
+        default: auto
+      full_mode:
+        description: Discover and run the complete qualification unit matrix.
+        type: boolean
+        default: false
       selection_mode:
         description: Shadow validates selection; selected applies it only to draft PRs.
         required: false
@@ -14,6 +26,12 @@ on:
       shards:
         description: JSON array of shard assignments for the unit matrix.
         value: ${{ jobs.plan.outputs.shards }}
+      selected_tests:
+        description: Explicit unit selections; empty in full mode.
+        value: ${{ jobs.plan.outputs.selected_tests }}
+      unit_plan_artifact:
+        description: Artifact containing the discovered and executed unit-file plan.
+        value: ${{ jobs.plan.outputs.unit_plan_artifact }}
 
 permissions:
   contents: read
@@ -24,20 +42,35 @@ jobs:
     timeout-minutes: 5
     outputs:
       shards: ${{ steps.plan.outputs.shards }}
+      selected_tests: ${{ steps.plan.outputs.selected_tests }}
+      unit_plan_artifact: unit-selection-attempt-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 2
           persist-credentials: false
       - uses: ./.github/actions/install-node-dependencies
+        with:
+          cache-mode: ${{ inputs.cache_mode || 'auto' }}
       - name: Plan unit selection
         id: plan
         env:
+          ORCA_UNIT_FULL_MODE: ${{ inputs.full_mode }}
+          CANDIDATE_SHA: ${{ inputs.ref }}
           ORCA_UNIT_SELECTION_MODE: ${{ inputs.selection_mode }}
           ORCA_PULL_REQUEST_DRAFT: ${{ github.event.pull_request.draft }}
           # Twelve 4-vCPU hosted shards match the old 8-vCPU wall time; the repository variable can request 2 to 16.
           ORCA_UNIT_FULL_SHARD_COUNT: ${{ vars.ORCA_UNIT_FULL_SHARD_COUNT || '12' }}
-        run: node config/scripts/ci-unit-plan.mjs
+        run: |
+          set -euo pipefail
+          ORCA_SHARD_SOURCE_SHA="$(git rev-parse HEAD)"
+          export ORCA_SHARD_SOURCE_SHA
+          if [ "$ORCA_UNIT_FULL_MODE" = true ] && [ "$ORCA_SHARD_SOURCE_SHA" != "$CANDIDATE_SHA" ]; then
+            echo "::error::qualification unit-plan source changed" >&2
+            exit 1
+          fi
+          node config/scripts/ci-unit-plan.mjs
       - uses: actions/upload-artifact@v7
         continue-on-error: true
         with:

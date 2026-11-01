@@ -7,6 +7,22 @@ const workflow = parse(readFileSync('.github/workflows/ci-branch-cache-sweep.yml
 const step = workflow.jobs.sweep.steps[0]
 const hoursAgo = (hours) => new Date(Date.now() - hours * 3600000).toISOString()
 
+it.each(['schedule', 'workflow_dispatch'])(
+  'keeps the destructive sweep disabled on forks for %s',
+  (event_name) => {
+    expect(workflow.jobs.sweep.if).toBe("github.repository == 'stablyai/orca'")
+    for (const [repository, expected] of [
+      ['stablyai/orca', true],
+      ['mercurai/orca', false],
+      ['another/orca', false]
+    ]) {
+      expect(runInNewContext(workflow.jobs.sweep.if, { github: { repository, event_name } })).toBe(
+        expected
+      )
+    }
+  }
+)
+
 function sweep(caches, { dryRun = false, remove = vi.fn().mockResolvedValue(undefined) } = {}) {
   const result = runInNewContext(`(async () => { ${step.with.script} })()`, {
     context: { repo: { owner: 'owner', repo: 'repo' } },

@@ -1,4 +1,12 @@
-/** Keep source authority until durable destination commit. Verify the fenced export before stage/commit; resolve lost replies by catalog reads and persist journal transitions before returning. Never release a committed destination. */
+/**
+ * Staging, committing and aborting a dormant migration on its destination orcad.
+ *
+ * The source stays authoritative until the destination proves a commit: before every stage and
+ * commit the fenced source must still export the journaled manifest and carry no state the
+ * manifest cannot. A lost answer is never read as success or as absence; the destination's
+ * catalog state is re-read, and only that observation moves the journal, which is on disk before
+ * anything is returned. A committed destination is never released.
+ */
 import type {
   OrcadMigrationCatalogAbortResult,
   OrcadMigrationCatalogReference,
@@ -19,7 +27,7 @@ import { ORCAD_MIGRATION_DESTINATION_UNSUPPORTED } from './orcad-migration-catal
 import { orcadMigrationRequestFits } from './orcad-migration-manifest-export'
 import {
   listOrcadMigrationSourceCutovers,
-  writeOrcadMigrationSourceCutover
+  updateOrcadMigrationSourceCutover
 } from './orcad-migration-cutover-journal'
 import type { OrcadMigrationSourceCutoverPort } from './orcad-migration-source'
 import {
@@ -30,12 +38,13 @@ import type { OrcadMigrationPreflightStore } from './targets/ssh-target-orcad-pr
 import { sshRelayMigrationCutoverPort } from './orcad-migration-ssh-relay-source'
 import type { SshTargetOrcadClaims } from './targets/ssh-target-orcad-claims'
 
+/** The destination's catalog operations, served by the T6-9 orcad.migration.* client. */
 export type OrcadMigrationDestinationCatalog = {
   readState: (manifest: OrcadMigrationManifest) => Promise<OrcadMigrationCatalogState>
   stage: (manifest: OrcadMigrationManifest) => Promise<OrcadMigrationCatalogState>
   commit: (manifest: OrcadMigrationManifest) => Promise<OrcadMigrationCatalogState>
   abort: (manifest: OrcadMigrationManifest) => Promise<OrcadMigrationCatalogAbortResult>
-  /** Use identity-only abort when the journal's full manifest cannot fit a request. */
+  /** Sends only the manifest's identity; for a journal whose manifest no request can carry. */
   abortByReference: (
     manifest: OrcadMigrationCatalogReference
   ) => Promise<OrcadMigrationCatalogReferenceAbortResult>
@@ -49,7 +58,7 @@ export type OrcadMigrationCutoverContext = {
   store: OrcadMigrationPreflightStore & OrcadMigrationSnapshotSource
   claims: SshTargetOrcadClaims
   destination: OrcadMigrationDestinationCatalog
-  /** Rebuild copied stores for each check so concurrent edits remain visible. */
+  /** Rebuilt for every check when `store` is a copy that would never see a later edit. */
   freshSource?: () => OrcadMigrationPreflightStore
   /** The fenced source; defaults to the relay-era SSH target the journal names. */
   source?: OrcadMigrationSourceCutoverPort
@@ -79,7 +88,7 @@ export async function stageOrcadMigrationDestination(
           () => destination.readState(cutover.manifest),
           (observed) => observed.state !== 'absent'
         )
-  cutover = recordObservedState(context, cutover, state)
+  cutover = await recordObservedState(context, cutover, state)
   if (state.state === 'staged') {
     await transferOrcadMigrationSnapshots({
       source: context.store,
@@ -101,7 +110,7 @@ export async function commitOrcadMigrationDestination(
   }
   assertSourceUnchanged(context, staged)
   const { destination } = context
-  // A lost commit reply may hide success; catalog read decides the next step.
+  // Why re-read: a lost commit reply may hide a commit that landed; the read decides.
   const state = await resolveDurableOrcadCatalogMutation(
     () => destination.commit(staged.manifest),
     () => destination.readState(staged.manifest),
@@ -117,7 +126,10 @@ export type OrcadMigrationAbortResult =
   | { outcome: 'released'; evidence: 'catalog-absent' | 'destination-unsupported' }
   | { outcome: 'refused'; code: string; reason: string }
 
-/** Release only on proven destination absence; default drops journal/fence, while delta moves retain the fence. */
+/**
+ * Releases the source only on proof the destination holds nothing of this migration. `release`
+ * defaults to dropping the fence and journal; a delta move keeps the fence instead.
+ */
 export async function abortOrcadMigrationCutover(
   context: OrcadMigrationCutoverContext,
   migrationId: string,
@@ -129,7 +141,7 @@ export async function abortOrcadMigrationCutover(
     return committedRefusal()
   }
   const { destination } = context
-  // Older journals can hold oversized manifests; identity-only abort must still release them.
+  // A journal from before #30836 may hold a manifest no request can carry; only abort could not.
   if (!orcadMigrationRequestFits({ manifest: cutover.manifest })) {
     const aborted = await destination.abortByReference(cutover.manifest)
     if (aborted.state === 'committed') {
@@ -142,7 +154,7 @@ export async function abortOrcadMigrationCutover(
   try {
     state = await destination.readState(cutover.manifest)
   } catch (error) {
-    // Unsupported proves absence only before any stage could have landed.
+    // Unsupported means nothing could have been staged, but only if nothing ever was.
     if (isDestinationUnsupported(error) && cutover.phase === 'source-fenced') {
       await release(cutover)
       return { outcome: 'released', evidence: 'destination-unsupported' }
@@ -153,7 +165,11 @@ export async function abortOrcadMigrationCutover(
     state = await abortWithRecovery(destination, cutover.manifest)
   }
   if (state.state === 'committed') {
-    recordObservedState(context, cutover, await confirmDurableCommit(destination, cutover.manifest))
+    await recordObservedState(
+      context,
+      cutover,
+      await confirmDurableCommit(destination, cutover.manifest)
+    )
     return committedRefusal()
   }
   if (state.state !== 'absent') {
@@ -182,12 +198,12 @@ function assertSourceUnchanged(
   cutoverSource(context).verifyFence(cutover)
 }
 
-/** Persist observed state before returning. */
-function recordObservedState(
+/** Moves the journal to what the destination reported; durable before it returns. */
+async function recordObservedState(
   context: OrcadMigrationCutoverContext,
   cutover: OrcadMigrationSourceCutover,
   state: OrcadMigrationCatalogState
-): OrcadMigrationSourceCutover {
+): Promise<OrcadMigrationSourceCutover> {
   if (state.state === 'absent') {
     throw new Error('orcad_migration_destination_catalog_absent')
   }
@@ -206,20 +222,23 @@ function recordObservedState(
   }
   const phase: OrcadMigrationSourceCutoverPhase =
     state.state === 'committed' ? 'destination-committed' : 'destination-staged'
-  if (phase === cutover.phase) {
-    return cutover
-  }
-  if (cutover.phase === 'destination-committed' || cutover.phase === 'source-retired') {
-    // Never regress a proven commit.
-    return cutover
-  }
-  const next: OrcadMigrationSourceCutover = {
-    ...cutover,
-    phase,
-    updatedAt: (context.now ?? (() => new Date()))().toISOString()
-  }
-  writeOrcadMigrationSourceCutover(context.userDataPath, next)
-  return next
+  return updateOrcadMigrationSourceCutover(context.userDataPath, cutover.migrationId, (current) => {
+    if (current.manifestSha256 !== cutover.manifestSha256) {
+      throw new Error('orcad_migration_destination_state_mismatch')
+    }
+    if (
+      phase === current.phase ||
+      current.phase === 'destination-committed' ||
+      current.phase === 'source-retired'
+    ) {
+      return current
+    }
+    return {
+      ...current,
+      phase,
+      updatedAt: (context.now ?? (() => new Date()))().toISOString()
+    }
+  })
 }
 
 /** Aborts staging; a failed abort is decided by a re-read, never assumed. */
@@ -236,11 +255,11 @@ export async function abortWithRecovery(
         return observed
       }
       if (observed.state === 'absent') {
-        // Absent reads may predate flush; repeat abort to prove durable absence.
+        // An absent read may predate the flush; a repeated abort proves it durable.
         return await destination.abort(manifest)
       }
     } catch {
-      // Keep the original failure and fence while abort remains unverifiable.
+      // Still unverifiable: keep the first failure and the fence.
     }
     throw abortError
   }

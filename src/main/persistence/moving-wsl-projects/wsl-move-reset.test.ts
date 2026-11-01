@@ -36,8 +36,8 @@ afterEach(() => {
   rmSync(userDataPath, { recursive: true, force: true })
 })
 
-function seed(phase: WslMoveCutoverPhase, migrationId = 'move-1'): void {
-  seedWslMoveCutover(userDataPath, wslMoveCutoverFixture(migrationId, phase))
+async function seed(phase: WslMoveCutoverPhase, migrationId = 'move-1'): Promise<void> {
+  await seedWslMoveCutover(userDataPath, wslMoveCutoverFixture(migrationId, phase))
 }
 
 function state(
@@ -131,7 +131,7 @@ function assertCarried(manifest: OrcadMigrationManifest, refuse = false): void {
  * The widest gap the validators allow: under the manifest cap, so the journal still reads it, yet
  * over what one request can carry. New moves are refused this size; older records may hold it.
  */
-function seedOversized(phase: WslMoveCutoverPhase): void {
+async function seedOversized(phase: WslMoveCutoverPhase): Promise<void> {
   const base = wslMoveCutoverFixture('move-1', phase)
   const sized = (padding: number) => {
     const { manifestSha256: _digest, ...unsigned } = base.manifest
@@ -152,7 +152,7 @@ function seedOversized(phase: WslMoveCutoverPhase): void {
     ORCAD_MIGRATION_REQUEST_PARAMS_BUDGET_BYTES
   )
   // Written past the journal's size cap on purpose: a record from before the cap must still reset.
-  seedWslMoveCutover(userDataPath, base)
+  await seedWslMoveCutover(userDataPath, base)
   writeFileSync(
     join(wslMoveJournalDirectory(userDataPath), `${base.migrationId}.json`),
     JSON.stringify({
@@ -167,7 +167,7 @@ const fenced = (): boolean => resolveWslMoveFence(userDataPath).fenced.repoIds.h
 
 describe('resetWslMoveToZero', () => {
   it('lifts a move that never left the source, with no host to ask', async () => {
-    seed('source-fenced')
+    await seed('source-fenced')
     expect(fenced()).toBe(true)
     expect(await resetWslMoveToZero({ userDataPath, destination: null }, 'move-1')).toEqual({
       outcome: 'reset',
@@ -178,7 +178,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('resets a staged move without the host: no commit can have been requested', async () => {
-    seed('destination-staged')
+    await seed('destination-staged')
     expect(resolveWslMoveFence(userDataPath).sessionFrozen.repoIds.has('repo-1')).toBe(true)
     expect(await resetWslMoveToZero({ userDataPath, destination: null }, 'move-1')).toMatchObject({
       outcome: 'reset'
@@ -187,7 +187,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('keeps a move that may have committed fenced until the host answers', async () => {
-    seed('blobs-transferred')
+    await seed('blobs-transferred')
     expect(await resetWslMoveToZero({ userDataPath, destination: null }, 'move-1')).toEqual({
       outcome: 'unverifiable',
       reason: 'destination_unreachable'
@@ -196,7 +196,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('aborts the host staging, then resets', async () => {
-    seed('blobs-transferred')
+    await seed('blobs-transferred')
     const { destination, calls } = host({ current: 'staged' })
     expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
       outcome: 'reset',
@@ -207,7 +207,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('moves forward when the host committed, recording only an acknowledged commit', async () => {
-    seed('blobs-transferred')
+    await seed('blobs-transferred')
     const { destination, calls } = host({ current: 'committed' })
     const result = await resetWslMoveToZero({ userDataPath, destination }, 'move-1')
     expect(result.outcome).toBe('committed')
@@ -217,7 +217,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('keeps the fence when the host reports a commit no request could have made', async () => {
-    seed('destination-staged')
+    await seed('destination-staged')
     const { destination } = host({ current: 'committed' })
     expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
       outcome: 'unverifiable',
@@ -227,7 +227,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('aborts a manifest too large for any request by its identity, then resets', async () => {
-    seedOversized('blobs-transferred')
+    await seedOversized('blobs-transferred')
     const { destination, calls } = host({ current: 'staged' })
     expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
       outcome: 'reset',
@@ -238,7 +238,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('moves an oversized move forward on the host receipt when a commit was requested', async () => {
-    seedOversized('blobs-transferred')
+    await seedOversized('blobs-transferred')
     const { destination, calls } = host({ current: 'committed' })
     expect((await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).outcome).toBe(
       'committed'
@@ -248,7 +248,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('never moves forward on a committed answer the host did not flush first', async () => {
-    seedOversized('blobs-transferred')
+    await seedOversized('blobs-transferred')
     const { destination } = host({ current: 'committed' }, { durableCommitted: false })
     expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
       outcome: 'unverifiable',
@@ -259,7 +259,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('keeps an oversized move fenced on a commit no request could have made', async () => {
-    seedOversized('destination-staged')
+    await seedOversized('destination-staged')
     const { destination } = host({ current: 'committed' })
     expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
       outcome: 'unverifiable',
@@ -269,7 +269,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('falls back to abort by identity when the host refuses the manifest inline', async () => {
-    seed('blobs-transferred')
+    await seed('blobs-transferred')
     const { destination, calls } = host({ current: 'staged' }, { refuseInline: true })
     expect(await resetWslMoveToZero({ userDataPath, destination }, 'move-1')).toEqual({
       outcome: 'reset',
@@ -279,7 +279,7 @@ describe('resetWslMoveToZero', () => {
   })
 
   it('leaves a committed move to the rewrite pass', async () => {
-    seed('destination-committed')
+    await seed('destination-committed')
     expect((await resetWslMoveToZero({ userDataPath, destination: null }, 'move-1')).outcome).toBe(
       'committed'
     )
@@ -300,7 +300,7 @@ describe('assertWslMoveCommitRequestAllowed', () => {
 
 describe('recoverInterruptedWslMoves', () => {
   it('resets a move interrupted before any commit request, at startup', async () => {
-    seed('quiesced')
+    await seed('quiesced')
     expect(await recoverInterruptedWslMoves(userDataPath, () => {})).toEqual({
       reset: ['move-1'],
       waitingForHost: []
@@ -309,7 +309,7 @@ describe('recoverInterruptedWslMoves', () => {
   })
 
   it('keeps a move that may have committed waiting for its host, at startup', async () => {
-    seed('blobs-transferred')
+    await seed('blobs-transferred')
     expect(await recoverInterruptedWslMoves(userDataPath, () => {})).toEqual({
       reset: [],
       waitingForHost: ['move-1']
@@ -318,7 +318,7 @@ describe('recoverInterruptedWslMoves', () => {
   })
 
   it('does nothing with the WSL hosts gate closed', async () => {
-    seed('quiesced')
+    await seed('quiesced')
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     expect(await recoverInterruptedWslMoves(userDataPath, () => {})).toEqual({
       reset: [],

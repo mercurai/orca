@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, readdir, rm, stat, truncate, writeFile } from 'node:fs/promises'
+import * as files from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -25,6 +26,9 @@ import {
   FAKE_USER_SID
 } from '../../shared/windows-security-addon.test-fixture'
 import type { ArtifactShareScope } from './artifact-share-record-store'
+import { serializePathWrite } from '../../shared/path-write-serializer'
+import * as secureWrites from '../../shared/secure-file-async-write'
+import { SecureWriteDiscardedError } from '../../shared/secure-file-async-write'
 
 vi.mock('@orca/process-host', () => ({
   runProcess: vi.fn(),
@@ -46,16 +50,236 @@ const body = {
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(
     createdPaths.splice(0).map((path) => rm(path, { recursive: true, force: true }))
   )
 })
 
 describe('artifact create intent store', () => {
+  it('preserves an actual staged intent while a different source queues its create', async () => {
+    const userDataPath = await createUserDataPath()
+    const gate = holdNextStagedIntent()
+    const first = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/first.html',
+      scope,
+      'first-key',
+      body
+    )
+    await gate.entered
+    const second = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/second.html',
+      scope,
+      'second-key',
+      body
+    )
+    gate.release()
+    const outcomes = await Promise.allSettled([first, second])
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(['fulfilled', 'fulfilled'])
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/first.html', scope)
+    ).toMatchObject({ idempotencyKey: 'first-key' })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/second.html', scope)
+    ).toMatchObject({ idempotencyKey: 'second-key' })
+  })
+
+  it('admits only one of two different sources competing for the final recovery slot', async () => {
+    const userDataPath = await createUserDataPath()
+    for (let index = 0; index < MAX_PENDING_ARTIFACT_CREATES - 1; index += 1) {
+      await getOrCreateArtifactCreateIntent(
+        'local-profile',
+        userDataPath,
+        `/repo/full-${index}.html`,
+        scope,
+        `key-${index}`,
+        body
+      )
+    }
+    const gate = holdNextStagedIntent()
+    const first = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/first.html',
+      scope,
+      'first-key',
+      body
+    )
+    await gate.entered
+    const second = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/second.html',
+      scope,
+      'second-key',
+      body
+    )
+    gate.release()
+    const outcomes = await Promise.allSettled([first, second])
+    expect(outcomes[0]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'first-key' }
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.objectContaining({ message: expect.stringMatching(/waiting for recovery/) })
+    })
+    const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
+    expect((await readdir(directory)).filter((name) => name.endsWith('.json'))).toHaveLength(
+      MAX_PENDING_ARTIFACT_CREATES
+    )
+  })
+
+  it('cancels active and queued creates on clear while preserving a fresh same-source create', async () => {
+    const userDataPath = await createUserDataPath()
+    const gate = holdNextStagedIntent()
+    const active = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/first.html',
+      scope,
+      'old-key',
+      body
+    )
+    await gate.entered
+    const queued = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/queued.html',
+      scope,
+      'queued-key',
+      body
+    )
+    const operations = [active, queued]
+    try {
+      clearArtifactCreateIntents('local-profile', userDataPath)
+      operations.push(
+        getOrCreateArtifactCreateIntent(
+          'local-profile',
+          userDataPath,
+          '/repo/first.html',
+          scope,
+          'fresh-key',
+          body
+        )
+      )
+    } finally {
+      gate.release()
+      await Promise.allSettled(operations)
+    }
+    const outcomes = await Promise.allSettled(operations)
+    expect(outcomes[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[2]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'fresh-key' }
+    })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/queued.html', scope)
+    ).toBeNull()
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/first.html', scope)
+    ).toMatchObject({ idempotencyKey: 'fresh-key' })
+  })
+
+  it('invalidates a queued create even when clear finds no directory', async () => {
+    const userDataPath = await createUserDataPath()
+    const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const held = serializePathWrite(directory, async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const stale = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'old-key',
+      body
+    )
+    clearArtifactCreateIntents('local-profile', userDataPath)
+    const fresh = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'fresh-key',
+      body
+    )
+    release.resolve()
+    const outcomes = await Promise.allSettled([stale, fresh])
+    await held
+    expect(outcomes[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'fresh-key' }
+    })
+  })
+
+  it('cancels a cleared intent after rename but before its write promise settles', async () => {
+    const userDataPath = await createUserDataPath()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const write = secureWrites.writeSecureFileAsync
+    vi.spyOn(secureWrites, 'writeSecureFileAsync').mockImplementationOnce(async (...args) => {
+      const result = await write(...args)
+      entered.resolve()
+      await release.promise
+      return result
+    })
+    const stale = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'old-key',
+      body
+    )
+    await entered.promise
+    clearArtifactCreateIntents('local-profile', userDataPath)
+    const fresh = getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      '/repo/report.html',
+      scope,
+      'fresh-key',
+      body
+    )
+    release.resolve()
+    const outcomes = await Promise.allSettled([stale, fresh])
+    expect(outcomes[0]).toMatchObject({
+      status: 'rejected',
+      reason: expect.any(SecureWriteDiscardedError)
+    })
+    expect(outcomes[1]).toMatchObject({
+      status: 'fulfilled',
+      value: { idempotencyKey: 'fresh-key' }
+    })
+    expect(
+      getArtifactCreateIntent('local-profile', userDataPath, '/repo/report.html', scope)
+    ).toMatchObject({ idempotencyKey: 'fresh-key' })
+  })
+
   it('retains the first key and exact request until the matching create completes', async () => {
     const userDataPath = await createUserDataPath()
     const sourceKey = String.raw`C:\repo\report.html`
-    const first = getOrCreateArtifactCreateIntent(
+    const first = await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       sourceKey,
@@ -63,7 +287,7 @@ describe('artifact create intent store', () => {
       'key-a',
       body
     )
-    const retry = getOrCreateArtifactCreateIntent(
+    const retry = await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       sourceKey,
@@ -88,7 +312,14 @@ describe('artifact create intent store', () => {
   ])('isolates recovery intent by %s', async (_name, changedScope) => {
     const userDataPath = await createUserDataPath()
     const sourceKey = '/repo/report.html'
-    getOrCreateArtifactCreateIntent('local-profile', userDataPath, sourceKey, scope, 'key-a', body)
+    await getOrCreateArtifactCreateIntent(
+      'local-profile',
+      userDataPath,
+      sourceKey,
+      scope,
+      'key-a',
+      body
+    )
 
     expect(
       getArtifactCreateIntent('local-profile', userDataPath, sourceKey, {
@@ -101,7 +332,7 @@ describe('artifact create intent store', () => {
   it('bounds unresolved payload storage without dropping an existing intent', async () => {
     const userDataPath = await createUserDataPath()
     for (let index = 0; index < MAX_PENDING_ARTIFACT_CREATES; index += 1) {
-      getOrCreateArtifactCreateIntent(
+      await getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
         `/repo/report-${index}.html`,
@@ -111,7 +342,7 @@ describe('artifact create intent store', () => {
       )
     }
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -120,15 +351,17 @@ describe('artifact create intent store', () => {
         'overflow-key',
         body
       )
-    ).toThrow(/waiting for recovery/)
+    ).rejects.toThrow(/waiting for recovery/)
     expect(
-      getOrCreateArtifactCreateIntent(
-        'local-profile',
-        userDataPath,
-        '/repo/report-0.html',
-        scope,
-        'replacement-key',
-        { ...body, content: 'replacement' }
+      (
+        await getOrCreateArtifactCreateIntent(
+          'local-profile',
+          userDataPath,
+          '/repo/report-0.html',
+          scope,
+          'replacement-key',
+          { ...body, content: 'replacement' }
+        )
       ).idempotencyKey
     ).toBe('key-0')
   })
@@ -136,7 +369,7 @@ describe('artifact create intent store', () => {
   it('clears pending content at the profile lifecycle boundary', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -156,7 +389,7 @@ describe('artifact create intent store', () => {
   it('removes crash-left temporary writes before admitting another intent', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -167,7 +400,7 @@ describe('artifact create intent store', () => {
     removeArtifactCreateIntent('local-profile', userDataPath, '/repo/report.html', scope, 'key-a')
     await writeFile(join(directory, 'crash-left.tmp'), 'partial')
 
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/other.html',
@@ -191,7 +424,14 @@ describe('artifact create intent store', () => {
         ['/repo/report.html', 'key-a'],
         ['/repo/other.html', 'key-b']
       ]) {
-        getOrCreateArtifactCreateIntent('local-profile', userDataPath, sourceKey, scope, key, body)
+        await getOrCreateArtifactCreateIntent(
+          'local-profile',
+          userDataPath,
+          sourceKey,
+          scope,
+          key,
+          body
+        )
       }
       await new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -229,7 +469,7 @@ describe('artifact create intent store', () => {
   it('refuses to overwrite an unreadable matching intent', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -240,7 +480,7 @@ describe('artifact create intent store', () => {
     const [fileName] = await readdir(directory)
     await writeFile(join(directory, fileName), '{broken-json')
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -249,13 +489,13 @@ describe('artifact create intent store', () => {
         'key-b',
         body
       )
-    ).toThrow(/could not be read safely/)
+    ).rejects.toThrow(/could not be read safely/)
   })
 
   it('removes an unreadable intent after its mutation completes', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -275,7 +515,7 @@ describe('artifact create intent store', () => {
   it('rejects a persisted content type outside the artifact allowlist', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -304,7 +544,7 @@ describe('artifact create intent store', () => {
       artifactWriteRequestByteLength({ sourceKey: '/repo/report.html', ...nearLimitBody })
     ).toBeLessThanOrEqual(ARTIFACT_MAX_REQUEST_BYTES)
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -313,7 +553,7 @@ describe('artifact create intent store', () => {
         'key-a',
         nearLimitBody
       )
-    ).not.toThrow()
+    ).resolves.toBeDefined()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
     const [fileName] = await readdir(directory)
     expect((await stat(join(directory, fileName))).size).toBeGreaterThan(ARTIFACT_MAX_CONTENT_BYTES)
@@ -321,7 +561,7 @@ describe('artifact create intent store', () => {
 
   it('rejects oversized artifact content before creating a recovery record', async () => {
     const userDataPath = await createUserDataPath()
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -330,7 +570,7 @@ describe('artifact create intent store', () => {
         'key-a',
         { ...body, content: 'x'.repeat(ARTIFACT_MAX_CONTENT_BYTES + 1) }
       )
-    ).toThrow(/10 MiB limit/)
+    ).rejects.toThrow(/10 MiB limit/)
   })
 
   it('rejects a recovery body whose escaped request exceeds the transport budget', async () => {
@@ -341,7 +581,7 @@ describe('artifact create intent store', () => {
       artifactWriteRequestByteLength({ sourceKey: '/repo/report.html', ...body, content })
     ).toBeGreaterThan(ARTIFACT_MAX_REQUEST_BYTES)
 
-    expect(() =>
+    await expect(
       getOrCreateArtifactCreateIntent(
         'local-profile',
         userDataPath,
@@ -350,13 +590,13 @@ describe('artifact create intent store', () => {
         'key-a',
         { ...body, content }
       )
-    ).toThrow(/supported size/)
+    ).rejects.toThrow(/supported size/)
   })
 
   it('rejects an oversized recovery record before reading it', async () => {
     const userDataPath = await createUserDataPath()
     const directory = join(userDataPath, 'profiles', 'local-profile', 'artifact-create-intents')
-    getOrCreateArtifactCreateIntent(
+    await getOrCreateArtifactCreateIntent(
       'local-profile',
       userDataPath,
       '/repo/report.html',
@@ -377,4 +617,21 @@ async function createUserDataPath(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), 'orca-artifact-create-intents-'))
   createdPaths.push(path)
   return path
+}
+
+function holdNextStagedIntent() {
+  const entered = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  const open = files.open
+  let held = false
+  vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    const handle = await open(...args)
+    if (!held && String(args[0]).endsWith('.tmp')) {
+      held = true
+      entered.resolve()
+      await release.promise
+    }
+    return handle
+  })
+  return { entered: entered.promise, release: release.resolve }
 }

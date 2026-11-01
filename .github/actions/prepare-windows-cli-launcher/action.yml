@@ -2,6 +2,10 @@ name: Prepare the orcad Windows CLI launcher
 description: Compiles native/windows-cli-launcher for each requested arch into .build/windows-cli-launcher/<arch>/orca.exe.
 
 inputs:
+  cache-mode:
+    description: Use off to disable persistent cache restoration and saving.
+    required: false
+    default: auto
   arches:
     description: Space-separated Windows architectures (x64, arm64).
     required: true
@@ -18,7 +22,7 @@ runs:
     # Source globs, not crate/**: target/ and .build/ can already exist when this key is computed.
     # Real inputs only: older restores are safe because the build re-checks each exe's fingerprint.
     - name: Cache the Windows CLI launcher builds
-      if: runner.os == 'Windows'
+      if: inputs.cache-mode != 'off' && (runner.os == 'Windows')
       uses: actions/cache@v5
       with:
         path: |

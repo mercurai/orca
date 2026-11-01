@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSecretStore } from '../../shared/secret-store'
 import type * as Fs from 'node:fs'
-import type * as SecureFile from '../../shared/secure-file'
+import type * as SecureFile from '../../shared/secure-file-async-write'
 import type * as ZcodePlanApiKeyStore from './zcode-plan-api-key-store'
 
 const restriction = vi.hoisted(() => vi.fn((_path: string, _directory: boolean) => false))
@@ -35,6 +35,7 @@ vi.mock('../../shared/secure-path-windows-acl', async () => {
   const { writeFileSync: stage } = await vi.importActual<typeof Fs>('node:fs')
   return {
     restrictWindowsPathSync: restriction,
+    restrictNewFileAsync: async (path: string, directory = false) => restriction(path, directory),
     writeRestrictedWindowsFile: (path: string, contents: string) => {
       stage(path, contents, { encoding: 'utf-8', mode: 0o600 })
       return restriction(path, false)
@@ -65,8 +66,8 @@ beforeEach(async () => {
   vi.resetModules()
   expect(homedir()).toBe(caseHome)
   store = await import('./zcode-plan-api-key-store')
-  writer = await import('../../shared/secure-file')
-  expect(vi.isMockFunction(writer.writeSecureFile)).toBe(false)
+  writer = await import('../../shared/secure-file-async-write')
+  expect(vi.isMockFunction(writer.writeSecureFileAsync)).toBe(false)
   expect(vi.isMockFunction(writeFileSync)).toBe(false)
   expect(vi.isMockFunction(renameSync)).toBe(false)
 })
@@ -94,8 +95,8 @@ function publishDuringRollbackStaging(outcome: boolean | 'throws'): void {
   })
 }
 
-function refuseReplacement(): void {
-  expect(() => store.saveZcodePlanApiKey('attempted-key')).toThrow(
+async function refuseReplacement(): Promise<void> {
+  await expect(store.saveZcodePlanApiKey('attempted-key')).rejects.toThrow(
     'could not be stored securely on this device'
   )
 }
@@ -103,11 +104,11 @@ function refuseReplacement(): void {
 describe('rollback publication with real filesystem writes and renames', () => {
   it.each([false, true, 'throws'] as const)(
     'preserves the competing publication when the second staged ACL call returns %s',
-    (outcome) => {
+    async (outcome) => {
       writeFileSync(keyPath, previousEnvelope)
       publishDuringRollbackStaging(outcome)
 
-      refuseReplacement()
+      await refuseReplacement()
 
       expect(readFileSync(keyPath, 'utf8')).toBe(competingEnvelope)
       expect(readFileSync(keyPath, 'utf8')).not.toBe(envelope('attempted-key'))
@@ -116,18 +117,18 @@ describe('rollback publication with real filesystem writes and renames', () => {
     }
   )
 
-  it('restores the previous envelope when the attempted publication is still owned', () => {
+  it('restores the previous envelope when the attempted publication is still owned', async () => {
     writeFileSync(keyPath, previousEnvelope)
 
-    refuseReplacement()
+    await refuseReplacement()
 
     expect(readFileSync(keyPath, 'utf8')).toBe(previousEnvelope)
     expect(store.readZcodePlanApiKey()).toBe('previous-key')
     expect(readdirSync(join(caseHome, '.orca'))).toEqual(['zcode-plan-api-key.enc'])
   })
 
-  it('removes the owned rejected plaintext when no previous envelope exists', () => {
-    refuseReplacement()
+  it('removes the owned rejected plaintext when no previous envelope exists', async () => {
+    await refuseReplacement()
 
     expect(existsSync(keyPath)).toBe(false)
     expect(store.readZcodePlanApiKey()).toBeNull()
@@ -136,7 +137,7 @@ describe('rollback publication with real filesystem writes and renames', () => {
 
   it.each([false, true])(
     'retains the prior target state when initial staged hardening throws: previous %s',
-    (previous) => {
+    async (previous) => {
       if (previous) {
         writeFileSync(keyPath, previousEnvelope)
       }
@@ -147,7 +148,7 @@ describe('rollback publication with real filesystem writes and renames', () => {
         return false
       })
 
-      expect(() => store.saveZcodePlanApiKey('attempted-key')).toThrow(
+      await expect(store.saveZcodePlanApiKey('attempted-key')).rejects.toThrow(
         'Synthetic initial staged ACL failure'
       )
 
@@ -162,12 +163,12 @@ describe('rollback publication with real filesystem writes and renames', () => {
     }
   )
 
-  it('keeps the cached prior key after rejecting a replacement during competing publication', () => {
+  it('keeps the cached prior key after rejecting a replacement during competing publication', async () => {
     writeFileSync(keyPath, previousEnvelope)
     expect(store.readZcodePlanApiKey()).toBe('previous-key')
     publishDuringRollbackStaging(false)
 
-    refuseReplacement()
+    await refuseReplacement()
 
     expect(readFileSync(keyPath, 'utf8')).toBe(competingEnvelope)
     expect(store.readZcodePlanApiKey()).toBe('previous-key')

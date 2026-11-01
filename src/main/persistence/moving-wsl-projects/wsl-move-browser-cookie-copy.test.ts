@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import * as bounded from '../../../shared/bounded-secure-json-file'
 import type {
   KnownRuntimeEnvironment,
   OrcadDeploymentLink
@@ -21,7 +22,8 @@ import { listWslMoveCutovers } from './wsl-move-cutover-journal'
 import type { WslMoveBrowserCookieCopyDependencies } from './wsl-move-browser-cookie-copy'
 import {
   ensureWslMoveDestinationBrowserLogins,
-  previewWslMoveBrowserCookieCopy
+  previewWslMoveBrowserCookieCopy,
+  runWslMoveBrowserCookieCopy
 } from './wsl-move-browser-cookie-copy'
 import { registerWslMoveBrowserCookieStore } from './wsl-move-browser-cookie-store'
 import {
@@ -203,9 +205,45 @@ function snapshot(partitions: readonly string[]): Record<string, [string, string
 }
 
 describe('WSL move browser-cookies store', () => {
+  it('waits for its outcome publication before returning a fresh partition', async () => {
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    const current = listWslMoveCutovers(userDataPath)[0]
+    if (!current) {
+      throw new Error('missing cutover fixture')
+    }
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const write = bounded.writeSecureJsonFileWithinLimitAsync
+    const spy = vi.spyOn(bounded, 'writeSecureJsonFileWithinLimitAsync')
+    spy.mockImplementationOnce(async (...args) => {
+      entered.resolve()
+      await release.promise
+      await write(...args)
+    })
+    let settled = false
+    const pending = runWslMoveBrowserCookieCopy(dependencies({ listEnvironments: () => [] }), {
+      cutover: current
+    }).then(() => {
+      settled = true
+    })
+    try {
+      await entered.promise
+      expect(settled).toBe(false)
+      expect(listWslMoveCutovers(userDataPath)[0]?.browserCookieCopy).toBeUndefined()
+    } finally {
+      release.resolve()
+      await pending
+      spy.mockRestore()
+    }
+    expect(listWslMoveCutovers(userDataPath)[0]?.browserCookieCopy).toEqual({
+      outcome: 'fresh-partition',
+      reason: 'destination-environment-missing'
+    })
+  })
+
   it('copies every browser profile into the WSL host partition and records it', async () => {
     registerWslMoveBrowserCookieStore(dependencies())
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     const untouched = snapshot([LOCAL_DEFAULT, LOCAL_WORK, SSH_PARTITION])
 
     await runWslMoveDesktopRewritePass({ userDataPath })
@@ -251,7 +289,7 @@ describe('WSL move browser-cookies store', () => {
   ])('leaves $name on a fresh partition and says why', async ({ environments, reason }) => {
     desktop.environments = environments()
     registerWslMoveBrowserCookieStore(dependencies())
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     const before = snapshot([...desktop.jars.keys()])
 
     await runWslMoveDesktopRewritePass({ userDataPath })
@@ -273,7 +311,7 @@ describe('WSL move browser-cookies store', () => {
         }
       })
     )
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -286,7 +324,7 @@ describe('WSL move browser-cookies store', () => {
 
   it('re-runs idempotently after a crash between the copy and its ledger entry', async () => {
     registerWslMoveBrowserCookieStore(dependencies())
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     desktop.failFlush = true
     const warn = vi.fn()
 
@@ -310,7 +348,7 @@ describe('WSL move browser-cookies store', () => {
 
   it('waits for browser sessions instead of opening a partition early', async () => {
     registerWslMoveBrowserCookieStore(dependencies())
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     desktop.sessionsReady = false
     const warn = vi.fn()
 
@@ -326,20 +364,20 @@ describe('WSL move browser-cookies store', () => {
 
   it('copies once per host: a later move into the same host leaves its jar alone', async () => {
     registerWslMoveBrowserCookieStore(dependencies())
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
     await runWslMoveDesktopRewritePass({ userDataPath })
     const first = record()
     if (!first) {
       throw new Error('the first move has no journal record')
     }
     // Advancing keeps the record's outcome, as the journal itself does.
-    seedWslMoveCutover(userDataPath, { ...first, phase: 'retained' })
+    await seedWslMoveCutover(userDataPath, { ...first, phase: 'retained' })
     const defaultHost = hostPartitionOf('default')
     // The user signed out on the host; a second copy must not sign them back in.
     jarOf(defaultHost).delete('sid')
     desktop.copies.length = 0
 
-    seedWslMoveCutover(
+    await seedWslMoveCutover(
       userDataPath,
       cutover('move-2', 'destination-committed', { supersedesMigrationId: 'move-1' })
     )
@@ -369,7 +407,7 @@ describe('WSL move browser-cookies store', () => {
     vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
     const copyCookies = vi.fn()
     registerWslMoveBrowserCookieStore(dependencies({ copyCookies }))
-    seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
+    await seedWslMoveCutover(userDataPath, cutover('move-1', 'destination-committed'))
 
     await runGatedWslMoveDesktopRewritePass({ userDataPath })
 
@@ -404,9 +442,34 @@ describe('WSL move browser-cookies store', () => {
   })
 
   describe('before a move commits', () => {
-    function ensure(environments: KnownRuntimeEnvironment[], orcaProfileId: string | null = 'p') {
-      const resaveConnection = vi.fn()
-      const result = ensureWslMoveDestinationBrowserLogins({
+    it('waits for the resaved connection before rereading its deployment link', async () => {
+      const release = Promise.withResolvers<void>()
+      let environment = wslHost('unlinked')
+      const resolveEnvironment = vi.fn(() => environment)
+      const pending = ensureWslMoveDestinationBrowserLogins({
+        resolveEnvironment,
+        resaveConnection: async () => {
+          await release.promise
+          environment = wslHost()
+        },
+        orcaProfileId: () => 'p',
+        resolveHostStorage: wslHostBrowserRouteStorage
+      })
+      try {
+        expect(resolveEnvironment).toHaveBeenCalledTimes(1)
+      } finally {
+        release.resolve()
+      }
+      expect((await pending).environment.orcadDeployment).toEqual(DEPLOYMENTS.wsl)
+      expect(resolveEnvironment).toHaveBeenCalledTimes(2)
+    })
+
+    async function ensure(
+      environments: KnownRuntimeEnvironment[],
+      orcaProfileId: string | null = 'p'
+    ) {
+      const resaveConnection = vi.fn(async () => {})
+      const result = await ensureWslMoveDestinationBrowserLogins({
         resolveEnvironment: () => environments[resaveConnection.mock.calls.length] ?? wslHost(),
         resaveConnection,
         orcaProfileId: () => orcaProfileId,
@@ -415,27 +478,35 @@ describe('WSL move browser-cookies store', () => {
       return { ...result, resaveConnection }
     }
 
-    it('leaves a linked host alone, and its logins carry', () => {
-      const { notCarried, resaveConnection } = ensure([wslHost()])
+    it('leaves a linked host alone, and its logins carry', async () => {
+      const { notCarried, resaveConnection } = await ensure([wslHost()])
       expect(notCarried).toBeUndefined()
       expect(resaveConnection).not.toHaveBeenCalled()
     })
 
-    it('restores a lost deployment link from the live connection, so logins carry', () => {
-      const { environment, notCarried, resaveConnection } = ensure([wslHost('unlinked'), wslHost()])
+    it('restores a lost deployment link from the live connection, so logins carry', async () => {
+      const { environment, notCarried, resaveConnection } = await ensure([
+        wslHost('unlinked'),
+        wslHost()
+      ])
       expect(resaveConnection).toHaveBeenCalledOnce()
       expect(environment.orcadDeployment).toEqual(DEPLOYMENTS.wsl)
       expect(notCarried).toBeUndefined()
     })
 
-    it('names why logins stay behind when the link cannot be restored, without blocking', () => {
-      const { notCarried, resaveConnection } = ensure([wslHost('unlinked'), wslHost('unlinked')])
+    it('names why logins stay behind when the link cannot be restored, without blocking', async () => {
+      const { notCarried, resaveConnection } = await ensure([
+        wslHost('unlinked'),
+        wslHost('unlinked')
+      ])
       expect(resaveConnection).toHaveBeenCalledOnce()
       expect(notCarried).toBe('no-stable-partition')
     })
 
-    it('says nothing while no Orca profile is active to resolve the partition', () => {
-      expect(ensure([wslHost('unlinked'), wslHost('unlinked')], null).notCarried).toBeUndefined()
+    it('says nothing while no Orca profile is active to resolve the partition', async () => {
+      expect(
+        (await ensure([wslHost('unlinked'), wslHost('unlinked')], null)).notCarried
+      ).toBeUndefined()
     })
   })
 })

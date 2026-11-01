@@ -11,7 +11,11 @@ import {
 } from '../__fixtures__/wsl-mover/wsl-move-driver-world'
 import { wslMoveCutoverFixture } from '../__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { seedWslMoveCutover } from '../__fixtures__/wsl-mover/wsl-move-journal-seeding'
-import { listWslMoveCutovers, writeWslMoveCutover } from './wsl-move-cutover-journal'
+import {
+  listWslMoveCutovers,
+  onWslMoveJournalChange,
+  writeWslMoveCutover
+} from './wsl-move-cutover-journal'
 import { WslMoveScopeChangedError, type WslMoveManifestExport } from './wsl-move-manifest-export'
 import {
   registerWslMoveDesktopRewriteStore,
@@ -315,14 +319,14 @@ describe('moveProjectsToWslHost', () => {
     await vi.waitFor(() => expect(world.progress.map((e) => e.step)).toContain('finishing'))
     expect(journal()[0]?.phase).toBe('destination-committed')
 
-    expect(bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).toEqual({
+    expect(await bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).toEqual({
       released: false,
       reason: 'move-running'
     })
     expect(journal()).toHaveLength(1)
     release()
     expect(await run).toMatchObject({ outcome: 'moved' })
-    expect(bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' }).released).toBe(true)
+    expect((await bringWslMovedProjectBack(userDataPath, { repoId: 'repo-1' })).released).toBe(true)
   })
 
   it('refuses a move whose terminals are busy, and shows the blockers in the preview', async () => {
@@ -413,7 +417,7 @@ describe('moveProjectsToWslHost', () => {
     world.deps.finishOnDesktop = async () => {
       const [entry] = journal()
       if (entry) {
-        writeWslMoveCutover(userDataPath, {
+        await writeWslMoveCutover(userDataPath, {
           ...entry,
           browserCookieCopy: { outcome: 'fresh-partition', reason: 'no-stable-partition' }
         })
@@ -501,6 +505,12 @@ describe('moveProjectsToWslHost', () => {
 
   it('retries the host step in the same run, backing off, until it lands', async () => {
     vi.useFakeTimers()
+    const rewritten = Promise.withResolvers<void>()
+    const unsubscribe = onWslMoveJournalChange((changedPath) => {
+      if (changedPath === userDataPath && journal()[0]?.phase === 'client-rewritten') {
+        rewritten.resolve()
+      }
+    })
     try {
       let attempts = 0
       registerWslMoveHostAutomationsStore({
@@ -521,10 +531,12 @@ describe('moveProjectsToWslHost', () => {
       expect(journal()[0].phase).toBe('destination-committed')
       await vi.advanceTimersByTimeAsync(20)
       expect(attempts).toBe(3)
+      await rewritten.promise
       expect(journal()[0].phase).toBe('client-rewritten')
       await vi.advanceTimersByTimeAsync(1_000)
       expect(attempts).toBe(3)
     } finally {
+      unsubscribe()
       cancelWslMoveRewriteRetryForTests()
       vi.useRealTimers()
     }
@@ -642,21 +654,21 @@ describe('moveProjectsToWslHost', () => {
   })
 
   describe('an earlier move an interruption left short of commit', () => {
-    const seedStuck = () => {
+    const seedStuck = async () => {
       const stuck = wslMoveCutoverFixture('stuck', 'blobs-transferred', {}, { repoIds: ['repo-9'] })
-      seedWslMoveCutover(userDataPath, stuck)
+      await seedWslMoveCutover(userDataPath, stuck)
       return stuck
     }
 
     it('is reset through the host first, then the new move runs', async () => {
-      world.catalog.set(seedStuck().migrationId, 'staged')
+      world.catalog.set((await seedStuck()).migrationId, 'staged')
       expect(await moveProjectsToWslHost(world.deps, request)).toMatchObject({ outcome: 'moved' })
       expect(journal().map((cutover) => cutover.migrationId)).not.toContain('stuck')
       expect(world.catalog.has('stuck')).toBe(false)
     })
 
     it('goes forward when the host committed it, and the new move waits for it to finish', async () => {
-      world.catalog.set(seedStuck().migrationId, 'committed')
+      world.catalog.set((await seedStuck()).migrationId, 'committed')
       expect(await moveProjectsToWslHost(world.deps, request)).toEqual({
         outcome: 'refused',
         code: 'wsl_move_finished_earlier_move'
@@ -669,7 +681,7 @@ describe('moveProjectsToWslHost', () => {
     })
 
     it('keeps the fence and refuses while the host cannot say', async () => {
-      seedStuck()
+      await seedStuck()
       world.deps.connectHost = async () => {
         const host = await createWslMoveWorld(userDataPath).deps.connectHost('Ubuntu')
         if (!host) {

@@ -14,24 +14,24 @@ function createServices(storageSet: PluginHostServices['storage']['set']): Plugi
     storage: {
       get: vi.fn(),
       set: storageSet,
-      delete: vi.fn(),
+      delete: vi.fn().mockResolvedValue(undefined),
       keys: vi.fn().mockReturnValue([])
     },
     secrets: {
       get: vi.fn().mockReturnValue({ ok: true, value: null }),
-      set: vi.fn().mockReturnValue({ ok: true }),
-      delete: vi.fn()
+      set: vi.fn().mockResolvedValue({ ok: true }),
+      delete: vi.fn().mockResolvedValue(undefined)
     },
     settings: {
       getAll: vi.fn().mockReturnValue({}),
-      set: vi.fn().mockReturnValue({ ok: true })
+      set: vi.fn().mockResolvedValue({ ok: true })
     }
   }
 }
 
 describe('executePluginHostCall mutation auditing', () => {
   it('rejects prototype-sensitive storage keys before any host service call', async () => {
-    const storageSet = vi.fn().mockReturnValue({ ok: true })
+    const storageSet = vi.fn().mockResolvedValue({ ok: true })
     const outcome = await executePluginHostCall({
       pluginId: 'samples.demo',
       method: 'storage.set',
@@ -47,7 +47,7 @@ describe('executePluginHostCall mutation auditing', () => {
   })
 
   it('rejects non-JSON storage values before any host service call', async () => {
-    const storageSet = vi.fn().mockReturnValue({ ok: true })
+    const storageSet = vi.fn().mockResolvedValue({ ok: true })
     const outcome = await executePluginHostCall({
       pluginId: 'samples.demo',
       method: 'storage.set',
@@ -63,7 +63,7 @@ describe('executePluginHostCall mutation auditing', () => {
   })
 
   it('fails closed before a mutation when the audit intent cannot be recorded', async () => {
-    const storageSet = vi.fn().mockReturnValue({ ok: true })
+    const storageSet = vi.fn().mockResolvedValue({ ok: true })
     const outcome = await executePluginHostCall({
       pluginId: 'samples.demo',
       method: 'storage.set',
@@ -80,7 +80,7 @@ describe('executePluginHostCall mutation auditing', () => {
 
   it('records an intent before the mutation and its outcome afterward', async () => {
     const order: string[] = []
-    const storageSet = vi.fn(() => {
+    const storageSet = vi.fn(async () => {
       order.push('mutation')
       return { ok: true as const }
     })
@@ -103,7 +103,7 @@ describe('executePluginHostCall mutation auditing', () => {
   })
 
   it('refuses mutations when no audit writer is configured', async () => {
-    const storageSet = vi.fn().mockReturnValue({ ok: true })
+    const storageSet = vi.fn().mockResolvedValue({ ok: true })
     const outcome = await executePluginHostCall({
       pluginId: 'samples.demo',
       method: 'storage.set',
@@ -139,6 +139,7 @@ function createTerminalHarness(terminalHandles: string[]): {
     delegate,
     services: bindPluginHostServices({
       delegate,
+      pluginKey: 'samples.demo',
       pluginsDataDir: join(tmpdir(), 'plugin-host-methods-test')
     })
   }
@@ -158,6 +159,15 @@ async function sendTerminalText(
     audit: { record: vi.fn().mockResolvedValue(undefined) }
   })
 }
+
+it('keeps eagerly bound data services inside their authenticated plugin namespace', () => {
+  const { services } = createTerminalHarness([])
+  expect(() => services.storage.get('samples.other', 'key')).toThrow('another plugin')
+  expect(() => services.storage.set('samples.other', 'key', 1)).toThrow('another plugin')
+  expect(() => services.storage.delete('samples.other', 'key')).toThrow('another plugin')
+  expect(() => services.secrets.set('samples.other', 'key', 'synthetic')).toThrow('another plugin')
+  expect(() => services.settings.set('samples.other', 'key', 1)).toThrow('another plugin')
+})
 
 describe('terminal.sendText panel surface', () => {
   it('refuses a sandboxed panel even with terminal:send granted', async () => {
@@ -184,7 +194,7 @@ describe('host API surfaces and strict params', () => {
       params,
       surface,
       grantedCapabilities: ['storage:own', 'notifications:show'],
-      services: createServices(vi.fn().mockReturnValue({ ok: true })),
+      services: createServices(vi.fn().mockResolvedValue({ ok: true })),
       audit: { record: vi.fn().mockResolvedValue(undefined) }
     })
 

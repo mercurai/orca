@@ -12,7 +12,8 @@ import {
 import type {
   AgentModelCatalogServiceDeps,
   AgentModelCatalogService,
-  AgentModelCatalogReadParams
+  AgentModelCatalogReadParams,
+  AgentModelCatalogClaim
 } from './agent-model-catalog-service-contract'
 export type { AgentModelCatalogServiceDeps, AgentModelCatalogService }
 import { resolveAgentModelCatalogScope } from './agent-model-catalog-scope'
@@ -27,6 +28,7 @@ import {
   agentModelCatalogMemoryBinding,
   expireAgentModelCatalogBoundFailure,
   agentModelCatalogSessionPeek,
+  agentModelCatalogSessionListing,
   type AgentModelCatalogBinding
 } from './agent-model-catalog-snapshot'
 import { PrioritySemaphore } from '../../../shared/priority-semaphore'
@@ -42,13 +44,8 @@ export function createAgentModelCatalogService(
   const lifetime = new AbortController()
   const admission = new PrioritySemaphore(2)
 
-  type Claim = Pick<AgentModelCatalogBinding, 'identity' | 'params' | 'current'> & {
-    controller: AbortController
-    promise: Promise<void>
-    ready: Promise<void>
-  }
   const bindings = new Map<string, AgentModelCatalogBinding>()
-  const claims = new Map<string, Claim>()
+  const claims = new Map<string, AgentModelCatalogClaim>()
   const requestKey = agentModelCatalogRequestKey.bind(null, deps)
   const capture = agentModelCatalogScopeIdentity.bind(null, deps)
   const retireContext = (workspaceId?: string, sources = true): void => {
@@ -159,7 +156,6 @@ export function createAgentModelCatalogService(
       let probeHome: AgentSessionAccountHome | null
       if (scoped) {
         fingerprint = agentModelCatalogFingerprintForRecord(scoped, folder)
-        // Native probes cannot list a WSL-pinned account.
         probeHome =
           scoped.location.executionHostId === 'local' && scoped.location.wslDistro === null
             ? scoped.accountHome
@@ -264,6 +260,7 @@ export function createAgentModelCatalogService(
   }
   return {
     snapshot,
+    isListing: agentModelCatalogSessionListing(deps, snapshot),
     demand: (params) => (params.savedOnly ? Promise.resolve() : resolve(params)),
     async prepareSaved(params) {
       if (!memoryBinding(params)) {

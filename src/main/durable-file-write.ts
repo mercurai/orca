@@ -9,8 +9,12 @@ import {
   renameFileWithWindowsRetryAsync
 } from './codex-accounts/fs-utils'
 
-/** Persist directory changes where supported; Windows and some filesystems reject directory fsync. */
-async function syncDirectory(directory: string): Promise<void> {
+/**
+ * fsync a directory so a rename within it is durable. Best-effort by design: Windows cannot open a
+ * directory for fsync, and some filesystems reject it. The file fsync above it is the load-bearing
+ * part; this closes the "rename recorded but not persisted" window where the platform allows it.
+ */
+export async function syncDirectoryDurably(directory: string): Promise<void> {
   let handle: Awaited<ReturnType<typeof open>> | null = null
   try {
     handle = await open(directory, 'r')
@@ -29,7 +33,7 @@ export function syncDirectoryDurablySync(directory: string): void {
     fd = openSync(directory, 'r')
     fsyncSync(fd)
   } catch {
-    // Directory fsync may be unsupported.
+    // Same platform caveats as syncDirectoryDurably.
   } finally {
     if (fd !== null) {
       try {
@@ -58,7 +62,7 @@ export function publishFileDurableSync(tmpPath: string, finalPath: string): bool
 /** Callers must fsync the temp file before publishing it. */
 export async function renameDurable(tmpPath: string, finalPath: string): Promise<void> {
   await renameFileWithWindowsRetryAsync(tmpPath, finalPath)
-  await syncDirectory(dirname(finalPath))
+  await syncDirectoryDurably(dirname(finalPath))
 }
 
 /** Make content durable without publishing, allowing backup rotation before replacement. */
@@ -102,7 +106,7 @@ export async function writeFileDurableIfCurrent(
       return false
     }
     renamed = true
-    await syncDirectory(dirname(finalPath))
+    await syncDirectoryDurably(dirname(finalPath))
     return true
   } finally {
     if (!renamed) {

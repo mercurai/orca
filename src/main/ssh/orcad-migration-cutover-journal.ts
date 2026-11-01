@@ -1,4 +1,11 @@
-/** Persist journals in owner-only profile sidecars: older profile schemas drop unknown fields but retain fences, so an in-profile journal could vanish on downgrade. Unreadable journals fail closed. */
+/**
+ * The cutover journal sidecar: one durable, owner-only file per migration beside the profile.
+ *
+ * Why not the profile store: shipped builds rewrite orca-data.json and the profile database with
+ * schemas that drop unknown fields, so a journal kept there would vanish across a downgrade while
+ * the target's `orcadFence`, which shipped builds keep, survived it. A missing journal must
+ * never look like "no migration"; an unreadable one fails closed.
+ */
 import {
   MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS,
   isRetainedOrcadMigrationSourceCutover,
@@ -20,6 +27,7 @@ class OrcadMigrationCutoverJournalUnreadableError extends Error {
 type JournalChangeListener = (userDataPath: string) => void
 let journalChangeListener: JournalChangeListener | null = null
 
+/** Persistence state that follows the journal (scrollback retention) re-syncs on every change. */
 export function setOrcadMigrationJournalChangeListener(
   listener: JournalChangeListener | null
 ): void {
@@ -39,13 +47,14 @@ export function orcadMigrationCutoverJournalDirectory(userDataPath: string): str
   return journals.directory(userDataPath)
 }
 
-/** Never skip an unreadable or untrusted journal. */
+/** Every journaled cutover; throws rather than skipping a file it cannot trust. */
 export function listOrcadMigrationSourceCutovers(
   userDataPath: string
 ): OrcadMigrationSourceCutover[] {
   return journals.list(userDataPath)
 }
 
+/** The target's current cutover: the head of its chain, which no later delta move supersedes. */
 export function findOrcadMigrationSourceCutoverForTarget(
   userDataPath: string,
   sshTargetId: string
@@ -69,38 +78,79 @@ export function listOrcadMigrationCutoverChainForTarget(
   )
 }
 
-/** Flush before returning so later fence writes always have a durable journal. */
-export function writeOrcadMigrationSourceCutover(
+/** Durable before resolving: a fence published afterwards has its journal on disk. */
+export async function writeOrcadMigrationSourceCutover(
   userDataPath: string,
   cutover: OrcadMigrationSourceCutover
-): void {
-  const parsed = parseOrcadMigrationSourceCutover(cutover)
-  const existing = listOrcadMigrationSourceCutovers(userDataPath)
-  // Finished retained cutovers can wait two releases; only in-flight journals count toward the bound.
-  const inFlight = existing.filter(
-    (entry) => entry.phase !== 'source-retired' && !isRetainedOrcadMigrationSourceCutover(entry)
-  )
-  if (
-    !existing.some((entry) => entry.migrationId === parsed.migrationId) &&
-    inFlight.length >= MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS
-  ) {
-    throw new Error('orcad_migration_cutover_capacity_exceeded')
-  }
-  journals.write(userDataPath, parsed)
+): Promise<void> {
+  const parsed = parseOrcadMigrationSourceCutover(structuredClone(cutover))
+  return journals.transact(userDataPath, async ({ write }) => {
+    const existing = listOrcadMigrationSourceCutovers(userDataPath)
+    // Retained cutovers are finished and may wait two releases for retirement.
+    const inFlight = existing.filter(
+      (entry) => entry.phase !== 'source-retired' && !isRetainedOrcadMigrationSourceCutover(entry)
+    )
+    if (
+      !existing.some((entry) => entry.migrationId === parsed.migrationId) &&
+      inFlight.length >= MAX_ORCAD_MIGRATION_SOURCE_CUTOVERS
+    ) {
+      throw new Error('orcad_migration_cutover_capacity_exceeded')
+    }
+    await write(parsed)
+  })
 }
 
-export function removeOrcadMigrationSourceCutover(userDataPath: string, migrationId: string): void {
-  journals.remove(userDataPath, migrationId)
+/** Existing-record updates read and validate under the same lane as destination cleanup. */
+export function updateOrcadMigrationSourceCutover(
+  userDataPath: string,
+  migrationId: string,
+  update: (current: OrcadMigrationSourceCutover) => OrcadMigrationSourceCutover
+): Promise<OrcadMigrationSourceCutover> {
+  return journals.transact(userDataPath, async ({ write }) => {
+    const current = listOrcadMigrationSourceCutovers(userDataPath).find(
+      (entry) => entry.migrationId === migrationId
+    )
+    if (!current) {
+      throw new Error('orcad_migration_cutover_missing')
+    }
+    const draft = structuredClone(current)
+    const updated = update(draft)
+    if (updated === draft) {
+      return current
+    }
+    const next = parseOrcadMigrationSourceCutover(updated)
+    if (
+      next.migrationId !== current.migrationId ||
+      next.manifestSha256 !== current.manifestSha256
+    ) {
+      throw new Error('orcad_migration_destination_state_mismatch')
+    }
+    await write(next)
+    return next
+  })
 }
 
+export function removeOrcadMigrationSourceCutover(
+  userDataPath: string,
+  migrationId: string
+): Promise<void> {
+  return journals.remove(userDataPath, migrationId)
+}
+
+/** Journals left by a stopped or never-registered server grant nothing. */
 export function removeOrcadMigrationJournalsForDestination(
   userDataPath: string,
   sshTargetId: string,
   environmentId: string
-): void {
-  for (const cutover of listOrcadMigrationSourceCutovers(userDataPath)) {
-    if (cutover.sshTargetId === sshTargetId && cutover.destinationEnvironmentId === environmentId) {
-      removeOrcadMigrationSourceCutover(userDataPath, cutover.migrationId)
+): Promise<void> {
+  return journals.transact(userDataPath, async ({ remove }) => {
+    for (const cutover of listOrcadMigrationSourceCutovers(userDataPath)) {
+      if (
+        cutover.sshTargetId === sshTargetId &&
+        cutover.destinationEnvironmentId === environmentId
+      ) {
+        await remove(cutover.migrationId)
+      }
     }
-  }
+  })
 }

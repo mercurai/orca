@@ -25,7 +25,9 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     name?: string
     rotate?: boolean
   }): Promise<MobilePairingOffer> {
-    // Network pairing opts into LAN exposure: widen before advertising QR endpoints; failed widening stays unavailable on loopback (STA-2370).
+    // Why: STA-2370 — creating a mobile pairing offer is the user's explicit opt-in to LAN reach, so
+    // widen the loopback listener before advertising its LAN endpoint in the QR. If the widen fails the
+    // listener stays on loopback, so report unavailable rather than advertise a dead LAN endpoint.
     try {
       await this.ensureNetworkExposure()
     } catch (error) {
@@ -85,17 +87,17 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     },
     generation: number
   ): Promise<MobilePairingOffer> {
-    // Renderer input is untrusted; only explicit local-only may suppress Relay provisioning.
+    // Why: the renderer is outside the trust boundary, so only an explicit local-only value may suppress Relay provisioning.
     const connectionMode = args.connectionMode === 'local-only' ? 'local-only' : 'automatic'
     const pending = this.deviceRegistry?.getPendingDevice('mobile')
-    // Rotate when connection policy changes so old QR credentials retain no new-policy authority.
+    // Why: connection policy is part of the credential, so rotate on any policy switch — an old-policy QR must not pair under the new one.
     const switchingPendingMode =
       pending != null &&
       this.deviceRegistry?.getMobilePairingConnectionMode(pending.deviceId) !== connectionMode
     if (args.rotate || switchingPendingMode) {
       if (pending?.relayBinding) {
-        // Durably enqueue cloud revocation before local rotation or old invites can outlive the QR.
-        if (!this.queueRelayDeviceRevoke(pending.relayBinding)) {
+        // Why: record the durable cloud revoke before rotating the local token so an old relay invite can't outlive the QR.
+        if (!(await this.queueRelayDeviceRevoke(pending.relayBinding))) {
           return pairingUnavailable(
             'device_registry_unavailable',
             'Could not persist Relay cleanup before rotating the pairing code.'
@@ -103,7 +105,7 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
         }
       }
     }
-    const direct = this.createPairingOffer({
+    const direct = await this.createPairingOffer({
       ...args,
       rotate: args.rotate || switchingPendingMode,
       scope: 'mobile'
@@ -115,15 +117,17 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     let connectionModeStored = false
     try {
       connectionModeStored =
-        this.deviceRegistry?.setMobilePairingConnectionMode(direct.deviceId, connectionMode) ??
-        false
+        (await this.deviceRegistry?.setMobilePairingConnectionMode(
+          direct.deviceId,
+          connectionMode
+        )) ?? false
     } catch (error) {
       console.error('[runtime] Failed to persist the pairing connection mode:', error)
     }
-    // Persist credential mode or refuse; a QR must never pair under an unstored default policy.
+    // Why: the mode is part of the credential — a QR whose policy was never stored must not pair under the default one.
     if (!connectionModeStored) {
       if (createdNewPendingDevice) {
-        this.discardPendingMobilePairingDevice(direct.deviceId)
+        await this.discardPendingMobilePairingDevice(direct.deviceId)
       }
       return pairingUnavailable('device_registry_unavailable', DEVICE_REGISTRY_UNAVAILABLE_GUIDANCE)
     }
@@ -131,12 +135,13 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     if (connectionMode === 'local-only') {
       return { ...direct, connectionMode: 'local-only' }
     }
-    // Anywhere cannot silently become LAN-only; remove unused pending credentials and let UI offer LAN explicitly.
-    const refuseAutomaticWithoutRelay = (
+    // Why: Anywhere must not silently ship a LAN-only QR under the Relay label.
+    // Fail closed, drop the unused pending credential, and let the UI offer Use LAN.
+    const refuseAutomaticWithoutRelay = async (
       relayFailure: MobileRelayMintFailure
-    ): PairingOfferUnavailable => {
+    ): Promise<PairingOfferUnavailable> => {
       if (createdNewPendingDevice) {
-        this.discardPendingMobilePairingDevice(direct.deviceId)
+        await this.discardPendingMobilePairingDevice(direct.deviceId)
       }
       return {
         available: false,
@@ -156,7 +161,7 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     }
     const relayProvider = this.mobileRelayPairingProvider
     if (!relayProvider) {
-      return refuseAutomaticWithoutRelay({
+      return await refuseAutomaticWithoutRelay({
         code: 'relay_provider_unavailable',
         stage: 'provider_missing',
         message: 'Orca Relay is not available on this desktop'
@@ -165,7 +170,7 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     const device = this.deviceRegistry?.getDevice(direct.deviceId)
     const publicKeyB64 = this.getE2EEPublicKey()
     if (!device?.token || !publicKeyB64) {
-      return refuseAutomaticWithoutRelay({
+      return await refuseAutomaticWithoutRelay({
         code: 'e2ee_key_unavailable',
         stage: 'e2ee_missing',
         message: 'E2EE public key unavailable for Relay pairing'
@@ -175,7 +180,7 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
     try {
       relayPairing = await relayProvider.createPairingRelay(device.deviceId)
     } catch (error) {
-      // Provider errors may contain credentials/metadata; log validated codes only.
+      // Why: the raw provider error can carry request metadata or credentials — log only the validated code.
       const relayFailure = mobileRelayMintFailureFromUnknown({
         stage: 'create_pairing_relay',
         error,
@@ -183,7 +188,7 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
         fallbackMessage: 'Relay pairing invite request failed'
       })
       console.warn(`[runtime] Failed to create Relay pairing invite: ${relayFailure.code}`)
-      return refuseAutomaticWithoutRelay(relayFailure)
+      return await refuseAutomaticWithoutRelay(relayFailure)
     }
     const currentDevice = this.deviceRegistry?.getDevice(device.deviceId)
     if (
@@ -192,16 +197,16 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
       currentDevice?.token !== device.token ||
       this.deviceRegistry?.getMobilePairingConnectionMode(device.deviceId) !== 'automatic'
     ) {
-      this.queueOrRetainRelayDeviceRevoke(device.deviceId, relayPairing.binding)
+      await this.queueOrRetainRelayDeviceRevoke(device.deviceId, relayPairing.binding)
       if (createdNewPendingDevice) {
-        this.discardPendingMobilePairingDevice(direct.deviceId)
+        await this.discardPendingMobilePairingDevice(direct.deviceId)
       }
       return this.relayPairingRequestSuperseded()
     }
     try {
-      if (!this.setMobileRelayBinding(device.deviceId, relayPairing.binding)) {
-        this.queueOrRetainRelayDeviceRevoke(device.deviceId, relayPairing.binding)
-        return refuseAutomaticWithoutRelay({
+      if (!(await this.setMobileRelayBinding(device.deviceId, relayPairing.binding))) {
+        await this.queueOrRetainRelayDeviceRevoke(device.deviceId, relayPairing.binding)
+        return await refuseAutomaticWithoutRelay({
           code: 'relay_binding_failed',
           stage: 'binding_failed',
           message: 'Could not store Relay binding for the pairing device'
@@ -209,8 +214,8 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
       }
     } catch (error) {
       console.warn('[runtime] Failed to persist Relay pairing binding:', error)
-      this.queueOrRetainRelayDeviceRevoke(device.deviceId, relayPairing.binding)
-      return refuseAutomaticWithoutRelay({
+      await this.queueOrRetainRelayDeviceRevoke(device.deviceId, relayPairing.binding)
+      return await refuseAutomaticWithoutRelay({
         code: 'relay_binding_failed',
         stage: 'binding_failed',
         message: 'Could not store Relay binding for the pairing device'
@@ -245,22 +250,20 @@ export class RuntimeRpcMobilePairing extends RuntimeRpcPairing {
   }
 
   /** Drop a never-scanned mobile pending credential after a failed Anywhere mint. */
-  protected discardPendingMobilePairingDevice(deviceId: string): void {
+  protected async discardPendingMobilePairingDevice(deviceId: string): Promise<void> {
     const device = this.deviceRegistry?.getDevice(deviceId)
     if (!device || device.scope !== 'mobile' || device.lastSeenAt !== 0) {
       return
     }
     if (device.relayBinding) {
-      if (!this.queueRelayDeviceRevoke(device.relayBinding)) {
+      if (!(await this.queueRelayDeviceRevoke(device.relayBinding))) {
         return
       }
     }
     try {
-      this.deviceRegistry?.removeDevice(deviceId)
+      await this.deviceRegistry?.removeDevice(deviceId)
     } catch (error) {
       console.error('[runtime] Failed to drop an unused mobile pairing credential:', error)
     }
   }
-
-  /** If durable revoke enqueue fails, retain the device binding as the only remaining cleanup reference to the minted invite. */
 }

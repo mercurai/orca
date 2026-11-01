@@ -65,8 +65,8 @@ describe('mobile pairing userData path stability', () => {
 
     // Mirror runtime startup: registry and E2EE keys share one canonical path.
     const registry = new DeviceRegistry(getCanonicalUserDataPath())
-    registry.addDevice('iPhone')
-    loadOrCreateE2EEKeypair(getCanonicalUserDataPath())
+    await registry.addDevice('iPhone')
+    await loadOrCreateE2EEKeypair(getCanonicalUserDataPath())
 
     expect(existsSync(join(canonicalDir, DEVICE_REGISTRY_FILENAME))).toBe(true)
     expect(existsSync(join(canonicalDir, E2EE_KEYPAIR_FILENAME))).toBe(true)
@@ -227,7 +227,7 @@ describe('mobile pairing userData path stability', () => {
       initDataPath()
       appState.userData = lateDir
       const { DeviceRegistry } = await import('./device-registry')
-      new DeviceRegistry(getCanonicalUserDataPath()).addDevice('iPhone')
+      await new DeviceRegistry(getCanonicalUserDataPath()).addDevice('iPhone')
     }
 
     vi.resetModules()

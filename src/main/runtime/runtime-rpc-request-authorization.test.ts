@@ -57,8 +57,8 @@ describe('OrcaRuntimeRpcServer', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const channelDevice = server['deviceRegistry']!.addDevice('phone', 'mobile')
-    const requestDevice = server['deviceRegistry']!.addDevice('cli', 'runtime')
+    const channelDevice = await server['deviceRegistry']!.addDevice('phone', 'mobile')
+    const requestDevice = await server['deviceRegistry']!.addDevice('cli', 'runtime')
     const replies: Record<string, unknown>[] = []
 
     await server['handleWebSocketMessage'](
@@ -95,8 +95,8 @@ describe('OrcaRuntimeRpcServer', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const firstDevice = server['deviceRegistry']!.addDevice('first-cli', 'runtime')
-    const secondDevice = server['deviceRegistry']!.addDevice('second-cli', 'runtime')
+    const firstDevice = await server['deviceRegistry']!.addDevice('first-cli', 'runtime')
+    const secondDevice = await server['deviceRegistry']!.addDevice('second-cli', 'runtime')
 
     const resetMessages = async (id: string, authenticatedToken: string) => {
       const replies: Record<string, unknown>[] = []
@@ -168,7 +168,7 @@ describe('OrcaRuntimeRpcServer', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const device = server['deviceRegistry']!.addDevice('existing-cli', 'runtime')
+    const device = await server['deviceRegistry']!.addDevice('existing-cli', 'runtime')
     const existingFingerprint = createHash('sha256').update(device.token).digest('hex')
     db.createRemoteDispatchAttachment({
       runId: 'run_home',
@@ -274,7 +274,7 @@ describe('OrcaRuntimeRpcServer', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const runtimeDevice = server['deviceRegistry']!.addDevice('cli', 'runtime')
+    const runtimeDevice = await server['deviceRegistry']!.addDevice('cli', 'runtime')
     const replies: Record<string, unknown>[] = []
 
     await server['handleWebSocketMessage'](
@@ -328,8 +328,8 @@ describe('OrcaRuntimeRpcServer', () => {
       enableWebSocket: false
     })
     server['deviceRegistry'] = new DeviceRegistry(userDataPath)
-    const mobile = server['deviceRegistry']!.addDevice('phone', 'mobile')
-    const runtimeDevice = server['deviceRegistry']!.addDevice('browser', 'runtime')
+    const mobile = await server['deviceRegistry']!.addDevice('phone', 'mobile')
+    const runtimeDevice = await server['deviceRegistry']!.addDevice('browser', 'runtime')
 
     const sendStatus = async (token: string): Promise<Record<string, unknown>> => {
       const replies: Record<string, unknown>[] = []

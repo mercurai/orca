@@ -1,6 +1,7 @@
 import { extractExecError, ghExecFileAsync, gitExecFileAsync } from './runner'
 import { parseHostedRemote } from './hosted-remote-url'
 import { resolveDefaultBaseRefViaExec } from './repo'
+import { listCachedRemoteNames } from './remote-name-listing'
 import { createGitConfigSnapshotRunner } from '../../shared/git-config-snapshot-runner'
 
 type GitUsernameRunner = ReturnType<typeof createGitConfigSnapshotRunner>
@@ -170,6 +171,38 @@ async function getGhLoginOutcome(): Promise<GhLoginOutcome> {
   return probe
 }
 
+// Whether every git read behind a resolution completed. Only a plain non-zero exit means "not set".
+type ProbeState = { incomplete: boolean }
+
+function noteIfInterrupted(error: unknown, state: ProbeState): void {
+  if (typeof error !== 'object' || error === null) {
+    return
+  }
+  // Why: a timeout or kill (killed / signal) or a spawn failure (string code) says nothing about the config.
+  if (
+    ('killed' in error && error.killed === true) ||
+    ('signal' in error && Boolean(error.signal)) ||
+    ('code' in error && typeof error.code === 'string')
+  ) {
+    state.incomplete = true
+  }
+}
+
+/**
+ * One config snapshot per resolution (shared with the other git-config readers); an interruption seen by
+ * any read, including the real-Git fallback when the snapshot cannot load, makes the result non-authoritative.
+ */
+function createUsernameGitRunner(repoPath: string, state: ProbeState): GitUsernameRunner {
+  const runSnapshotted = createGitConfigSnapshotRunner((args) =>
+    gitExecFileAsync(args, { cwd: repoPath, timeout: LOCAL_GIT_READ_TIMEOUT_MS })
+  )
+  return (args) =>
+    runSnapshotted(args).catch((error: unknown) => {
+      noteIfInterrupted(error, state)
+      throw error
+    })
+}
+
 async function readGitStdout(runGit: GitUsernameRunner, args: string[]): Promise<string> {
   try {
     const { stdout } = await runGit(args)
@@ -202,10 +235,27 @@ async function getConfiguredBranchRemote(
   return remote === '.' ? '' : remote
 }
 
-/** Only the effective remote may authorize a GitHub prefix; a secondary GitHub mirror must not. */
-async function localRepoHasEffectiveGitHubRemote(runGit: GitUsernameRunner): Promise<boolean> {
-  const remoteList = await runGit(['remote']).catch(() => null)
-  const remotes = (remoteList?.stdout.trim() ?? '').split('\n').filter(Boolean)
+/**
+ * Faithful async port of the old candidate-ordered GitHub gate: only the
+ * repo's *effective* remote (current-branch remote, default-branch remote,
+ * default-base remote, origin, or a lone remote) may authorize the gh login.
+ * Why: a GitLab-primary repo with a secondary GitHub mirror must NOT pick up
+ * the GitHub account name as its branch prefix.
+ */
+async function localRepoHasEffectiveGitHubRemote(
+  repoPath: string,
+  runGit: GitUsernameRunner,
+  state: ProbeState
+): Promise<boolean> {
+  // Why the shared listing: its signed cache lets the other `git remote` callers reuse this probe.
+  // Bounded like the other reads: the enrichment pass is sequential, so one stuck git holds every repo.
+  const remoteList = await listCachedRemoteNames(repoPath, null, {
+    timeoutMs: LOCAL_GIT_READ_TIMEOUT_MS
+  })
+  if (remoteList === null) {
+    state.incomplete = true
+  }
+  const remotes = remoteList ?? []
   // Only a successful empty list proves there is no hosted remote to inspect.
   if (remoteList && remotes.length === 0) {
     return false
@@ -243,29 +293,35 @@ async function localRepoHasEffectiveGitHubRemote(runGit: GitUsernameRunner): Pro
 export async function resolveLocalGitUsernameDetailed(
   repoPath: string
 ): Promise<ResolvedGitUsername> {
-  const runGit = createGitConfigSnapshotRunner((args) =>
-    gitExecFileAsync(args, { cwd: repoPath, timeout: LOCAL_GIT_READ_TIMEOUT_MS })
-  )
+  const state: ProbeState = { incomplete: false }
+  const runGit = createUsernameGitRunner(repoPath, state)
+  const result = (username: string, ghTimedOut = false): ResolvedGitUsername => ({
+    username,
+    authoritative: !ghTimedOut && !state.incomplete
+  })
   for (const key of EXPLICIT_USERNAME_CONFIG_KEYS) {
     try {
       const { stdout } = await runGit(['config', '--get', key])
       const username = normalizeConfiguredLogin(stdout)
       if (username) {
-        return { username, authoritative: true }
+        return result(username)
       }
-    } catch {}
-  }
-  if (await localRepoHasEffectiveGitHubRemote(runGit)) {
-    const outcome = await getGhLoginOutcome()
-    if (outcome.login || outcome.timedOut) {
-      return { username: outcome.login, authoritative: !outcome.timedOut }
+    } catch {
+      // Missing config keys are expected; interruptions are already noted by the runner.
     }
   }
+  if (await localRepoHasEffectiveGitHubRemote(repoPath, runGit, state)) {
+    const outcome = await getGhLoginOutcome()
+    if (outcome.login || outcome.timedOut) {
+      return result(outcome.login, outcome.timedOut)
+    }
+  }
+  // Author names become prefixes only when they already form a safe branch component.
   const authorName = (await readGitStdout(runGit, ['config', '--get', 'user.name'])).trim()
   if (isBranchSafeHostedLogin(authorName)) {
-    return { username: authorName, authoritative: true }
+    return result(authorName)
   }
-  return { username: '', authoritative: true }
+  return result('')
 }
 
 export async function resolveLocalGitUsername(repoPath: string): Promise<string> {

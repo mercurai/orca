@@ -1,6 +1,14 @@
 import { nativeChatPastedTextToken } from './native-chat-pasted-text-reference'
-// Own complete unsent drafts in memory so each write repairs storage from one authoritative record.
+// The one owner of each composer scope's unsent message: its text, the editor document for that
+// text and its settled image refs. Every writer changes the whole record here in memory, and
+// storage is written from that record, so a reload or quit gives the draft back and a failed or
+// skipped write is repaired by the next one.
 
+import {
+  cancelNativeChatDraftRecoveries,
+  recoverNativeChatDraftMessages,
+  type DraftRecoveryMessage
+} from './native-chat-composer-draft-recovery'
 import type { JSONContent } from '@tiptap/react'
 import {
   sameNativeChatComposerDraftDocument,
@@ -15,6 +23,7 @@ import { journalNativeChatComposerDraftAddition } from './native-chat-composer-d
 import {
   clearDraftMemoryForTests,
   dirtyScopes,
+  disposedDraftScopes,
   hasLocalChange,
   load,
   nextSavedAt,
@@ -58,6 +67,7 @@ export {
   waitForNativeChatComposerDrafts
 } from './native-chat-composer-draft-load'
 
+/** This window has changed the draft and storage has not confirmed it yet. */
 export function hasUnsavedNativeChatComposerDraftChange(scopeKey: string): boolean {
   return hasLocalChange(scopeKey)
 }
@@ -91,12 +101,14 @@ export function setNativeChatComposerDraftOwnerResolver(
   resolveOwner = resolver
 }
 
+/** The owner a new draft in this scope would record now. */
 export function resolveNativeChatComposerDraftOwner(
   scopeKey: string
 ): NativeChatComposerDraftOwner | undefined {
   return resolveOwner?.(scopeKey)
 }
 
+/** Composers render from the store; this tells one that its pane's draft changed. */
 export function subscribeToNativeChatComposerDraft(
   scopeKey: string,
   listener: () => void
@@ -118,7 +130,7 @@ export function isNativeChatComposerDraftUnsaved(scopeKey: string): boolean {
 }
 
 function isEmptyDraft(draft: NativeChatComposerDraft): boolean {
-  return draft.text === '' && draft.images.length === 0
+  return draft.text === '' && draft.images.length === 0 && !draft.recoveredMessageIds?.length
 }
 
 export function readNativeChatComposerDraft(
@@ -127,7 +139,11 @@ export function readNativeChatComposerDraft(
   return records.get(scopeKey) ?? EMPTY_DRAFT
 }
 
-/** Coalesce typing, persist hand-backs/clears immediately, and remove empty drafts so sent input cannot return. */
+/**
+ * Changes fields of the scope's draft. `deferred` is for typing, coalesced into one write;
+ * `immediate` saves now: text or images given back from a copy about to be deleted, and clears.
+ * An emptied draft is removed at once, so a sent message never comes back.
+ */
 export function updateNativeChatComposerDraft(
   scopeKey: string,
   change: NativeChatComposerDraftChange,
@@ -137,7 +153,9 @@ export function updateNativeChatComposerDraft(
   if (isNativeChatEditDraft(scopeKey) && !ephemeralDrafts.has(scopeKey)) {
     return
   }
+  disposedDraftScopes.delete(scopeKey)
   const current = records.get(scopeKey) ?? EMPTY_DRAFT
+  const recoveredMessageIds = current.recoveredMessageIds
   const text = change.text ?? current.text
   const document = 'document' in change ? change.document : current.document
   const pastedTextFiles = Object.fromEntries(
@@ -159,7 +177,7 @@ export function updateNativeChatComposerDraft(
     }
     return
   }
-  if (isEmptyDraft({ text, images })) {
+  if (isEmptyDraft({ text, images, recoveredMessageIds })) {
     records.delete(scopeKey)
     reconcileRestoredImageChecks(scopeKey, [])
     notifyScope(scopeKey)
@@ -172,6 +190,7 @@ export function updateNativeChatComposerDraft(
   const owner = current.owner ?? change.owner ?? resolveOwner?.(scopeKey)
   const record: DraftRecord = {
     text,
+    ...(recoveredMessageIds?.length ? { recoveredMessageIds } : {}),
     ...(Object.keys(pastedTextFiles).length ? { pastedTextFiles } : {}),
     ...(document ? { document } : {}),
     // Why: an unchanged row keeps its identity, so typing does not re-render every image consumer.
@@ -202,7 +221,13 @@ function withAddition<T extends NativeChatComposerDraft>(
   return { ...draft, ...withNativeChatComposerDraftAddition(draft, addition) }
 }
 
-/** Replay additions over late hydration without duplicates; true means durable hand-back, allowing deletion of its source copy. */
+/**
+ * Adds to the scope's draft as it is now: text or images given back, or attached. Before the
+ * startup load lands, the same addition is made again to the loaded draft, so nothing saved
+ * earlier is replaced by it, unless that draft already holds it (a hand-back repeated after a
+ * crash before its copy was deleted). True once the addition is durable: storage commits later,
+ * so it is also journaled at once, and the copy it came from may then be deleted.
+ */
 export function appendToNativeChatComposerDraft(
   scopeKey: string,
   addition: NativeChatComposerDraftAddition,
@@ -241,7 +266,18 @@ export function appendToNativeChatComposerDraft(
   )
 }
 
-/** Clear only the sent draft’s unchanged portion so late acceptance cannot erase newer typing or attachments. */
+/** Recovery retires its source only after the backend confirms text and receipts together. */
+export function recoverNativeChatComposerDraftMessages(
+  scopeKey: string,
+  messages: readonly DraftRecoveryMessage[]
+): Promise<boolean> {
+  return recoverNativeChatDraftMessages(scopeKey, messages, resolveOwner?.(scopeKey))
+}
+
+/**
+ * Clears a sent draft only while it is still what was sent, so a send settling late never wipes
+ * what was typed or attached since, even from a composer that was replaced meanwhile.
+ */
 export function clearNativeChatComposerDraftIfUnchanged(
   scopeKey: string,
   sent: NativeChatComposerDraft
@@ -268,19 +304,22 @@ function deleteDraftsWhere(
   matches: (scopeKey: string, draft: StoredNativeChatComposerDraft | undefined) => boolean
 ): void {
   deleteLoadingNativeChatComposerDraftsWhere(matches)
-  for (const scopeKey of new Set([...records.keys(), ...scopeListeners.keys()])) {
+  const recovering = cancelNativeChatDraftRecoveries(matches)
+  for (const scopeKey of new Set([...records.keys(), ...scopeListeners.keys(), ...recovering])) {
     const draft = records.get(scopeKey)
-    if (matches(scopeKey, draft)) {
+    if (recovering.includes(scopeKey) || matches(scopeKey, draft)) {
+      disposedDraftScopes.add(scopeKey)
       records.delete(scopeKey)
       reconcileRestoredImageChecks(scopeKey, [])
       notifyScope(scopeKey)
-      if (draft) {
+      if (draft || recovering.includes(scopeKey)) {
         persistNativeChatComposerDraft(scopeKey, 'immediate')
       }
     }
   }
 }
 
+/** Drops one scope's draft, for an owner that is gone for good. */
 export function deleteNativeChatComposerDraft(scopeKey: string): void {
   deleteDraftsWhere((key) => key === scopeKey)
 }
@@ -297,7 +336,8 @@ export function nativeChatDraftScopeTabId(scopeKey: string): string {
   return scopeKey.slice(0, scopeKey.lastIndexOf(':'))
 }
 
-/** Delete closed-tab pane drafts; conversation-scoped drafts outlive their tabs. */
+/** Drops the drafts of every pane in a tab the user closed; its pane keys never come back. A
+ *  conversation's draft is never a tab's. */
 export function deleteNativeChatComposerDraftsForTab(tabId: string): void {
   deleteDraftsWhere(
     (scopeKey) =>
@@ -317,6 +357,7 @@ export function deleteNativeChatComposerDraftsOwnedBy(owner: NativeChatComposerD
 
 export function clearNativeChatComposerDraftsForTests(): void {
   ephemeralDrafts.clear()
+  cancelNativeChatDraftRecoveries(() => true)
   clearDraftMemoryForTests()
   resetNativeChatComposerDraftPersistenceForTests()
   resetNativeChatComposerDraftLoadForTests()

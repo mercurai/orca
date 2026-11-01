@@ -33,6 +33,7 @@ export type AgentModelCatalogSource = (() => boolean) & {
 }
 
 export type AgentModelCatalogService = {
+  isListing?: (sessionId: string) => boolean
   snapshot: (params: AgentModelCatalogReadParams) => AgentSessionModelCatalogResult
   demand: (params: AgentModelCatalogReadParams) => Promise<void>
   /** Explicitly resolves saved scope without listing or refreshing the environment. */
@@ -82,4 +83,13 @@ export type AgentModelCatalogReadParams = {
   legacy?: boolean
   /** Old options readers need account-default presentation, never launch or admission proof. */
   legacyOptionsDisplay?: true
+}
+
+export type AgentModelCatalogClaim = {
+  identity: string
+  params: AgentModelCatalogReadParams
+  current: () => boolean
+  controller: AbortController
+  promise: Promise<void>
+  ready: Promise<void>
 }

@@ -52,8 +52,6 @@ import {
 
 const LONG_POLL_CLIENT_GRACE_MS = 10_000
 
-const loadWebSocketTransport = async () => await import('./websocket-transport.js')
-
 export class RuntimeClient {
   readonly userDataPath: string
   private readonly remote: PairedRuntimeConnection | null
@@ -141,7 +139,7 @@ export class RuntimeClient {
       ...compatibilityEnvelope
     }
     if (this.remote) {
-      const transport = await loadWebSocketTransport()
+      const transport = await import('./websocket-transport.js')
       let response
       try {
         response = await this.remoteCompat.send<TResult>({
@@ -160,8 +158,11 @@ export class RuntimeClient {
         throw recover(new RuntimeRpcFailureError(response), null)
       }
       if (this.environmentSelector) {
-        markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
+        // Why: the request already succeeded; a failed usage stamp must not turn it into an error.
+        await markEnvironmentUsed(this.userDataPath, this.environmentSelector, {
           runtimeId: response._meta.runtimeId
+        }).catch((writeError) => {
+          console.warn('[runtime] failed to record environment usage:', writeError)
         })
       }
       return response

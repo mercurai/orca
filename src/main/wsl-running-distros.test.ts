@@ -40,7 +40,10 @@ async function withPlatform<T>(value: NodeJS.Platform, fn: () => Promise<T>): Pr
   try {
     return await fn()
   } finally {
-    Object.defineProperty(process, 'platform', { configurable: true, value: original })
+    Object.defineProperty(process, 'platform', {
+      configurable: true,
+      value: original
+    })
   }
 }
 

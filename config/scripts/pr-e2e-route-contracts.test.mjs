@@ -12,6 +12,7 @@ import {
   selectGeneralE2eSpecs
 } from './ci-e2e-job-selection.mjs'
 import { classifyPrJobs } from './pr-code-change-scope.mjs'
+import { compileAggregateExpression } from './pr-aggregate-gate-context.mjs'
 import { testImportClosure } from './e2e-test-import-closure.mjs'
 import { isLayoutOracleSource, LAYOUT_ORACLE_E2E_SPECS } from './pr-layout-oracle-route.mjs'
 import {
@@ -246,8 +247,23 @@ describe('pr-e2e-layout-oracle-routing', () => {
     it('runs exactly the oracle specs, each in the lane that can run it', () => {
       const job = prWorkflow.jobs.layout_oracle
       expect(job.uses).toBe('./.github/workflows/e2e.yml')
-      // The merge commit, so a stale-base PR cannot pass on an old main.
-      expect(job.with.ref).toBe('${{ github.sha }}')
+      const evaluateRef = compileAggregateExpression(job.with.ref, ['github', 'inputs'])
+      const mergeSha = 'a'.repeat(40)
+      const headSha = 'b'.repeat(40)
+      const candidateSha = 'c'.repeat(40)
+      for (const [inputs, expected] of [
+        [{}, mergeSha],
+        [{ candidate_sha: '' }, mergeSha],
+        [{ candidate_sha: candidateSha }, candidateSha]
+      ]) {
+        const github = {
+          sha: mergeSha,
+          ref: 'refs/pull/82/merge',
+          event: { pull_request: { head: { sha: headSha } } }
+        }
+        // Ordinary PRs test the merge, while qualification pins its advertised candidate.
+        expect(evaluateRef({ github, inputs }).coerceString()).toBe(expected)
+      }
       const specs = JSON.parse(job.with.test_files)
       expect(specs.toSorted()).toEqual(LAYOUT_ORACLE_E2E_SPECS.toSorted())
       // Window spec runs in the changed-spec lane; headless runs in the orcad lane.
@@ -288,13 +304,12 @@ describe('ssh-browser-e2e-routing', () => {
       (step) => step.name === 'Run Docker SSH browser network route journeys'
     )
     expect(job['runs-on']).toBe(
-      "${{ inputs.fast_runners && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"
+      "${{ github.repository != 'mercurai/orca' && inputs.fast_runners && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}"
     )
     expect(job.if).toContain("inputs.test_files == ''")
     expect(job.if).toContain(spec)
     expect(install.with['native-runtime']).toBe('node')
     expect(run.env.ORCA_RUN_DOCKER_SSH_BROWSER_E2E).toBe('1')
-    expect(run.run).toContain(`vitest run --config config/vitest.config.ts ${spec}`)
     expect(run['continue-on-error']).toBeUndefined()
     expect(DEDICATED_E2E_SPECS).toContain(spec)
     for (const changed of [

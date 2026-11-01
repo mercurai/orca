@@ -6,18 +6,23 @@ import {
 } from './agent-model-catalog-entry'
 import { independentAgentModelCatalog } from './agent-model-catalog-discovery'
 
-export const AGENT_MODEL_CATALOG_FRESH_MS = 10 * 60_000
+import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
+export { AGENT_MODEL_CATALOG_FRESH_MS }
 
 export function agentModelCatalogEntryIsStale(
   entry: AgentModelCatalogEntry,
   due: boolean,
-  now: number
+  now: number,
+  source: 'discovery' | 'latest' = 'discovery'
 ): boolean {
+  const at = source === 'latest' ? entry.fetchedAt : entry.discovered?.at
   return (
     due ||
-    !entry.discovered ||
-    (independentAgentModelCatalog(entry.agent) && entry.discovered.complete !== true) ||
-    now - entry.discovered.at >=
+    at === undefined ||
+    (source === 'discovery' &&
+      independentAgentModelCatalog(entry.agent) &&
+      entry.discovered?.complete !== true) ||
+    now - at >=
       (independentAgentModelCatalog(entry.agent) ? 2 * 60_000 : AGENT_MODEL_CATALOG_FRESH_MS)
   )
 }

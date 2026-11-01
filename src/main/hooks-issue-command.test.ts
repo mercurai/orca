@@ -18,8 +18,8 @@ vi.mock('fs', () => ({
   chmodSync: vi.fn()
 }))
 
-const { gitExecFileSyncMock } = vi.hoisted(() => ({
-  gitExecFileSyncMock: vi.fn()
+const { gitExecFileAsyncMock } = vi.hoisted(() => ({
+  gitExecFileAsyncMock: vi.fn()
 }))
 
 vi.mock('child_process', () => ({
@@ -31,7 +31,7 @@ vi.mock('child_process', () => ({
 
 vi.mock('./git/runner', async () => ({
   ...(await vi.importActual<typeof GitRunner>('./git/runner')),
-  gitExecFileSync: gitExecFileSyncMock
+  gitExecFileAsync: gitExecFileAsyncMock
 }))
 
 vi.mock('./git/check-ignored-paths', () => ({

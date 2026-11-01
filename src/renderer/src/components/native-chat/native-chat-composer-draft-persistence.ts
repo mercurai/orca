@@ -1,11 +1,14 @@
 // Persist whole memory records, journal unconfirmed changes on unload, and adopt other windows’ confirmed writes.
 
+import { includeCommittedDraftRecoveries } from './native-chat-composer-draft-recovery'
+import { preserveDraftRecoveryReceipts } from './native-chat-composer-draft-recovery-receipts'
 import { basename } from '@/lib/path'
 import { isNativeChatKeptPastePath } from './native-chat-image-paste'
 import { isNativeChatPastedImagePath } from '../../../../shared/native-chat-image-label'
 import { isAgentSessionAttachmentStorePath } from '../../../../shared/agent-session-attachments'
 import {
   dirtyScopes,
+  disposedDraftScopes,
   hasLocalChange,
   load,
   nextSavedAt,
@@ -65,10 +68,14 @@ function savedForm(record: DraftRecord): StoredNativeChatComposerDraft | null {
       : image
   )
   const text = saved.text === unsavedText ? '' : saved.text
-  if (text === '' && images.length === 0) {
+  if (text === '' && images.length === 0 && !saved.recoveredMessageIds?.length) {
     return null
   }
   return { ...saved, text, images }
+}
+
+export function broadcastNativeChatComposerDraftChange(scopeKey: string): void {
+  channel?.postMessage({ scopeKey })
 }
 
 function confirm(scopeKey: string, change: UnconfirmedDraftChange): void {
@@ -101,16 +108,28 @@ function persist(scopeKey: string): void {
   const change: UnconfirmedDraftChange = { draft, at: draft?.savedAt ?? nextSavedAt() }
   unconfirmed.set(scopeKey, change)
   const storage = nativeChatComposerDraftStorage()
-  const written = (draft ? storage.write(scopeKey, draft) : storage.remove([scopeKey])).then(
-    () => {
-      confirm(scopeKey, change)
-      return true
-    },
-    (error: unknown) => {
-      refuse(scopeKey, change, error)
-      return false
-    }
-  )
+  const written = Promise.resolve()
+    .then(() =>
+      disposedDraftScopes.has(scopeKey)
+        ? storage.remove([scopeKey])
+        : storage.update(scopeKey, (raw) => {
+            const previous = parseStoredNativeChatComposerDraft(raw)
+            return preserveDraftRecoveryReceipts(
+              includeCommittedDraftRecoveries(scopeKey, draft, previous),
+              previous
+            )
+          })
+    )
+    .then(
+      () => {
+        confirm(scopeKey, change)
+        return true
+      },
+      (error: unknown) => {
+        refuse(scopeKey, change, error)
+        return false
+      }
+    )
   track(scopeKey, written)
 }
 
@@ -241,13 +260,17 @@ function adoptForeignChange(message: unknown): void {
     typeof message === 'object' && message !== null && 'scopeKey' in message
       ? message.scopeKey
       : null
-  if (typeof scopeKey !== 'string' || hasLocalChange(scopeKey)) {
+  if (
+    typeof scopeKey !== 'string' ||
+    disposedDraftScopes.has(scopeKey) ||
+    hasLocalChange(scopeKey)
+  ) {
     return
   }
   void nativeChatComposerDraftStorage()
     .read(scopeKey)
     .then((value) => {
-      if (hasLocalChange(scopeKey)) {
+      if (disposedDraftScopes.has(scopeKey) || hasLocalChange(scopeKey)) {
         return
       }
       const draft = parseStoredNativeChatComposerDraft(value)

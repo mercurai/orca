@@ -13,7 +13,7 @@ import {
   listWslMoveCutoverChain,
   onWslMoveJournalChange,
   scanWslMoveCutovers,
-  writeWslMoveCutover
+  updateWslMoveCutover
 } from './wsl-move-cutover-journal'
 import { planWslMoveRetainedMarks, type WslMoveRowRef } from './wsl-move-retained-source'
 import { userDataKey } from './wsl-move-scope-guard'
@@ -82,17 +82,15 @@ async function runPass(options: WslMoveRetentionOptions): Promise<WslMoveRetenti
   const retainedMigrationIds: string[] = []
   for (const migrationId of retaining) {
     // Fresh from disk: "Use on this computer again" may have dropped it while the marks flushed.
-    const current = scanWslMoveCutovers(userDataPath).find(
-      (cutover) => cutover.migrationId === migrationId
-    )
-    if (current?.phase !== 'client-rewritten') {
+    const retained = await updateWslMoveCutover(userDataPath, migrationId, (current) => {
+      if (current?.phase !== 'client-rewritten') {
+        return { result: false }
+      }
+      return { cutover: { ...current, phase: 'retained', updatedAt: now }, result: true }
+    })
+    if (!retained) {
       continue
     }
-    writeWslMoveCutover(userDataPath, {
-      ...structuredClone(current),
-      phase: 'retained',
-      updatedAt: now
-    })
     retainedMigrationIds.push(migrationId)
   }
   return { retainedMigrationIds, rewrittenMarks, changed: plan.changed }

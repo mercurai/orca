@@ -4,8 +4,9 @@
  */
 import { join } from 'node:path'
 import { z } from 'zod'
-import { writeSecureJsonFileWithinLimit } from '../../shared/bounded-secure-json-file'
+import { writeSecureJsonFileWithinLimitAsync } from '../../shared/bounded-secure-json-file'
 import { readNodeFileSyncWithinLimit } from '../../shared/node-bounded-file-reader'
+import { serializePathWrite } from '../../shared/path-write-serializer'
 
 const KEPT_FILE = 'orca-wsl-hosts-kept-for-peers.json'
 const MAX_KEPT_FILE_BYTES = 64 * 1024
@@ -28,17 +29,33 @@ function readKeptList(userDataPath: string): string[] {
   }
 }
 
-/** Throws when it can't be saved, so the caller doesn't report a plain stop. */
-export function recordWslHostKeptForPeers(userDataPath: string, environmentId: string): void {
-  const current = readKeptList(userDataPath)
-  if (current.includes(environmentId)) {
-    return
-  }
-  writeSecureJsonFileWithinLimit(
-    keptFile(userDataPath),
-    { version: 1, environmentIds: [...current, environmentId] },
-    MAX_KEPT_FILE_BYTES,
-    { durable: true }
+function mutateKeptList(
+  userDataPath: string,
+  update: (current: string[]) => string[]
+): Promise<void> {
+  const path = keptFile(userDataPath)
+  return serializePathWrite(`${path}#kept-for-peers-mutation`, async () => {
+    const current = readKeptList(userDataPath)
+    const next = update(current)
+    if (next === current) {
+      return
+    }
+    await writeSecureJsonFileWithinLimitAsync(
+      path,
+      { version: 1, environmentIds: next },
+      MAX_KEPT_FILE_BYTES,
+      { durable: true }
+    )
+  })
+}
+
+/** Rejects when it can't be saved, so the caller doesn't report a plain stop. */
+export function recordWslHostKeptForPeers(
+  userDataPath: string,
+  environmentId: string
+): Promise<void> {
+  return mutateKeptList(userDataPath, (current) =>
+    current.includes(environmentId) ? current : [...current, environmentId]
   )
 }
 
@@ -47,15 +64,11 @@ export function wasWslHostKeptForPeers(userDataPath: string, environmentId: stri
 }
 
 /** A later Remove proved the server stopped: nothing of the host runs on. */
-export function forgetWslHostKeptForPeers(userDataPath: string, environmentId: string): void {
-  const current = readKeptList(userDataPath)
-  if (!current.includes(environmentId)) {
-    return
-  }
-  writeSecureJsonFileWithinLimit(
-    keptFile(userDataPath),
-    { version: 1, environmentIds: current.filter((id) => id !== environmentId) },
-    MAX_KEPT_FILE_BYTES,
-    { durable: true }
+export function forgetWslHostKeptForPeers(
+  userDataPath: string,
+  environmentId: string
+): Promise<void> {
+  return mutateKeptList(userDataPath, (current) =>
+    current.includes(environmentId) ? current.filter((id) => id !== environmentId) : current
   )
 }

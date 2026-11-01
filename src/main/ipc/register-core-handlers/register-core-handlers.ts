@@ -115,6 +115,7 @@ import { settleWithinMs } from '../../quit-teardown-deadline'
 import { getRuntimeEnvironmentRegistryRoot } from '../runtime-environments/runtime-environment-registry-root'
 
 let registered = false
+let coreHandlersReady: Promise<void> = Promise.resolve()
 // Same cap as the restart path's auth preservation: bookkeeping must not hold Restart on a stalled disk.
 const RELAUNCH_DISMISSAL_CLOSE_TIMEOUT_MS = 2_000
 
@@ -161,14 +162,14 @@ export function registerCoreHandlers(
   lifecycleOptions: CoreHandlerLifecycleOptions = {},
   pluginService?: PluginService,
   marketplaceServices?: PluginMarketplaceHandlerServices
-): void {
+): Promise<void> {
   // macOS activation can replace the window without ending the app; refresh trusted IDs but register IPC once.
   setTrustedBrowserRendererWebContentsId(mainWindowWebContentsId)
   setTrustedClipboardRendererWebContentsId(mainWindowWebContentsId)
   setTrustedUIRendererWebContentsId(mainWindowWebContentsId)
   setAgentBrowserBridgeRef(runtime.getAgentBrowserBridge())
   if (registered) {
-    return
+    return coreHandlersReady
   }
   registered = true
 
@@ -258,7 +259,7 @@ export function registerCoreHandlers(
   registerFilesystemWatcherHandlers()
   registerRuntimeHandlers(runtime)
   registerRuntimeEnvironmentHandlers(store)
-  registerWslHostHandlers({
+  coreHandlersReady = registerWslHostHandlers({
     store,
     getUserDataPath: () => app.getPath('userData'),
     invalidateTransport: invalidateRuntimeEnvironmentTransport
@@ -303,4 +304,5 @@ export function registerCoreHandlers(
   })
   registerUpdaterHandlers(store)
   registerSpeechHandlers(store)
+  return coreHandlersReady
 }

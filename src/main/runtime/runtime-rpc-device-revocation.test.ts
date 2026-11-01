@@ -44,7 +44,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'mobile-test',
         scope: 'mobile'
@@ -92,7 +92,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'mobile-test',
         scope: 'mobile'
@@ -132,7 +132,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'runtime-test',
         scope: 'runtime'
@@ -162,7 +162,7 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'runtime-test',
         scope: 'runtime'
@@ -174,7 +174,7 @@ describe('OrcaRuntimeRpcServer', () => {
       const first = await authenticateMobileWs(offer.pairingUrl)
       const second = await authenticateMobileWs(offer.pairingUrl)
 
-      expect(server.revokeRuntimeAccess(offer.deviceId)).toBe(true)
+      expect(await server.revokeRuntimeAccess(offer.deviceId)).toBe(true)
       await Promise.all([waitForWsClose(first), waitForWsClose(second)])
       await waitFor(
         () =>
@@ -201,13 +201,13 @@ describe('OrcaRuntimeRpcServer', () => {
     await server.start()
 
     try {
-      const first = server.createPairingOffer({
+      const first = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'runtime-test',
         rotate: true,
         scope: 'runtime'
       })
-      const second = server.createPairingOffer({
+      const second = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'runtime-test',
         rotate: true,
@@ -225,8 +225,8 @@ describe('OrcaRuntimeRpcServer', () => {
       )
       expect(server.getDeviceRegistry()?.getDevice(first.deviceId)).toBeNull()
 
-      server.getDeviceRegistry()?.updateLastSeen(second.deviceId)
-      const third = server.createPairingOffer({
+      await server.getDeviceRegistry()?.updateLastSeen(second.deviceId)
+      const third = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'runtime-test',
         rotate: true,

@@ -62,15 +62,15 @@ afterEach(async () => {
 })
 
 describe('WSL move session freeze', () => {
-  it("lets the quiesce's own Sleep write while the move is only fenced", () => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
+  it("lets the quiesce's own Sleep write while the move is only fenced", async () => {
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'source-fenced'))
     store.setWorkspaceSession(session('after-sleep', 'terminal'))
     expect(titles(store)).toEqual({ moving: ['after-sleep'], staying: ['after-sleep'] })
   })
 
   describe('once quiesced', () => {
-    beforeEach(() => {
-      seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
+    beforeEach(async () => {
+      await seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
     })
 
     it('keeps the moving workspace as the quiesce left it and takes the rest', () => {
@@ -102,8 +102,8 @@ describe('WSL move session freeze', () => {
     })
   })
 
-  it('keeps freezing through commit, so the retained rows survive for a downgrade', () => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
+  it('keeps freezing through commit, so the retained rows survive for a downgrade', async () => {
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
     store.setWorkspaceSession(session('edited', 'editor'))
     expect(titles(store)).toEqual({ moving: ['slept'], staying: ['edited'] })
   })
@@ -145,7 +145,7 @@ describe('WSL move session freeze', () => {
       active: store.getWorkspaceSession().tabGroups?.[MOVING]?.[0]?.activeTabId
     })
 
-    it("takes the project's chat tabs as written and keeps its terminals as the quiesce left them", () => {
+    it("takes the project's chat tabs as written and keeps its terminals as the quiesce left them", async () => {
       store.setWorkspaceSession(
         withTabs(
           session('slept', 'terminal'),
@@ -153,7 +153,7 @@ describe('WSL move session freeze', () => {
           'moving-tab'
         )
       )
-      seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
+      await seedWslMoveCutover(testState.dir, cutover('move-1', 'destination-committed'))
       // The renderer holds only the chats of a moved project: it dropped the terminal tab.
       store.setWorkspaceSession(
         withTabs(
@@ -180,8 +180,8 @@ describe('WSL move session freeze', () => {
       })
     })
 
-    it('still refuses chat tab writes while the move is only quiesced', () => {
-      seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
+    it('still refuses chat tab writes while the move is only quiesced', async () => {
+      await seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
       store.setWorkspaceSession(
         withTabs(session('edited', 'editor'), [tab('agent-session:new', 'agent-session')], null)
       )
@@ -202,8 +202,8 @@ describe('WSL move session freeze', () => {
 })
 
 describe('WSL move session freeze: other session writers', () => {
-  beforeEach(() => {
-    seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
+  beforeEach(async () => {
+    await seedWslMoveCutover(testState.dir, cutover('move-1', 'quiesced'))
   })
 
   it('keeps the frozen rows through a failed durable mutation that rolls the session back', async () => {

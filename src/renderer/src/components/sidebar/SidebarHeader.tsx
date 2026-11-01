@@ -81,13 +81,9 @@ const SidebarHeader = React.memo(function SidebarHeader({
                 <PopoverAnchor asChild>
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="sidebar-activity"
                     size="icon-xs"
-                    className={cn(
-                      'w-8 text-muted-foreground',
-                      agentsViewActive &&
-                        'bg-foreground/10 text-foreground hover:bg-foreground/15 dark:hover:bg-foreground/15'
-                    )}
+                    className="w-8"
                     aria-label={activityLabel}
                     aria-pressed={agentsViewActive}
                     aria-describedby={activityBadgeId}

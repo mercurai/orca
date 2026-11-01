@@ -72,7 +72,7 @@ function ready(result: ReturnType<typeof planWslMove>): WslMovePlan {
 }
 
 describe('planWslMove', () => {
-  it("plans the distro's first move with the selected projects, then journals it", () => {
+  it("plans the distro's first move with the selected projects, then journals it", async () => {
     const plan = ready(
       planWslMove(dir, state([repo('repo-a'), repo('repo-b')]), 'Ubuntu', NO_HOST, {
         repoIds: ['repo-a'],
@@ -82,7 +82,7 @@ describe('planWslMove', () => {
     expect(plan).toMatchObject({ repoIds: ['repo-a'], generation: 1, changed: [], removed: [] })
     expect(plan.supersedesMigrationId).toBeUndefined()
 
-    journalWslMove({
+    await journalWslMove({
       userDataPath: dir,
       plan,
       manifest: moveFor('move-1', plan),
@@ -94,8 +94,8 @@ describe('planWslMove', () => {
     ])
   })
 
-  it('chains a delta move that takes only the new project', () => {
-    seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
+  it('chains a delta move that takes only the new project', async () => {
+    await seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
 
     const plan = ready(planWslMove(dir, state([repo('repo-a'), repo('repo-b')]), 'ubuntu', NO_HOST))
     expect(plan).toMatchObject({
@@ -104,13 +104,13 @@ describe('planWslMove', () => {
       destinationEnvironmentId: 'wsl:Ubuntu',
       generation: 2
     })
-    journalWslMove({
+    await journalWslMove({
       userDataPath: dir,
       plan,
       manifest: moveFor('move-2', plan),
       destinationName: 'Ubuntu'
     })
-    seedWslMoveCutover(dir, {
+    await seedWslMoveCutover(dir, {
       ...listWslMoveCutoverChain(dir, plan.journalKey)[1],
       phase: 'retained'
     })
@@ -127,7 +127,7 @@ describe('planWslMove', () => {
     })
   })
 
-  it('refuses a second move while one of the distro is in flight', () => {
+  it('refuses a second move while one of the distro is in flight', async () => {
     const rows = state([repo('repo-a'), repo('repo-b')])
     const first = ready(
       planWslMove(dir, rows, 'Ubuntu', NO_HOST, { repoIds: ['repo-a'], folderWorkspaceIds: [] })
@@ -135,7 +135,7 @@ describe('planWslMove', () => {
     const second = ready(
       planWslMove(dir, rows, 'Ubuntu', NO_HOST, { repoIds: ['repo-b'], folderWorkspaceIds: [] })
     )
-    journalWslMove({
+    await journalWslMove({
       userDataPath: dir,
       plan: first,
       manifest: moveFor('move-1', first),
@@ -147,35 +147,35 @@ describe('planWslMove', () => {
       code: 'wsl_move_already_in_flight'
     })
     // A plan made before the first journaled loses at the journal's own check.
-    expect(() =>
+    await expect(
       journalWslMove({
         userDataPath: dir,
         plan: second,
         manifest: moveFor('move-2', second),
         destinationName: 'Ubuntu'
       })
-    ).toThrow('wsl_move_already_in_flight')
+    ).rejects.toThrow('wsl_move_already_in_flight')
   })
 
-  it('refuses a delta planned against a head that has since moved on', () => {
-    seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
+  it('refuses a delta planned against a head that has since moved on', async () => {
+    await seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
     const stale = ready(
       planWslMove(dir, state([repo('repo-a'), repo('repo-b')]), 'Ubuntu', NO_HOST)
     )
-    seedWslMoveCutover(dir, retainedMove('move-2', ['repo-c'], 2, 'move-1'))
+    await seedWslMoveCutover(dir, retainedMove('move-2', ['repo-c'], 2, 'move-1'))
 
-    expect(() =>
+    await expect(
       journalWslMove({
         userDataPath: dir,
         plan: stale,
         manifest: moveFor('move-3', stale),
         destinationName: 'Ubuntu'
       })
-    ).toThrow('wsl_move_must_extend_its_chain')
+    ).rejects.toThrow('wsl_move_must_extend_its_chain')
   })
 
-  it('lists, but never takes again, a moved project an older build changed or removed', () => {
-    seedWslMoveCutover(
+  it('lists, but never takes again, a moved project an older build changed or removed', async () => {
+    await seedWslMoveCutover(
       dir,
       wslMoveCutoverFixture('move-1', 'retained', {}, { repoIds: ['repo-a', 'gone'] })
     )
@@ -192,8 +192,8 @@ describe('planWslMove', () => {
     })
   })
 
-  it('ignores SSH rows and other hosts that share a moved id', () => {
-    seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
+  it('ignores SSH rows and other hosts that share a moved id', async () => {
+    await seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
     const rows = state([
       repo('repo-a'),
       repo('repo-a', { path: '/home/dev/repo-a', executionHostId: 'runtime:wsl-ubuntu' }),
@@ -205,23 +205,23 @@ describe('planWslMove', () => {
     })
   })
 
-  it('refuses a manifest that is not the plan', () => {
+  it('refuses a manifest that is not the plan', async () => {
     const plan = ready(planWslMove(dir, state([repo('repo-a'), repo('repo-b')]), 'Ubuntu', NO_HOST))
-    expect(() =>
+    await expect(
       journalWslMove({
         userDataPath: dir,
         plan,
         manifest: moveFor('move-1', { ...plan, repoIds: ['repo-a'] }),
         destinationName: 'Ubuntu'
       })
-    ).toThrow('wsl_move_manifest_not_planned')
+    ).rejects.toThrow('wsl_move_manifest_not_planned')
   })
 
-  it('never takes again what the host still holds after its move was dropped', () => {
-    seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
-    seedWslMoveCutover(dir, retainedMove('move-2', ['repo-b'], 2, 'move-1'))
+  it('never takes again what the host still holds after its move was dropped', async () => {
+    await seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
+    await seedWslMoveCutover(dir, retainedMove('move-2', ['repo-b'], 2, 'move-1'))
     // What "Use on this computer again" does: the host keeps repo-b and its generation.
-    removeWslMoveCutover(dir, 'move-2')
+    await removeWslMoveCutover(dir, 'move-2')
 
     const plan = ready(
       planWslMove(dir, state([repo('repo-a'), repo('repo-b'), repo('repo-c')]), 'Ubuntu', {
@@ -238,8 +238,8 @@ describe('planWslMove', () => {
     })
   })
 
-  it("lists a project another distro's host owns instead of taking it twice", () => {
-    seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
+  it("lists a project another distro's host owns instead of taking it twice", async () => {
+    await seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a'], 1))
     const debian = (id: string) => repo(id, { path: `\\\\wsl.localhost\\Debian\\src\\${id}` })
     const result = planWslMove(dir, state([debian('repo-a'), debian('repo-d')]), 'Debian', NO_HOST)
     expect(ready(result)).toMatchObject({
@@ -248,20 +248,20 @@ describe('planWslMove', () => {
     })
   })
 
-  it('refuses a manifest whose scope doubles an id', () => {
+  it('refuses a manifest whose scope doubles an id', async () => {
     const plan = ready(planWslMove(dir, state([repo('repo-a'), repo('repo-b')]), 'Ubuntu', NO_HOST))
-    expect(() =>
+    await expect(
       journalWslMove({
         userDataPath: dir,
         plan: { ...plan, repoIds: ['repo-a', 'repo-a'] },
         manifest: moveFor('move-1', plan),
         destinationName: 'Ubuntu'
       })
-    ).toThrow('wsl_move_manifest_not_planned')
+    ).rejects.toThrow('wsl_move_manifest_not_planned')
   })
 
-  it('lists a moved project whose path an older build took out of the distro as changed', () => {
-    seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a', 'repo-m'], 1))
+  it('lists a moved project whose path an older build took out of the distro as changed', async () => {
+    await seedWslMoveCutover(dir, retainedMove('move-1', ['repo-a', 'repo-m'], 1))
     const rows = state([
       repo('repo-a', { path: 'C:\\src\\repo-a' }),
       // Partly on Windows now: refused by the scope rule, but still here.

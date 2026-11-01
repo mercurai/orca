@@ -146,7 +146,7 @@ it.each(['before', 'after', 'paired', 'orchestration'] as const)(
       : null
     if (server) {
       await server.start()
-      const offer = server.createPairingOffer({
+      const offer = await server.createPairingOffer({
         address: '127.0.0.1',
         name: 'CLI test',
         scope: 'runtime'

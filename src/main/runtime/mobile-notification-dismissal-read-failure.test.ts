@@ -12,7 +12,7 @@ it('preserves dismissal history after EIO', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'push-comment-'))
   try {
     const store = new MobileNotificationDismissalStore(dir)
-    store.record({
+    await store.record({
       type: 'dismiss',
       notificationId: 'old',
       notificationEpoch: 'epoch',
@@ -25,7 +25,7 @@ it('preserves dismissal history after EIO', async () => {
       throw Object.assign(new Error('read failed'), { code: 'EIO' })
     })
     const restarted = new MobileNotificationDismissalStore(dir)
-    restarted.record({
+    await restarted.record({
       type: 'dismiss',
       notificationId: 'new',
       notificationEpoch: 'epoch',

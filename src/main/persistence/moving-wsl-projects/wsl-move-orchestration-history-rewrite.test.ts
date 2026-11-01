@@ -129,7 +129,7 @@ describe('WSL move orchestration history rewrite', () => {
 
   it("gives a moved project's settled local dispatches the host's worktree id", async () => {
     seedOrchestrationHistory()
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -160,7 +160,7 @@ describe('WSL move orchestration history rewrite', () => {
     const before = withDb((db) =>
       db.prepare(`SELECT updated_at, effects, start_options FROM worker_dispatches`).all()
     )
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -172,12 +172,12 @@ describe('WSL move orchestration history rewrite', () => {
 
   it('changes nothing when a crash lost its ledger entry and it runs again', async () => {
     seedOrchestrationHistory()
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
     await runWslMoveDesktopRewritePass({ userDataPath })
     const dispatches = dispatchIds()
     const resources = resourceIds()
     rmSync(wslMoveJournalDirectory(userDataPath), { recursive: true, force: true })
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -190,7 +190,7 @@ describe('WSL move orchestration history rewrite', () => {
       cutover: committedMove(),
       rewritePath: createUncToLinuxPathRewriter('Ubuntu'),
       destinationHostId: 'runtime:wsl:Ubuntu',
-      recordSeededHostWorkspaceIds: () => {}
+      recordSeededHostWorkspaceIds: async () => {}
     })
     expect(withDb((db) => rewriteWslMoveOrchestrationHistory(db, scope))).toBe(0)
   })
@@ -209,7 +209,7 @@ describe('WSL move orchestration history rewrite', () => {
   it('touches nothing for a move that has not committed', async () => {
     seedOrchestrationHistory()
     const dispatches = dispatchIds()
-    seedWslMoveCutover(userDataPath, { ...committedMove(), phase: 'blobs-transferred' })
+    await seedWslMoveCutover(userDataPath, { ...committedMove(), phase: 'blobs-transferred' })
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -218,7 +218,7 @@ describe('WSL move orchestration history rewrite', () => {
   })
 
   it('records the store without creating a database the profile never had', async () => {
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -242,7 +242,7 @@ describe('WSL move orchestration history rewrite', () => {
       ).run(MOVED)
     })
     const dispatches = dispatchIds()
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath, warn: () => {} })
 
@@ -272,7 +272,7 @@ describe('WSL move orchestration history rewrite', () => {
       MOVED
     )
     db.close()
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 
@@ -286,7 +286,7 @@ describe('WSL move orchestration history rewrite', () => {
     const db = new Database(databasePath)
     db.exec(`CREATE TABLE worker_dispatches (dispatch_id TEXT PRIMARY KEY, state TEXT NOT NULL)`)
     db.close()
-    seedWslMoveCutover(userDataPath, committedMove())
+    await seedWslMoveCutover(userDataPath, committedMove())
 
     await runWslMoveDesktopRewritePass({ userDataPath })
 

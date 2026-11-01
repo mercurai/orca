@@ -26,6 +26,15 @@ vi.mock('@/components/native-chat/native-chat-session-option-settings-write', ()
 }))
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
+vi.mock('@/runtime/runtime-rpc-client', async () => {
+  const { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } =
+    await import('../../../shared/agent-session-create-capabilities')
+  return {
+    callRuntimeRpc: vi.fn(async () => ({
+      capabilities: [CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY]
+    }))
+  }
+})
 
 const launchErrorMocks = vi.hoisted(() => {
   class StructuredAgentSessionCreateRefusalError extends Error {}
@@ -92,8 +101,10 @@ import {
 } from './structured-agent-session-launch'
 import {
   applyStructuredLaunchHeldOptions,
+  getStructuredAgentSessionLaunchHeldOptions,
   getStructuredAgentSessionLaunchSelection,
-  holdStructuredAgentSessionLaunchOption
+  holdStructuredAgentSessionLaunchOption,
+  structuredLaunchOptionOverlay
 } from './structured-agent-session-launch-options'
 import { resetStructuredAgentLaunchPersistenceForTests } from './agent-session/launch/structured-agent-session-launch-persistence'
 import {
@@ -283,26 +294,67 @@ describe('picks made while a chat launches', () => {
     expect(mutations().map((mutation) => mutation.value)).toEqual(['gpt-picked', 'gpt-repicked'])
   })
 
-  it('keeps a held tier across a model pick whose catalog does not offer it', async () => {
+  it('retains a held unsupported speed until an explicit Standard replacement is accepted', async () => {
     const created = deferred<{ sessionId: string; fence: number }>()
     mocks.launch.mockReturnValue(created.promise)
     const launch = startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'request-tier' })
     const tierPick = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'priority')
     holdStructuredAgentSessionLaunchOption(SESSION_ID, 'model', 'gpt-nofast')
+    expect(getStructuredAgentSessionLaunchHeldOptions(SESSION_ID)).toEqual({
+      model: 'gpt-nofast',
+      serviceTier: 'priority'
+    })
     created.resolve({ sessionId: SESSION_ID, fence: 3 })
     await settle()
-    expect(setOptionReplies).toHaveLength(2)
-    for (const reply of setOptionReplies) {
-      reply.resolve(ACCEPTED)
-    }
-    await expect(tierPick).resolves.toMatchObject({ kind: 'accepted' })
+    setOptionReplies[0]!.resolve(ACCEPTED)
+    await settle()
+    setOptionReplies[1]!.resolve({
+      ok: false,
+      refusal: { code: 'invalid_argument', message: 'Selected speed is unavailable' }
+    })
+    await expect(tierPick).resolves.toMatchObject({ kind: 'refused' })
+    expect(getStructuredAgentSessionLaunchHeldOptions(SESSION_ID)).toMatchObject({
+      serviceTier: 'priority'
+    })
+    expect(lifecycle()).toBe('pending')
+    const standard = holdStructuredAgentSessionLaunchOption(SESSION_ID, 'serviceTier', 'default')
+    await settle()
+    setOptionReplies[2]!.resolve(ACCEPTED)
+    await expect(standard).resolves.toMatchObject({ kind: 'accepted' })
     await launch.launchResult
-
     expect(mutations().map(({ key, value }) => [key, value])).toEqual([
       ['model', 'gpt-nofast'],
-      ['serviceTier', 'priority']
+      ['serviceTier', 'priority'],
+      ['serviceTier', 'default']
     ])
   })
+
+  it.each([
+    ['serviceTier', 'priority', 'fastMode', 'false'],
+    ['fastMode', 'true', 'serviceTier', 'default']
+  ])(
+    'shows and holds only the newer speed intent over a transmitted %s=%s, which still settles',
+    async (oldKey, oldValue, key, value) => {
+      const created = deferred<{ sessionId: string; fence: number }>()
+      mocks.launch.mockReturnValue(created.promise)
+      startStructuredAgentLaunch(WORKTREE_ID, 'codex', { requestId: 'request-speed-intent' })
+      const older = holdStructuredAgentSessionLaunchOption(SESSION_ID, oldKey, oldValue)
+      created.resolve({ sessionId: SESSION_ID, fence: 3 })
+      await settle()
+      expect(setOptionReplies).toHaveLength(1)
+
+      holdStructuredAgentSessionLaunchOption(SESSION_ID, key, value)
+      const state = getStructuredLaunchStateBySessionId(SESSION_ID)!
+      // The older operation was transmitted, so it stays live for its reply but is not the intent.
+      expect(structuredLaunchOptionOverlay(state)).toEqual({ [key]: value })
+      expect(getStructuredAgentSessionLaunchHeldOptions(SESSION_ID)).toEqual({ [key]: value })
+
+      setOptionReplies[0]!.resolve(ACCEPTED)
+      await expect(older).resolves.toMatchObject({ kind: 'accepted' })
+      expect(structuredLaunchOptionOverlay(state)).toEqual({ [key]: value })
+      expect(getStructuredAgentSessionLaunchHeldOptions(SESSION_ID)).toEqual({ [key]: value })
+    }
+  )
 
   it('reports a refused pick to its picker and publishes all the same', async () => {
     mocks.launch.mockResolvedValue({ sessionId: SESSION_ID, fence: 1 })
@@ -380,7 +432,18 @@ describe('picks made while a chat launches', () => {
     expect(lifecycle()).toBe('failed')
     expect(mutations()).toEqual([])
 
+    const retryAdopted = Promise.withResolvers<void>()
+    mocks.retryIntent.mockImplementationOnce((intent: StructuredAgentSessionLaunchIntent) => {
+      const retried = { ...intent, seedOptions: { model: 'gpt-saved-since' } }
+      retryAdopted.resolve()
+      return retried
+    })
     expect(retryStructuredAgentSessionLaunch(WORKTREE_ID, SESSION_ID)).toBe(true)
+    expect(getStructuredAgentSessionLaunchHeldOptions(SESSION_ID)).toEqual({
+      model: 'gpt-picked'
+    })
+    await retryAdopted.promise
+    // A definitive refusal permits a new create once recovery admits the retry.
     expect(getStructuredAgentSessionLaunchSelection(SESSION_ID)).toEqual({
       seed: { model: 'gpt-saved-since' }
     })

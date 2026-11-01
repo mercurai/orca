@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { writeDurableSecureJsonFile } from '../../../shared/secure-file'
+import { writeDurableSecureJsonFileAsync } from '../../../shared/secure-file-async-write'
 import { wslMoveJournalKey } from '../../../shared/wsl-move/wsl-move-cutover'
 import type { WslMoveOrchestratorRecord } from '../../../shared/wsl-move/wsl-move-orchestrator-types'
 
@@ -109,11 +109,11 @@ export function readWslMoveOrchestratorRecords(
   return records
 }
 
-export function writeWslMoveOrchestratorRecords(
+export async function writeWslMoveOrchestratorRecords(
   userDataPath: string,
   records: ReadonlyMap<string, WslMoveOrchestratorRecord>
-): void {
-  writeDurableSecureJsonFile(wslMoveOrchestratorStorePath(userDataPath), {
+): Promise<void> {
+  await writeDurableSecureJsonFileAsync(wslMoveOrchestratorStorePath(userDataPath), {
     version: 1,
     distros: Object.fromEntries(records)
   })

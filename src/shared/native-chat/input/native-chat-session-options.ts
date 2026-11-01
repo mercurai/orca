@@ -1,3 +1,4 @@
+import type { AgentSessionSpeed } from '../../agent-session-speed'
 import type { AgentType } from '../../agent-status-types'
 
 export type SessionOptionValue = string | boolean
@@ -21,6 +22,8 @@ export type SessionOptionDisabledReason =
   | 'set-when-session-starts'
 
 export type SessionOptionDescriptor = {
+  /** Facts about next-turn selection, host acceptance, and observable processing. */
+  speed?: AgentSessionSpeed
   id: string
   label: string
   description?: string

@@ -86,6 +86,7 @@ describe('a live listing beside the account-level discovery', () => {
     void run.catalog.demand({ agent: 'grok' })
     expect(await run.catalog.read({ agent: 'grok' })).toEqual({
       origin: 'unknown',
+      catalogState: 'loading',
       listingInProgress: true
     })
     run.saveLive()

@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { wslMoveJournalKey } from '../../../shared/wsl-move/wsl-move-cutover'
+import { serializePathWrite } from '../../../shared/path-write-serializer'
 import type { WslMoveOrchestratorRecord } from '../../../shared/wsl-move/wsl-move-orchestrator-types'
 import {
   readWslMoveOrchestratorRecords,
@@ -37,11 +38,32 @@ const deferred: WslMoveOrchestratorRecord = {
 }
 
 describe('wsl-move-orchestrator store', () => {
-  it('round-trips records keyed by distro', () => {
+  it('round-trips records keyed by distro', async () => {
     const dir = userData()
     const records = new Map([[wslMoveJournalKey('Ubuntu'), deferred]])
-    writeWslMoveOrchestratorRecords(dir, records)
+    await writeWslMoveOrchestratorRecords(dir, records)
     expect(readWslMoveOrchestratorRecords(dir)).toEqual(records)
+  })
+
+  it('captures records before waiting behind an earlier file write', async () => {
+    const dir = userData()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const blocked = serializePathWrite(wslMoveOrchestratorStorePath(dir), async () => {
+      entered.resolve()
+      await release.promise
+    })
+    await entered.promise
+    const records = new Map([[wslMoveJournalKey('Ubuntu'), deferred]])
+    const writing = writeWslMoveOrchestratorRecords(dir, records)
+    records.clear()
+    try {
+      expect(readWslMoveOrchestratorRecords(dir).size).toBe(0)
+    } finally {
+      release.resolve()
+      await Promise.all([blocked, writing])
+    }
+    expect(readWslMoveOrchestratorRecords(dir).get(wslMoveJournalKey('Ubuntu'))).toEqual(deferred)
   })
 
   it('reads a missing or unparseable file as empty', () => {

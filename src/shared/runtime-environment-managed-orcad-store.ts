@@ -1,3 +1,7 @@
+import {
+  captureEnvironmentStoreVersion,
+  withRuntimeEnvironmentMutation
+} from './runtime-environment-store-mutation'
 import { parsePairingCode, type PairingOffer } from './pairing'
 import {
   createEnvironmentFromPairingOffer,
@@ -12,17 +16,25 @@ import {
   readEnvironmentStore,
   readPersistedEnvironmentStore,
   RuntimeEnvironmentStoreError,
-  writeEnvironmentStore
+  writeEnvironmentStoreAsync
 } from './runtime-environment-store-file'
 import {
   readCurrentRuntimeEnvironmentSidecarEntry,
-  writeRuntimeEnvironmentSidecarEntry
+  writeRuntimeEnvironmentSidecarEntryWithinMutation
 } from './runtime-environment-sidecar'
 import { resolveEnvironmentFromStore } from './runtime-environment-store'
 import { findCollidingEnvironmentName } from './runtime-environment-name-collision'
 
 /** Registers a server Orca deployed over SSH, paired through its own loopback tunnel. */
 export function addManagedOrcadEnvironment(
+  ...args: Parameters<typeof addManagedOrcadEnvironmentWithinMutation>
+): ReturnType<typeof addManagedOrcadEnvironmentWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    addManagedOrcadEnvironmentWithinMutation(...args)
+  )
+}
+
+async function addManagedOrcadEnvironmentWithinMutation(
   userDataPath: string,
   args: {
     id: string
@@ -31,7 +43,8 @@ export function addManagedOrcadEnvironment(
     orcadDeployment: OrcadSshDeploymentLink
     now?: number
   }
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
+  const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const offer = parsePairingCode(args.pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError('invalid_argument', 'Invalid managed pairing code.')
@@ -71,10 +84,14 @@ export function addManagedOrcadEnvironment(
   ].sort((a, b) => a.name.localeCompare(b.name))
   // Sidecar first: a crash between the writes leaves an ownerless entry the next write prunes,
   // never a registered server that has lost its deployment link.
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, persisted, {
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, environments, persisted, {
     orcadDeployment: args.orcadDeployment
   })
-  writeEnvironmentStore(userDataPath, { version: 1, environments })
+  await writeEnvironmentStoreAsync(
+    userDataPath,
+    { version: 1, environments },
+    { shouldPublish: isCurrent }
+  )
   const registered = readEnvironmentStore(userDataPath).environments.find(
     (entry) => entry.id === args.id
   )
@@ -87,38 +104,75 @@ export function addManagedOrcadEnvironment(
   return registered
 }
 
-/** Remove the persisted server and deployment sidecar only once orcad is proven exited. */
-export function removeManagedOrcadEnvironment(userDataPath: string, environmentId: string): void {
+/**
+ * Unlinks a managed server once its orcad is proven to have exited: drops the persisted entry
+ * and the sidecar record that held its deployment link.
+ */
+export function removeManagedOrcadEnvironment(
+  ...args: Parameters<typeof removeManagedOrcadEnvironmentWithinMutation>
+): ReturnType<typeof removeManagedOrcadEnvironmentWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    removeManagedOrcadEnvironmentWithinMutation(...args)
+  )
+}
+
+async function removeManagedOrcadEnvironmentWithinMutation(
+  userDataPath: string,
+  environmentId: string
+): Promise<void> {
+  const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const store = readPersistedEnvironmentStore(userDataPath)
   const persisted = resolveEnvironmentFromStore(store, environmentId)
   // Throws before the store write when the entry is unreadable, so its link is never orphaned.
   readCurrentRuntimeEnvironmentSidecarEntry(userDataPath, persisted)
   const remaining = store.environments.filter((entry) => entry.id !== persisted.id)
-  writeEnvironmentStore(userDataPath, { version: 1, environments: remaining })
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, remaining, persisted, null)
+  await writeEnvironmentStoreAsync(
+    userDataPath,
+    { version: 1, environments: remaining },
+    { shouldPublish: isCurrent }
+  )
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, remaining, persisted, null)
 }
 
 /** Keeps a managed server's pairing current after its orcad changed versions. */
 export function refreshManagedOrcadPairing(
+  ...args: Parameters<typeof refreshManagedOrcadPairingWithinMutation>
+): ReturnType<typeof refreshManagedOrcadPairingWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    refreshManagedOrcadPairingWithinMutation(...args)
+  )
+}
+
+async function refreshManagedOrcadPairingWithinMutation(
   userDataPath: string,
   environmentId: string,
   pairingCode: string,
-  now = Date.now()
-): KnownRuntimeEnvironment {
+  now = Date.now(),
+  options: { expectedPairingRevision?: number } = {}
+): Promise<KnownRuntimeEnvironment> {
   const offer = parsePairingCode(pairingCode)
   if (!offer) {
     throw new RuntimeEnvironmentStoreError('invalid_argument', 'Invalid managed pairing code.')
   }
-  return rebindManagedOrcadPairing(userDataPath, environmentId, () => offer, null, now)
+  return rebindManagedOrcadPairing(userDataPath, environmentId, () => offer, null, now, options)
 }
 
-/** Moves a managed server's tunnel to a new local port, keeping its pairing and identity. */
+/** Moves the tunnel without changing identity; onMoved confirms a committed, still-current change. */
 export function moveManagedOrcadLocalPort(
+  ...args: Parameters<typeof moveManagedOrcadLocalPortWithinMutation>
+): ReturnType<typeof moveManagedOrcadLocalPortWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    moveManagedOrcadLocalPortWithinMutation(...args)
+  )
+}
+
+async function moveManagedOrcadLocalPortWithinMutation(
   userDataPath: string,
   environmentId: string,
   localPort: number,
-  now = Date.now()
-): KnownRuntimeEnvironment {
+  now = Date.now(),
+  options: { expectedPairingRevision?: number; onMoved?: () => void } = {}
+): Promise<KnownRuntimeEnvironment> {
   return rebindManagedOrcadPairing(
     userDataPath,
     environmentId,
@@ -129,18 +183,29 @@ export function moveManagedOrcadLocalPort(
       return { ...offer, endpoint: endpoint.toString() }
     },
     localPort,
-    now
+    now,
+    options
   )
 }
 
-function rebindManagedOrcadPairing(
+async function rebindManagedOrcadPairing(
   userDataPath: string,
   environmentId: string,
   nextOffer: (current: KnownRuntimeEnvironment) => PairingOffer,
   localPort: number | null,
-  now: number
-): KnownRuntimeEnvironment {
+  now: number,
+  options: { expectedPairingRevision?: number; onMoved?: () => void } = {}
+): Promise<KnownRuntimeEnvironment> {
+  const isCurrent = captureEnvironmentStoreVersion(userDataPath)
   const current = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  // The profile lane may have queued behind a newer update after repair read SSH.
+  // A refused revision is authority to replace only that revision, never its successor.
+  if (
+    options.expectedPairingRevision !== undefined &&
+    (current.pairingRevision ?? current.createdAt) !== options.expectedPairingRevision
+  ) {
+    return current
+  }
   if (!current.orcadDeployment) {
     throw new RuntimeEnvironmentStoreError('invalid_argument', 'This server is not managed.')
   }
@@ -183,20 +248,30 @@ function rebindManagedOrcadPairing(
     candidate.id === existing.id ? next : candidate
   )
   const { binding: _binding, ...rest } = entry ?? {}
-  // Bind both store states around the write so interruptions preserve the deployment link; read moved ports from the stored endpoint between writes.
-  writeRuntimeEnvironmentSidecarEntry(
+  // Why three writes: the entry stays current for both store states, so a failed or interrupted
+  // store write can never strand the deployment link.
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(
     userDataPath,
     store.environments,
     existing,
     { ...rest, orcadDeployment: deployment },
     next
   )
-  writeEnvironmentStore(userDataPath, { version: 1, environments })
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, environments, next, {
+  await writeEnvironmentStoreAsync(
+    userDataPath,
+    { version: 1, environments },
+    { shouldPublish: isCurrent }
+  )
+  const publicationIsCurrent = captureEnvironmentStoreVersion(userDataPath)
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(userDataPath, environments, next, {
     ...rest,
     orcadDeployment: nextDeployment
   })
-  return resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  const rebound = resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
+  if (publicationIsCurrent()) {
+    options.onMoved?.()
+  }
+  return rebound
 }
 
 function samePairing(left: PairingOffer, right: PairingOffer): boolean {
@@ -210,10 +285,18 @@ function samePairing(left: PairingOffer, right: PairingOffer): boolean {
 
 /** Mark migration before attempting commit so a crash cannot leave rollback to a premigration snapshot enabled. */
 export function recordManagedOrcadMigration(
+  ...args: Parameters<typeof recordManagedOrcadMigrationWithinMutation>
+): ReturnType<typeof recordManagedOrcadMigrationWithinMutation> {
+  return withRuntimeEnvironmentMutation(args[0], () =>
+    recordManagedOrcadMigrationWithinMutation(...args)
+  )
+}
+
+async function recordManagedOrcadMigrationWithinMutation(
   userDataPath: string,
   environmentId: string,
   at: string
-): KnownRuntimeEnvironment {
+): Promise<KnownRuntimeEnvironment> {
   const store = readPersistedEnvironmentStore(userDataPath)
   const persisted = resolveEnvironmentFromStore(store, environmentId)
   const entry = readCurrentRuntimeEnvironmentSidecarEntry(userDataPath, persisted)
@@ -226,9 +309,14 @@ export function recordManagedOrcadMigration(
     state.orcadMigratedAt && Date.parse(state.orcadMigratedAt) >= Date.parse(at)
       ? state.orcadMigratedAt
       : at
-  writeRuntimeEnvironmentSidecarEntry(userDataPath, store.environments, persisted, {
-    ...state,
-    orcadMigratedAt: latest
-  })
+  await writeRuntimeEnvironmentSidecarEntryWithinMutation(
+    userDataPath,
+    store.environments,
+    persisted,
+    {
+      ...state,
+      orcadMigratedAt: latest
+    }
+  )
   return resolveEnvironmentFromStore(readEnvironmentStore(userDataPath), environmentId)
 }

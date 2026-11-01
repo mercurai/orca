@@ -23,13 +23,13 @@ import {
 type TransferDeps = Pick<WslMoveDriverDeps, 'userDataPath' | 'snapshots' | 'shellHistory' | 'now'>
 
 /** One phase forward through the journal's compare-and-swap; durable before it returns. */
-export function advanceWslMove(
+export async function advanceWslMove(
   deps: Pick<WslMoveDriverDeps, 'userDataPath' | 'now'>,
   cutover: WslMoveCutover,
   phase: WslMoveCutoverPhase
-): WslMoveCutover {
+): Promise<WslMoveCutover> {
   const next: WslMoveCutover = { ...cutover, phase, updatedAt: deps.now().toISOString() }
-  writeWslMoveCutover(deps.userDataPath, next)
+  await writeWslMoveCutover(deps.userDataPath, next)
   return next
 }
 
@@ -62,7 +62,7 @@ export async function stageWslMove(
     throw new Error(`wsl_move_stage_not_staged:${state.state}`)
   }
   assertSameMigration(quiesced, state)
-  const staged = advanceWslMove(deps, quiesced, 'destination-staged')
+  const staged = await advanceWslMove(deps, quiesced, 'destination-staged')
   await transferOrcadMigrationSnapshots({
     source: deps.snapshots,
     manifest: staged.manifest,

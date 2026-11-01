@@ -1,3 +1,4 @@
+import { registerCodexLostSteerFinalization } from './structured-agent-session-codex-lost-steer-finalization.spec'
 import type { codexInputFinalizationFixture } from './structured-agent-session-codex-input-host.test'
 import { expect, it, vi } from 'vitest'
 import { AGENT_JOURNAL_THREAD_SCOPE as turnScope } from '../../../shared/agent-session-journal-types'
@@ -21,6 +22,7 @@ import { openStructuredAgentSessionConversationJournal } from './structured-agen
 import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 
 export function registerCodexInputFinalization(current: typeof codexInputFinalizationFixture) {
+  registerCodexLostSteerFinalization(current)
   it.each([
     'stop',
     'exit',
@@ -28,7 +30,6 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
     'refusal',
     'unproven-exit',
     'lost-reply',
-    'lost-steer',
     'post-write-stop'
   ] as const)('bounds %s without replaying possibly written input', async (failure) => {
     const {
@@ -41,7 +42,6 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
       row,
       starts,
       turns,
-      began,
       assertInputRecoveredAfterSnapshot
     } = current()
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
@@ -50,9 +50,6 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
     const { sessions, runtimeState } = host.collaboratorsForTests()
     const journal = sessions.get(SESSION)!.journal
     const persisted = vi.spyOn(journal, 'resolveDispatch')
-    if (failure === 'lost-steer') {
-      await began(await permissionSend('running', { personality: 'friendly' }))
-    }
     const paused = Promise.withResolvers<void>()
     const preparing = Promise.withResolvers<void>()
     const dispatch = adapter.dispatch.bind(adapter)
@@ -74,8 +71,8 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
         throw new AgentSessionAcquisitionRefusal('missing Codex', 'cliMissing')
       }
     }
-    if (failure === 'lost-reply' || failure === 'lost-steer') {
-      codex.routes[failure === 'lost-steer' ? 'turn/steer' : 'turn/start'] = () => {
+    if (failure === 'lost-reply') {
+      codex.routes['turn/start'] = () => {
         throw new CodexAppServerTimeoutError('lost turn reply')
       }
     }
@@ -205,7 +202,7 @@ export function registerCodexInputFinalization(current: typeof codexInputFinaliz
     lost.resolve({})
     await responseObserved
     expect(codex.connections).toHaveLength(
-      failure === 'exit' ? 6 : failure === 'lost-steer' || failure === 'unproven-exit' ? 1 : 2
+      failure === 'exit' ? 6 : failure === 'unproven-exit' ? 1 : 2
     )
   })
 

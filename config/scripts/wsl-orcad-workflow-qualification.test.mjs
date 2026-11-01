@@ -12,9 +12,9 @@ const families = (outputs) => {
   return JSON.parse(evaluate({ needs: { template: { outputs } } }).coerceString())
 }
 
-it('selects the Ubuntu canary without adding a detector runner or changing prerequisites', () => {
+it('selects the Ubuntu canary with the template and verified rootfs prerequisites', () => {
   expect(families({ families: '["ubuntu-24.04"]' })).toEqual(['ubuntu-24.04'])
-  expect(workflow.jobs.wsl2.needs).toEqual(['template', 'container-rootfs'])
+  expect(workflow.jobs.wsl2.needs).toEqual(['template', 'ubuntu-rootfs', 'container-rootfs'])
   expect(workflow.jobs.wsl2.if).toBeUndefined()
   expect(workflow.jobs.template.steps.indexOf(select)).toBeGreaterThan(
     workflow.jobs.template.steps.findIndex(

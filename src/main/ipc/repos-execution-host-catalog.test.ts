@@ -116,10 +116,10 @@ describe('projectGroups IPC validation', () => {
 
   describe('while a WSL move fences the local repo-1', () => {
     let userDataPath: string
-    beforeEach(() => {
+    beforeEach(async () => {
       userDataPath = mkdtempSync(join(tmpdir(), 'wsl-move-project-group-ipc-'))
       loadWslMoveFence(userDataPath)
-      seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
+      await seedWslMoveCutover(userDataPath, cutover('move-1', 'source-fenced'))
     })
     afterEach(() => {
       resetWslMoveFenceForTests()
