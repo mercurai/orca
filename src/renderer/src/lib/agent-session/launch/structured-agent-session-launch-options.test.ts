@@ -508,6 +508,8 @@ describe('picks made while a chat launches', () => {
       const storage = vi.spyOn(Storage.prototype, 'setItem')
       const pick = holdStructuredAgentSessionLaunchOption(sessionId, 'model', 'gpt-picked')
       await applyStructuredLaunchHeldOptions(state, { sessionId, fence: 1 }, false)
+      // The speed-negotiation await precedes the wire call, so the reply exists a few ticks later.
+      await settle()
       setOptionReplies.at(-1)!.resolve({ ok: true, value: { key: 'model', value: 'gpt-picked' } })
       await expect(pick).resolves.toEqual({ kind: 'accepted', options: { model: 'gpt-picked' } })
       await settle()

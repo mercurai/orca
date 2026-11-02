@@ -16,6 +16,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   holdStructuredAgentSessionLaunchOption,
+  getStructuredAgentSessionLaunchHeldOptions,
   structuredLaunchSelectionController,
   flushStructuredSessionSelectionOptions
 } from './agent-session/launch/structured-agent-session-launch-options'
@@ -32,7 +33,10 @@ import {
   resetStructuredAgentLaunchPersistenceForTests,
   readStructuredAgentLaunchRecord
 } from './agent-session/launch/structured-agent-session-launch-persistence'
-import { getStructuredAgentSessionSendNotice } from '@/components/native-chat/structured-agent-session-pending-sends'
+import {
+  getStructuredAgentSessionPendingSends,
+  getStructuredAgentSessionSendNotice
+} from '@/components/native-chat/structured-agent-session-pending-sends'
 import { replaceRuntimeEnvironmentRevisions } from '@/runtime/runtime-environment-revision'
 import { recoverPublishedSessionReceipt } from './agent-session/launch/structured-agent-session-launch-recovery'
 import { publishStructuredLaunchCreateOptions } from './agent-session/launch/structured-agent-session-launch-create-message'
@@ -86,7 +90,14 @@ describe('legacy opening action prerequisites through real launch orchestration'
       )
       expect(mocks.call.mock.calls.some(([, method]) => method === 'agentSession.send')).toBe(false)
       expect(retryStructuredAgentSessionLaunch('workspace-1', launch.sessionId)).toBe(false)
-      expect(readStructuredAgentLaunchRecord(launch.sessionId)).toBeUndefined()
+      if (preference) {
+        // The unrelated held permission pick is still outstanding, so the record outlives the failure.
+        expect(readStructuredAgentLaunchRecord(launch.sessionId)?.heldOptions).toHaveProperty(
+          'permissionMode'
+        )
+      } else {
+        expect(readStructuredAgentLaunchRecord(launch.sessionId)).toBeUndefined()
+      }
       expect(optionCalls().filter((call) => call.key === key)).toHaveLength(1)
       if (key === 'effort') {
         expect(optionCalls().map((call) => call.key)).toEqual(['model', 'effort'])
@@ -95,6 +106,9 @@ describe('legacy opening action prerequisites through real launch orchestration'
         expect(optionCalls().filter((call) => call.key === 'permissionMode')).toHaveLength(1)
         unrelated.resolve(acceptedOption('permissionMode', 'ask'))
         await expect(preference).resolves.toMatchObject({ kind: 'accepted' })
+        await vi.waitFor(() =>
+          expect(readStructuredAgentLaunchRecord(launch.sessionId)).toBeUndefined()
+        )
       }
     }
   )
@@ -117,7 +131,13 @@ describe('legacy opening action prerequisites through real launch orchestration'
       await Promise.resolve()
     }
     expect(settled).toBe(false)
-    expect(draft(launch.sessionId)).toBe('opening text')
+    // While paused, the pending-send owner retains the text; only a retired owner hands it to the composer.
+    expect(getStructuredAgentSessionPendingSends(launch.sessionId)[0]?.body.blocks).toEqual([
+      { type: 'text', text: 'opening text' }
+    ])
+    expect(getStructuredAgentSessionLaunchHeldOptions(launch.sessionId)).toMatchObject({
+      serviceTier: 'priority'
+    })
     expect(mocks.call.mock.calls.some(([, method]) => method === 'agentSession.send')).toBe(false)
     const standard = holdStructuredAgentSessionLaunchOption(launch.sessionId, 'serviceTier', 'default')!
     await expect(standard).resolves.toMatchObject({ kind: 'accepted' })

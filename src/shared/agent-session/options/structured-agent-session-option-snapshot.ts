@@ -281,6 +281,23 @@ export function lockedStructuredAgentSessionOptionSnapshot(
   )
 }
 
+/** Only the current model's own verified, discovered effort menu proves a level; seeds, stand-ins and other models' menus do not. */
+function currentModelMenuOffersEffort(
+  state: StructuredAgentSessionOptionState,
+  value: string
+): boolean {
+  const drawn = drawnModelControls(state)
+  const currentId = drawn?.shown.currentId
+  if (!drawn || !currentId) {
+    return false
+  }
+  const menu = structuredAgentSessionDescribedModel(
+    { catalog: drawn.catalog, verifiedModelIds: state.verifiedModelIds },
+    currentId
+  )?.options.find((option) => option.id === 'effort')
+  return menu?.kind.type === 'select' && menu.kind.choices.some((choice) => choice.value === value)
+}
+
 export function canSetStructuredAgentSessionOption(
   state: StructuredAgentSessionOptionState,
   id: string,
@@ -301,6 +318,20 @@ export function canSetStructuredAgentSessionOption(
         ? state.permissionOwnSupported === true
         : descriptor.kind.choices.some((choice) => choice.value === value))
     )
+  }
+  // A control the snapshot reports read-only cannot be edited; a refresh only presents it locked,
+  // and the model pill stays pickable by typed literal while its placeholder is unsettable.
+  // Effort is read-only for any unlisted model or retired level, yet only Pi's exact menus
+  // refuse a typed level, unless the current model's own discovered menu lists it;
+  // Claude and Codex still accept one to repair it.
+  if (
+    id !== 'model' &&
+    (id !== 'effort' || state.record.agent === 'pi') &&
+    !state.listingInProgress &&
+    snapshot.find((entry) => entry.id === id)?.settable === false &&
+    !(id === 'effort' && typeof value === 'string' && currentModelMenuOffersEffort(state, value))
+  ) {
+    return false
   }
   return (
     (['model', 'effort', 'serviceTier', 'personality'].includes(id) &&

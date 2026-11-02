@@ -2,7 +2,7 @@
 import type * as LaunchIntentModule from '../../launch-structured-agent-session'
 
 import type * as LaunchErrors from '@/lib/agent-session/launch/structured-agent-session-launch-errors'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RuntimeMobileSessionTabsResult } from '../../../../../shared/runtime-session-contracts'
 import type { StructuredAgentSessionLaunchIntent } from '@/lib/launch-structured-agent-session'
 import type * as RecoveryModule from '@/lib/agent-session/launch/structured-agent-session-launch-recovery'
@@ -84,6 +84,7 @@ vi.mock('@/lib/agent-catalog', () => ({
 }))
 
 import { retryStructuredAgentSessionLaunch } from './structured-agent-session-launch'
+import { registerStructuredSelectionCatalogStore } from '../../structured-agent-session-selection-controller'
 import type { SelectionOutcome } from '../../../../../shared/structured-agent-session-selection-operations'
 import {
   applyStructuredLaunchHeldOptions,
@@ -192,7 +193,16 @@ async function flushLaunchSettlement(): Promise<void> {
 }
 
 describe('structured agent launch reload recovery', () => {
+  let restoreCatalogStore: (() => void) | undefined
+  afterEach(() => {
+    restoreCatalogStore?.()
+  })
   beforeEach(() => {
+    // A restored launch on a paired runtime acquires its selection owner against a hydrated catalog.
+    restoreCatalogStore = registerStructuredSelectionCatalogStore({
+      read: () => ({ runtimeEnvironmentCatalogHydrated: true }),
+      subscribe: () => () => {}
+    })
     vi.clearAllMocks()
     localStorage.clear()
     resetStructuredAgentLaunchPersistenceForTests()

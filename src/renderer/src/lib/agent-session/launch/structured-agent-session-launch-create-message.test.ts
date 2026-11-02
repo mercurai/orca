@@ -800,11 +800,14 @@ describe('the first message owned by create', () => {
       method === 'agentSession.setOption' ? applied.promise : Promise.resolve(created())
     )
     expect(retryStructuredAgentSessionLaunch('workspace-1', launch.sessionId)).toBe(true)
+    // The launch record now outlives the retried create while a held pick is still in flight, so
+    // it is removed only after that pick settles below.
     await vi.waitFor(() =>
-      expect(readStructuredAgentLaunchRecord(launch.sessionId)).toBeUndefined()
+      expect(
+        mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.create')
+      ).toHaveLength(2)
     )
     const creates = mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.create')
-    expect(creates).toHaveLength(2)
     expect(creates[1]?.[2]).toEqual(original)
     await expect(first).resolves.toMatchObject({ kind: 'accepted' })
     expect(carried.outcome?.kind).toBe('accepted')
@@ -812,6 +815,9 @@ describe('the first message owned by create', () => {
     expect(owner.pending()[0]).not.toBe(carried)
     applied.resolve({ ok: true, value: { options: { model: 'gpt-5.4' } } })
     await expect(newest).resolves.toMatchObject({ kind: 'accepted' })
+    await vi.waitFor(() =>
+      expect(readStructuredAgentLaunchRecord(launch.sessionId)).toBeUndefined()
+    )
     expect(owner.captureRead()).toHaveLength(2)
     expect(mocks.call.mock.calls.filter(([, method]) => method === 'agentSession.send')).toEqual([])
     expect(draft(launch.sessionId)).toBe('opening text')

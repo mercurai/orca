@@ -120,7 +120,11 @@ function structuredLaunchCreateOptions(
 } {
   const { intent } = state
   const overlay = structuredLaunchOptionOverlay(state)
-  const requested = structuredLaunchRequestedOptions({ explicit, held: overlay })
+  const requested = structuredLaunchRequestedOptions({
+    ...state.selection,
+    explicit,
+    held: overlay
+  })
   const firstFrame = firstFrameOptionState(intent.agent, intent.target, {
     newLaunch: !intent.params.resumeFrom,
     worktree: intent.params.worktree,

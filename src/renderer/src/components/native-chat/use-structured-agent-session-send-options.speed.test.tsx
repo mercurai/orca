@@ -68,21 +68,31 @@ function composer(agent = 'codex', takesSendOptions = true) {
     )
   }
   // The picker's own controller holds a pick while its setOption negotiation is pending.
-  const controller = createStructuredSessionSelectionController(() => undefined)
+  const controller = {
+    ...createStructuredSessionSelectionController(() => undefined),
+    isCurrent: () => true,
+    request: <T,>(
+      perform: (options: { expectedEnvironmentPairingRevision?: number }) => Promise<T>
+    ) => perform({})
+  }
   const hook = renderHook(() =>
     useStructuredAgentSessionSendOptions(SESSION, undefined, {
       optionStateRef,
       controller,
       takesSendOptions,
       takesSelection: false,
-      optionView: (state, launchSeed, explicit) =>
-        structuredAgentSessionOptionView(state, launchSeed, controller.overlay(), explicit)
+      optionView: (state, launchSeed, explicit) => ({
+        ...structuredAgentSessionOptionView(state, launchSeed, controller.overlay(), explicit),
+        permissionOwnSupported: null
+      })
     })
   )
-  return { read: () => hook.result.current(), optionStateRef, controller }
+  // The hook returns the send control; these tests assert the options it carries.
+  return { read: () => hook.result.current().options, optionStateRef, controller }
 }
 
 async function sendComposer(c: ReturnType<typeof composer>) {
+  const options = c.read()
   const entry: StructuredAgentSessionPendingSend = {
     clientMessageId: 'synthetic-composer-message',
     sessionId: SESSION,
@@ -90,7 +100,7 @@ async function sendComposer(c: ReturnType<typeof composer>) {
     previewUris: [],
     queuedAt: 1_700_000_000_000,
     // Read through the actual composer hook, including pending picks; no hand-built speed payload.
-    options: c.read(),
+    ...(options ? { options } : {}),
     phase: 'sending',
     issued: false
   }

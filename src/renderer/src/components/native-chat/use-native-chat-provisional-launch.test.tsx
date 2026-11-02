@@ -88,6 +88,7 @@ import {
   retainStructuredLaunchSpeed
 } from '@/lib/structured-agent-session-launch-blocked-speed'
 import { getStructuredAgentSessionLaunchHeldOptions } from '@/lib/agent-session/launch/structured-agent-session-launch-options'
+import { structuredSessionSelectionController } from '@/lib/structured-agent-session-selection-controller'
 import { useNativeChatProvisionalLaunch } from './use-native-chat-provisional-launch'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 import { resetHostModelCatalogSnapshotsForTests } from '@/runtime/host-model-catalog-snapshots'
@@ -514,9 +515,8 @@ describe('a chat pane over its own launch', () => {
         expect(sent.envelope).toMatchObject({ sessionId, expectedRuntimeFence: 1 })
       }
       expect(retainedStructuredLaunchSpeed(state)).toBeUndefined()
-      await waitFor(() =>
-        expect(result.current.sendSource.controller.isPending('model')).toBe(false)
-      )
+      const controller = structuredSessionSelectionController(LOCAL_TARGET, sessionId, 'codex')
+      await waitFor(() => expect(controller.isPending('model')).toBe(false))
     })
 
     it('a non-speed pick goes through the chat writer and leaves the retained speed alone', async () => {

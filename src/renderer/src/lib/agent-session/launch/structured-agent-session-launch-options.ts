@@ -117,7 +117,8 @@ export function structuredLaunchOptionOverlay(
   // One speed intent: an older speed operation still settles on its reply but no longer shows,
   // is created with, or restores over the newest pick or the refused speed retained as intent.
   for (const key of Object.keys(overlay)) {
-    const operation = controller.current(key)
+    // Only a speed key can be outranked, so other picks never read their operation's identity.
+    const operation = isCodexLaunchSpeedKey(state, key) ? controller.current(key) : undefined
     if (operation && isSupersededBySpeedPick(state, controller, key, operation.identity)) {
       delete overlay[key]
     }
@@ -197,13 +198,14 @@ export function structuredLaunchHeldOptions(state: StructuredLaunchState): Recor
       ? { [refused.key]: refused.value }
       : {}),
     ...Object.fromEntries(
-      controller
-        .pending()
-        .filter(
-          (operation) =>
-            !isSupersededBySpeedPick(state, controller, operation.key, operation.identity)
-        )
-        .map((operation) => [operation.key, operation.value])
+      controller.pending().flatMap((operation) => {
+        // Read the key once; only a speed operation needs its identity compared.
+        const { key } = operation
+        return isCodexLaunchSpeedKey(state, key) &&
+          isSupersededBySpeedPick(state, controller, key, operation.identity)
+          ? []
+          : [[key, operation.value] as const]
+      })
     )
   }
 }
@@ -395,13 +397,21 @@ export async function applyStructuredLaunchExplicitOptions(
 
 const createHeld = new WeakMap<StructuredLaunchState, readonly SelectionOperation[]>()
 
-/** The unsent picks a create payload is previewed from, before speed authorization is awaited. */
+/** The picks a create payload is previewed from, before speed authorization is awaited: the unsent
+ *  ones, and those a refused create already carried, which a retry's new capture takes again. */
 export function previewStructuredLaunchCreatePicks(
   state: StructuredLaunchState
 ): readonly SelectionOperation[] {
-  return selectionController(state)
+  const controller = selectionController(state)
+  const carried = createHeld.get(state) ?? []
+  return controller
     .pending()
-    .filter((operation) => !operation.transmitted)
+    .filter(
+      (operation) =>
+        !operation.transmitted ||
+        (carried.includes(operation) &&
+          !isSupersededBySpeedPick(state, controller, operation.key, operation.identity))
+    )
 }
 
 /** Freeze identities, so a later equal-valued choice is a distinct operation. A pick made after the

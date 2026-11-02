@@ -117,7 +117,7 @@ export async function readStructuredAgentSessionOptionsAtRest(
       : models
   const fastMode =
     saved.fastMode === undefined
-      ? rules?.acceptsKey('fastMode')
+      ? rules?.acceptsKey('fastMode') && !rules.readSpeed
         ? false
         : null
       : decodeStructuredAgentSessionOptionValue('fastMode', saved.fastMode)

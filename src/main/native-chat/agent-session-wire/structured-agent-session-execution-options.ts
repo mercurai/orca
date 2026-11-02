@@ -23,11 +23,9 @@ export function captureStructuredExecutionOptions(
           ...(saved.personality ? { personality: saved.personality } : {}),
           ...selection
         }
-  // A missing Fast pick has a definite baseline on hosts that offer it.
-  if (
-    candidate.fastMode === undefined &&
-    ctx.agents.definition(ctx.agent)?.restingOptions.acceptsKey('fastMode')
-  ) {
+  // A missing Fast pick has a definite baseline on hosts that offer it, unless catalog speed owns it.
+  const resting = ctx.agents.definition(ctx.agent)?.restingOptions
+  if (candidate.fastMode === undefined && resting?.acceptsKey('fastMode') && !resting.readSpeed) {
     candidate.fastMode = 'false'
   }
   const options = readAgentSessionExecutionOptions(candidate)

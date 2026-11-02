@@ -73,6 +73,11 @@ import { resetStructuredAgentSessionSendsForTests } from '../components/native-c
 import { getStructuredAgentSessionPendingSends } from '../components/native-chat/structured-agent-session-pending-sends'
 import { resetStructuredAgentSessionReadOwnersForTests } from '../components/native-chat/structured-agent-session-read-owner'
 import { newAgentLaunchRequestId } from './agent-launch-request-id'
+import {
+  clearNativeChatDraftCacheForTests,
+  readNativeChatDraftCache
+} from '../components/native-chat/native-chat-draft-cache'
+import { structuredAgentSessionDraftScopeKey } from '../components/native-chat/native-chat-composer-draft-store'
 
 const WORKTREE = 'synthetic-held-worktree'
 const PAID = 'synthetic-held-exact-tier'
@@ -159,6 +164,7 @@ beforeEach(() => {
   vi.setSystemTime(1_760_000_000_000)
   vi.clearAllMocks()
   localStorage.clear()
+  clearNativeChatDraftCacheForTests()
   resetStructuredAgentLaunchRegistryForTests()
   resetStructuredAgentLaunchPersistenceForTests()
   mocks.firstMessageSupport = false
@@ -399,7 +405,7 @@ describe('a refused speed held after create froze', () => {
     const fixture = await begin()
     const { sessionId } = fixture.launch
     void fixture.launch.launchResult.catch(() => undefined)
-    void fixture.launch.promptDeliveryResult.catch(() => undefined)
+    void fixture.launch.promptDeliveryResult?.catch(() => undefined)
     void holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', PAID)
     fixture.createReply.resolve(created(fixture.snapshot))
     await flush()
@@ -408,10 +414,12 @@ describe('a refused speed held after create froze', () => {
     await flush()
     expect(calls('agentSession.setOption')).toEqual([])
     expect(calls('agentSession.send')).toEqual([])
-    // The opening text is kept for recovery and the launch fails visibly rather than going quiet.
-    expect(getStructuredAgentSessionPendingSends(sessionId)[0]?.body.blocks).toEqual([
-      { type: 'text', text: 'original held prompt' }
-    ])
+    // The opening text is kept for recovery and the launch fails visibly rather than going quiet:
+    // the retired launch hands it back to the chat's composer draft and releases its send slot.
+    expect(getStructuredAgentSessionPendingSends(sessionId)).toEqual([])
+    expect(readNativeChatDraftCache(structuredAgentSessionDraftScopeKey(sessionId))).toBe(
+      'original held prompt'
+    )
     expect(mocks.clearDraft).not.toHaveBeenCalled()
     await expect(fixture.launch.launchResult).rejects.toThrow()
   })
@@ -429,7 +437,7 @@ describe('a refused speed held after create froze', () => {
         () => undefined,
         (error: unknown) => error
       )
-      void fixture.launch.promptDeliveryResult.catch(() => undefined)
+      void fixture.launch.promptDeliveryResult?.catch(() => undefined)
       const pick = holdStructuredAgentSessionLaunchOption(sessionId, 'serviceTier', PAID)
       fixture.createReply.resolve(created(fixture.snapshot))
       await vi.waitFor(() => expect(calls('agentSession.setOption')).toHaveLength(1))
@@ -450,9 +458,11 @@ describe('a refused speed held after create froze', () => {
       await expect(launchFailure).resolves.toBeInstanceOf(Error)
       expect(calls('agentSession.setOption')).toHaveLength(1)
       expect(calls('agentSession.send')).toEqual([])
-      expect(getStructuredAgentSessionPendingSends(sessionId)[0]?.body.blocks).toEqual([
-        { type: 'text', text: 'original held prompt' }
-      ])
+      // The retired owner hands the opening text back to the composer draft, not a pending send.
+      expect(getStructuredAgentSessionPendingSends(sessionId)).toEqual([])
+      expect(readNativeChatDraftCache(structuredAgentSessionDraftScopeKey(sessionId))).toBe(
+        'original held prompt'
+      )
       expect(mocks.clearDraft).not.toHaveBeenCalled()
     }
   )

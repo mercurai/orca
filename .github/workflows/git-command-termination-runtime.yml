@@ -243,7 +243,7 @@ jobs:
           src/main/persistence/moving-wsl-projects/wsl-move-orchestrator.test.ts
 
       - name: Verify full qualification contracts
-        if: matrix.os == 'ubuntu-22.04'
+        if: ${{ always() && matrix.os == 'ubuntu-22.04' }}
         run: >-
           node node_modules/vitest/vitest.mjs run --config config/vitest.config.ts --maxWorkers=2
           config/scripts/ci-unit-plan.test.mjs
@@ -329,6 +329,8 @@ jobs:
           src/main/runtime/rpc/terminal-agent-prompt-socket.test.ts
           src/main/plugins/plugin-data-removal.test.ts
           src/main/plugins/plugin-service-host-call-lifetime.test.ts
+          src/main/plugins/panels/plugin-panel-state.test.ts
+          src/main/plugins/plugin-declared-settings.test.ts
           src/main/artifacts/artifact-publisher-auth-admission.test.ts
 
   prepare-source:

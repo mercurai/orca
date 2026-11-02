@@ -25,7 +25,7 @@ export function structuredAgentSessionOptionView(
   held: Readonly<Record<string, string>>,
   explicit?: Readonly<Record<string, string>>
 ): StructuredAgentSessionOptionState {
-  if (state.optionsAnswerPresent) {
+  if (state.optionsAnswerPresent && !explicitSpeedForAnotherModel(state, seed, explicit)) {
     seed = undefined
     explicit = undefined
   }
@@ -57,6 +57,23 @@ export function structuredAgentSessionOptionView(
     seed?.[AGENT_CHAT_PERMISSION_MODE_OPTION_ID] ??
     null
   return view.permissionMode === permissionMode ? view : { ...view, permissionMode }
+}
+
+/** A host answer for a different model neither speaks for nor outranks the speed a launch explicitly
+ *  asked of its own model; the answer's tier and processing stay that other model's. Without an
+ *  explicit speed, or when the answer names the requested model, the host answer wins. */
+function explicitSpeedForAnotherModel(
+  state: StructuredAgentSessionOptionState,
+  seed: Readonly<Record<string, string>> | undefined,
+  explicit: Readonly<Record<string, string>> | undefined
+): boolean {
+  const requestedModel = explicit?.model ?? seed?.model
+  return (
+    state.record.agent === 'codex' &&
+    (explicit?.serviceTier !== undefined || explicit?.fastMode !== undefined) &&
+    requestedModel !== undefined &&
+    requestedModel !== structuredAgentSessionModelId(state.record, 'any')
+  )
 }
 
 export function structuredAgentSessionShownSnapshot(

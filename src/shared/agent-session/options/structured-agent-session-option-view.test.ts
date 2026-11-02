@@ -440,8 +440,9 @@ describe('what a send carries', () => {
           const snapshot = structuredAgentSessionShownSnapshot(state)
           expect(snapshot.find((row) => row.id === 'effort')?.kind.currentValue).toBe(expected)
           expect(structuredAgentSessionMessageSelection(state)).toEqual({ model: 'sonnet' })
+          // Codex sends carry the chat's own model like Claude; the other agents carry none.
           expect(structuredAgentSessionSendSelection(state)).toEqual(
-            agent === 'claude' ? { model: 'sonnet' } : undefined
+            agent === 'claude' || agent === 'codex' ? { model: 'sonnet' } : undefined
           )
           const held = structuredAgentSessionOptionView(state, undefined, {
             model: 'sonnet',
@@ -813,6 +814,49 @@ describe('Pi supported selection apart from saved intent', () => {
     expect(options.some((option) => option.id === 'fastMode')).toBe(false)
   })
 
+  it('accepts only an in-menu typed effort while the host reports an unknown level, keeping raw intent', () => {
+    const actual = applyStructuredAgentSessionOptions(install(), seed, {
+      models: [row],
+      current: {
+        ...remembered,
+        reportedEffort: 'future',
+        acceptedInputSources: { model: 'saved', effort: 'saved' }
+      }
+    })
+    expect(effort(actual)).toMatchObject({ settable: false, kind: { currentValue: 'future' } })
+    expect(canSetStructuredAgentSessionOption(actual, 'effort', 'high')).toBe(true)
+    expect(canSetStructuredAgentSessionOption(actual, 'effort', 'xhigh')).toBe(false)
+    expect(structuredAgentSessionMessageSelection(actual)).toEqual(remembered)
+  })
+
+  it('does not take another model’s effort menu as proof for a listed or unlisted current model', () => {
+    const other = {
+      id: 'other/model',
+      label: 'Other',
+      isDefault: false,
+      efforts: levels('high', 'xhigh')
+    }
+    const current = {
+      ...remembered,
+      reportedEffort: 'future',
+      acceptedInputSources: { model: 'saved' as const, effort: 'saved' as const }
+    }
+    const listed = applyStructuredAgentSessionOptions(install(), seed, {
+      models: [{ ...row, efforts: levels('minimal', 'low') }, other],
+      current
+    })
+    expect(effort(listed)).toMatchObject({ settable: false, kind: { currentValue: 'future' } })
+    expect(canSetStructuredAgentSessionOption(listed, 'effort', 'low')).toBe(true)
+    expect(canSetStructuredAgentSessionOption(listed, 'effort', 'high')).toBe(false)
+
+    const unlisted = applyStructuredAgentSessionOptions(install(), seed, {
+      models: [other],
+      current
+    })
+    expect(effort(unlisted)).toMatchObject({ settable: false, kind: { currentValue: 'future' } })
+    expect(canSetStructuredAgentSessionOption(unlisted, 'effort', 'high')).toBe(false)
+  })
+
   it('bounds projection work by the existing model rows at N and 10N without population subscriptions', () => {
     const work = (size: number) => {
       let reads = 0
@@ -976,4 +1020,71 @@ describe('Codex model and effort without speed controls', () => {
     )
     expect(carried(current)).toEqual({ model })
   })
+})
+
+describe('typed effort repair for Claude and Codex while the effort control is read-only', () => {
+  const effortOf = (state: StructuredAgentSessionOptionState) =>
+    structuredAgentSessionOptionSnapshot(state).find(({ id }) => id === 'effort')
+  const listedRow = {
+    id: 'synthetic-listed-model',
+    label: 'Listed',
+    isDefault: true,
+    efforts: levels('low', 'high')
+  }
+  const customRow = {
+    id: 'synthetic-custom-model',
+    label: 'Custom',
+    isDefault: false,
+    efforts: []
+  }
+  const answered = (
+    agent: 'claude' | 'codex',
+    models: (typeof listedRow)[],
+    listedModelIds: string[],
+    current: { model: string; effort: string }
+  ) => {
+    const seed = agent === 'codex' ? CODEX_SESSION_OPTION_CATALOG : CLAUDE_SESSION_OPTION_CATALOG
+    return applyStructuredAgentSessionOptions(
+      createStructuredAgentSessionOptionState(agent, seed),
+      seed,
+      { models, listedModelIds, current }
+    )
+  }
+
+  it.each(['claude', 'codex'] as const)(
+    'accepts a typed level for a custom unlisted %s model whose effort is read-only',
+    (agent) => {
+      const state = answered(agent, [listedRow, customRow], [listedRow.id], {
+        model: customRow.id,
+        effort: 'high'
+      })
+      expect(effortOf(state)).toMatchObject({ settable: false, kind: { currentValue: 'high' } })
+      expect(canSetStructuredAgentSessionOption(state, 'effort', 'low')).toBe(true)
+      expect(canSetStructuredAgentSessionOption(state, 'effort', '')).toBe(false)
+    }
+  )
+
+  it.each(['claude', 'codex'] as const)(
+    'accepts a typed level for a listed %s model with no effort menu and a saved effort',
+    (agent) => {
+      const bareRow = { ...customRow, id: 'synthetic-bare-model' }
+      const state = answered(agent, [listedRow, bareRow], [listedRow.id, bareRow.id], {
+        model: bareRow.id,
+        effort: 'max'
+      })
+      expect(effortOf(state)).toMatchObject({ settable: false, kind: { currentValue: 'max' } })
+      expect(canSetStructuredAgentSessionOption(state, 'effort', 'high')).toBe(true)
+    }
+  )
+
+  it.each(['claude', 'codex'] as const)(
+    'accepts a typed level for a listed %s model whose saved effort is retired',
+    (agent) => {
+      const state = answered(agent, [listedRow], [listedRow.id], {
+        model: listedRow.id,
+        effort: 'max'
+      })
+      expect(canSetStructuredAgentSessionOption(state, 'effort', 'high')).toBe(true)
+    }
+  )
 })
