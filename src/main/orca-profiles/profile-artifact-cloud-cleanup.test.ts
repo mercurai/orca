@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,6 +43,7 @@ import {
 } from '../artifacts/artifact-create-intent-store'
 import type { ArtifactShareScope } from '../artifacts/artifact-share-record-store'
 import {
+  artifactCloudCleanupNeedsCommit,
   commitArtifactCloudCleanup,
   prepareArtifactCloudCleanup,
   prepareArtifactCloudUse
@@ -54,6 +56,7 @@ import {
   readProfileIndex,
   writeProfileIndex
 } from './profile-index-store'
+import { getOrcaProfileDirectory } from './profile-storage-paths'
 
 const createdPaths: string[] = []
 const profileId = 'local-default'

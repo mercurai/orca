@@ -185,7 +185,11 @@ describe('streams on an authenticated phone socket', () => {
       wsPort: 0
     })
     await server.start()
-    const offer = server.createPairingOffer({ address: '127.0.0.1', name: 'p', scope: 'mobile' })
+    const offer = await server.createPairingOffer({
+      address: '127.0.0.1',
+      name: 'p',
+      scope: 'mobile'
+    })
     if (!offer.available) {
       throw new Error('WebSocket pairing unavailable')
     }

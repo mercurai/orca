@@ -58,7 +58,8 @@ function createHarness(result: unknown = { config: { autoRun: false } }) {
     secrets: {
       get: () => ({ ok: true, value: null }),
       set: async () => ({ ok: true }),
-      delete: async () => {}
+      delete: async () => {},
+      protection: () => 'unavailable'
     },
     settings: { getAll: () => ({}), set: async () => ({ ok: true }) },
     invokePluginCommand: async (pluginKey, commandId, args) => {

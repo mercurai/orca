@@ -38,12 +38,12 @@ export function readPluginDeclaredSettings(
 }
 
 /** The person's edit in Settings; `null` goes back to the default. Only declared keys. */
-export function writePluginDeclaredSetting(
+export async function writePluginDeclaredSetting(
   host: SettingsHost,
   pluginKey: string,
   key: string,
   value: PluginJsonValue
-): { ok: true } | { ok: false; error: string } {
+): Promise<{ ok: true } | { ok: false; error: string }> {
   const setting = host
     .findValidPlugin(pluginKey)
     ?.manifest.contributes.settings.find((entry) => entry.key === key)
@@ -52,13 +52,13 @@ export function writePluginDeclaredSetting(
   }
   const settings = store(host, pluginKey)
   if (value === null) {
-    settings.delete(key)
+    await settings.delete(key)
   } else {
     const issue = pluginSettingValueIssue(setting, value)
     if (issue) {
       return { ok: false, error: `${setting.title} ${issue}` }
     }
-    const written = settings.set(key, value)
+    const written = await settings.set(key, value)
     if (!written.ok) {
       return written
     }

@@ -71,6 +71,7 @@ export function resolvePluginServiceHostCallPolicy(input: {
       ? bindPluginHostServices({
           delegate: input.runtimeDelegate,
           pluginsDataDir: input.pluginsDataDir,
+          pluginKey: input.pluginKey,
           desktop: input.desktop,
           panels: input.panels,
           declaredSettings: plugin?.manifest.contributes.settings

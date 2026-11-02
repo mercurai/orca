@@ -342,7 +342,7 @@ describe('stopped WSL Start admission through direct and generic IPC', () => {
 
   it('refuses both paths on the same saved pending Remove without advancing to connect or status', async () => {
     const pendingStop = { since: 1, reason: 'busy', verdict: 'live' } as const
-    setWslHostPendingStop(userDataPath, 'wsl:ubuntu', pendingStop)
+    await setWslHostPendingStop(userDataPath, 'wsl:ubuntu', pendingStop)
     const record = findWslHostDeployment(userDataPath, 'wsl:ubuntu')
 
     for (const [channel, args] of paths) {

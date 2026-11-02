@@ -94,11 +94,14 @@ export class WslHostService {
       distro: string,
       connection: WslOrcadConnection | null,
       status: WslOrcadConnectionStatus
-    ): Promise<void> =>
-      this.connectionChanges.handle(distro, connection, status, () => {
+    ): Promise<void> => {
+      const originIsCurrent = (): boolean => {
         const connector = origin()
         return connector !== null && this.connector === connector
-      })
+      }
+      this.noteLiveConnection(distro, connection, status, originIsCurrent)
+      return this.connectionChanges.handle(distro, connection, status, originIsCurrent)
+    }
   }
 
   /** C5's `onChange`: persist what moved, then tell the UI. */
@@ -107,7 +110,27 @@ export class WslHostService {
     connection: WslOrcadConnection | null,
     status: WslOrcadConnectionStatus
   ): Promise<void> {
+    this.noteLiveConnection(distro, connection, status, () => true)
     return this.connectionChanges.handle(distro, connection, status)
+  }
+
+  /**
+   * The connector fires `onChange` without awaiting it and persistence precedes the ready publish,
+   * so a valid live connection must overtake an older 'stopped' read now, not after the save.
+   */
+  private noteLiveConnection(
+    distro: string,
+    connection: WslOrcadConnection | null,
+    status: WslOrcadConnectionStatus,
+    originIsCurrent: () => boolean
+  ): void {
+    if (status.state !== 'ready' || !connection || !originIsCurrent()) {
+      return
+    }
+    const record = this.recordForDistro(distro)
+    if (record && this.connectionIsCurrent(record, this.disableGeneration)) {
+      this.bumpReadyGeneration(record.environmentId)
+    }
   }
 
   private connectionIsCurrent(record: WslHostDeploymentRecord, generation: number): boolean {
@@ -238,7 +261,7 @@ export class WslHostService {
       userDataPath: () => this.deps.userDataPath(),
       current: (record) =>
         this.connector === connector && this.connectionIsCurrent(record, generation),
-      refusal: () => wslHostConnectRefusal(this.deps, this.removing.has(environmentId)),
+      refusal: () => this.refusalFor(this.removing.has(environmentId)),
       parked: this.parked
     })
   }
@@ -262,11 +285,7 @@ export class WslHostService {
           this.disableGeneration === generation &&
           owner?.createdAt === record.createdAt &&
           owner.distroId === record.distroId
-        return wslHostConnectRefusal(
-          this.deps,
-          owns && this.removing.has(environmentId),
-          owns ? owner : null
-        )
+        return this.refusalFor(owns && this.removing.has(environmentId), owns ? owner : null)
       },
       deps: this.deps,
       removing: this.removing,
@@ -409,6 +428,14 @@ export class WslHostService {
     return wslHostNewWorkRefusal(this.deps) === null
   }
 
+  /** Retained fork policy (D1): while the setting is off, every refused entry says it is turned off. */
+  private refusalFor(removing: boolean, record?: WslHostDeploymentRecord | null): string | null {
+    return (
+      wslHostNewWorkRefusal(this.deps)?.message ??
+      wslHostConnectRefusal(this.deps, removing, record)
+    )
+  }
+
   async dispose(): Promise<void> {
     await this.connector?.dispose()
   }
@@ -419,10 +446,13 @@ export class WslHostService {
     connection: WslOrcadConnection | null = null
   ): void {
     if (status.state === 'ready') {
-      const generation = this.readyGenerations.get(record.environmentId) ?? 0
-      this.readyGenerations.set(record.environmentId, generation + 1)
+      this.bumpReadyGeneration(record.environmentId)
     }
     this.board.set(toWslHostStatus(record, status, connection))
+  }
+
+  private bumpReadyGeneration(environmentId: string): void {
+    this.readyGenerations.set(environmentId, (this.readyGenerations.get(environmentId) ?? 0) + 1)
   }
 
   private records(): WslHostDeploymentRecord[] {

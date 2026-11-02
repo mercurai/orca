@@ -34,9 +34,11 @@ export class DeviceRegistryStorage {
   }
 
   adopt(devices: DeviceEntry[]): DeviceEntry[] {
+    const priorRead = this.writer.lastRead
     const adopted = this.writer.adoptExternalEdits(devices)
     const read = this.writer.lastRead
-    if (read) {
+    // A new lastRead identity means adopt re-read the file; otherwise the flags are already current.
+    if (read && read !== priorRead) {
       this.unreadable = read.unreadable
       this.doubtful = read.doubtful
       this.corruptFilePending = read.corruptFilePending

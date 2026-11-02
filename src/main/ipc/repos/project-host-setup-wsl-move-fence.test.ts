@@ -18,6 +18,7 @@ import { RuntimeRepositoryIssueCommand } from '../../runtime/runtime-repository-
 import { RuntimeRepositorySettingsController } from '../../runtime/runtime-repository-settings-controller'
 import * as issueCommandFile from '../../issue-command-file'
 import { registerProjectHostSetupHandlers } from './project-host-setup-handlers'
+import { registerRepoCatalogHandlers } from './repo-catalog-handlers'
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, args: unknown) => unknown>()

@@ -28,7 +28,7 @@ it('admits host-owned automation operations and setup reads for phones without p
   })
   const server = new OrcaRuntimeRpcServer({ runtime, userDataPath: path, enableWebSocket: false })
   server['deviceRegistry'] = new DeviceRegistry(path)
-  const phone = server['deviceRegistry'].addDevice('phone', 'mobile')
+  const phone = await server['deviceRegistry'].addDevice('phone', 'mobile')
   const replies: unknown[] = []
   const requests = [
     { method: 'automation.list', params: {} },

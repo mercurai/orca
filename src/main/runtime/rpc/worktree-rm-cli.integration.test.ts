@@ -541,7 +541,7 @@ it.each([true, false])(
       ])
       const localHead = (await exec('git', ['-C', clientRepo, 'rev-parse', 'HEAD'])).stdout
       const head = await git('rev-parse', 'task')
-      const environment = addManagedOrcadEnvironment(directory, {
+      const environment = await addManagedOrcadEnvironment(directory, {
         id: 'served-ssh',
         name: 'served-ssh',
         pairingCode: receiver.pairingCode,

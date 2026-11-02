@@ -59,6 +59,23 @@ export function bindPluginHostServices(input: {
 }): PluginHostServices {
   const declared = new Map((input.declaredSettings ?? []).map((setting) => [setting.key, setting]))
   const { delegate, pluginsDataDir } = input
+  // Stores capture their data lifetime when built. Built here, at admission, a call held in the
+  // audit write across a removal and an identical reinstall keeps the retired lifetime and fails;
+  // built per operation, it would adopt the reinstalled plugin's lifetime and publish.
+  const admitted = input.pluginKey
+    ? {
+        key: input.pluginKey,
+        storage: new PluginKvStore(pluginsDataDir, input.pluginKey, 'storage.json'),
+        settings: new PluginKvStore(pluginsDataDir, input.pluginKey, 'settings.json'),
+        secrets: new PluginSecretsStore(pluginsDataDir, input.pluginKey)
+      }
+    : null
+  const kvStore = (key: string, fileName: 'storage.json' | 'settings.json'): PluginKvStore =>
+    admitted?.key === key
+      ? admitted[fileName === 'storage.json' ? 'storage' : 'settings']
+      : new PluginKvStore(pluginsDataDir, key, fileName)
+  const secretsStore = (key: string): PluginSecretsStore =>
+    admitted?.key === key ? admitted.secrets : new PluginSecretsStore(pluginsDataDir, key)
   const services: PluginHostServices = {
     invokePluginCommand: input.invokePluginCommand,
     desktop: input.desktop ?? null,
@@ -96,30 +113,28 @@ export function bindPluginHostServices(input: {
     },
     dispatchPluginNotification: (notification) => delegate.dispatchPluginNotification(notification),
     storage: {
-      get: (key, itemKey) => new PluginKvStore(pluginsDataDir, key, 'storage.json').get(itemKey),
-      set: (key, itemKey, value) =>
-        new PluginKvStore(pluginsDataDir, key, 'storage.json').set(itemKey, value),
-      delete: (key, itemKey) =>
-        new PluginKvStore(pluginsDataDir, key, 'storage.json').delete(itemKey),
-      keys: (key) => new PluginKvStore(pluginsDataDir, key, 'storage.json').keys()
+      get: (key, itemKey) => kvStore(key, 'storage.json').get(itemKey),
+      set: (key, itemKey, value) => kvStore(key, 'storage.json').set(itemKey, value),
+      delete: (key, itemKey) => kvStore(key, 'storage.json').delete(itemKey),
+      keys: (key) => kvStore(key, 'storage.json').keys()
     },
     secrets: {
-      get: (key, itemKey) => new PluginSecretsStore(pluginsDataDir, key).get(itemKey),
-      set: (key, itemKey, value) => new PluginSecretsStore(pluginsDataDir, key).set(itemKey, value),
-      delete: (key, itemKey) => new PluginSecretsStore(pluginsDataDir, key).delete(itemKey),
+      get: (key, itemKey) => secretsStore(key).get(itemKey),
+      set: (key, itemKey, value) => secretsStore(key).set(itemKey, value),
+      delete: (key, itemKey) => secretsStore(key).delete(itemKey),
       protection: () => (pluginSecretsProtection().level === 'os' ? 'os-keyring' : 'unavailable')
     },
     settings: {
       getAll: (key) => ({
         ...pluginSettingDefaults(declared.values()),
-        ...new PluginKvStore(pluginsDataDir, key, 'settings.json').getAll()
+        ...kvStore(key, 'settings.json').getAll()
       }),
       set: async (key, itemKey, value) => {
         const setting = declared.get(itemKey)
         const issue = setting ? pluginSettingValueIssue(setting, value) : null
         return issue
           ? { ok: false, error: `${itemKey} ${issue}` }
-          : await new PluginKvStore(pluginsDataDir, key, 'settings.json').set(itemKey, value)
+          : await kvStore(key, 'settings.json').set(itemKey, value)
       }
     }
   }

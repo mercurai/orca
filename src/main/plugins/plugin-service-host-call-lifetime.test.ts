@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { capabilityKinds } from '../../shared/plugins/capabilities/plugin-capabilities'
 import { PluginAuditLog } from './plugin-audit-log'
 import { PluginKvStore } from './plugin-storage-store'
 import { getPluginsDataDir, getUserPluginsDir } from './plugin-discovery'
@@ -108,7 +109,12 @@ it('denies host-call admission during removal without changing capability metada
     .catch((error: unknown) => error)
   try {
     await entered.promise
-    expect(service.getGrantedCapabilities(key)).toEqual(['settings:own'])
+    // Upstream's removal fence grants nothing while removing (plugin-uninstall-lifecycle and
+    // plugin-host-call-revocation assert the same); the installed capability metadata stays intact.
+    expect(service.getGrantedCapabilities(key)).toBeNull()
+    expect(capabilityKinds(service.findValidPlugin(key)?.manifest.capabilities ?? [])).toEqual([
+      'settings:own'
+    ])
     expect(
       await service.executeHostCall(
         key,

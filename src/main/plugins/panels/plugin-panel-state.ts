@@ -36,14 +36,14 @@ function readScope(
   return scope
 }
 
-export function handlePluginPanelStateRequest(
+export async function handlePluginPanelStateRequest(
   dependencies: {
     pluginsDataDir: string
     /** The plugin behind a live components-panel session of this owner, or null. */
     resolveComponentsPanel: (sessionToken: string) => string | null
   },
   raw: unknown
-): PluginPanelStateResult {
+): Promise<PluginPanelStateResult> {
   const parsed = pluginPanelStateRequestSchema.safeParse(raw)
   if (!parsed.success) {
     return { ok: false, error: 'malformed panel state request' }
@@ -72,7 +72,7 @@ export function handlePluginPanelStateRequest(
       entry.scope === 'plugin' || !request.workspace
         ? 'plugin/'
         : workspacePrefix(request.workspace)
-    const written = store.set(`${prefix}${entry.key}`, {
+    const written = await store.set(`${prefix}${entry.key}`, {
       version: entry.version,
       value: entry.value
     })

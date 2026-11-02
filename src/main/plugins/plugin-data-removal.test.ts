@@ -42,6 +42,12 @@ vi.mock('../host/safe-storage-availability', () => ({
   }
 }))
 
+// The secrets store also asks the real Electron safeStorage for its protection level before it
+// writes; without this the secrets case never reaches the held write and times out.
+vi.mock('../host/electron-secret-store', () => ({
+  assessSecretProtection: () => ({ level: 'os', gap: null })
+}))
+
 const roots: string[] = []
 afterEach(async () => {
   writes.hold = undefined

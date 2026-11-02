@@ -76,7 +76,7 @@ it('holds app.quit until a secure write in flight at will-quit has published', a
     wslHookRelayManager: { disposeAll: vi.fn() }
   }))
   vi.doMock('../browser/browser-manager', () => ({
-    browserManager: { setBrowserGuestStateChangedListener: vi.fn() }
+    browserManager: { setBrowserGuestStateChangedListener: vi.fn(), setOffscreenTabOpener: vi.fn() }
   }))
   // Why false: a resolved promise is truthy, which would steer teardown down the update/dev paths.
   const predicates = new Set([
