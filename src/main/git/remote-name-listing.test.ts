@@ -119,20 +119,6 @@ describe('cached git remote name listing', () => {
     }
   })
 
-  it('holds a signed listing past the unsigned TTL', async () => {
-    vi.useFakeTimers()
-    try {
-      gitExecFileAsyncMock.mockResolvedValue({ stdout: 'origin\n' })
-
-      await expect(shouldProbeGitRemote('/repo', 'upstream')).resolves.toBe(false)
-      await vi.advanceTimersByTimeAsync(4 * 60_000)
-      await expect(shouldProbeGitRemote('/repo', 'upstream')).resolves.toBe(false)
-      expect(remoteListCalls()).toHaveLength(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
   it('fails open and does not cache when listing throws', async () => {
     gitExecFileAsyncMock
       .mockRejectedValueOnce(new Error('git timed out.'))

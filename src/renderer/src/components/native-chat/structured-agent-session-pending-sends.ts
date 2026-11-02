@@ -4,8 +4,8 @@ import type { CodexSpeedWireAuthority } from '../../../../shared/codex-speed-wir
 import type {
   structuredAgentSessionMessageSendMutation,
   structuredAgentSessionSendBody
-} from '../../../../shared/structured-agent-session-send-mutation'
-import type { AgentJournalCursor } from '../../../../shared/agent-session-journal-types'
+} from '../../../../shared/agent-session/requests/structured-agent-session-send-mutation'
+import type { AgentJournalCursor } from '../../../../shared/agent-session-journal-identity'
 
 export type StructuredAgentSessionPendingSend = {
   clientMessageId: string

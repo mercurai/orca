@@ -1,6 +1,6 @@
 import { recoverStructuredLaunchDrafts } from '../../structured-agent-session-launch-draft-recovery'
 import { recoverPublishedSessionReceipt } from './structured-agent-session-launch-recovery'
-import { settleStructuredLaunchCreateOptions } from '../../structured-agent-session-launch-options'
+import { settleStructuredLaunchCreateOptions } from './structured-agent-session-launch-options'
 import { trackLaunchSettlement } from './structured-agent-session-launch-outcome-tracking'
 import { trackStructuredLaunchConfirmationDeadline } from './structured-agent-session-launch-prompt-outcome'
 import { restorePersistedStructuredLaunchState } from './structured-agent-session-launch-reload'

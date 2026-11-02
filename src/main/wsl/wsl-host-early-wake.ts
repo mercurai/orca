@@ -2,6 +2,8 @@
  * Boots the distro of the WSL host the last run had focused, at the very start of the next launch,
  * so the boot (seconds on a slow PC) overlaps the app's own startup instead of following it. Only
  * the focused host is listed (E9: a launch boots the focused host, never others with saved tabs).
+ * Retained-fork launch policy: the list is kept across launches and the wake fires only while the
+ * WSL host gate serves; disabling the gate forgets the list through the serialized intent below.
  */
 import { join } from 'node:path'
 import { z } from 'zod'

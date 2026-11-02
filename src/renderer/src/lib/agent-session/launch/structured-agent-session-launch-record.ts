@@ -9,8 +9,8 @@ import type { TuiAgent } from '../../../../../shared/tui-agent'
 import type {
   StructuredAgentSessionFirstMessage,
   StructuredAgentSessionResumeSource
-} from '../../../../../shared/structured-agent-session-create'
-import { isAgentSessionOptions } from '../../../../../shared/agent-session-record'
+} from '../../../../../shared/agent-session/structured-agent-session-create'
+import { isAgentSessionOptions } from '../../../../../shared/agent-session/lifecycle/agent-session-record'
 import { parseExecutionHostId, type ExecutionHostId } from '../../../../../shared/execution-host'
 import type { StructuredAgentSessionLaunchIntent } from '../../launch-structured-agent-session'
 

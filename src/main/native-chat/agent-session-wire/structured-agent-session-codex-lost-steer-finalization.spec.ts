@@ -1,6 +1,6 @@
 import type { codexInputFinalizationFixture } from './structured-agent-session-codex-input-host.test'
 import { expect, it, vi } from 'vitest'
-import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
+import { agentJournalSubmissionKey } from '../../../shared/agent-session/journal/agent-session-journal-item-key'
 import {
   continuingStructuredAgentSessionInput,
   finalizingStructuredAgentSessionInput

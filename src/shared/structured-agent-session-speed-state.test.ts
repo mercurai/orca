@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { CODEX_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
+import { CODEX_SESSION_OPTION_CATALOG } from './agent-session/options/agent-session-option-catalog-claude-codex'
 import {
   applyStructuredAgentSessionOptions,
   commitStructuredAgentSessionOptionValues,
-  createStructuredAgentSessionOptionState,
-  structuredAgentSessionOptionSnapshot
-} from './structured-agent-session-options'
+  createStructuredAgentSessionOptionState
+} from './agent-session/options/structured-agent-session-options'
+import { structuredAgentSessionOptionSnapshot } from './agent-session/options/structured-agent-session-option-snapshot'
 
 const MODEL = 'synthetic-speed-model'
 const TIER = 'synthetic-priority-exact-id'

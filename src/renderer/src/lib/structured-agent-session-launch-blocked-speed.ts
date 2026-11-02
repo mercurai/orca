@@ -1,4 +1,4 @@
-import type { AgentSessionWriteFailure } from '../../../shared/agent-session-write-failure'
+import type { AgentSessionWriteFailure } from '../../../shared/agent-session/failures/agent-session-write-failure'
 import {
   getStructuredLaunchStateBySessionId,
   subscribeStructuredAgentLaunchStatus,

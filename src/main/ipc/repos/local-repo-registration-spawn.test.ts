@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as runner from '../../git/runner'
 import { isGitRepoAsync } from '../../git/repo'
 import { resolveLocalNestedRepoImportTargetPath } from '../../project-groups/nested-repo-import-target'
-import type { Store } from '../../persistence'
+import type { Store } from '../../persistence/loading-store/store'
 
 // Every synchronous spawn route throws, so a regression anywhere on these paths fails loudly.
 const { runProcessSyncMock } = vi.hoisted(() => ({

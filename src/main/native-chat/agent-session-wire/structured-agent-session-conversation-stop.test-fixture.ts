@@ -1,5 +1,5 @@
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
-import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
+import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session/lifecycle/agent-session-mutation-envelope'
 import { hostTestMessage, hostTestOperationId } from './structured-agent-session-host-test-data'
 
 export function conversationStopTestRequests(

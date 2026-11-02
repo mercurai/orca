@@ -4,9 +4,9 @@ import {
   CreateIntentParams,
   SendParams
 } from '../../../shared/rpc-contract/structured-agent-session-params'
-import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
-import { structuredAgentSessionMessageSendMutation } from '../../../shared/structured-agent-session-send-mutation'
+import { structuredAgentSessionCreateParams } from '../../../shared/agent-session/structured-agent-session-create'
+import { structuredAgentSessionCreateFingerprint } from '../../../shared/agent-session/lifecycle/structured-agent-session-mutation'
+import { structuredAgentSessionMessageSendMutation } from '../../../shared/agent-session/requests/structured-agent-session-send-mutation'
 import type { StructuredAgentSessionLaunchIntent } from '../lib/launch-structured-agent-session'
 import type { StructuredAgentSessionPendingSend } from '../components/native-chat/structured-agent-session-pending-sends'
 
@@ -37,14 +37,14 @@ vi.mock('./local-runtime-capabilities', () => ({
   readLocalRuntimeCapabilitiesOrUnknown: () => mocks.capabilities,
   ensureLocalRuntimeCapabilities: async () => mocks.capabilities
 }))
-vi.mock('../lib/structured-agent-session-host-admission', () => ({
+vi.mock('../lib/agent-session/launch/structured-agent-session-host-admission', () => ({
   askHostCreateSupport: async () => ({ kind: 'admitted' })
 }))
 vi.mock('../lib/launch-structured-agent-session', () => ({
   abandonStructuredAgentSessionLaunchIntent: vi.fn()
 }))
 
-import { launchStructuredAgentSession } from '../lib/structured-agent-session-launch-create-call'
+import { launchStructuredAgentSession } from '../lib/agent-session/launch/structured-agent-session-launch-create-call'
 import {
   attemptStructuredAgentSessionSend,
   noteStructuredAgentSessionFence,

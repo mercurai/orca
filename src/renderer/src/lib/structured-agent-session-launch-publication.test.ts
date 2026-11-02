@@ -43,18 +43,18 @@ import {
   createMemoryNativeChatComposerDraftStorage,
   setNativeChatComposerDraftStorageForTests
 } from '@/components/native-chat/native-chat-composer-draft-storage'
-import type { AgentJournalSubmission } from '../../../shared/agent-session-journal-types'
-import type { AgentSessionHistoryPage } from '../../../shared/agent-session-wire'
+import type { AgentJournalSubmission } from '../../../shared/agent-session/journal/agent-session-journal-types'
+import type { AgentSessionHistoryPage } from '../../../shared/agent-session/agent-session-wire'
 import { resetStructuredAgentSessionReadOwnersForTests } from '@/components/native-chat/structured-agent-session-read-owner'
 import {
   getStructuredAgentSessionLaunchHeldOptions,
   holdStructuredAgentSessionLaunchOption,
   structuredLaunchHeldOptions
-} from './structured-agent-session-launch-options'
-import { retryStructuredAgentSessionLaunch } from './structured-agent-session-launch'
+} from './agent-session/launch/structured-agent-session-launch-options'
+import { retryStructuredAgentSessionLaunch } from './agent-session/launch/structured-agent-session-launch'
 import { registerStructuredSelectionCatalogStore } from './structured-agent-session-selection-controller'
 import { CreateIntentParams } from '../../../shared/rpc-contract/structured-agent-session-params'
-import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
+import { structuredAgentSessionCreateParams } from '../../../shared/agent-session/structured-agent-session-create'
 
 // A restored paired launch owns a selection controller, which needs the catalog store.
 let restoreCatalogStore: (() => void) | undefined

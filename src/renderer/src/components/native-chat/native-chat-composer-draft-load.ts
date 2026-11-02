@@ -3,6 +3,7 @@
 import {
   dirtyScopes,
   disposedDraftScopes,
+  installNativeChatDraftRecord,
   load,
   nextSavedAt,
   notifyScope,
@@ -92,7 +93,11 @@ function applyLoaded(
     }
     const { draft, changed } = withAppends(scopeKey, stored, readAtSequence)
     reconcileRestoredImageChecks(scopeKey, draft.images, records.get(scopeKey)?.images ?? [])
-    records.set(scopeKey, draft)
+    installNativeChatDraftRecord(
+      scopeKey,
+      draft,
+      changed ? undefined : { at: 'start', pending: true }
+    )
     if (changed) {
       dirtyScopes.add(scopeKey)
     }

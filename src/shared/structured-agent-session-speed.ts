@@ -1,14 +1,21 @@
-import type { AgentSessionOptionsResult } from './agent-session-wire'
-import type { AgentSessionOptionCatalog, CatalogModel } from './agent-session-option-catalog'
+import type { AgentSessionOptionsResult } from './agent-session/options/agent-session-options-result'
+import type {
+  AgentSessionOptionCatalog,
+  CatalogModel
+} from './agent-session/options/agent-session-option-catalog-types'
 import type { AgentSessionSpeed } from './agent-session-speed'
 import type { SessionOptionDescriptor } from './native-chat/input/native-chat-session-options'
 import type { AgentType } from './agent-status-types'
-import { discoveredModel } from './structured-agent-session-discovered-model'
+import { labelFromModelId } from './model-id-label'
+import {
+  discoveredModel,
+  serviceTierOption
+} from './agent-session/options/structured-agent-session-discovered-model'
 
 export function structuredAgentSessionOptionCatalog(
   seed: AgentSessionOptionCatalog,
   result: AgentSessionOptionsResult,
-  agent?: AgentType
+  agent: AgentType
 ): AgentSessionOptionCatalog {
   const models: CatalogModel[] = result.models.map((model) =>
     discoveredModel(model, result.fastModeSupport?.supported === true, agent)
@@ -16,7 +23,8 @@ export function structuredAgentSessionOptionCatalog(
   if (result.current.model && !models.some((model) => model.id === result.current.model)) {
     models.push({
       id: result.current.model,
-      label: result.current.model,
+      label: labelFromModelId(result.current.model),
+      description: result.current.model,
       options: seed.unknownModelOptions ?? []
     })
   }
@@ -40,17 +48,7 @@ export function withStructuredSpeedCatalog(
     if (options.some((option) => option.id === 'serviceTier')) {
       return { ...model, options }
     }
-    const standard = discoveredModel(
-      {
-        id: model.id,
-        label: model.label,
-        isDefault: model.isDefault === true,
-        efforts: [],
-        serviceTiers: []
-      },
-      false
-    ).options
-    return { ...model, options: [...options, ...standard] }
+    return { ...model, options: [...options, serviceTierOption([])] }
   })
 }
 

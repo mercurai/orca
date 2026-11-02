@@ -1,4 +1,4 @@
-import { agentSessionFailureFact } from '../../../shared/agent-session-failure'
+import { agentSessionFailureFact } from '../../../shared/agent-session/failures/agent-session-failure'
 
 /** A speed refusal is actionable before delivery; it must not become an unrelated host fault. */
 export class StructuredAgentSessionSpeedOptionError extends Error {

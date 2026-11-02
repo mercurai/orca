@@ -2,7 +2,7 @@
 
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { StructuredAgentSessionState } from '../../../../shared/structured-agent-session-reducer'
+import type { StructuredAgentSessionState } from '../../../../shared/agent-session/structured-agent-session-reducer'
 import type * as LaunchIntentModule from '@/lib/launch-structured-agent-session'
 
 const mocks = vi.hoisted(() => ({
@@ -22,12 +22,20 @@ let publishedTabs: unknown[] = []
 
 vi.mock('sonner', () => ({ toast: { error: mocks.toastError, message: vi.fn() } }))
 
+// Speed negotiation would otherwise ask the host for status; pass the pick through untouched.
+vi.mock('@/runtime/codex-speed-selection', () => ({
+  CodexSpeedSelectionError: class extends Error {},
+  prepareCodexSpeedWireOptions: async (input: { options?: Readonly<Record<string, string>> }) => ({
+    options: input.options
+  })
+}))
+
 vi.mock('@/runtime/structured-agent-session-client', () => ({
   subscribeStructuredAgentSessionStatus: vi.fn(async () => ({ unsubscribe: vi.fn() })),
   callStructuredAgentSession: mocks.call
 }))
 
-vi.mock('@/lib/structured-agent-session-launch-create-call', () => ({
+vi.mock('@/lib/agent-session/launch/structured-agent-session-launch-create-call', () => ({
   launchStructuredAgentSession: mocks.launch
 }))
 
@@ -66,18 +74,27 @@ import { useAppStore } from '../../store'
 import {
   startStructuredAgentLaunch,
   retryStructuredAgentSessionLaunch
-} from '@/lib/structured-agent-session-launch'
+} from '@/lib/agent-session/launch/structured-agent-session-launch'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
-import { dispatchStructuredAgentSessionComposerCommand } from '../../../../shared/structured-agent-session-composer'
+import { dispatchStructuredAgentSessionComposerCommand } from '../../../../shared/agent-session/view/structured-agent-session-composer'
 import { resetStructuredAgentLaunchPersistenceForTests } from '@/lib/agent-session/launch/structured-agent-session-launch-persistence'
-import { resetStructuredAgentLaunchRegistryForTests } from '@/lib/agent-session/launch/structured-agent-session-launch-registry'
+import {
+  getStructuredLaunchStateBySessionId,
+  resetStructuredAgentLaunchRegistryForTests
+} from '@/lib/agent-session/launch/structured-agent-session-launch-registry'
+import {
+  isStructuredLaunchSpeedBlocked,
+  retainedStructuredLaunchSpeed,
+  retainStructuredLaunchSpeed
+} from '@/lib/structured-agent-session-launch-blocked-speed'
+import { getStructuredAgentSessionLaunchHeldOptions } from '@/lib/agent-session/launch/structured-agent-session-launch-options'
 import { useNativeChatProvisionalLaunch } from './use-native-chat-provisional-launch'
 import { useStructuredAgentSession } from './use-structured-agent-session'
 import { resetHostModelCatalogSnapshotsForTests } from '@/runtime/host-model-catalog-snapshots'
 
 import { setLocalRuntimeCapabilitiesForTests } from '@/runtime/local-runtime-capabilities'
-import { AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY } from '../../../../shared/agent-session-create-capabilities'
-import { getStructuredAgentSessionLaunchSelection } from '@/lib/structured-agent-session-launch-options'
+import { AGENT_SESSION_SEND_OPTIONS_RUNTIME_CAPABILITY } from '../../../../shared/agent-session/agent-session-create-capabilities'
+import { getStructuredAgentSessionLaunchSelection } from '@/lib/agent-session/launch/structured-agent-session-launch-options'
 import { resetStructuredAgentSessionSendsForTests } from './structured-agent-session-message-sender'
 
 const LOCAL_TARGET = { kind: 'local' } as const
@@ -156,6 +173,83 @@ function renderLaunchedChat(
 function currentModel(snapshot: readonly { id: string; kind: { type: string } }[]) {
   const model = snapshot.find((entry) => entry.id === 'model')?.kind
   return model && 'currentValue' in model ? model.currentValue : undefined
+}
+
+const TIERED_LIST = {
+  ...SAVED_LIST,
+  models: SAVED_LIST.models.map((model) => ({
+    ...model,
+    efforts: [
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' }
+    ],
+    serviceTiers: [{ value: 'priority', label: 'Priority' }]
+  }))
+}
+
+type SentOption = {
+  key: string
+  value: string
+  envelope: { sessionId: string; expectedRuntimeFence: number }
+}
+
+function sentOptions(): SentOption[] {
+  return mocks.call.mock.calls
+    .filter(([, method]) => method === 'agentSession.setOption')
+    .map(([, , params]) => params as SentOption)
+}
+
+// A published Codex launch whose speed pick the host refused: the refusal stays retained as the
+// user's intent, so speed and model picks keep going through the launch's own writer.
+async function publishLaunchWithRetainedPriority(worktreeId: string) {
+  saveSelection('gpt-5.5')
+  mocks.call.mockImplementation((_target, method, params) => {
+    if (method === 'agentSession.modelCatalog') {
+      return Promise.resolve(TIERED_LIST)
+    }
+    if (method === 'agentSession.options') {
+      return Promise.resolve({ models: TIERED_LIST.models, current: { model: 'gpt-5.5' } })
+    }
+    if (method === 'agentSession.setOption') {
+      const { key, value } = params as { key: string; value: string }
+      return Promise.resolve({ ok: true, value: { options: { [key]: value } } })
+    }
+    return new Promise(() => {})
+  })
+  let created!: (receipt: { sessionId: string; fence: number }) => void
+  mocks.launch.mockReturnValue(new Promise((resolve) => (created = resolve)))
+  const launch = startStructuredAgentLaunch(worktreeId, 'codex', { requestId: `${worktreeId}-req` })
+  const { sessionId } = launch
+  const view = renderLaunchedChat(worktreeId, sessionId)
+  await waitFor(() => expect(currentModel(view.result.current.optionSnapshot)).toBe('gpt-5.5'))
+  const state = getStructuredLaunchStateBySessionId(sessionId)
+  if (!state) {
+    throw new Error('the launch must be registered before it publishes')
+  }
+  // A retained speed only outlives publication on a modern launch; the legacy path waits on it.
+  state.intent.createMessageSupport = true
+  retainStructuredLaunchSpeed(state, {
+    key: 'serviceTier',
+    value: 'priority',
+    failure: undefined,
+    identity: 1
+  })
+  publishedTabs = [publishedSnapshot(worktreeId, sessionId)]
+  readState = sessionState(1)
+  await act(async () => {
+    created({ sessionId, fence: 1 })
+    await launch.launchResult
+  })
+  view.rerender()
+  await waitFor(() =>
+    expect(
+      view.result.current.optionSnapshot.find((entry) => entry.id === 'serviceTier')
+    ).toMatchObject({ settable: true })
+  )
+  expect(state.callers.outcome).toBe('published')
+  expect(isStructuredLaunchSpeedBlocked(sessionId, 'serviceTier')).toBe(true)
+  mocks.call.mockClear()
+  return { ...view, sessionId, state }
 }
 
 describe('a chat pane over its own launch', () => {
@@ -378,5 +472,71 @@ describe('a chat pane over its own launch', () => {
       expect(mocks.toastError).toHaveBeenCalledWith("The setting wasn't changed.")
     )
     await waitFor(() => expect(currentModel(result.current.optionSnapshot)).toBe('gpt-5.5'))
+  })
+
+  // The launch and chat selection controllers are one keyed instance, so routing through the
+  // launch writer shows in the retained speed and the exact setOption sends, not in controller
+  // identity.
+  describe('with a refused speed retained on a published Codex launch', () => {
+    it('picking Standard clears the retained speed on the launch writer and never replays Priority', async () => {
+      const { result, sessionId, state } =
+        await publishLaunchWithRetainedPriority('wt-held-standard')
+
+      await act(async () => {
+        expect(await result.current.setStructuredOption('serviceTier', 'default')).toBe(true)
+      })
+
+      await waitFor(() => expect(sentOptions()).toHaveLength(1))
+      expect(sentOptions()[0]).toMatchObject({
+        key: 'serviceTier',
+        value: 'default',
+        envelope: { sessionId, expectedRuntimeFence: 1 }
+      })
+      expect(retainedStructuredLaunchSpeed(state)).toBeUndefined()
+      expect(isStructuredLaunchSpeedBlocked(sessionId, 'serviceTier')).toBe(false)
+      expect(sentOptions().some((sent) => sent.value === 'priority')).toBe(false)
+      expect(getStructuredAgentSessionLaunchHeldOptions(sessionId).serviceTier).not.toBe('priority')
+    })
+
+    it('a model change hands the retained exact tier back to be tried under that model', async () => {
+      const { result, sessionId, state } = await publishLaunchWithRetainedPriority('wt-held-model')
+
+      await act(async () => {
+        expect(await result.current.setStructuredOption('model', 'gpt-5.6-luna')).toBe(true)
+      })
+
+      await waitFor(() => expect(sentOptions()).toHaveLength(2))
+      expect(sentOptions().map((sent) => `${sent.key}=${sent.value}`).sort()).toEqual([
+        'model=gpt-5.6-luna',
+        'serviceTier=priority'
+      ])
+      for (const sent of sentOptions()) {
+        expect(sent.envelope).toMatchObject({ sessionId, expectedRuntimeFence: 1 })
+      }
+      expect(retainedStructuredLaunchSpeed(state)).toBeUndefined()
+      await waitFor(() =>
+        expect(result.current.sendSource.controller.isPending('model')).toBe(false)
+      )
+    })
+
+    it('a non-speed pick goes through the chat writer and leaves the retained speed alone', async () => {
+      const { result, sessionId, state } = await publishLaunchWithRetainedPriority('wt-held-effort')
+
+      await act(async () => {
+        expect(await result.current.setStructuredOption('effort', 'high')).toBe(true)
+      })
+
+      await waitFor(() => expect(sentOptions()).toHaveLength(1))
+      expect(sentOptions()[0]).toMatchObject({
+        key: 'effort',
+        value: 'high',
+        envelope: { sessionId, expectedRuntimeFence: 1 }
+      })
+      expect(retainedStructuredLaunchSpeed(state)).toMatchObject({
+        key: 'serviceTier',
+        value: 'priority'
+      })
+      expect(isStructuredLaunchSpeedBlocked(sessionId, 'serviceTier')).toBe(true)
+    })
   })
 })

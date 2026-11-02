@@ -5,7 +5,7 @@ import { preserveDraftRecoveryReceipts } from './native-chat-composer-draft-reco
 import { basename } from '@/lib/path'
 import { isNativeChatKeptPastePath } from './native-chat-image-paste'
 import { isNativeChatPastedImagePath } from '../../../../shared/native-chat-image-label'
-import { isAgentSessionAttachmentStorePath } from '../../../../shared/agent-session-attachments'
+import { isAgentSessionAttachmentStorePath } from '../../../../shared/agent-session/agent-session-attachments'
 import {
   dirtyScopes,
   disposedDraftScopes,
@@ -14,6 +14,7 @@ import {
   nextSavedAt,
   notifyScope,
   records,
+  installNativeChatDraftRecord,
   refusedScopes,
   unconfirmed,
   reconcileRestoredImageChecks,
@@ -276,9 +277,9 @@ function adoptForeignChange(message: unknown): void {
       const draft = parseStoredNativeChatComposerDraft(value)
       if (draft) {
         reconcileRestoredImageChecks(scopeKey, draft.images, records.get(scopeKey)?.images ?? [])
-        records.set(scopeKey, draft)
+        installNativeChatDraftRecord(scopeKey, draft)
       } else {
-        records.delete(scopeKey)
+        installNativeChatDraftRecord(scopeKey)
         reconcileRestoredImageChecks(scopeKey, [])
       }
       notifyScope(scopeKey)

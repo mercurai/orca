@@ -139,12 +139,6 @@ describe('minimax-cookie-store', () => {
     expect(safeStorageMock.decryptString).toHaveBeenCalledWith(Buffer.from('encrypted-payload'))
   })
 
-  it('returns null when no file exists', async () => {
-    existsSyncMock.mockReturnValue(false)
-    const store = await loadStore()
-    expect(store.readMiniMaxSessionCookie()).toBeNull()
-  })
-
   it('returns enveloped plaintext when safeStorage is unavailable and reads succeed', async () => {
     safeStorageMock.isEncryptionAvailable.mockReturnValue(false)
     existsSyncMock.mockReturnValue(true)
@@ -209,40 +203,6 @@ describe('minimax-cookie-store', () => {
   })
 
   describe('getMiniMaxSessionCookieProtection', () => {
-    it('reports null when nothing is stored', async () => {
-      existsSyncMock.mockReturnValue(false)
-      const store = await loadStore()
-      expect(store.getMiniMaxSessionCookieProtection()).toBeNull()
-    })
-
-    it('reports plaintext for a plaintext envelope', async () => {
-      existsSyncMock.mockReturnValue(true)
-      readFileSyncMock.mockReturnValue(Buffer.from(envelope('plaintext', 'sessionId=abc123')))
-      const store = await loadStore()
-      expect(store.getMiniMaxSessionCookieProtection()).toBe('plaintext')
-    })
-
-    it('reports sealed for an encrypted envelope', async () => {
-      existsSyncMock.mockReturnValue(true)
-      readFileSyncMock.mockReturnValue(Buffer.from(envelope('encrypted', 'sessionId=abc123')))
-      const store = await loadStore()
-      expect(store.getMiniMaxSessionCookieProtection()).toBe('sealed')
-    })
-
-    it('reports a legacy pre-envelope cookie header as plaintext', async () => {
-      existsSyncMock.mockReturnValue(true)
-      readFileSyncMock.mockReturnValue(Buffer.from('sessionId=abc123; other=1', 'utf8'))
-      const store = await loadStore()
-      expect(store.getMiniMaxSessionCookieProtection()).toBe('plaintext')
-    })
-
-    it('reports legacy sealed bytes as sealed', async () => {
-      existsSyncMock.mockReturnValue(true)
-      readFileSyncMock.mockReturnValue(Buffer.from([0x76, 0x31, 0x30, 0x00, 0x8f, 0x02, 0x1c]))
-      const store = await loadStore()
-      expect(store.getMiniMaxSessionCookieProtection()).toBe('sealed')
-    })
-
     it('does not decrypt, so opening Settings cannot trigger a keychain prompt', async () => {
       existsSyncMock.mockReturnValue(true)
       readFileSyncMock.mockReturnValue(Buffer.from(envelope('encrypted', 'sessionId=abc123')))

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { closeTestStores, createStore, testState } from '../../persistence/persistence-test-harness'
-import type { Store } from '../../persistence'
+import type { Store } from '../../persistence/loading-store/store'
 import type { Repo } from '../../../shared/repo-types'
 import { wslMoveCutoverFixture as cutover } from '../../persistence/__fixtures__/wsl-mover/wsl-move-cutover-fixture'
 import { seedWslMoveCutover } from '../../persistence/__fixtures__/wsl-mover/wsl-move-journal-seeding'
@@ -18,7 +18,6 @@ import { RuntimeRepositoryIssueCommand } from '../../runtime/runtime-repository-
 import { RuntimeRepositorySettingsController } from '../../runtime/runtime-repository-settings-controller'
 import * as issueCommandFile from '../../issue-command-file'
 import { registerProjectHostSetupHandlers } from './project-host-setup-handlers'
-import { registerRepoCatalogHandlers } from './repo-catalog-handlers'
 
 const { handlers } = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, args: unknown) => unknown>()

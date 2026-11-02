@@ -7,7 +7,7 @@ import { getStoredRepoExecutionHostId } from '../repo-execution-host'
 import type { BrowserWindow } from 'electron'
 import { existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import type { Store } from '../persistence'
+import type { Store } from '../persistence/loading-store/store'
 import type { GitAdmissionTier } from '../../shared/rpc-contract/git-admission-tier-params'
 import type { Repo } from '../../shared/repo-types'
 import type {
@@ -1700,8 +1700,7 @@ async function performLocalWorktreeCreate(
     }
     if (setupScript && shouldLaunchSetup) {
       try {
-        // Why: main only writes the runner script and must not execute setup itself, or we reintroduce the old hidden background-hook behavior.
-        // Why: worktree already exists, so a runner-gen failure degrades to "created without setup launch" rather than failing creation.
+        // Main generates setup scripts without executing them; generation failure leaves the created workspace usable.
         setup = await createSetupRunnerScript(
           repo,
           worktreePath,

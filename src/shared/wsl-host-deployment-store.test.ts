@@ -20,7 +20,6 @@ import {
 import { markEnvironmentUsed } from './runtime-environment-usage'
 import {
   readPersistedEnvironmentStore,
-  RuntimeEnvironmentStoreError,
   writeEnvironmentStoreSnapshotAsync
 } from './runtime-environment-store-file'
 import { RuntimeEnvironmentStoreSchema } from './runtime-environments'
@@ -250,23 +249,59 @@ describe('WSL host deployment store', () => {
       })
     })
 
-    it('fails closed when the file itself is corrupt and WSL hosts are enabled', async () => {
-      vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
-      await addSshManaged()
-      writeFileSync(getWslHostDeploymentStorePath(userDataPath), '{"version":1,"deployments":{}}')
-      expect(() => listEnvironments(userDataPath)).toThrow(RuntimeEnvironmentStoreError)
-      await expect(
-        async () => await writeWslHostDeployment(userDataPath, 'x', null)
-      ).rejects.toThrow(WslHostDeploymentStoreInvalidError)
-    })
+    // Stack audit W-2: a corrupt file hid every SSH and paired server while hosts were served.
+    async function addRemotePaired() {
+      return (
+        await addEnvironmentFromPairingCode(userDataPath, {
+          name: 'Remote',
+          pairingCode: encodePairingOffer({
+            ...pairing,
+            publicKeyB64: Buffer.alloc(32, 3).toString('base64'),
+            endpoint: 'wss://build.example.com/runtime'
+          }),
+          now: 160
+        })
+      ).id
+    }
 
-    it('fails closed when the file itself is corrupt in serve-only too', async () => {
+    it.each([
+      ['corrupt', '{"version":1,"deployments":{}}'],
+      ['written by a newer envelope', '{"version":2,"deployments":[]}']
+    ])(
+      'keeps SSH and paired servers when the file is %s and WSL hosts are enabled',
+      async (_label, contents) => {
+        vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '1')
+        await addSshManaged()
+        const remote = await addRemotePaired()
+        const wslId = await addWslManaged()
+        writeFileSync(getWslHostDeploymentStorePath(userDataPath), contents)
+        // Only the server that could be a WSL host is hidden: its pins live in the unreadable file.
+        expect(
+          listEnvironments(userDataPath)
+            .map((entry) => entry.id)
+            .sort()
+        ).toEqual([remote, 'ssh-managed'].sort())
+        expect(listEnvironments(userDataPath).map((entry) => entry.id)).not.toContain(wslId)
+        // Writes still refuse it, so a newer build's file is kept as it is.
+        await expect(
+          async () => await writeWslHostDeployment(userDataPath, 'x', null)
+        ).rejects.toThrow(WslHostDeploymentStoreInvalidError)
+        expect(readFileSync(getWslHostDeploymentStorePath(userDataPath), 'utf8')).toBe(contents)
+      }
+    )
+
+    it('keeps SSH and paired servers when the file is corrupt in serve-only too', async () => {
       vi.stubEnv(WSL_HOSTS_INTERNAL_GATE_ENV, '')
       noteWslHostsServeOnly(true)
       try {
         await addSshManaged()
+        const remote = await addRemotePaired()
         writeFileSync(getWslHostDeploymentStorePath(userDataPath), '{"version":1,"deployments":{}}')
-        expect(() => listEnvironments(userDataPath)).toThrow(RuntimeEnvironmentStoreError)
+        expect(
+          listEnvironments(userDataPath)
+            .map((entry) => entry.id)
+            .sort()
+        ).toEqual([remote, 'ssh-managed'].sort())
       } finally {
         noteWslHostsServeOnly(false)
       }

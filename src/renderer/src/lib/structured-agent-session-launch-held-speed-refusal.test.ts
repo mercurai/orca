@@ -7,9 +7,9 @@ import {
   SendParams,
   SetOptionParams
 } from '../../../shared/rpc-contract/structured-agent-session-params'
-import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
-import type { AgentJournalSubmission } from '../../../shared/agent-session-journal-types'
-import type { AgentSessionHistoryPage } from '../../../shared/agent-session-wire'
+import { structuredAgentSessionCreateParams } from '../../../shared/agent-session/structured-agent-session-create'
+import type { AgentJournalSubmission } from '../../../shared/agent-session/journal/agent-session-journal-types'
+import type { AgentSessionHistoryPage } from '../../../shared/agent-session/agent-session-wire'
 import type { StructuredAgentSessionLaunchIntent } from './launch-structured-agent-session'
 
 const mocks = vi.hoisted(() => ({
@@ -37,7 +37,7 @@ vi.mock('./launch-structured-agent-session', async (importOriginal) => ({
   createStructuredAgentSessionLaunchIntent: mocks.createIntent,
   retryStructuredAgentSessionLaunchIntent: mocks.retryIntent
 }))
-vi.mock('./structured-agent-session-host-admission', () => ({
+vi.mock('./agent-session/launch/structured-agent-session-host-admission', () => ({
   askHostCreateSupport: async () => ({ kind: 'admitted' })
 }))
 vi.mock('@/runtime/structured-session-tab-inventory', () => ({
@@ -56,17 +56,15 @@ vi.mock('@/store', () => ({
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), message: vi.fn() } }))
 
-import {
-  startStructuredAgentLaunch,
-  getStructuredAgentSessionLaunchLifecycle
-} from './structured-agent-session-launch'
+import { startStructuredAgentLaunch } from './agent-session/launch/structured-agent-session-launch'
 import {
   holdStructuredAgentSessionLaunchOption,
   getStructuredAgentSessionLaunchHeldOptions,
   structuredLaunchHeldOptions
-} from './structured-agent-session-launch-options'
+} from './agent-session/launch/structured-agent-session-launch-options'
 import { forgetStructuredSessionSelection } from './structured-agent-session-selection-controller'
 import {
+  getStructuredAgentSessionLaunchLifecycle,
   resetStructuredAgentLaunchRegistryForTests,
   getStructuredLaunchStateBySessionId
 } from './agent-session/launch/structured-agent-session-launch-registry'

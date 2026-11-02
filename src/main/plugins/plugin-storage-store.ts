@@ -31,7 +31,7 @@ export class PluginKvStore {
   constructor(
     pluginsDataDir: string,
     qualifiedKey: string,
-    fileName: 'storage.json' | 'settings.json'
+    fileName: 'storage.json' | 'settings.json' | 'panel-state.json'
   ) {
     const directory = pluginDataDir(pluginsDataDir, qualifiedKey)
     this.filePath = join(directory, fileName)

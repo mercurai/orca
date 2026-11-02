@@ -1,10 +1,8 @@
 import type { CodexSpeedWireAuthority } from '../../../shared/codex-speed-wire-authority'
 import { AGENT_MODEL_CATALOG_FRESH_MS } from '../../../shared/agent-model-catalog-freshness'
-import type {
-  AgentSessionModelCatalogResult,
-  AgentSessionOptionsResult
-} from '../../../shared/agent-session-wire'
-import { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } from '../../../shared/agent-session-create-capabilities'
+import type { AgentSessionModelCatalogResult } from '../../../shared/agent-session/agent-session-wire'
+import type { AgentSessionOptionsResult } from '../../../shared/agent-session/options/agent-session-options-result'
+import { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } from '../../../shared/agent-session/agent-session-create-capabilities'
 import type { RuntimeClientTarget } from '../../../shared/runtime-client-target'
 import type { RuntimeStatus } from '../../../shared/runtime-types'
 import { captureRuntimeEnvironmentRequestRevision } from './runtime-environment-revision'

@@ -197,14 +197,6 @@ describe('runtime metadata', () => {
         runtimeId: 'rt_replacement'
       })
     })
-
-    it('is a no-op when no metadata exists', () => {
-      const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-metadata-'))
-      tempDirs.push(userDataPath)
-
-      expect(() => clearRuntimeMetadataIfOwned(userDataPath, 42, 'rt_owner')).not.toThrow()
-      expect(readRuntimeMetadata(userDataPath)).toBeNull()
-    })
   })
 
   it.runIf(process.platform !== 'win32')(

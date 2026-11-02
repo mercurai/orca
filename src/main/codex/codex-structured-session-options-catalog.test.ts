@@ -8,9 +8,7 @@ import { AgentModelCatalogUnavailableError } from '../native-chat/agent-model-ca
 import { createAgentModelCatalogService } from '../native-chat/agent-model-catalog/agent-model-catalog-service'
 import { agentModelCatalogFingerprint } from '../native-chat/agent-model-catalog/agent-model-catalog-fingerprint'
 
-const FINGERPRINT = 'fp-session-account'
-
-import type { AgentSessionOptionsResult } from '../../shared/agent-session-wire'
+import type { AgentSessionOptionsResult } from '../../shared/agent-session/options/agent-session-options-result'
 import { projectCodexSessionOptions } from './codex-structured-service-tier'
 import {
   applyCodexStructuredSessionOption,
@@ -25,7 +23,12 @@ import {
 } from '../native-chat/agent-model-catalog/agent-model-catalog-store'
 import { optionSession } from './codex-structured-option-session.test-fixture'
 import { describe, expect, it, vi } from 'vitest'
-import { fetchCodexModelCatalogListing } from './codex-structured-model-catalog'
+import {
+  composeCodexSessionOptionCatalog,
+  fetchCodexModelCatalogListing
+} from './codex-structured-model-catalog'
+
+const FINGERPRINT = 'fp-session-account'
 
 async function readPreparedOptions(...args: Parameters<typeof prepareLiveCodexSessionOptions>) {
   const project = await prepareLiveCodexSessionOptions(...args)
@@ -479,4 +482,42 @@ it('uses installed choices after an update and keeps saved values for the next t
     { model: 'A', effort: 'low' }
   )
   expect(request).not.toHaveBeenCalled()
+})
+
+it('keeps declared context independent from configured policy and actual Codex effort', async () => {
+  for (const [configuredEffort, policy, declared] of [
+    [undefined, 'high', 'high'],
+    ['low', 'low', 'low'],
+    ['unlisted', 'high', null]
+  ] as const) {
+    const listing = await fetchCodexModelCatalogListing({
+      connection: {
+        request: async (method) =>
+          method === 'model/list'
+            ? {
+                data: [
+                  {
+                    model: 'native',
+                    displayName: 'Native',
+                    isDefault: true,
+                    defaultReasoningEffort: 'high',
+                    supportedReasoningEfforts: ['low', 'high'].map((reasoningEffort) => ({
+                      reasoningEffort
+                    }))
+                  }
+                ],
+                nextCursor: null
+              }
+            : { config: { model: 'native', model_reasoning_effort: configuredEffort } }
+      }
+    })
+    expect(listing.models[0]).toMatchObject({
+      defaultEffort: policy,
+      declaredDefaultEffort: declared
+    })
+    expect(
+      composeCodexSessionOptionCatalog(listing, { current: { model: 'native', effort: 'max' } })
+        .current
+    ).toMatchObject({ model: 'native', effort: 'max' })
+  }
 })

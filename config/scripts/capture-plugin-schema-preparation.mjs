@@ -6,7 +6,6 @@ import { pathToFileURL } from 'node:url'
 
 export const PLUGIN_SCHEMA_PREPARATION_PATHS = Object.freeze([
   'docs/schemas/plugins/orca-plugin.v2.schema.json',
-  'examples/plugins/orca-gleam-syntax/orca-plugin.v2.schema.json',
   'docs/schemas/plugins/orca-catalog.v2.schema.json',
   'docs/reference/plugin-manifest.md',
   'docs/reference/plugin-catalog.md',

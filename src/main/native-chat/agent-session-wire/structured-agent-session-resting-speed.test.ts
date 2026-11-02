@@ -4,10 +4,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   agentSessionLeaseFixture,
   agentSessionRecordFixture
-} from '../../../shared/agent-session-record.test-fixture'
-import { codexProviderHandle } from '../../../shared/agent-session-provider-handle-encoding'
-import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
-import { seedTestAgentSessionRecordStore } from '../../runtime/agent-session-record-store-test-harness'
+} from '../../../shared/agent-session/lifecycle/agent-session-record.test-fixture'
+import { codexProviderHandle } from '../../../shared/agent-session/lifecycle/agent-session-provider-handle-encoding'
+import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session/lifecycle/agent-session-mutation-envelope'
+import { seedTestAgentSessionRecordStore } from '../../runtime/agent-session/records/agent-session-record-store-test-harness'
 import { createAgentModelCatalogService } from '../agent-model-catalog/agent-model-catalog-service'
 import {
   AgentModelCatalogStore,

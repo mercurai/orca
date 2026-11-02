@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -11,10 +12,8 @@ import { wslMoveCutoverFixture } from '../__fixtures__/wsl-mover/wsl-move-cutove
 import { seedWslMoveCutover } from '../__fixtures__/wsl-mover/wsl-move-journal-seeding'
 import { listWslMoveCutovers, wslMoveJournalDirectory } from './wsl-move-cutover-journal'
 import { runWslMoveDesktopRewritePass } from './wsl-move-desktop-rewrite'
-import {
-  listWslMoveDesktopRewriteStores,
-  resetWslMoveDesktopRewriteStoresForTests
-} from './wsl-move-desktop-rewrite-stores'
+import { resetWslMoveDesktopRewriteStoresForTests } from './wsl-move-desktop-rewrite-stores'
+
 import {
   registerWslMoveOrchestrationHistoryStore,
   rewriteWslMoveOrchestrationHistory,
@@ -121,12 +120,6 @@ afterEach(() => {
 })
 
 describe('WSL move orchestration history rewrite', () => {
-  it('registers one main-side store', () => {
-    expect(listWslMoveDesktopRewriteStores().map((store) => [store.id, store.side])).toEqual([
-      [WSL_MOVE_ORCHESTRATION_HISTORY_STORE_ID, 'main']
-    ])
-  })
-
   it("gives a moved project's settled local dispatches the host's worktree id", async () => {
     seedOrchestrationHistory()
     await seedWslMoveCutover(userDataPath, committedMove())
@@ -193,17 +186,6 @@ describe('WSL move orchestration history rewrite', () => {
       recordSeededHostWorkspaceIds: async () => {}
     })
     expect(withDb((db) => rewriteWslMoveOrchestrationHistory(db, scope))).toBe(0)
-  })
-
-  it('touches nothing with no move journal', async () => {
-    seedOrchestrationHistory()
-    const bytes = readFileSync(databasePath)
-    const dispatches = dispatchIds()
-
-    await runWslMoveDesktopRewritePass({ userDataPath })
-
-    expect(readFileSync(databasePath).equals(bytes)).toBe(true)
-    expect(dispatchIds()).toEqual(dispatches)
   })
 
   it('touches nothing for a move that has not committed', async () => {

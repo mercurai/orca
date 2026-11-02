@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import type * as LaunchIntentModule from './launch-structured-agent-session'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { structuredAgentSessionCreateParams } from '../../../shared/structured-agent-session-create'
-import { structuredAgentSessionCreateFingerprint } from '../../../shared/structured-agent-session-mutation'
+import { structuredAgentSessionCreateParams } from '../../../shared/agent-session/structured-agent-session-create'
+import { structuredAgentSessionCreateFingerprint } from '../../../shared/agent-session/lifecycle/structured-agent-session-mutation'
 import { CreateIntentParams } from '../../../shared/rpc-contract/structured-agent-session-params'
 import type { StructuredAgentSessionLaunchIntent } from './launch-structured-agent-session'
 import type { StructuredLaunchState } from './agent-session/launch/structured-agent-session-launch-registry'
@@ -23,37 +23,37 @@ vi.mock('@/runtime/structured-agent-session-client', () => ({
   callStructuredAgentSession: mocks.call,
   supportsStructuredAgentSessionCreateMessage: async () => true
 }))
-vi.mock('./structured-agent-session-host-admission', () => ({
+vi.mock('./agent-session/launch/structured-agent-session-host-admission', () => ({
   askHostCreateSupport: async () => ({ kind: 'admitted' })
 }))
-vi.mock('./structured-agent-session-create-hydration', () => ({
+vi.mock('./agent-session/launch/structured-agent-session-create-hydration', () => ({
   publishStructuredAgentSessionCreateHydration: vi.fn()
 }))
 vi.mock('./launch-structured-agent-session', async (importOriginal) => ({
   ...(await importOriginal<typeof LaunchIntentModule>()),
   abandonStructuredAgentSessionLaunchIntent: vi.fn()
 }))
-vi.mock('@/components/native-chat/use-structured-agent-session-option-state', async () => {
+vi.mock('@/components/native-chat/structured-agent-session-option-first-frame', async () => {
   const { createStructuredAgentSessionOptionState } =
-    await import('../../../shared/structured-agent-session-options')
+    await import('../../../shared/agent-session/options/structured-agent-session-options')
   return { firstFrameOptionState: () => createStructuredAgentSessionOptionState('codex') }
 })
 vi.mock('@/store', () => ({
   useAppStore: { getState: () => ({ settings: {} }), subscribe: () => () => {} }
 }))
 
-import { launchStructuredAgentSession } from './structured-agent-session-launch-create-call'
-import { prepareStructuredLaunchCreateMessage } from './structured-agent-session-launch-create-message'
-import { createStructuredLaunchCallerGroup } from './structured-agent-session-launch-callers'
+import { launchStructuredAgentSession } from './agent-session/launch/structured-agent-session-launch-create-call'
+import { prepareStructuredLaunchCreateMessage } from './agent-session/launch/structured-agent-session-launch-create-message'
+import { createStructuredLaunchCallerGroup } from './agent-session/launch/structured-agent-session-launch-callers'
 import {
   discardStructuredLaunchPrompts,
   stageStructuredLaunchPrompt
-} from './structured-agent-session-launch-prompt'
+} from './agent-session/launch/structured-agent-session-launch-prompt'
 import { structuredAgentLaunchRecordFor } from './agent-session/launch/structured-agent-session-launch-record'
 import {
   retryStructuredAgentSessionLaunch,
   startStructuredAgentLaunch
-} from './structured-agent-session-launch'
+} from './agent-session/launch/structured-agent-session-launch'
 import {
   getStructuredLaunchStateBySessionId,
   resetStructuredAgentLaunchRegistryForTests,
@@ -67,7 +67,7 @@ import {
   restoreStructuredLaunchHeldOptions,
   settleStructuredLaunchCreateOptions,
   structuredLaunchHeldOptions
-} from './structured-agent-session-launch-options'
+} from './agent-session/launch/structured-agent-session-launch-options'
 
 const SESSION = 'codex_synthetic_authorization_retry'
 

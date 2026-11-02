@@ -7,11 +7,15 @@ import { serializePluginMutation } from './plugin-mutation-queue'
 import { pluginDataDir } from '../plugin-storage-store'
 import { retirePluginData } from '../plugin-data-mutation'
 
-export async function removeInstalledPlugin(input: {
+type PluginRemovalInput = {
   pluginsDir: string
   pluginsDataDir: string
   pluginKey: string
-}): Promise<void> {
+  /** Runs under the mutation lock before any file is deleted (e.g. revoking consent). */
+  beforeRemove?: () => void | Promise<void>
+}
+
+export async function removeInstalledPlugin(input: PluginRemovalInput): Promise<void> {
   await serializePluginMutation(input.pluginsDir, async () => {
     if (!isQualifiedPluginKey(input.pluginKey)) {
       throw new Error(`invalid qualified plugin key: ${input.pluginKey}`)
@@ -20,16 +24,13 @@ export async function removeInstalledPlugin(input: {
     if (lock.plugins[input.pluginKey]?.source.kind === 'bundled') {
       throw new Error(`cannot remove protected plugin ${input.pluginKey}`)
     }
+    await input.beforeRemove?.()
     await removePluginFiles(input)
   })
 }
 
 /** Removes a bundled install this Orca release no longer ships; any other source is left alone. */
-export async function retireBundledPlugin(input: {
-  pluginsDir: string
-  pluginsDataDir: string
-  pluginKey: string
-}): Promise<boolean> {
+export async function retireBundledPlugin(input: PluginRemovalInput): Promise<boolean> {
   return serializePluginMutation(input.pluginsDir, async () => {
     if (!isQualifiedPluginKey(input.pluginKey)) {
       throw new Error(`invalid qualified plugin key: ${input.pluginKey}`)
@@ -38,16 +39,13 @@ export async function retireBundledPlugin(input: {
     if (source?.kind !== 'bundled' || source.bundleId !== input.pluginKey) {
       return false
     }
+    await input.beforeRemove?.()
     await removePluginFiles(input)
     return true
   })
 }
 
-async function removePluginFiles(input: {
-  pluginsDir: string
-  pluginsDataDir: string
-  pluginKey: string
-}): Promise<void> {
+async function removePluginFiles(input: PluginRemovalInput): Promise<void> {
   await retirePluginData(pluginDataDir(input.pluginsDataDir, input.pluginKey), async () => {
     await removeResolvedPluginDirectory(input.pluginsDir, input.pluginKey)
     await removeResolvedPluginDirectory(input.pluginsDataDir, input.pluginKey)

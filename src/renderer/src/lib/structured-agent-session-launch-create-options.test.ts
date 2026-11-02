@@ -10,11 +10,11 @@ import {
 } from './structured-agent-session-launch-create-message.test-fixture'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SendParams } from '../../../shared/rpc-contract/structured-agent-session-params'
-import { startStructuredAgentLaunch } from './structured-agent-session-launch'
+import { startStructuredAgentLaunch } from './agent-session/launch/structured-agent-session-launch'
 import {
   getStructuredAgentSessionLaunchHeldOptions,
   holdStructuredAgentSessionLaunchOption
-} from './structured-agent-session-launch-options'
+} from './agent-session/launch/structured-agent-session-launch-options'
 import {
   recordHostModelCatalogSnapshot,
   resetHostModelCatalogSnapshotsForTests

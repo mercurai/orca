@@ -1,5 +1,5 @@
 import type { AgentSessionSpeed } from '../../shared/agent-session-speed'
-import type { AgentSessionModelCatalogResult } from '../../shared/agent-session-wire'
+import type { AgentSessionModelCatalogResult } from '../../shared/agent-session/agent-session-wire'
 import { CODEX_DEFAULT_SERVICE_TIER, codexFastServiceTier } from './codex-structured-service-tier'
 
 /** A new explicit pick supersedes the other representation; bulk reads prefer canonical intent. */

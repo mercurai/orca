@@ -1,21 +1,14 @@
-import { pickedSkillsInText } from '../../shared/structured-agent-session-send-mutation'
-import type { AgentJournalMessageItem } from '../../shared/agent-session-journal-types'
-import type { NativeChatBlock } from '../../shared/native-chat-types'
+import { pickedSkillsInText } from '../../shared/agent-session/requests/structured-agent-session-send-mutation'
+import type { AgentJournalMessageItem } from '../../shared/agent-session/journal/agent-session-journal-types'
+import type { NativeChatBlock } from '../../shared/native-chat/native-chat-types'
 import type { CodexTurnHost } from './codex-structured-turn-start'
 import { waitForPromiseWithSignal } from '../../shared/abort-signal-reason'
 import { StructuredAgentSessionInputNotAdmitted } from '../native-chat/agent-session-wire/structured-agent-session-input-admission'
-import { agentSessionFailureFact } from '../../shared/agent-session-failure'
+import { agentSessionFailureFact } from '../../shared/agent-session/failures/agent-session-failure'
 import { codexDispatchRejection } from './codex-structured-turn-end-settlement'
 import type { StructuredAgentSessionAdapter } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { AgentSessionExecutionOptions } from '../../shared/agent-session-execution-options'
+import type { AgentSessionExecutionOptions } from '../../shared/agent-session/options/agent-session-execution-options'
 import type { CodexSession } from './codex-structured-session-state'
-
-/** Allowlist turn overrides so saved options cannot replace the thread's permission policy. */
-const CODEX_TURN_OPTION_KEYS = new Set(['model', 'effort', 'personality', 'serviceTier'])
-
-export function isCodexTurnOptionKey(key: string): boolean {
-  return CODEX_TURN_OPTION_KEYS.has(key)
-}
 
 export function resolvedCodexGoalSettings(
   _session: CodexSession,

@@ -1,4 +1,4 @@
-import { captureStructuredLaunchPromptDrafts } from './structured-agent-session-launch-prompt'
+import { captureStructuredLaunchPromptDrafts } from './agent-session/launch/structured-agent-session-launch-prompt'
 import {
   deleteStructuredAgentLaunchRecord,
   writeStructuredAgentLaunchRecord

@@ -25,7 +25,7 @@ import {
   readWslHostRecordsQuietly,
   toWslHostStatus
 } from './wsl-host-connection-record'
-import { sameWslDistro, wslHostRunRefusal } from './wsl-host-add-admission'
+import { sameWslDistro, wslHostNewWorkRefusal } from './wsl-host-add-admission'
 import type { WslOrcadConnection } from './wsl-orcad-connection'
 import { registerWslHost } from './wsl-host-registration'
 import { WslHostStatusBoard } from './wsl-host-status-board'
@@ -48,6 +48,7 @@ export class WslHostService {
   private visible = new Set<string>()
   private readonly parked = new Set<string>()
   private readonly removing = new Set<string>()
+  private readonly readyGenerations = new Map<string, number>()
   // Bumped on disable so an Add that started before it cannot finish as a ready host.
   private disableGeneration = 0
   private readonly connectionChanges: WslHostConnectionChanges
@@ -243,7 +244,10 @@ export class WslHostService {
   }
 
   /** A runtime call (a poll, a fetch) never boots a distro (E9); see ensureWslHostForRuntimeCall. */
-  async ensureForRuntimeCall(environmentId: string): Promise<void> {
+  async ensureForRuntimeCall(
+    environmentId: string,
+    isVisible: () => boolean = () => this.visible.has(environmentId)
+  ): Promise<void> {
     const connector = this.connector
     const generation = this.disableGeneration
     await ensureWslHostForRuntimeCall(environmentId, {
@@ -267,7 +271,8 @@ export class WslHostService {
       deps: this.deps,
       removing: this.removing,
       parked: this.parked,
-      isVisible: () => this.visible.has(environmentId),
+      isVisible,
+      readyGeneration: () => this.readyGenerations.get(environmentId) ?? 0,
       publishStopped: (record) =>
         this.setStatus(record, { state: 'distro-stopped', terminals: 'exited', recovering: false }),
       publishReady: (record, connection) =>
@@ -277,19 +282,23 @@ export class WslHostService {
   }
 
   /**
-   * The user switched to a workspace on this host (or launch restored it focused): the one
-   * non-explicit act that may boot its distro, and it lifts a park.
+   * A workspace on this host became active: the user switched to it, or a launch restored it. That
+   * is navigation, never a start (E9): it re-checks a park and connects only to a running distro; a
+   * stopped one is published stopped, so its panes show Start. Start and a new terminal boot it.
    */
   focusHost(environmentId: string | null): void {
     const record = environmentId ? this.recordForEnvironment(environmentId) : null
     const runnable = record !== null && this.mayWake(record)
-    // The next launch starts booting only this distro, early (none when off WSL or not runnable).
+    // The serialized wake intent tracks only the focused runnable host (none off WSL).
     void rememberWslHostsToWake(this.deps.userDataPath(), record && runnable ? [record.distro] : [])
-    if (record && runnable) {
-      this.wake(record).catch((error: unknown) => {
-        console.warn(`[wsl-hosts] Could not connect to ${record.distro}:`, error)
-      })
+    if (!record || !runnable) {
+      return
     }
+    this.parked.delete(record.environmentId)
+    // The focused workspace's work is visible even before the window re-reports it.
+    this.ensureForRuntimeCall(record.environmentId, () => true).catch(() => {
+      // Refused (stopped, settling, unconfirmed): the published status tells the panes.
+    })
   }
 
   /** E9: an enabled automation came due with the host off; boots the distro once, lifting a park. */
@@ -395,8 +404,9 @@ export class WslHostService {
     return this.deps.hasServerFiles()
   }
 
+  /** Retained fork policy (D1): a turned-off setting also stops saved hosts, not only new work. */
   private canRun(): boolean {
-    return wslHostRunRefusal(this.deps) === null
+    return wslHostNewWorkRefusal(this.deps) === null
   }
 
   async dispose(): Promise<void> {
@@ -408,6 +418,10 @@ export class WslHostService {
     status: WslOrcadConnectionStatus,
     connection: WslOrcadConnection | null = null
   ): void {
+    if (status.state === 'ready') {
+      const generation = this.readyGenerations.get(record.environmentId) ?? 0
+      this.readyGenerations.set(record.environmentId, generation + 1)
+    }
     this.board.set(toWslHostStatus(record, status, connection))
   }
 

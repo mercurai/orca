@@ -125,7 +125,7 @@ it('captures all seven hashes and a source-bound patch without qualifying genera
     validationErrors: []
   })
   expect(report.files.map((file) => file.path)).toEqual(PLUGIN_SCHEMA_PREPARATION_PATHS)
-  expect(report.files).toHaveLength(7)
+  expect(report.files).toHaveLength(6)
   expect(report.files.every((file) => /^[0-9a-f]{64}$/.test(file.beforeSha256))).toBe(true)
   expect(report.files.every((file) => /^[0-9a-f]{64}$/.test(file.afterSha256))).toBe(true)
   const patch = readFileSync(join(input.outputDir, 'proposed.patch'))

@@ -4,7 +4,7 @@ import { readCodexSessionSpeed } from '../../codex/codex-structured-speed-state'
 import { optionSession } from '../../codex/codex-structured-option-session.test-fixture'
 import { agentSessionConversationView } from '../../../shared/agent-session-conversation-view'
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentSessionRecord } from '../../../shared/agent-session-record'
+import type { AgentSessionRecord } from '../../../shared/agent-session/lifecycle/agent-session-record'
 import {
   agentModelCatalogFingerprintForRecord,
   agentModelCatalogScopeFingerprint

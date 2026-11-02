@@ -278,12 +278,34 @@ it('propagates explicit full-unit mode and cache isolation into the existing reu
   expect(evaluate(workflow.jobs.test.with.cache_mode)).toBe('off')
   expect(evaluate(workflow.jobs.e2e.with.cache_mode)).toBe('off')
   expect(evaluate(workflow.jobs.layout_oracle.with.cache_mode)).toBe('off')
-  for (const [id, job] of Object.entries(workflow.jobs)) {
-    for (const step of job.steps ?? []) {
-      if (step.uses === './.github/actions/install-node-dependencies') {
-        expect(evaluate(step.with?.['cache-mode']), id).toBe('off')
+  const localActionPrefix = './.github/actions/'
+  const qualificationWorkflows = [
+    'pr',
+    'unit-tests',
+    'e2e',
+    'unit-plan',
+    'terminal-ime-e2e',
+    'windows-wsl-e2e'
+  ]
+  for (const name of qualificationWorkflows) {
+    let cacheModeSteps = 0
+    for (const [id, job] of Object.entries(readWorkflow(name).jobs)) {
+      for (const step of job.steps ?? []) {
+        if (!step.uses?.startsWith(localActionPrefix)) {
+          continue
+        }
+        const actionFile = `.github/actions/${step.uses.slice(localActionPrefix.length)}/action.yml`
+        if (!existsSync(actionFile)) {
+          continue
+        }
+        if (!parse(readFileSync(actionFile, 'utf8')).inputs?.['cache-mode']) {
+          continue
+        }
+        cacheModeSteps += 1
+        expect(evaluate(step.with?.['cache-mode']), `${name}:${id}:${step.uses}`).toBe('off')
       }
     }
+    expect(cacheModeSteps, `${name} cache-mode action steps`).toBeGreaterThan(0)
   }
 })
 
@@ -329,6 +351,40 @@ it('disables every persistent cache step in the shared workflows and preparation
           evaluate(step.if, context({ inputs: { 'cache-mode': 'off' } })),
           `${name}:${step.name ?? step.id}`
         ).toBe(false)
+      }
+    }
+  }
+})
+
+it('keeps the pnpm verification restore and every Node setup cache off under cache-mode=off', () => {
+  const off = (event_name) =>
+    context({
+      github: { event_name },
+      inputs: {
+        'cache-mode': 'off',
+        'cache-pnpm-verification': 'true',
+        'cache-pnpm-store': 'true'
+      }
+    })
+  const installer = parse(
+    readFileSync('.github/actions/install-node-dependencies/action.yml', 'utf8')
+  )
+  const verification = installer.runs.steps.find((step) => step.id === 'verification-cache')
+  expect(verification.uses).toBe('./.github/actions/restore-pnpm-verification')
+  expect(evaluate(verification.with.enabled, off('push'))).toBe('false')
+
+  const installerNodeSetups = installer.runs.steps.filter(
+    (step) => step.uses === 'actions/setup-node@v6'
+  )
+  expect(installerNodeSetups.map((step) => step.id)).toEqual(['default-node', 'requested-node'])
+  for (const name of ['install-node-dependencies', 'setup-pnpm']) {
+    const action = parse(readFileSync(`.github/actions/${name}/action.yml`, 'utf8'))
+    for (const step of action.runs.steps.filter(
+      (entry) => entry.uses === 'actions/setup-node@v6'
+    )) {
+      for (const eventName of ['push', 'pull_request']) {
+        const cache = step.with.cache === undefined ? '' : evaluate(step.with.cache, off(eventName))
+        expect(cache, `${name}:${step.id ?? step.name}:${eventName}`).toBe('')
       }
     }
   }

@@ -80,6 +80,15 @@ describe('WSL host early wake', () => {
     expect(spawn).not.toHaveBeenCalled()
   })
 
+  it('wakes the focused host a previous run left on disk, and keeps the list for the next launch', () => {
+    // No intent is active here, as at a fresh launch: the wake reads the saved file directly.
+    writeFileSync(wakePath(), '{"version":1,"distros":["Ubuntu"]}')
+    const spawn = vi.fn()
+    expect(wakeRememberedWslHosts(userDataPath, spawn)).toEqual(['Ubuntu'])
+    expect(spawn).toHaveBeenCalledExactlyOnceWith('Ubuntu')
+    expect(readWakeFile()).toEqual({ version: 1, distros: ['Ubuntu'] })
+  })
+
   it('deletes the list when WSL hosts are turned off, so the next launch wakes nothing', async () => {
     await rememberWslHostsToWake(userDataPath, ['Ubuntu'])
     await forgetWslHostsToWake(userDataPath)

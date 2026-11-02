@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { CODEX_SESSION_OPTION_CATALOG } from './agent-session-option-catalog-claude-codex'
-import type { AgentSessionModelOption } from './agent-session-wire'
+import { CODEX_SESSION_OPTION_CATALOG } from './agent-session/options/agent-session-option-catalog-claude-codex'
+import type { AgentSessionModelOption } from './agent-session/agent-session-wire'
 import { buildNativeChatSessionOptionSnapshot } from './native-chat/input/native-chat-session-option-snapshot'
 import { createNativeChatSessionOptionRecord } from './native-chat/input/native-chat-session-option-state'
-import { discoveredModel } from './structured-agent-session-discovered-model'
+import { discoveredModel } from './agent-session/options/structured-agent-session-discovered-model'
 import {
   applyStructuredAgentSessionOptions,
-  createStructuredAgentSessionOptionState,
-  structuredAgentSessionOptionSnapshot
-} from './structured-agent-session-options'
+  createStructuredAgentSessionOptionState
+} from './agent-session/options/structured-agent-session-options'
+import { structuredAgentSessionOptionSnapshot } from './agent-session/options/structured-agent-session-option-snapshot'
 
 const model: AgentSessionModelOption = {
   id: 'synthetic-catalog-model',
@@ -34,7 +34,7 @@ function snapshot(row: AgentSessionModelOption, supportsFastMode = false) {
 
 describe('catalog-backed structured session speed', () => {
   it('offers an explicit Standard-only speed option for a known empty tier catalog', () => {
-    const discovered = discoveredModel({ ...model, serviceTiers: [] }, false)
+    const discovered = discoveredModel({ ...model, serviceTiers: [] }, false, 'codex')
 
     expect(discovered.options).toContainEqual(
       expect.objectContaining({
@@ -48,7 +48,7 @@ describe('catalog-backed structured session speed', () => {
   it('keeps a Standard-only speed selector visible through the generic snapshot', () => {
     // Supply the known option independently so this exercises snapshot filtering itself.
     const listedModel = {
-      ...discoveredModel(model, false),
+      ...discoveredModel(model, false, 'codex'),
       options: [
         {
           id: 'serviceTier',

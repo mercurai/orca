@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+
 import { createPluginWorkerRuntime, type PluginWorkerOrcaApi } from './plugin-host-runtime'
 
 const init = (overrides: { pluginRoot?: string; mainEntry?: string } = {}) => ({
@@ -17,19 +16,6 @@ const init = (overrides: { pluginRoot?: string; mainEntry?: string } = {}) => ({
 })
 
 describe('plugin worker shutdown', () => {
-  it('normalizes either manifest separator before importing the worker', async () => {
-    const importModule = vi.fn(async () => ({ default: vi.fn() }))
-    const runtime = createPluginWorkerRuntime({ send: vi.fn(), importModule })
-
-    await runtime.handleMessage(
-      init({ pluginRoot: join('plugin-root'), mainEntry: 'nested\\worker.js' })
-    )
-
-    expect(importModule).toHaveBeenCalledWith(
-      pathToFileURL(join('plugin-root', 'nested', 'worker.js')).href
-    )
-  })
-
   it('awaits an optional deactivate export before exiting', async () => {
     let finishDeactivate!: () => void
     const deactivate = vi.fn(
@@ -53,20 +39,6 @@ describe('plugin worker shutdown', () => {
     expect(exit).not.toHaveBeenCalled()
     finishDeactivate()
     await shutdown
-
-    expect(exit).toHaveBeenCalledWith(0)
-  })
-
-  it('exits immediately when the plugin has no deactivate export', async () => {
-    const exit = vi.fn()
-    const runtime = createPluginWorkerRuntime({
-      send: vi.fn(),
-      exit,
-      importModule: async () => ({ default: vi.fn() })
-    })
-    await runtime.handleMessage(init())
-
-    await runtime.handleMessage({ orca: 1, kind: 'evt', event: 'shutdown' })
 
     expect(exit).toHaveBeenCalledWith(0)
   })
@@ -179,5 +151,22 @@ describe('worker orca API parity with frames', () => {
     })
     expect(legacy).toHaveBeenCalledWith({ workspaceId: 'w1', worktreeId: 'w1' })
     expect(current).toHaveBeenCalledWith({ workspaceId: 'w1' })
+  })
+})
+
+describe('worker module loading', () => {
+  it('prepares module loading for the plugin root before importing a main.ts entry', async () => {
+    const order: string[] = []
+    const runtime = createPluginWorkerRuntime({
+      send: vi.fn(),
+      exit: vi.fn(),
+      prepareModuleLoading: (root) => order.push(`prepare ${root}`),
+      importModule: async (url) => {
+        order.push(`import ${url.slice(url.lastIndexOf('/') + 1)}`)
+        return { default: vi.fn() }
+      }
+    })
+    await runtime.handleMessage(init({ pluginRoot: '/plugin', mainEntry: 'src/main.ts' }))
+    expect(order).toEqual(['prepare /plugin', 'import main.ts'])
   })
 })

@@ -7,8 +7,7 @@ import { serializePathWrite } from '../../../shared/path-write-serializer'
 import type { WslMoveOrchestratorRecord } from '../../../shared/wsl-move/wsl-move-orchestrator-types'
 import {
   readWslMoveOrchestratorRecords,
-  wslMoveOrchestratorStorePath,
-  writeWslMoveOrchestratorRecords
+  wslMoveOrchestratorStorePath
 } from './wsl-move-orchestrator-store'
 
 const dirs: string[] = []

@@ -4,20 +4,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   CLAUDE_SESSION_OPTION_CATALOG,
   CODEX_SESSION_OPTION_CATALOG
-} from '../../../../shared/agent-session-option-catalog-claude-codex'
+} from '../../../../shared/agent-session/options/agent-session-option-catalog-claude-codex'
 import {
   applyStructuredAgentSessionOptions,
-  createStructuredAgentSessionOptionState,
-  structuredAgentSessionOptionSnapshot
-} from '../../../../shared/structured-agent-session-options'
+  createStructuredAgentSessionOptionState
+} from '../../../../shared/agent-session/options/structured-agent-session-options'
+import { structuredAgentSessionOptionSnapshot } from '../../../../shared/agent-session/options/structured-agent-session-option-snapshot'
 import { createStructuredSessionSelectionController } from '../../../../shared/structured-agent-session-selection-operations'
-import { structuredAgentSessionOptionView } from '../../../../shared/structured-agent-session-option-view'
-import { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } from '../../../../shared/agent-session-create-capabilities'
+import { structuredAgentSessionOptionView } from '../../../../shared/agent-session/options/structured-agent-session-option-view'
+import { CODEX_SPEED_SELECTION_RUNTIME_CAPABILITY } from '../../../../shared/agent-session/agent-session-create-capabilities'
 import { SendParams } from '../../../../shared/rpc-contract/structured-agent-session-params'
 import type { StructuredAgentSessionPendingSend } from './structured-agent-session-pending-sends'
 
 const mocks = vi.hoisted(() => ({ rpc: vi.fn(), send: vi.fn(), selection: vi.fn() }))
-vi.mock('@/lib/structured-agent-session-launch-options', () => ({
+vi.mock('@/lib/agent-session/launch/structured-agent-session-launch-options', () => ({
   getStructuredAgentSessionLaunchSelection: mocks.selection
 }))
 vi.mock('@/runtime/runtime-rpc-client', () => ({
