@@ -44,3 +44,36 @@ test('coordinator uses controller code, state CAS, and bounded Orca dispatch wit
   assert.doesNotMatch(workflow, /FORK_BOT_TOKEN|secrets\./)
   assert.doesNotMatch(workflow, /worker-start[^\n]*--agent\s+claude/)
 })
+
+test('coordinator parks tag approvals, records the wake gate, and stores the audit', () => {
+  assert.match(workflow, /fork-sync-tag&per_page=100/)
+  assert.match(workflow, /select\(\.pull_request == null\)/)
+  assert.match(workflow, /PARKED_TAGS_FILE/)
+  assert.match(workflow, /parkItem\(/)
+  assert.match(workflow, /clearParked\(/)
+  assert.match(workflow, /computeTargetDigest\(state\.candidate\)/)
+  assert.match(workflow, /recordEvaluation\(/)
+  assert.match(workflow, /auditCandidate\(state\)/)
+  assert.match(workflow, /evidence: \{ \.\.\.state\.evidence, audit \}/)
+})
+
+test('coordinator may read issues but never writes them, and still holds no secret', () => {
+  assert.match(workflow, /^  issues: read$/m)
+  assert.doesNotMatch(workflow, /issues: write/)
+  assert.doesNotMatch(workflow, /gh issue (comment|create|edit|close)/)
+  assert.doesNotMatch(workflow, /FORK_BOT_TOKEN|secrets\./)
+})
+
+test('the embedded reconcile script is valid JavaScript', async () => {
+  const { spawnSync } = await import('node:child_process')
+  const { writeFileSync, mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const blocks = [...workflow.matchAll(/node --input-type=module - "\$GITHUB_WORKSPACE\/\.state\/release-state\.json" <<'NODE'\n([\s\S]*?)\n\s*NODE\n/g)]
+  assert.equal(blocks.length, 1)
+  const dir = mkdtempSync(join(tmpdir(), 'coordinator-'))
+  const file = join(dir, 'reconcile.mjs')
+  writeFileSync(file, blocks[0][1].replace(/^ {10}/gm, ''), 'utf8')
+  const check = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })
+  assert.equal(check.status, 0, check.stderr)
+})

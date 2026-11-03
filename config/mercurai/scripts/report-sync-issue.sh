@@ -48,6 +48,13 @@ fi
 open_issues=$("$gh" api --paginate "repos/$GH_REPO/issues?state=open&labels=$label&per_page=100" --jq '.[] | {number, title}')
 existing=$(jq -r -s --arg p "$prefix" '[.[] | select(.title | startswith($p))][0].number // empty' <<<"$open_issues")
 if [ -n "$existing" ]; then
+  # Retention: the hourly run must not append the same refusal 24 times a day. A comment that already
+  # names this exact upstream commit is the same report; the run still fails, it just says so once.
+  already=$("$gh" api --paginate "repos/$GH_REPO/issues/$existing/comments?per_page=100" 2>/dev/null | grep -cF -- "$UPSTREAM_SHA" || true)
+  if [ "${already:-0}" -gt 0 ]; then
+    echo "already reported $UPSTREAM_SHA on #$existing; not commenting again"
+    exit 1
+  fi
   "$gh" issue comment "$existing" --body "$body"
 else
   "$gh" label create "$label" --color d93f0b --description 'fork sync needs a human' 2>/dev/null || true

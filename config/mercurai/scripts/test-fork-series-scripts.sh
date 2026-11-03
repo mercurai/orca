@@ -1007,6 +1007,18 @@ if grep -q '^issue comment 35 ' "$STUB_DIR/calls.log" && [ "$(ti_calls 'issue cr
   pass "sync issue: a guard refusal finds an earlier one far down the listing and comments on it"; else fail "sync issue: a guard refusal finds an earlier one far down the listing and comments on it"; cat "$STUB_DIR/calls.log"; fi
 rc=$(rs_run conflict)
 if grep -q '^issue comment 36 ' "$STUB_DIR/calls.log"; then pass "sync issue: a conflict comments on the earlier conflict issue"; else fail "sync issue: a conflict comments on the earlier conflict issue"; cat "$STUB_DIR/calls.log"; fi
+# Retention: the same refusal for the same upstream commit is filed once, not once an hour.
+rs_setup; issue_line 35 "fork-sync guard: upstream main 0000 changes guarded paths; nothing was pushed or merged into mercurai" open the-bot x > "$STUB_DIR/issues.ndjson"
+jq -nc --arg s "$r1" '{login:"the-bot",body:("seen allow_guarded_merge_sha=" + $s)}' > "$STUB_DIR/comments-35.ndjson"
+rc=$(rs_run guard)
+if [ "$rc" = 1 ] && ! grep -q '^issue comment' "$STUB_DIR/calls.log" && grep -q 'already reported' "$root/at/rs.out"; then
+  pass "sync issue: the same upstream commit is reported once, not every hour"; else fail "sync issue: the same upstream commit is reported once, not every hour"; echo "rc=$rc"; cat "$STUB_DIR/calls.log" "$root/at/rs.out"; fi
+# A different upstream commit on the same issue is a new report.
+rs_setup; issue_line 35 "fork-sync guard: upstream main 0000 changes guarded paths; nothing was pushed or merged into mercurai" open the-bot x > "$STUB_DIR/issues.ndjson"
+jq -nc '{login:"the-bot",body:"seen allow_guarded_merge_sha=0000000000000000000000000000000000000000"}' > "$STUB_DIR/comments-35.ndjson"
+rc=$(rs_run guard)
+if [ "$rc" = 1 ] && grep -q '^issue comment 35 ' "$STUB_DIR/calls.log"; then
+  pass "sync issue: a new upstream commit is reported again"; else fail "sync issue: a new upstream commit is reported again"; echo "rc=$rc"; cat "$STUB_DIR/calls.log"; fi
 rs_setup; issue_line 36 "fork-sync: mercurai does not merge with upstream main 0000" open the-bot x > "$STUB_DIR/issues.ndjson"; rc=$(rs_run guard)
 if [ "$(ti_calls 'issue create')" = 1 ] && ! grep -q '^issue comment' "$STUB_DIR/calls.log"; then pass "sync issue: a refusal never lands on a conflict issue"; else fail "sync issue: a refusal never lands on a conflict issue"; cat "$STUB_DIR/calls.log"; fi
 rs_setup; issue_line 35 "fork-sync guard: upstream main 0000 changes guarded paths; nothing was pushed or merged into mercurai" open the-bot x > "$STUB_DIR/issues.ndjson"; rc=$(rs_run conflict)
