@@ -84,7 +84,6 @@ export function useTerminalPaneGlobalEffects({
   const wasVisibleRef = useRef(true)
   const wasWorktreeActiveRef = useRef(isWorktreeActive)
   const hasCompletedVisibleResumeRef = useRef(false)
-  const renderingSuspendedByVisibilityRef = useRef(false)
   const hiddenReasonRef = useRef<TerminalHiddenReason | null>(null)
   const rendererVisible = isVisible && isWorktreeActive
   // Why: the active pane can rebind to a new PTY (deferred reattach / eager
@@ -148,8 +147,8 @@ export function useTerminalPaneGlobalEffects({
       const shouldUseLightTabResume =
         isWorktreeActive &&
         hasCompletedVisibleResumeRef.current &&
-        !renderingSuspendedByVisibilityRef.current &&
-        (wasVisible || hiddenReasonRef.current === 'tab')
+        (wasVisible ||
+          (hiddenReasonRef.current === 'tab' && manager.tryResumeRenderingWithoutRecreation()))
       resumeTerminalVisibility({
         manager,
         isActive,
@@ -161,7 +160,6 @@ export function useTerminalPaneGlobalEffects({
         captureViewportPositions,
         withSuppressedScrollTracking
       })
-      renderingSuspendedByVisibilityRef.current = false
       wasVisibleRef.current = true
       wasWorktreeActiveRef.current = isWorktreeActive
       hasCompletedVisibleResumeRef.current = true
@@ -169,16 +167,15 @@ export function useTerminalPaneGlobalEffects({
       applyPendingFollowOutputRequests()
       return
     }
-    const hiddenState = hideTerminalVisibility({
+    const hiddenReason = hideTerminalVisibility({
       manager,
       wasVisible,
       wasWorktreeActive,
       isWorktreeActive,
-      hasCompletedVisibleResume: hasCompletedVisibleResumeRef.current,
       captureViewportPositions
     })
-    renderingSuspendedByVisibilityRef.current = hiddenState.renderingSuspended
-    hiddenReasonRef.current = hiddenState.hiddenReason
+    // Hidden prop updates must not erase a tab hide or downgrade a surface hide.
+    hiddenReasonRef.current = hiddenReason ?? hiddenReasonRef.current
 
     wasVisibleRef.current = false
     wasWorktreeActiveRef.current = isWorktreeActive

@@ -1,4 +1,6 @@
 import type { ManagedPaneInternal } from './pane-manager-types'
+import type { PaneManagerHost } from './pane-manager-host'
+import { applyDividerStyles, applyPaneOpacity, applyRootBackground } from './pane-divider'
 import {
   resumeTerminalCursorBlink,
   suspendTerminalCursorBlink
@@ -12,7 +14,8 @@ import {
   markComplexScriptOutput,
   clearWebglTextureAtlas,
   presentPaneViewport,
-  resetWebglTextureAtlas
+  resetWebglTextureAtlas,
+  shouldUseTerminalWebgl
 } from './pane-webgl-renderer'
 import {
   clearPaneWebglContextLossForRetry,
@@ -56,6 +59,25 @@ export function markPaneComplexScriptOutput(
   if (pane) {
     markComplexScriptOutput(pane)
   }
+}
+
+export function applyManagedPaneStyles(host: PaneManagerHost): void {
+  const styleOptions = host.getStyleOptions()
+  applyPaneOpacity(host.panes.values(), host.getActivePaneId(), styleOptions)
+  applyDividerStyles(host.root, styleOptions)
+  applyRootBackground(host.root, styleOptions)
+}
+
+export function suspendManagedPaneRendering(
+  host: PaneManagerHost,
+  owner: HiddenWebglRetentionOwner
+): void {
+  suspendPaneRendering(
+    host.panes.values(),
+    host.options.retainHiddenWebgl === false
+      ? undefined
+      : { owner, livePanes: () => (host.isDestroyed() ? [] : host.panes.values()) }
+  )
 }
 
 export function suspendPaneRendering(
@@ -117,6 +139,32 @@ export function resumePaneRendering(
     }
     reattachWebglIfNeeded(pane)
   }
+}
+
+/** Refusal leaves every pane suspended and the owner's retention order unchanged. */
+export function tryResumePaneRenderingWithoutRecreation(
+  panes: Iterable<ManagedPaneInternal>,
+  retentionOwner: HiddenWebglRetentionOwner
+): boolean {
+  const currentPanes = Array.from(panes)
+  for (const pane of currentPanes) {
+    if (pane.webglRebuildDeferred || pane.webglDisabledAfterContextLoss) {
+      return false
+    }
+    if (
+      pane.webglAddon
+        ? isPaneWebglContextLost(pane)
+        : pane.gpuRenderingEnabled && shouldUseTerminalWebgl(pane)
+    ) {
+      return false
+    }
+  }
+  releaseHiddenWebglRetention(retentionOwner)
+  for (const pane of currentPanes) {
+    pane.webglAttachmentDeferred = false
+    resumeTerminalCursorBlink(pane.terminal)
+  }
+  return true
 }
 
 export function resetPaneWebglTextureAtlases(panes: Iterable<ManagedPaneInternal>): void {

@@ -139,6 +139,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     ])
     const manager = {
       getPanes,
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(() => order.push('resume')),
       resetWebglTextureAtlases: vi.fn(() => order.push('reset-atlas')),
       scheduleRevealRepaint: vi.fn(() => {
@@ -203,6 +204,7 @@ describe('useTerminalPaneGlobalEffects', () => {
       'intent:terminal-b',
       'reveal-repaint'
     ])
+    expect(manager.tryResumeRenderingWithoutRecreation).not.toHaveBeenCalled()
     expect(manager.resetWebglTextureAtlases).not.toHaveBeenCalled()
     vi.advanceTimersByTime(0)
     expect(order.slice(-3)).toEqual(['reveal-repaint', 'reset-atlas', 'refresh'])
@@ -232,6 +234,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const terminal = { name: 'terminal-a' }
     const manager = {
       getPanes: vi.fn(() => [{ id: 1, terminal }]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
@@ -283,7 +286,7 @@ describe('useTerminalPaneGlobalEffects', () => {
       isVisible: false
     })
 
-    expect(manager.suspendRendering).not.toHaveBeenCalled()
+    expect(manager.suspendRendering).toHaveBeenCalledTimes(1)
 
     beginHookRender()
     useTerminalPaneGlobalEffects({
@@ -294,6 +297,7 @@ describe('useTerminalPaneGlobalEffects', () => {
 
     expect(mocks.requestTerminalBacklogRecovery).toHaveBeenCalledWith(terminal)
     expect(mocks.flushTerminalOutput).not.toHaveBeenCalled()
+    expect(manager.tryResumeRenderingWithoutRecreation).toHaveBeenCalledTimes(1)
     expect(manager.resumeRendering).not.toHaveBeenCalled()
     expect(mocks.fitAndFocusPanes).not.toHaveBeenCalled()
     expect(mocks.fitPanes).not.toHaveBeenCalled()
@@ -323,6 +327,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     }
     const manager = {
       getPanes: vi.fn(() => [pane]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
@@ -373,6 +378,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const terminal = { name: 'terminal-a' }
     const manager = {
       getPanes: vi.fn(() => [{ id: 1, terminal }]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
@@ -425,6 +431,7 @@ describe('useTerminalPaneGlobalEffects', () => {
 
     expect(mocks.requestTerminalBacklogRecovery).toHaveBeenCalledWith(terminal)
     expect(mocks.flushTerminalOutput).not.toHaveBeenCalled()
+    expect(manager.tryResumeRenderingWithoutRecreation).not.toHaveBeenCalled()
     expect(manager.resumeRendering).not.toHaveBeenCalled()
     expect(mocks.fitAndFocusPanes).not.toHaveBeenCalled()
     expect(mocks.fitPanes).not.toHaveBeenCalled()
@@ -440,6 +447,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const terminal = { name: 'terminal-a' }
     const manager = {
       getPanes: vi.fn(() => [{ id: 1, terminal }]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
@@ -488,6 +496,7 @@ describe('useTerminalPaneGlobalEffects', () => {
 
     expect(mocks.requestTerminalBacklogRecovery).toHaveBeenCalledWith(terminal)
     expect(mocks.flushTerminalOutput).toHaveBeenCalledWith(terminal, { maxChars: 256 * 1024 })
+    expect(manager.tryResumeRenderingWithoutRecreation).not.toHaveBeenCalled()
     expect(manager.resumeRendering).toHaveBeenCalledTimes(1)
   })
 
@@ -495,6 +504,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const terminal = { name: 'terminal-a' }
     const manager = {
       getPanes: vi.fn(() => [{ id: 1, terminal }]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
@@ -536,7 +546,7 @@ describe('useTerminalPaneGlobalEffects', () => {
       isVisible: false,
       isWorktreeActive: true
     })
-    expect(manager.suspendRendering).not.toHaveBeenCalled()
+    expect(manager.suspendRendering).toHaveBeenCalledTimes(1)
 
     beginHookRender()
     useTerminalPaneGlobalEffects({
@@ -546,7 +556,7 @@ describe('useTerminalPaneGlobalEffects', () => {
       isWorktreeActive: false
     })
 
-    expect(manager.suspendRendering).toHaveBeenCalledTimes(1)
+    expect(manager.suspendRendering).toHaveBeenCalledTimes(2)
 
     manager.resumeRendering.mockClear()
     manager.resetWebglTextureAtlases.mockClear()
@@ -568,6 +578,7 @@ describe('useTerminalPaneGlobalEffects', () => {
 
     expect(mocks.requestTerminalBacklogRecovery).toHaveBeenCalledWith(terminal)
     expect(mocks.flushTerminalOutput).toHaveBeenCalledWith(terminal, { maxChars: 256 * 1024 })
+    expect(manager.tryResumeRenderingWithoutRecreation).not.toHaveBeenCalled()
     expect(manager.resumeRendering).toHaveBeenCalledTimes(1)
     // Reveal must route through fitAllRevealedPanes, never the sync fitAllPanes.
     expect(manager.fitAllRevealedPanes).toHaveBeenCalledTimes(1)
@@ -583,6 +594,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const terminalA = { name: 'terminal-a' }
     const manager = {
       getPanes: vi.fn(() => [{ id: 1, terminal: terminalA }]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
