@@ -56,7 +56,9 @@ const managers: PaneManager[] = []
 
 function addonFor(terminal: Terminal): ObservedWebglAddon {
   const addon = webgl.addons.get(terminal)
-  if (!addon) throw new Error('Expected the real manager to attach the WebGL test addon')
+  if (!addon) {
+    throw new Error('Expected the real manager to attach the WebGL test addon')
+  }
   return addon
 }
 
@@ -137,11 +139,16 @@ describe('ordinary tab WebGL retention through the visibility hook', () => {
 
   afterEach(() => {
     cleanup()
-    for (const manager of managers.splice(0)) manager.destroy()
+    for (const manager of managers.splice(0)) {
+      manager.destroy()
+    }
     resetHiddenWebglRetentionForTest()
     document.body.replaceChildren()
-    if (originalApi) Object.defineProperty(window, 'api', originalApi)
-    else Reflect.deleteProperty(window, 'api')
+    if (originalApi) {
+      Object.defineProperty(window, 'api', originalApi)
+    } else {
+      Reflect.deleteProperty(window, 'api')
+    }
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
