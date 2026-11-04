@@ -209,6 +209,10 @@ jobs:
       # artifact instead of starting five concurrent electron-vite builds.
       # ORCA_E2E_FORWARD_APP_LOGS keeps startup failures visible when Electron
       # launches but never creates a BrowserWindow.
+      - name: Run terminal tab WebGL retention
+        if: matrix.shard == '1/14'
+        run: xvfb-run --auto-servernum bash .github/scripts/e2e-with-window-manager.sh env ORCA_BACKGROUND_LAUNCH=1 SKIP_BUILD=1 pnpm exec playwright test tests/e2e/terminal-tab-webgl-retention.spec.ts --config tests/playwright.config.ts --project=electron-headful --workers=1 --retries=0
+
       - name: Balance E2E shard from timing evidence
         env:
           ORCA_BACKGROUND_LAUNCH: '1'
@@ -248,6 +252,7 @@ jobs:
       - name: Run worktree first-paint benchmark
         if: matrix.shard == '1/14'
         run: xvfb-run --auto-servernum bash .github/scripts/e2e-with-window-manager.sh env SKIP_BUILD=1 ORCA_E2E_FORWARD_APP_LOGS=1 pnpm exec playwright test tests/e2e/worktree-switch-first-paint.spec.ts --config tests/playwright.config.ts --project=electron-headful --workers=1
+
 
       # Why: Playwright retains traces/screenshots only on failure. Uploading
       # them as an artifact makes post-mortem debugging on CI possible without
@@ -325,6 +330,58 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: playwright-traces-changed${{ inputs.artifact_suffix }}
+          path: test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # Linux runs this spec in changed-e2e; build native inputs on each remaining desktop OS.
+  terminal-retention-desktop:
+    name: terminal tab retention (${{ matrix.platform }})
+    if: inputs.test_files == '' || contains(inputs.test_files, 'tests/e2e/terminal-tab-webgl-retention.spec.ts')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            platform: macos
+          - os: windows-2022
+            platform: windows
+    defaults:
+      run:
+        shell: bash
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      ORCA_BACKGROUND_LAUNCH: '1'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: ./.github/actions/install-node-dependencies
+        with:
+          native-runtime: electron
+      - name: Build the retention E2E app and CLI
+        env:
+          VITE_EXPOSE_STORE: 'true'
+        run: |
+          pnpm exec electron-vite build --mode e2e
+          pnpm run build:cli
+      - name: Run terminal tab WebGL retention
+        env:
+          SKIP_BUILD: '1'
+          ORCA_E2E_FORWARD_APP_LOGS: '1'
+        run: >-
+          pnpm exec playwright test
+          tests/e2e/terminal-tab-webgl-retention.spec.ts
+          --config tests/playwright.config.ts
+          --project=electron-headful --workers=1 --retries=0
+      - name: Upload retention Playwright traces
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: terminal-tab-retention-${{ matrix.platform }}${{ inputs.artifact_suffix }}
           path: test-results/
           retention-days: 7
           if-no-files-found: ignore
@@ -446,6 +503,16 @@ jobs:
           pnpm build:orcad
           node config/scripts/build-orcad-template.mjs --targets linux-x64-glibc
           mv out/orcad-template "$RUNNER_TEMP/orcad-convert-template"
+      - name: Run managed SSH terminal WebGL retention
+        if: matrix.shard == '1/2' && (inputs.test_files == '' || contains(inputs.test_files, 'tests/e2e/ssh-orcad-terminal-webgl-retention.spec.ts'))
+        env:
+          SKIP_BUILD: '1'
+          ORCA_E2E_SSH_DOCKER: '1'
+          ORCA_E2E_ORCAD_CONVERT_HOST: docker
+          ORCA_E2E_FORWARD_APP_LOGS: '1'
+        run: |
+          export ORCA_E2E_ORCAD_CONVERT_TEMPLATE="$RUNNER_TEMP/orcad-convert-template"
+          xvfb-run --auto-servernum bash .github/scripts/e2e-with-window-manager.sh pnpm exec playwright test tests/e2e/ssh-orcad-terminal-webgl-retention.spec.ts --config tests/playwright.config.ts --project=electron-headful --workers=1 --retries=0
       # The Windows CLI matrix collects here too and skips: it needs a Windows host descriptor.
       - name: Run managed SSH specs on a Docker host
         env:

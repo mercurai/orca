@@ -24,6 +24,19 @@ const MANAGED_SSH_HARNESS =
 
 export const PR_E2E_SOURCE_ROUTES = [
   {
+    id: 'terminal.hidden-webgl-retention',
+    specs: [
+      'tests/e2e/terminal-tab-webgl-retention.spec.ts',
+      'tests/e2e/ssh-orcad-terminal-webgl-retention.spec.ts'
+    ],
+    matches: (file) =>
+      /^tests\/e2e\/helpers\/terminal-webgl-retention-(?:graphics|journey)\.ts$/.test(file) ||
+      (isProductSource(file) &&
+        /^src\/renderer\/src\/(?:lib\/pane-manager\/(?:pane-manager|pane-manager-pane-creation|pane-rendering-control|pane-webgl-renderer|pane-webgl-reattach|pane-terminal-gpu-acceleration|terminal-webgl-hidden-retention)|components\/terminal-pane\/(?:terminal-visibility-resume|use-terminal-pane-global-effects))\.ts$/.test(
+          file
+        ))
+  },
+  {
     id: 'ssh.orcad-editor-ownership',
     specs: ['tests/e2e/ssh-orcad-editor-ownership.spec.ts'],
     matches: (file) =>
