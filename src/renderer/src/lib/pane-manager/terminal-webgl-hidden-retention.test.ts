@@ -127,6 +127,22 @@ describe('terminal-webgl-hidden-retention', () => {
     expect(panesA.every((pane) => pane.webglAddon != null)).toBe(true)
   })
 
+  it('repeated manager hiding keeps the original eviction order', () => {
+    const panes = Array.from({ length: 7 }, () => createPane())
+    const managers = panes.map((pane) => managerWithPane(pane, {}))
+    for (const manager of managers.slice(0, 6)) {
+      manager.suspendRendering()
+    }
+
+    managers[0].suspendRendering()
+    managers[6].suspendRendering()
+
+    expect(panes[0].webglAddon).toBeNull()
+    expect(panes.slice(1).every((pane) => pane.webglAddon !== null)).toBe(true)
+    expect(panes[0].terminal.blur).toHaveBeenCalledTimes(1)
+    expect(retainedHiddenWebglOwnerCountForTest()).toBe(6)
+  })
+
   it('does not retain when the owner has no live addons', () => {
     const owner = {}
     const panes = [createPane(false)]
