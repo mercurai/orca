@@ -32,11 +32,11 @@ function retentionFor(owner: HiddenWebglRetentionOwner, panes: ManagedPaneIntern
 // panes is private, and the retention branch is only reachable through a mounted pane.
 function managerWithPane(pane: ManagedPaneInternal, options: Partial<PaneManagerOptions>) {
   const manager = new PaneManager({} as HTMLElement, options as PaneManagerOptions)
-  const panes: unknown = Reflect.get(manager, 'panes')
-  if (!(panes instanceof Map)) {
+  const state: unknown = manager
+  if (typeof state !== 'object' || !state || !('panes' in state) || !(state.panes instanceof Map)) {
     throw new Error('Expected the manager pane map')
   }
-  panes.set(1, pane)
+  state.panes.set(1, pane)
   return manager
 }
 
