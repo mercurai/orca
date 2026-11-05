@@ -1,16 +1,23 @@
 import type { Page } from '@stablyai/playwright-test'
 import { PNG } from 'pngjs'
-import { expect } from './orca-app'
+import { expect, test } from './orca-app'
 import { writeToPaneTerminal } from './alt-screen-frame'
+import { compareTerminalScreenshots } from '../terminal-screenshot-diff'
 
 type FrameColor = 'red' | 'cyan' | 'magenta'
 type TerminalRegion = { x: number; y: number; width: number; height: number }
-type CompositorFrame = { data: string; width: number; height: number }
+type CompositorFrame = { data: string; width: number; height: number; timestamp: number }
 export type CompositorRecording = {
   enabled: boolean
   startedAt: number
   error: string | null
   frames: CompositorFrame[]
+}
+export type CompositorDiagnostics = {
+  terminalRegion?: TerminalRegion
+  indicatorRegion?: TerminalRegion
+  selectedIndicator?: Buffer
+  baselines: { name: string; body: Buffer }[]
 }
 type ObservedWebglRenderer = {
   _canvas: HTMLCanvasElement
@@ -59,6 +66,66 @@ export function cropCompositorFrame(frame: CompositorFrame, region: TerminalRegi
     0
   )
   return PNG.sync.write(crop)
+}
+
+export async function attachCompositorDiagnostics(
+  recording: CompositorRecording,
+  diagnostic: CompositorDiagnostics
+): Promise<void> {
+  const frames = recording.frames.slice(0, 64)
+  const rows = frames.map((frame, index) => {
+    const terminal = diagnostic.terminalRegion
+      ? cropCompositorFrame(frame, diagnostic.terminalRegion)
+      : null
+    const indicator = diagnostic.indicatorRegion
+      ? cropCompositorFrame(frame, diagnostic.indicatorRegion)
+      : null
+    return {
+      index,
+      timestamp: frame.timestamp,
+      width: frame.width,
+      height: frame.height,
+      indicatorDiff:
+        indicator && diagnostic.selectedIndicator
+          ? compareTerminalScreenshots(diagnostic.selectedIndicator, indicator).diffPixels
+          : null,
+      red: terminal ? foregroundPixelCount(terminal, 'red') : null,
+      cyan: terminal ? foregroundPixelCount(terminal, 'cyan') : null,
+      magenta: terminal ? foregroundPixelCount(terminal, 'magenta') : null
+    }
+  })
+  const metadata = {
+    startedAt: recording.startedAt,
+    error: recording.error,
+    terminalRegion: diagnostic.terminalRegion,
+    indicatorRegion: diagnostic.indicatorRegion,
+    rows
+  }
+  await test.info().attach('retention-compositor-diagnostics', {
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify(metadata, null, 2))
+  })
+  const selectedIndex = rows.findIndex((row) => row.indicatorDiff !== null && row.indicatorDiff < 4)
+  const indices = new Set([0, 1, selectedIndex >= 0 ? selectedIndex : 2])
+  for (const index of indices) {
+    const frame = frames[index]
+    if (!frame) {
+      continue
+    }
+    await test.info().attach(`retention-compositor-frame-${index}`, {
+      body: Buffer.from(frame.data, 'base64'),
+      contentType: 'image/png'
+    })
+    if (diagnostic.terminalRegion) {
+      await test.info().attach(`retention-compositor-terminal-${index}`, {
+        body: cropCompositorFrame(frame, diagnostic.terminalRegion),
+        contentType: 'image/png'
+      })
+    }
+  }
+  for (const { name, body } of diagnostic.baselines.slice(0, 4)) {
+    await test.info().attach(`retention-${name}`, { body, contentType: 'image/png' })
+  }
 }
 
 export async function startCompositorRecording(page: Page, recording: CompositorRecording): Promise<void> {

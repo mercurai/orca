@@ -5,6 +5,7 @@ import { getActiveTabId } from './store'
 import { compareTerminalScreenshots } from '../terminal-screenshot-diff'
 import { captureStableTabScreenshot } from '../terminal-tab-screenshot'
 import {
+  attachCompositorDiagnostics,
   capturedFrame,
   cropCompositorFrame,
   firstCompositorFrame,
@@ -13,6 +14,7 @@ import {
   prepareTerminalGraphics,
   startCompositorRecording,
   terminalFrame,
+  type CompositorDiagnostics,
   type CompositorRecording,
   type GraphicsObservation
 } from './terminal-webgl-retention-graphics'
@@ -46,6 +48,7 @@ export async function exerciseTerminalTabWebglRetention({
 }: RetentionJourney): Promise<void> {
   const cdp = await orcaPage.context().newCDPSession(orcaPage)
   const recording: CompositorRecording = { enabled: false, startedAt: 0, error: null, frames: [] }
+  const diagnostic: CompositorDiagnostics = { baselines: [] }
   cdp.on('Page.screencastFrame', (frame) => {
     if (recording.enabled) {
       const capturedAt = frame.metadata.timestamp
@@ -55,7 +58,8 @@ export async function exerciseTerminalTabWebglRetention({
         recording.frames.push({
           data: frame.data,
           width: frame.metadata.deviceWidth,
-          height: frame.metadata.deviceHeight
+          height: frame.metadata.deviceHeight,
+          timestamp: capturedAt
         })
       }
     }
@@ -157,6 +161,8 @@ export async function exerciseTerminalTabWebglRetention({
     if (!indicatorRegion || !targetTabRegion || !terminalRegion || indicatorRegion.height !== 2) {
       throw new Error('Visible terminal and 2px active-tab indicator required for frame attribution')
     }
+    diagnostic.terminalRegion = terminalRegion
+    diagnostic.indicatorRegion = indicatorRegion
     await startCompositorRecording(orcaPage, recording)
     await writeToPaneTerminal(orcaPage, tabIds[6], terminalFrame('RETENTION_UPDATED', 'cyan'))
     const destinationCompositor = await firstCompositorFrame(
@@ -165,6 +171,11 @@ export async function exerciseTerminalTabWebglRetention({
       (frame) => foregroundPixelCount(frame, 'cyan') > 500
     )
     const selectedIndicator = cropCompositorFrame(destinationCompositor.source, indicatorRegion)
+    diagnostic.selectedIndicator = selectedIndicator
+    diagnostic.baselines.push(
+      { name: 'expected-cyan', body: destinationCompositor.pixels },
+      { name: 'selected-indicator', body: selectedIndicator }
+    )
     await retained.evaluate((value) => value.arm())
     await writeToPaneTerminal(orcaPage, tabIds[6], terminalFrame('RETENTION_TAB_6'))
     await capturedFrame(retained)
@@ -185,6 +196,10 @@ export async function exerciseTerminalTabWebglRetention({
       (frame) => foregroundPixelCount(frame, 'magenta') > 500
     )
     const unselectedIndicator = cropCompositorFrame(sourceCompositor.source, indicatorRegion)
+    diagnostic.baselines.push(
+      { name: 'source-magenta', body: sourceCompositor.pixels },
+      { name: 'unselected-indicator', body: unselectedIndicator }
+    )
     expect(
       compareTerminalScreenshots(selectedIndicator, unselectedIndicator).diffPixels
     ).toBeGreaterThan(32)
@@ -250,6 +265,11 @@ export async function exerciseTerminalTabWebglRetention({
         await captureStableTabScreenshot(orcaPage, firstTabId)
       ).matches
     ).toBe(true)
+  } catch (error) {
+    await attachCompositorDiagnostics(recording, diagnostic).catch(() => {
+      console.warn('Could not attach compositor diagnostics; preserving the original test failure')
+    })
+    throw error
   } finally {
     recording.enabled = false
     for (const observation of observations) {

@@ -99,7 +99,9 @@ it('runs every managed-SSH spec in one sharded lane, only when one is routed', (
     `inputs.test_files == '' || contains(inputs.test_files, '${MANAGED_SSH_E2E_SPEC_PREFIX}')`
   )
   expect(lane.strategy.matrix.shard).toEqual(['1/2', '2/2'])
-  const run = lane.steps.find((step) => step.env?.ORCA_E2E_SSH_DOCKER === '1').run
+  const run = lane.steps.find(
+    (step) => step.env?.ORCA_E2E_SSH_DOCKER === '1' && step.env.SHARD === '${{ matrix.shard }}'
+  ).run
   expect(run).toContain(` ${MANAGED_SSH_E2E_SPEC_PREFIX} `)
   expect(run).toContain('--shard="$SHARD"')
   for (const spec of [
