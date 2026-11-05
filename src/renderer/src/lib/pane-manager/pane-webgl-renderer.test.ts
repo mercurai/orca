@@ -571,6 +571,65 @@ describe('deferred WebGL addon load', () => {
     expect(pane.fitAddon.fit).toHaveBeenCalled()
   })
 
+  it('keeps a pane suspended when its pending addon import completes before reveal', async () => {
+    let resolveAddonLoad = (): void => {
+      throw new Error('Expected the addon load gate to be initialized')
+    }
+    const addonLoadGate = new Promise<void>((resolve) => {
+      resolveAddonLoad = resolve
+    })
+    const constructAddon = vi.fn()
+    vi.doMock('@xterm/addon-webgl', async () => {
+      await addonLoadGate
+      return {
+        WebglAddon: class {
+          constructor() {
+            constructAddon()
+          }
+          onContextLoss(): void {}
+          clearTextureAtlas(): void {}
+          dispose(): void {}
+        }
+      }
+    })
+    const renderer = await import('./pane-webgl-renderer')
+    const { suspendPaneRendering, resumePaneRendering } = await import('./pane-rendering-control')
+    const { isTerminalCursorBlinkSuspended } = await import('./pane-cursor-blink-suspension')
+    const pane = createFittablePane()
+    Object.assign(pane.terminal, { options: { cursorBlink: true }, blur: vi.fn() })
+    const owner = {}
+
+    renderer.attachWebgl(pane)
+    const pendingLoad = renderer.primeTerminalWebglAddon()
+    expect(pane.webglAddon).toBeNull()
+    expect(pane.terminal.loadAddon).not.toHaveBeenCalled()
+
+    suspendPaneRendering([pane], { owner, livePanes: () => [pane] })
+    expect(pane.webglAttachmentDeferred).toBe(true)
+    expect(pane.terminal.options.cursorBlink).toBe(false)
+
+    resolveAddonLoad()
+    await pendingLoad
+
+    expect(constructAddon).not.toHaveBeenCalled()
+    expect(pane.webglAddon).toBeNull()
+    expect(pane.terminal.loadAddon).not.toHaveBeenCalled()
+    expect(pane.fitAddon.fit).not.toHaveBeenCalled()
+    expect(pane.pendingWebglRefreshRafId).toBeNull()
+    expect(pane.webglAttachmentDeferred).toBe(true)
+    expect(pane.terminal.options.cursorBlink).toBe(false)
+    expect(isTerminalCursorBlinkSuspended(pane.terminal)).toBe(true)
+
+    resumePaneRendering([pane], owner)
+
+    expect(constructAddon).toHaveBeenCalledTimes(1)
+    expect(pane.terminal.loadAddon).toHaveBeenCalledTimes(1)
+    expect(pane.webglAddon).not.toBeNull()
+    expect(pane.webglAttachmentDeferred).toBe(false)
+    expect(pane.terminal.options.cursorBlink).toBe(true)
+    expect(isTerminalCursorBlinkSuspended(pane.terminal)).toBe(false)
+  })
+
   it('retries a failed load instead of latching the DOM renderer for the session', async () => {
     let loadShouldFail = true
     vi.doMock('@xterm/addon-webgl', () => {

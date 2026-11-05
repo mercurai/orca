@@ -10,6 +10,14 @@ Terminals are just tabs — see [Tabs, panes & split layouts](/docs/model/tabs-p
 
 Agent terminal tabs show the agent identity plus live state: working, waiting for input, completed, or completed-but-unread. For Claude and Codex, tab titles can also show the **AI Vault conversation name** (custom title / thread name) when Orca can map the pane to that session — manual renames still win.
 
+Hidden terminal tabs and workspaces share a limit of six retained WebGL contexts per renderer window.
+Each split pane uses a context; the oldest hidden tab releases its contexts when the limit is exceeded.
+A tab with more than six contexts releases all of them when hidden. Visible panes are outside this limit.
+
+Returning to a recently hidden tab reuses its healthy renderer. Tabs whose contexts were released or need
+recovery recreate their renderer on return. Hiding a tab preserves its shell session and scrollback.
+The context limit is a resource-count limit, not a GPU memory budget.
+
 ## TUI clipboard (OSC 52)
 
 Many terminal UIs (Zellij, tmux, Neovim, fzf, Grok) copy via **OSC 52** instead of OS clipboard APIs. Orca allows those writes **by default** so copy-from-remote/TUI works over SSH the same way as locally.

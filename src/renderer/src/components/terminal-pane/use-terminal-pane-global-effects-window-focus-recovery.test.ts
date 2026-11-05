@@ -130,6 +130,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const manager = {
       getPanes: vi.fn(() => []),
       resumeRendering: vi.fn(),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
       scheduleRevealPresent: vi.fn(),
@@ -188,6 +189,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const manager = {
       getPanes: vi.fn(() => [{ id: 1, terminal }]),
       resumeRendering: vi.fn(),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
       scheduleRevealPresent: vi.fn(),
@@ -257,6 +259,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const manager = {
       getPanes: vi.fn(() => []),
       resumeRendering: vi.fn(),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
       scheduleRevealPresent: vi.fn(),
@@ -316,6 +319,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const manager = {
       getPanes: vi.fn(() => []),
       resumeRendering: vi.fn(),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
       scheduleRevealPresent: vi.fn(),
@@ -374,6 +378,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const manager = {
       getPanes: vi.fn(() => []),
       resumeRendering: vi.fn(),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
       scheduleRevealPresent: vi.fn(),

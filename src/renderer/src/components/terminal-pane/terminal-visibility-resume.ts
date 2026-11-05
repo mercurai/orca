@@ -43,13 +43,7 @@ type HideTerminalVisibilityArgs = {
   wasVisible: boolean
   wasWorktreeActive: boolean
   isWorktreeActive: boolean
-  hasCompletedVisibleResume: boolean
   captureViewportPositions: (useRememberedSnapshots: boolean) => Map<number, ScrollState>
-}
-
-type HideTerminalVisibilityResult = {
-  hiddenReason: TerminalHiddenReason | null
-  renderingSuspended: boolean
 }
 
 type RecoverVisibleTerminalWindowWakeArgs = {
@@ -144,34 +138,22 @@ export function hideTerminalVisibility({
   wasVisible,
   wasWorktreeActive,
   isWorktreeActive,
-  hasCompletedVisibleResume,
   captureViewportPositions
-}: HideTerminalVisibilityArgs): HideTerminalVisibilityResult {
+}: HideTerminalVisibilityArgs): TerminalHiddenReason | null {
   const surfaceBecameHidden = wasWorktreeActive && !isWorktreeActive
   if (wasVisible) {
     // Why: hidden DOM/layout churn can mutate xterm's viewport before the
     // pane becomes visible again. Preserve the last visible position.
     captureViewportPositions(false)
   }
-  if (!isWorktreeActive && (wasVisible || surfaceBecameHidden)) {
+  if (wasVisible || surfaceBecameHidden) {
     // xterm.write() keeps updating the hidden buffer; suspension only changes renderer lifetime.
     manager.suspendRendering()
-    return { hiddenReason: 'surface', renderingSuspended: true }
-  }
-  if (!hasCompletedVisibleResume && wasVisible && wasWorktreeActive && isWorktreeActive) {
-    // Why: the visibility hook starts wasVisible=true so terminal tabs that
-    // first mount hidden still release WebGL contexts instead of exhausting
-    // Chromium's small context budget.
-    manager.suspendRendering()
-    return { hiddenReason: 'tab', renderingSuspended: true }
-  }
-  if (wasVisible && isWorktreeActive) {
-    return { hiddenReason: 'tab', renderingSuspended: false }
   }
   if (!isWorktreeActive) {
-    return { hiddenReason: 'surface', renderingSuspended: false }
+    return 'surface'
   }
-  return { hiddenReason: null, renderingSuspended: false }
+  return wasVisible ? 'tab' : null
 }
 
 export function recoverVisibleTerminalWindowWake({

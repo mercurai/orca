@@ -9,12 +9,7 @@ import type {
 } from './pane-manager-types'
 import type { SplitPaneAroundLeafIdsOptions } from './pane-subtree-split'
 import type { PaneManagerHost } from './pane-manager-host'
-import {
-  applyDividerStyles,
-  applyPaneOpacity,
-  applyRootBackground,
-  disposeDividersIn
-} from './pane-divider'
+import { applyPaneOpacity, disposeDividersIn } from './pane-divider'
 import { cancelActivePaneDrag, createDragReorderState, handlePaneDrop } from './pane-drag-reorder'
 import { beginPaneDragFromPointerDown } from './pane-drag-pointer'
 import { setLigaturesEnabled, disposePane } from './pane-lifecycle'
@@ -24,13 +19,15 @@ import { collectPublicPanes, toPublicPane } from './pane-public-view'
 import { applyTerminalGpuAcceleration } from './pane-terminal-gpu-acceleration'
 import { rebuildAttachedWebgl } from './pane-webgl-reattach'
 import {
+  applyManagedPaneStyles,
   markPaneComplexScriptOutput,
   clearPaneWebglTextureAtlases,
   presentPaneViewports,
   resetPaneWebglTextureAtlases,
   resumePaneRendering,
   setPaneGpuRenderingState,
-  suspendPaneRendering
+  suspendManagedPaneRendering,
+  tryResumePaneRenderingWithoutRecreation
 } from './pane-rendering-control'
 import type { TerminalLeafId } from '../../../../shared/stable-pane-id'
 import { registerLivePaneManager, unregisterLivePaneManager } from './pane-manager-registry'
@@ -247,9 +244,7 @@ export class PaneManager {
 
   setPaneStyleOptions(opts: PaneStyleOptions): void {
     this.styleOptions = { ...opts }
-    applyPaneOpacity(this.panes.values(), this.activePaneId, this.styleOptions)
-    applyDividerStyles(this.root, this.styleOptions)
-    applyRootBackground(this.root, this.styleOptions)
+    applyManagedPaneStyles(this.host)
   }
 
   private withPane<T>(paneId: number, apply: (pane: ManagedPaneInternal) => T): T | undefined {
@@ -316,13 +311,19 @@ export class PaneManager {
   }
 
   suspendRendering(): void {
+    if (this.renderingSuspended) {
+      return
+    }
     this.renderingSuspended = true
-    suspendPaneRendering(
-      this.panes.values(),
-      this.options.retainHiddenWebgl === false
-        ? undefined
-        : { owner: this, livePanes: () => (this.destroyed ? [] : this.panes.values()) }
-    )
+    suspendManagedPaneRendering(this.host, this)
+  }
+
+  tryResumeRenderingWithoutRecreation(): boolean {
+    if (!tryResumePaneRenderingWithoutRecreation(this.panes.values(), this)) {
+      return false
+    }
+    this.renderingSuspended = false
+    return true
   }
 
   resumeRendering(): void {

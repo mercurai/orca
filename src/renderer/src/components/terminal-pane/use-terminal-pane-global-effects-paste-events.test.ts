@@ -135,6 +135,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const pane = { id: 1, leafId: 'leaf-1', terminal }
     const manager = {
       getPanes: vi.fn(() => [pane]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),
@@ -192,6 +193,7 @@ describe('useTerminalPaneGlobalEffects', () => {
     const pane = { id: 1, leafId: 'leaf-1', terminal }
     const manager = {
       getPanes: vi.fn(() => [pane]),
+      tryResumeRenderingWithoutRecreation: vi.fn(() => true),
       resumeRendering: vi.fn(),
       resetWebglTextureAtlases: vi.fn(),
       scheduleRevealRepaint: vi.fn(),

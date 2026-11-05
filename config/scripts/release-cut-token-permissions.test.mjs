@@ -16,6 +16,7 @@ const EXPECTED_MATRIX = {
   '.github/workflows/e2e.yml#orcad-ssh-docker': { contents: 'read' },
   '.github/workflows/e2e.yml#prepare-native-cache': { contents: 'read' },
   '.github/workflows/e2e.yml#ssh-browser-network-route': { contents: 'read' },
+  '.github/workflows/e2e.yml#terminal-retention-desktop': { contents: 'read' },
   '.github/workflows/homebrew-bump.yml#bump-cask': { contents: 'read' },
   '.github/workflows/node-server-tests.yml#changes': { contents: 'read' },
   '.github/workflows/node-server-tests.yml#desktop_template': { contents: 'read' },
