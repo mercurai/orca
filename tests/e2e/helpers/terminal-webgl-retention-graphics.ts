@@ -106,7 +106,7 @@ export async function attachCompositorDiagnostics(
     body: Buffer.from(JSON.stringify(metadata, null, 2))
   })
   const selectedIndex = rows.findIndex((row) => row.indicatorDiff !== null && row.indicatorDiff < 4)
-  const indices = new Set([0, 1, selectedIndex >= 0 ? selectedIndex : 2])
+  const indices = new Set([0, 1, selectedIndex !== -1 ? selectedIndex : 2])
   for (const index of indices) {
     const frame = frames[index]
     if (!frame) {
