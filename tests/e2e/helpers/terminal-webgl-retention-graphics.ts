@@ -1,24 +1,8 @@
 import type { Page } from '@stablyai/playwright-test'
 import { PNG } from 'pngjs'
-import { expect, test } from './orca-app'
-import { writeToPaneTerminal } from './alt-screen-frame'
-import { compareTerminalScreenshots } from '../terminal-screenshot-diff'
+import { expect } from './orca-app'
 
 type FrameColor = 'red' | 'cyan' | 'magenta'
-type TerminalRegion = { x: number; y: number; width: number; height: number }
-type CompositorFrame = { data: string; width: number; height: number; timestamp: number }
-export type CompositorRecording = {
-  enabled: boolean
-  startedAt: number
-  error: string | null
-  frames: CompositorFrame[]
-}
-export type CompositorDiagnostics = {
-  terminalRegion?: TerminalRegion
-  indicatorRegion?: TerminalRegion
-  selectedIndicator?: Buffer
-  baselines: { name: string; body: Buffer }[]
-}
 type ObservedWebglRenderer = {
   _canvas: HTMLCanvasElement
   _gl: WebGLRenderingContext | WebGL2RenderingContext
@@ -46,127 +30,6 @@ export function foregroundPixelCount(frame: Buffer, color: FrameColor): number {
     }
   }
   return count
-}
-
-export function cropCompositorFrame(frame: CompositorFrame, region: TerminalRegion): Buffer {
-  const source = PNG.sync.read(Buffer.from(frame.data, 'base64'))
-  const scaleX = source.width / frame.width
-  const scaleY = source.height / frame.height
-  const width = Math.round(region.width * scaleX)
-  const height = Math.round(region.height * scaleY)
-  const crop = new PNG({ width, height })
-  PNG.bitblt(
-    source,
-    crop,
-    Math.round(region.x * scaleX),
-    Math.round(region.y * scaleY),
-    width,
-    height,
-    0,
-    0
-  )
-  return PNG.sync.write(crop)
-}
-
-export async function attachCompositorDiagnostics(
-  recording: CompositorRecording,
-  diagnostic: CompositorDiagnostics
-): Promise<void> {
-  const frames = recording.frames.slice(0, 64)
-  const rows = frames.map((frame, index) => {
-    const terminal = diagnostic.terminalRegion
-      ? cropCompositorFrame(frame, diagnostic.terminalRegion)
-      : null
-    const indicator = diagnostic.indicatorRegion
-      ? cropCompositorFrame(frame, diagnostic.indicatorRegion)
-      : null
-    return {
-      index,
-      timestamp: frame.timestamp,
-      width: frame.width,
-      height: frame.height,
-      indicatorDiff:
-        indicator && diagnostic.selectedIndicator
-          ? compareTerminalScreenshots(diagnostic.selectedIndicator, indicator).diffPixels
-          : null,
-      red: terminal ? foregroundPixelCount(terminal, 'red') : null,
-      cyan: terminal ? foregroundPixelCount(terminal, 'cyan') : null,
-      magenta: terminal ? foregroundPixelCount(terminal, 'magenta') : null
-    }
-  })
-  const metadata = {
-    startedAt: recording.startedAt,
-    error: recording.error,
-    terminalRegion: diagnostic.terminalRegion,
-    indicatorRegion: diagnostic.indicatorRegion,
-    rows
-  }
-  await test.info().attach('retention-compositor-diagnostics', {
-    contentType: 'application/json',
-    body: Buffer.from(JSON.stringify(metadata, null, 2))
-  })
-  const selectedIndex = rows.findIndex((row) => row.indicatorDiff !== null && row.indicatorDiff < 4)
-  const indices = new Set([0, 1, selectedIndex !== -1 ? selectedIndex : 2])
-  for (const index of indices) {
-    const frame = frames[index]
-    if (!frame) {
-      continue
-    }
-    await test.info().attach(`retention-compositor-frame-${index}`, {
-      body: Buffer.from(frame.data, 'base64'),
-      contentType: 'image/png'
-    })
-    if (diagnostic.terminalRegion) {
-      await test.info().attach(`retention-compositor-terminal-${index}`, {
-        body: cropCompositorFrame(frame, diagnostic.terminalRegion),
-        contentType: 'image/png'
-      })
-    }
-  }
-  for (const { name, body } of diagnostic.baselines.slice(0, 4)) {
-    await test.info().attach(`retention-${name}`, { body, contentType: 'image/png' })
-  }
-}
-
-export async function startCompositorRecording(page: Page, recording: CompositorRecording): Promise<void> {
-  recording.enabled = false
-  recording.frames = []
-  recording.error = null
-  recording.startedAt = await page.evaluate(() => (performance.timeOrigin + performance.now()) / 1000)
-  recording.enabled = true
-}
-
-export async function firstCompositorFrame(
-  recording: CompositorRecording,
-  region: TerminalRegion,
-  accepts: (pixels: Buffer, source: CompositorFrame) => boolean
-): Promise<{ pixels: Buffer; source: CompositorFrame }> {
-  let frame: { pixels: Buffer; source: CompositorFrame } | undefined
-  let next = 0
-  await expect
-    .poll(
-      () => {
-        if (recording.error) {
-          throw new Error(recording.error)
-        }
-        while (next < recording.frames.length) {
-          const source = recording.frames[next++]
-          const pixels = cropCompositorFrame(source, region)
-          if (accepts(pixels, source)) {
-            frame = { pixels, source }
-            return true
-          }
-        }
-        return false
-      },
-      { timeout: 10_000, message: 'Expected a matching frame in the bounded compositor recording' }
-    )
-    .toBe(true)
-  recording.enabled = false
-  if (!frame) {
-    throw new Error('Compositor frame unavailable')
-  }
-  return frame
 }
 
 export async function observeGraphics(page: Page, tabId: string) {
@@ -281,7 +144,11 @@ export async function capturedFrame(observation: GraphicsObservation): Promise<B
   return Buffer.from(data.slice(data.indexOf(',') + 1), 'base64')
 }
 
-export async function prepareTerminalGraphics(page: Page, tabId: string, marker: string) {
+export async function prepareTerminalGraphics(
+  page: Page,
+  tabId: string,
+  writeFrame: () => Promise<void>
+) {
   await page.evaluate((id) => {
     window.__paneManagers?.get(id)?.setTerminalGpuAcceleration('on')
   }, tabId)
@@ -301,7 +168,7 @@ export async function prepareTerminalGraphics(page: Page, tabId: string, marker:
     ])
   const observation = await observeGraphics(page, tabId)
   await observation.evaluate((value) => value.arm())
-  await writeToPaneTerminal(page, tabId, terminalFrame(marker))
+  await writeFrame()
   await capturedFrame(observation)
   return observation
 }

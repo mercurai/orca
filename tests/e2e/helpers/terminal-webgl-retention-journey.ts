@@ -1,23 +1,33 @@
 import type { Page } from '@stablyai/playwright-test'
 import { expect } from './orca-app'
-import { readActiveScreen, writeToPaneTerminal } from './alt-screen-frame'
+import { readActiveScreen } from './alt-screen-frame'
 import { getActiveTabId } from './store'
+import {
+  activateTab,
+  readTabStripScrollLeft,
+  waitForUnoccludedTabIndicator
+} from './terminal-tab-selection-oracle'
 import { compareTerminalScreenshots } from '../terminal-screenshot-diff'
 import { captureStableTabScreenshot } from '../terminal-tab-screenshot'
+import { waitForPtyFrame } from './terminal-webgl-pty-fixture'
 import {
-  attachCompositorDiagnostics,
   capturedFrame,
-  cropCompositorFrame,
-  firstCompositorFrame,
   foregroundPixelCount,
   observeGraphics,
   prepareTerminalGraphics,
-  startCompositorRecording,
   terminalFrame,
-  type CompositorDiagnostics,
-  type CompositorRecording,
   type GraphicsObservation
 } from './terminal-webgl-retention-graphics'
+import {
+  attachCompositorDiagnostics,
+  captureCompositorFrames,
+  cropCompositorFrame,
+  firstCompositorFrame,
+  firstRecordedCompositorFrames,
+  startCompositorRecording,
+  type CompositorDiagnostics,
+  type CompositorRecording
+} from './terminal-webgl-retention-compositor'
 
 type RetentionJourney = {
   page: Page
@@ -25,18 +35,7 @@ type RetentionJourney = {
   firstTabId: string
   createTab: () => Promise<string>
   startIdleTerminal: (tabId: string, marker: string) => Promise<void>
-}
-
-async function activateTab(page: Page, tabId: string): Promise<void> {
-  await page.evaluate((id) => {
-    const state = window.__store?.getState()
-    if (!state) {
-      throw new Error('Store unavailable')
-    }
-    state.setActiveTab(id)
-    state.setActiveTabType('terminal', state.activeWorktreeId)
-  }, tabId)
-  await expect.poll(() => getActiveTabId(page)).toBe(tabId)
+  writeFrame: (tabId: string, data: string, marker: string) => Promise<void>
 }
 
 export async function exerciseTerminalTabWebglRetention({
@@ -44,30 +43,20 @@ export async function exerciseTerminalTabWebglRetention({
   worktreeId,
   firstTabId,
   createTab,
-  startIdleTerminal
+  startIdleTerminal,
+  writeFrame
 }: RetentionJourney): Promise<void> {
-  const cdp = await orcaPage.context().newCDPSession(orcaPage)
+  const paintFrame = async (
+    tabId: string,
+    marker: string,
+    color: 'red' | 'cyan' | 'magenta' = 'red'
+  ) => {
+    await writeFrame(tabId, terminalFrame(marker, color), marker)
+    await waitForPtyFrame(orcaPage, tabId, marker)
+  }
   const recording: CompositorRecording = { enabled: false, startedAt: 0, error: null, frames: [] }
   const diagnostic: CompositorDiagnostics = { baselines: [] }
-  cdp.on('Page.screencastFrame', (frame) => {
-    if (recording.enabled) {
-      const capturedAt = frame.metadata.timestamp
-      if (typeof capturedAt !== 'number' || !Number.isFinite(capturedAt)) {
-        recording.error = 'Compositor frame lacks a capture timestamp'
-      } else if (capturedAt >= recording.startedAt && recording.frames.length < 64) {
-        recording.frames.push({
-          data: frame.data,
-          width: frame.metadata.deviceWidth,
-          height: frame.metadata.deviceHeight,
-          timestamp: capturedAt
-        })
-      }
-    }
-    void cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => {})
-  })
-  await cdp.send('Page.enable')
-  // CDP keeps the isolated hidden renderer painting without activating its window.
-  await cdp.send('Page.startScreencast', { format: 'png', everyNthFrame: 1 })
+  const cdp = await captureCompositorFrames(orcaPage, recording)
   const observations: GraphicsObservation[] = []
   try {
     await orcaPage.evaluate(() => {
@@ -79,7 +68,6 @@ export async function exerciseTerminalTabWebglRetention({
     })
     const tabIds = [firstTabId]
     let oldestScreenshot: Buffer | undefined
-    let retainedExpected: Buffer | undefined
     for (let index = 0; index < 8; index += 1) {
       if (index > 0) {
         tabIds.push(await createTab())
@@ -88,22 +76,13 @@ export async function exerciseTerminalTabWebglRetention({
       await activateTab(orcaPage, tabId)
       const marker = `RETENTION_TAB_${index}`
       await startIdleTerminal(tabId, marker)
-      const observation = await prepareTerminalGraphics(orcaPage, tabId, marker)
+      const observation = await prepareTerminalGraphics(orcaPage, tabId, () =>
+        paintFrame(tabId, marker)
+      )
       observations.push(observation)
       if (index === 0) {
         oldestScreenshot = await captureStableTabScreenshot(orcaPage, tabId)
         expect(foregroundPixelCount(oldestScreenshot, 'red')).toBeGreaterThan(500)
-      }
-      if (index === 6) {
-        const oldFrame = await capturedFrame(observation)
-        await observation.evaluate((value) => value.arm())
-        await writeToPaneTerminal(orcaPage, tabId, terminalFrame('RETENTION_UPDATED', 'cyan'))
-        retainedExpected = await capturedFrame(observation)
-        expect(foregroundPixelCount(retainedExpected, 'cyan')).toBeGreaterThan(500)
-        expect(compareTerminalScreenshots(oldFrame, retainedExpected).diffPixels).toBeGreaterThan(500)
-        await observation.evaluate((value) => value.arm())
-        await writeToPaneTerminal(orcaPage, tabId, terminalFrame('RETENTION_TAB_6'))
-        await capturedFrame(observation)
       }
     }
     expect(
@@ -150,6 +129,8 @@ export async function exerciseTerminalTabWebglRetention({
     await activateTab(orcaPage, tabIds[6])
     const targetTab = orcaPage.locator(`[data-testid="sortable-tab"][data-tab-id="${tabIds[6]}"]`)
     await expect(targetTab).toHaveAttribute('data-active', 'true')
+    await waitForUnoccludedTabIndicator(orcaPage, tabIds[6])
+    const stripScrollLeft = await readTabStripScrollLeft(orcaPage, tabIds[6])
     const activeIndicator = targetTab.locator(':scope > span[aria-hidden]').first()
     await expect(activeIndicator).toBeInViewport({ ratio: 1 })
     const indicatorRegion = await activeIndicator.boundingBox()
@@ -163,8 +144,13 @@ export async function exerciseTerminalTabWebglRetention({
     }
     diagnostic.terminalRegion = terminalRegion
     diagnostic.indicatorRegion = indicatorRegion
+    const oldFrame = await capturedFrame(retained)
+    await retained.evaluate((value) => value.arm())
     await startCompositorRecording(orcaPage, recording)
-    await writeToPaneTerminal(orcaPage, tabIds[6], terminalFrame('RETENTION_UPDATED', 'cyan'))
+    await paintFrame(tabIds[6], 'RETENTION_UPDATED', 'cyan')
+    const retainedExpected = await capturedFrame(retained)
+    expect(foregroundPixelCount(retainedExpected, 'cyan')).toBeGreaterThan(500)
+    expect(compareTerminalScreenshots(oldFrame, retainedExpected).diffPixels).toBeGreaterThan(500)
     const destinationCompositor = await firstCompositorFrame(
       recording,
       terminalRegion,
@@ -176,11 +162,10 @@ export async function exerciseTerminalTabWebglRetention({
       { name: 'expected-cyan', body: destinationCompositor.pixels },
       { name: 'selected-indicator', body: selectedIndicator }
     )
-    await retained.evaluate((value) => value.arm())
-    await writeToPaneTerminal(orcaPage, tabIds[6], terminalFrame('RETENTION_TAB_6'))
-    await capturedFrame(retained)
     await activateTab(orcaPage, tabIds[7])
     await expect(targetTab).toHaveAttribute('data-active', 'false')
+    await waitForUnoccludedTabIndicator(orcaPage, tabIds[6])
+    expect(await readTabStripScrollLeft(orcaPage, tabIds[6])).toBe(stripScrollLeft)
     expect(await targetTab.boundingBox()).toEqual(targetTabRegion)
     expect(
       await orcaPage
@@ -189,7 +174,7 @@ export async function exerciseTerminalTabWebglRetention({
         .boundingBox()
     ).toEqual(terminalRegion)
     await startCompositorRecording(orcaPage, recording)
-    await writeToPaneTerminal(orcaPage, tabIds[7], terminalFrame('RETENTION_SOURCE', 'magenta'))
+    await paintFrame(tabIds[7], 'RETENTION_SOURCE', 'magenta')
     const sourceCompositor = await firstCompositorFrame(
       recording,
       terminalRegion,
@@ -204,36 +189,62 @@ export async function exerciseTerminalTabWebglRetention({
       compareTerminalScreenshots(selectedIndicator, unselectedIndicator).diffPixels
     ).toBeGreaterThan(32)
     await retained.evaluate((value) => value.arm())
-    await writeToPaneTerminal(orcaPage, tabIds[6], terminalFrame('RETENTION_UPDATED', 'cyan'))
     await startCompositorRecording(orcaPage, recording)
     await activateTab(orcaPage, tabIds[6])
     await expect(targetTab).toHaveAttribute('data-active', 'true')
+    expect(await readTabStripScrollLeft(orcaPage, tabIds[6])).toBe(stripScrollLeft)
     expect(await targetTab.boundingBox()).toEqual(targetTabRegion)
     expect(await activeIndicator.boundingBox()).toEqual(indicatorRegion)
-    // Screencast may coalesce frames; select the first captured reveal by tab chrome, never content.
-    const firstSelectedCompositor = await firstCompositorFrame(
+    await captureStableTabScreenshot(orcaPage, tabIds[6])
+    expect(await readTabStripScrollLeft(orcaPage, tabIds[6])).toBe(stripScrollLeft)
+    recording.enabled = false
+    // CDP may drop/coalesce frames; attribute the earliest observed callback by tab chrome.
+    const firstSelectedFrames = firstRecordedCompositorFrames(
       recording,
       terminalRegion,
-      (_pixels, source) =>
+      (source) =>
         compareTerminalScreenshots(
           selectedIndicator,
           cropCompositorFrame(source, indicatorRegion)
         ).diffPixels < 4
     )
-    expect(foregroundPixelCount(firstSelectedCompositor.pixels, 'cyan')).toBeGreaterThan(500)
-    expect(
-      compareTerminalScreenshots(destinationCompositor.pixels, firstSelectedCompositor.pixels).diffPixels
-    ).toBeLessThan(32)
-    const firstReturnFrame = await capturedFrame(retained)
-    if (!retainedExpected) {
-      throw new Error('Retained baseline unavailable')
+    for (const frame of firstSelectedFrames) {
+      expect(foregroundPixelCount(frame, 'cyan')).toBeGreaterThan(500)
+      expect(
+        compareTerminalScreenshots(destinationCompositor.pixels, frame).diffPixels
+      ).toBeLessThan(32)
     }
+    const firstReturnFrame = await capturedFrame(retained)
     expect(compareTerminalScreenshots(retainedExpected, firstReturnFrame).diffPixels).toBeLessThan(32)
     expect(await retained.evaluate((value) => value.state())).toMatchObject({
       sameAddon: true,
       lost: false
     })
     expect((await readActiveScreen(orcaPage, tabIds[6]))?.rows.join('\n')).toContain('RETENTION_UPDATED')
+
+    await paintFrame(tabIds[6], 'RETENTION_HIDDEN_UPDATED', 'magenta')
+    const hiddenExpected = await captureStableTabScreenshot(orcaPage, tabIds[6])
+    await paintFrame(tabIds[6], 'RETENTION_UPDATED', 'cyan')
+    await activateTab(orcaPage, tabIds[7])
+    await expect.poll(() => retained.evaluate((value) => value.state().visible)).toBe(false)
+    await writeFrame(
+      tabIds[6],
+      terminalFrame('RETENTION_HIDDEN_UPDATED', 'magenta'),
+      'RETENTION_HIDDEN_UPDATED'
+    )
+    expect(await getActiveTabId(orcaPage)).toBe(tabIds[7])
+    await activateTab(orcaPage, tabIds[6])
+    await waitForPtyFrame(orcaPage, tabIds[6], 'RETENTION_HIDDEN_UPDATED')
+    expect(
+      compareTerminalScreenshots(
+        hiddenExpected,
+        await captureStableTabScreenshot(orcaPage, tabIds[6])
+      ).matches
+    ).toBe(true)
+    expect(await retained.evaluate((value) => value.state())).toMatchObject({
+      sameAddon: true,
+      lost: false
+    })
 
     await activateTab(orcaPage, firstTabId)
     await expect

@@ -30,7 +30,9 @@ export const PR_E2E_SOURCE_ROUTES = [
       'tests/e2e/ssh-orcad-terminal-webgl-retention.spec.ts'
     ],
     matches: (file) =>
-      /^tests\/e2e\/helpers\/terminal-webgl-retention-(?:graphics|journey)\.ts$/.test(file) ||
+      /^tests\/e2e\/helpers\/terminal-webgl-retention-(?:graphics|journey|compositor)\.ts$/.test(file) ||
+      file === 'tests/e2e/helpers/terminal-webgl-pty-fixture.ts' ||
+      file === 'tests/e2e/helpers/terminal-tab-selection-oracle.ts' ||
       (isProductSource(file) &&
         /^src\/renderer\/src\/(?:lib\/pane-manager\/(?:pane-manager|pane-manager-pane-creation|pane-rendering-control|pane-webgl-renderer|pane-webgl-reattach|pane-terminal-gpu-acceleration|terminal-webgl-hidden-retention)|components\/terminal-pane\/(?:terminal-visibility-resume|use-terminal-pane-global-effects))\.ts$/.test(
           file

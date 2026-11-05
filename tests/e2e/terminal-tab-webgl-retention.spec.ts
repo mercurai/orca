@@ -14,6 +14,7 @@ import {
 } from './helpers/terminal'
 import { addFolderWorkspace } from './helpers/terminal-layout-journeys'
 import { exerciseTerminalTabWebglRetention } from './helpers/terminal-webgl-retention-journey'
+import { localFrameReaderSource, writePtyFrame } from './helpers/terminal-webgl-pty-fixture'
 
 test.use({ orcaAppExtraEnv: { ORCA_BACKGROUND_LAUNCH: '1' } })
 
@@ -21,11 +22,7 @@ async function startIdleTerminal(page: Page, marker: string): Promise<void> {
   await waitForActiveTerminalManager(page)
   const ptyId = await waitForActivePanePtyId(page)
   const ready = `RETENTION_READY_${marker}`
-  const script = await runNodeScriptInTerminal(
-    page,
-    ptyId,
-    `process.stdout.write(${JSON.stringify(`${ready}\n`)}); setInterval(() => {}, 1000)`
-  )
+  const script = await runNodeScriptInTerminal(page, ptyId, localFrameReaderSource(ready))
   try {
     await expect.poll(() => getTerminalContent(page)).toContain(ready)
   } finally {
@@ -62,7 +59,8 @@ for (const workspaceKind of ['git', 'folder'] as const) {
           }
           return state.createTab(id, undefined, undefined, { activate: true }).id
         }, worktreeId),
-      startIdleTerminal: (_tabId, marker) => startIdleTerminal(orcaPage, marker)
+      startIdleTerminal: (_tabId, marker) => startIdleTerminal(orcaPage, marker),
+      writeFrame: (tabId, data, marker) => writePtyFrame(orcaPage, tabId, data, marker)
     })
   })
 }

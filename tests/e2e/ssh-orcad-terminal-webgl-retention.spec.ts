@@ -8,6 +8,7 @@ import {
   withManagedHost
 } from './helpers/orcad-managed-workspace'
 import { exerciseTerminalTabWebglRetention } from './helpers/terminal-webgl-retention-journey'
+import { remoteFrameReaderCommand, writePtyFrame } from './helpers/terminal-webgl-pty-fixture'
 
 test('SSH tabs retain bounded WebGL and resume lightly @headful', async ({ browserName }, testInfo) => {
   test.setTimeout(12 * 60_000)
@@ -17,7 +18,7 @@ test('SSH tabs retain bounded WebGL and resume lightly @headful', async ({ brows
   expect(process.env.ORCA_BACKGROUND_LAUNCH, 'Custom sessions must remain hidden').toBe('1')
   expect(testInfo.project.metadata.orcaHeadful, 'Required GPU-enabled E2E project').toBe(true)
   await withManagedHost(testInfo, async (fixture) => {
-    const { page, seeded } = await launchManagedWorkspace(fixture)
+    const { page, seeded, environmentId } = await launchManagedWorkspace(fixture)
     const firstTabId = await openTerminalTab(page, seeded.worktreeId)
     await exerciseTerminalTabWebglRetention({
       page,
@@ -25,13 +26,10 @@ test('SSH tabs retain bounded WebGL and resume lightly @headful', async ({ brows
       firstTabId,
       createTab: () => openTerminalTab(page, seeded.worktreeId),
       startIdleTerminal: async (tabId, marker) => {
-        await typeInTerminal(
-          page,
-          tabId,
-          `printf '%s%s\\n' 'RETENTION_READY_' '${marker}'; sleep 3600`
-        )
+        await typeInTerminal(page, tabId, remoteFrameReaderCommand(marker))
         await expectPaneText(page, tabId, `RETENTION_READY_${marker}`)
-      }
+      },
+      writeFrame: (tabId, data, marker) => writePtyFrame(page, tabId, data, marker, environmentId)
     })
   })
 })

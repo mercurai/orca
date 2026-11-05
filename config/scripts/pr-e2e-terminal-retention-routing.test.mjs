@@ -21,7 +21,10 @@ describe('terminal retention PR E2E routing', () => {
     'src/renderer/src/components/terminal-pane/terminal-visibility-resume.ts',
     'src/renderer/src/components/terminal-pane/use-terminal-pane-global-effects.ts',
     'tests/e2e/helpers/terminal-webgl-retention-graphics.ts',
-    'tests/e2e/helpers/terminal-webgl-retention-journey.ts'
+    'tests/e2e/helpers/terminal-webgl-retention-journey.ts',
+    'tests/e2e/helpers/terminal-webgl-retention-compositor.ts',
+    'tests/e2e/helpers/terminal-webgl-pty-fixture.ts',
+    'tests/e2e/helpers/terminal-tab-selection-oracle.ts'
   ])('runs local and SSH coverage for a source-only change to %s', (file) => {
     expect(existsSync(join(projectDir, file))).toBe(true)
     expect(selectPrE2eSpecs([file])).toEqual(expect.arrayContaining(retentionSpecs))
