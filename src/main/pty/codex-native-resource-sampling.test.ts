@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ProcessIdentity } from '../../../tests/tools/windows-codex-native-runtime/process-tree-identity'
 import type { ProcessMetrics } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-client'
-import { ProcessMetricsIncompleteError } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-protocol'
+import { ProcessMetricsIncompleteError } from '../../../tests/tools/windows-codex-native-runtime/process-metric-failure'
 import {
   collectStableResourceWindow,
   type ResourceWindowDependencies,
@@ -13,14 +13,14 @@ function identity(pid: number, creationTimeMs: number): ProcessIdentity {
 }
 
 function snapshot(
-  helper: ProcessIdentity,
+  helper: ProcessIdentity | null,
   codex = identity(202, 2002),
   marker = 2
 ): ResourceWindowSnapshot {
   const processes = [
     { name: 'bash.exe', identity: identity(101, 1001) },
     { name: 'codex.exe', identity: codex },
-    { name: 'conhost.exe', identity: helper }
+    ...(helper ? [{ name: 'conhost.exe', identity: helper }] : [])
   ]
   const criticalProcesses = processes.slice(0, 2)
   return {
@@ -248,11 +248,17 @@ describe('Codex native runtime resource sampling', () => {
     const original = snapshot(identity(303, 3003))
     const metricFailure = new ProcessMetricsIncompleteError({
       operation: 'get_process_memory_info',
+      failedIdentity: identity(303, 3003),
       expectedCount: 3,
       measuredCount: 2,
       errorCode: 31
     })
-    const cases = [
+    const cases: {
+      expected: string
+      read: () => Promise<ResourceWindowSnapshot>
+      exhaustDeadline?: boolean
+      expectedReadCount?: number
+    }[] = [
       { expected: 'unchanged', read: async () => original },
       {
         expected: 'peripheral-change',
@@ -324,6 +330,252 @@ describe('Codex native runtime resource sampling', () => {
         expect(log.mock.calls.at(-1)?.[0]).not.toContain('private')
         expect(log.mock.calls.at(-1)?.[0]).not.toContain('303')
       }
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('restarts with a full fresh window when the sole failed peripheral identity disappeared', async () => {
+    const failedIdentity = identity(303, 3003)
+    const original = snapshot(failedIdentity, undefined, 1)
+    const replacement = snapshot(null, undefined, 9)
+    let now = 0
+    let settleCount = 0
+    let readCount = 0
+    let sampleCount = 0
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dependencies: ResourceWindowDependencies = {
+      settle: async () => {
+        settleCount++
+        return settleCount === 1 ? original : replacement
+      },
+      read: async () => {
+        readCount++
+        return readCount === 1 ? original : replacement
+      },
+      sample: async (identities) => {
+        sampleCount++
+        if (sampleCount === 2) {
+          throw new ProcessMetricsIncompleteError({
+            operation: 'query_full_process_image_name',
+            failedIdentity,
+            expectedCount: identities.length,
+            measuredCount: identities.length - 1,
+            errorCode: 31
+          })
+        }
+        const counterIndex = sampleCount === 1 ? 0 : sampleCount - 2
+        return metricsFor(
+          identities,
+          sampleCount === 1 ? 900_000_000_000 : counterIndex * 10_000_000
+        )
+      },
+      now: () => now,
+      delay: async (milliseconds) => {
+        now += milliseconds
+      }
+    }
+
+    try {
+      const result = await collectStableResourceWindow(dependencies)
+      expect(result.samples.map((sample) => sample.privateBytes)).toEqual([9, 9, 9, 9])
+      expect(result.idleCpuCorePercent).toBeCloseTo(100)
+      expect(result.restarts).toBe(1)
+      expect([settleCount, readCount, sampleCount]).toEqual([2, 6, 6])
+      expect(log).toHaveBeenCalledOnce()
+      expect(log.mock.calls[0]?.[0]).toContain('tree=peripheral-change')
+      expect(log.mock.calls[0]?.[0]).not.toContain('303')
+      expect(log.mock.calls[0]?.[0]).not.toContain('3003')
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('keeps incomplete metric failures when the removal is not the sole failed peripheral', async () => {
+    const failedHelper = identity(303, 3003)
+    const original = snapshot(failedHelper)
+    const cases = [
+      { name: 'identity remains', failedIdentity: failedHelper, current: original, measured: 2 },
+      {
+        name: 'critical identity changed',
+        failedIdentity: identity(202, 2002),
+        current: snapshot(failedHelper, identity(205, 2005)),
+        measured: 2
+      },
+      {
+        name: 'failed critical identity remains while a peripheral leaves',
+        failedIdentity: identity(202, 2002),
+        current: snapshot(null),
+        measured: 2
+      },
+      {
+        name: 'extra identity appeared',
+        failedIdentity: failedHelper,
+        current: snapshot(identity(304, 3004)),
+        measured: 2
+      },
+      {
+        name: 'multiple metrics failed',
+        failedIdentity: failedHelper,
+        current: snapshot(null),
+        measured: 1
+      }
+    ]
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      for (const testCase of cases) {
+        let settleCount = 0
+        let readCount = 0
+        let sampleCount = 0
+        const failure = new ProcessMetricsIncompleteError({
+          operation: 'query_full_process_image_name',
+          failedIdentity: testCase.failedIdentity,
+          expectedCount: 3,
+          measuredCount: testCase.measured,
+          errorCode: 31
+        })
+        const dependencies: ResourceWindowDependencies = {
+          settle: async () => {
+            settleCount++
+            return original
+          },
+          read: async () => {
+            readCount++
+            return testCase.current
+          },
+          sample: async () => {
+            sampleCount++
+            throw failure
+          },
+          now: () => 0,
+          delay: async () => {}
+        }
+
+        let caught: unknown
+        try {
+          await collectStableResourceWindow(dependencies)
+        } catch (error) {
+          caught = error
+        }
+        expect(caught).toBe(failure)
+        expect([settleCount, readCount, sampleCount]).toEqual([1, 1, 1])
+      }
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('does not restart when the sole failed identity disappears at the window deadline', async () => {
+    const failedIdentity = identity(303, 3003)
+    const original = snapshot(failedIdentity)
+    const failure = new ProcessMetricsIncompleteError({
+      operation: 'query_full_process_image_name',
+      failedIdentity,
+      expectedCount: 3,
+      measuredCount: 2,
+      errorCode: 31
+    })
+    let now = 0
+    let readCount = 0
+    let sampleCount = 0
+    let settleCount = 0
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dependencies: ResourceWindowDependencies = {
+      settle: async () => {
+        settleCount++
+        return original
+      },
+      read: async () => {
+        readCount++
+        if (readCount === 2) {
+          now = 60_000
+          return snapshot(null)
+        }
+        return original
+      },
+      sample: async (identities) => {
+        sampleCount++
+        if (sampleCount === 2) {
+          throw failure
+        }
+        return metricsFor(identities, 1_000_000)
+      },
+      now: () => now,
+      delay: async () => {
+        now = 59_000
+      }
+    }
+
+    try {
+      let caught: unknown
+      try {
+        await collectStableResourceWindow(dependencies)
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBe(failure)
+      expect([settleCount, readCount, sampleCount]).toEqual([1, 2, 2])
+      expect(log.mock.calls[0]?.[0]).toContain('tree=unavailable')
+    } finally {
+      log.mockRestore()
+    }
+  })
+
+  it('stops at the existing whole-window restart cap', async () => {
+    const helpers = [303, 304, 305, 306].map((pid) => identity(pid, pid * 10))
+    const failures: ProcessMetricsIncompleteError[] = []
+    let settleCount = 0
+    let readCount = 0
+    let sampleCount = 0
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const dependencies: ResourceWindowDependencies = {
+      settle: async () => {
+        const helper = helpers[settleCount]
+        settleCount++
+        if (!helper) {
+          throw new Error('The race fixture was exhausted')
+        }
+        return snapshot(helper)
+      },
+      read: async () => {
+        readCount++
+        return snapshot(null)
+      },
+      sample: async (identities) => {
+        sampleCount++
+        const failedIdentity = identities.at(-1)
+        if (!failedIdentity) {
+          throw new Error('The race fixture has no peripheral process')
+        }
+        const failure = new ProcessMetricsIncompleteError({
+          operation: 'query_full_process_image_name',
+          failedIdentity,
+          expectedCount: identities.length,
+          measuredCount: identities.length - 1,
+          errorCode: 31
+        })
+        failures.push(failure)
+        throw failure
+      },
+      now: () => 0,
+      delay: async () => {}
+    }
+
+    try {
+      let caught: unknown
+      try {
+        await collectStableResourceWindow(dependencies)
+      } catch (error) {
+        caught = error
+      }
+      expect(caught).toBe(failures[3])
+      expect([settleCount, readCount, sampleCount]).toEqual([4, 4, 4])
+      expect(log).toHaveBeenCalledTimes(4)
+      expect(log.mock.calls.every(([message]) => message.includes('tree=peripheral-change'))).toBe(
+        true
+      )
+      expect(log.mock.calls.some(([message]) => message.includes('303'))).toBe(false)
     } finally {
       log.mockRestore()
     }

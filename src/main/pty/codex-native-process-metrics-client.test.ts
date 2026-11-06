@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
+import { inspect } from 'node:util'
 import type { PipedChildProcess } from '@orca/process-host/process-spec'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,10 +13,11 @@ import {
   METRICS_CLOSE_TIMEOUT_MS,
   ProcessMetricsClient
 } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-client'
+import { metricResponse } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-protocol'
 import {
-  metricResponse,
-  ProcessMetricsIncompleteError
-} from '../../../tests/tools/windows-codex-native-runtime/process-metrics-protocol'
+  ProcessMetricsIncompleteError,
+  sampleFailure
+} from '../../../tests/tools/windows-codex-native-runtime/process-metric-failure'
 
 class FakeSamplerProcess extends EventEmitter {
   readonly requests: string[] = []
@@ -209,6 +211,7 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'get_process_memory_info',
+        failedIdentity: identities[1],
         errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
@@ -222,6 +225,9 @@ describe('ProcessMetricsClient request lifecycle', () => {
       caught = error
     }
     expect(caught).toBeInstanceOf(ProcessMetricsIncompleteError)
+    if (!(caught instanceof ProcessMetricsIncompleteError)) {
+      throw new Error('Expected an incomplete metric failure')
+    }
     expect(caught).toMatchObject({
       name: 'ProcessMetricsIncompleteError',
       operation: 'get_process_memory_info',
@@ -232,6 +238,12 @@ describe('ProcessMetricsClient request lifecycle', () => {
         'Windows process metrics incomplete (process_metric_unavailable, ' +
         'operation=get_process_memory_info, 1/2, error 31)'
     })
+    expect(caught.matchesFailedIdentity(identities[1])).toBe(true)
+    expect(Object.keys(caught)).not.toContain('failedIdentity')
+    expect(JSON.stringify(caught)).not.toContain(String(identities[1].pid))
+    expect(JSON.stringify(caught)).not.toContain(String(identities[1].creationTimeMs))
+    expect(inspect(caught)).not.toContain(String(identities[1].pid))
+    expect(inspect(caught)).not.toContain(String(identities[1].creationTimeMs))
     expect(child.kill).not.toHaveBeenCalled()
     const closing = client.close()
     child.closeNormally()
@@ -244,6 +256,7 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'get_process_memory_info',
+        failedIdentity: { pid: 1235, creationTimeMs: 12346 },
         errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
@@ -259,6 +272,8 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'ReadProcessMemory',
+        failedIdentity: { pid: 1235, creationTimeMs: 12346 },
+        errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
       })
@@ -267,6 +282,19 @@ describe('ProcessMetricsClient request lifecycle', () => {
       metricResponse({
         ok: false,
         reason: 'process_metric_unavailable',
+        operation: 'get_process_memory_info',
+        failedIdentity: { pid: 0, creationTimeMs: 12346 },
+        errorCode: 31,
+        expectedCount: 2,
+        measuredCount: 1
+      })
+    ).toThrow('invalid sampler failed identity')
+    expect(() =>
+      metricResponse({
+        ok: false,
+        reason: 'process_metric_unavailable',
+        operation: 'get_process_memory_info',
+        errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
       })
@@ -278,5 +306,38 @@ describe('ProcessMetricsClient request lifecycle', () => {
         operation: 'open_process'
       })
     ).toThrow('invalid sampler metric operation')
+  })
+
+  it('binds a structured metric failure to the exact requested identity and count', () => {
+    const requested = [
+      { pid: 1234, creationTimeMs: 12345 },
+      { pid: 1235, creationTimeMs: 12346 }
+    ]
+    const response = metricResponse({
+      ok: false,
+      reason: 'process_metric_unavailable',
+      operation: 'query_full_process_image_name',
+      failedIdentity: requested[1],
+      errorCode: 31,
+      expectedCount: 2,
+      measuredCount: 1
+    })
+    if (response.ok) {
+      throw new Error('Expected a failed sampler response')
+    }
+    const failure = sampleFailure(response, requested)
+    expect(failure).toBeInstanceOf(ProcessMetricsIncompleteError)
+    if (!(failure instanceof ProcessMetricsIncompleteError)) {
+      throw new Error('Expected a structured incomplete metric failure')
+    }
+    expect(failure.matchesFailedIdentity(requested[1])).toBe(true)
+
+    const wrongCount = sampleFailure({ ...response, expectedCount: 3 }, requested)
+    const wrongIdentity = sampleFailure(
+      { ...response, failedIdentity: { pid: 1235, creationTimeMs: 99999 } },
+      requested
+    )
+    expect(wrongCount).not.toBeInstanceOf(ProcessMetricsIncompleteError)
+    expect(wrongIdentity).not.toBeInstanceOf(ProcessMetricsIncompleteError)
   })
 })

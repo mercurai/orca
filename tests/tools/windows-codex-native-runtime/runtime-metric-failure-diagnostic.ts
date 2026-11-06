@@ -1,4 +1,4 @@
-import type { ProcessMetricsIncompleteError } from './process-metrics-protocol'
+import type { ProcessMetricsIncompleteError } from './process-metric-failure'
 import type {
   NamedProcessIdentity,
   ResourceWindowDependencies,
@@ -6,6 +6,10 @@ import type {
 } from './runtime-resource-window'
 
 type TreeState = 'unchanged' | 'peripheral-change' | 'critical-change' | 'unavailable'
+export type FailedSampleTreeDiagnostic = {
+  state: TreeState
+  snapshot?: ResourceWindowSnapshot
+}
 
 export async function reportFailedSampleDiagnostic(
   error: ProcessMetricsIncompleteError,
@@ -13,13 +17,15 @@ export async function reportFailedSampleDiagnostic(
   deadline: number,
   baselineCritical: NamedProcessIdentity[],
   previous: ResourceWindowSnapshot
-): Promise<void> {
+): Promise<FailedSampleTreeDiagnostic> {
   let treeState: TreeState = 'unavailable'
+  let currentSnapshot: ResourceWindowSnapshot | undefined
   try {
     const remainingMs = deadline - dependencies.now()
     if (remainingMs > 0) {
       const current = await dependencies.read(remainingMs)
       if (dependencies.now() < deadline) {
+        currentSnapshot = current
         if (!sameNamedIdentities(baselineCritical, current.criticalProcesses)) {
           treeState = 'critical-change'
         } else {
@@ -42,6 +48,48 @@ export async function reportFailedSampleDiagnostic(
   } catch {
     // Keep diagnostics from replacing the original fail-closed metric error.
   }
+  return { state: treeState, snapshot: currentSnapshot }
+}
+
+export function isSingleMissingPeripheralFailure(
+  error: ProcessMetricsIncompleteError,
+  baselineCritical: NamedProcessIdentity[],
+  previous: ResourceWindowSnapshot,
+  current: ResourceWindowSnapshot
+): boolean {
+  if (
+    error.expectedCount !== previous.identities.length ||
+    error.expectedCount - error.measuredCount !== 1 ||
+    !sameNamedIdentities(baselineCritical, current.criticalProcesses) ||
+    !previous.processes.some(({ identity }) => error.matchesFailedIdentity(identity)) ||
+    baselineCritical.some(({ identity }) => error.matchesFailedIdentity(identity)) ||
+    current.processes.some(({ identity }) => error.matchesFailedIdentity(identity))
+  ) {
+    return false
+  }
+
+  const before = namedIdentityMap(previous.processes)
+  const after = namedIdentityMap(current.processes)
+  if (
+    before.size !== previous.processes.length ||
+    after.size !== current.processes.length ||
+    before.size !== after.size + 1
+  ) {
+    return false
+  }
+  let removedCount = 0
+  for (const [key, process] of before) {
+    const currentProcess = after.get(key)
+    if (!currentProcess) {
+      if (!error.matchesFailedIdentity(process.identity)) {
+        return false
+      }
+      removedCount++
+    } else if (currentProcess.name !== process.name) {
+      return false
+    }
+  }
+  return removedCount === 1 && [...after.keys()].every((key) => before.has(key))
 }
 
 function sameNamedIdentities(
@@ -56,6 +104,15 @@ function sameNamedIdentities(
   )
   return before.every(
     ({ identity, name }) => current.get(`${identity.pid}:${identity.creationTimeMs}`) === name
+  )
+}
+
+function namedIdentityMap(processes: NamedProcessIdentity[]): Map<string, NamedProcessIdentity> {
+  return new Map(
+    processes.map((process) => [
+      `${process.identity.pid}:${process.identity.creationTimeMs}`,
+      process
+    ])
   )
 }
 

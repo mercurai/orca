@@ -35,6 +35,7 @@ export type MetricsResponse =
       ok: false
       reason: string
       operation?: ProcessMetricOperation
+      failedIdentity?: ProcessIdentity
       errorCode?: number | null
       expectedCount?: number
       measuredCount?: number
@@ -62,6 +63,12 @@ function isWin32ErrorCode(value: unknown): value is number {
 
 function isProcessMetricOperation(value: unknown): value is ProcessMetricOperation {
   return PROCESS_METRIC_OPERATIONS.some((operation) => operation === value)
+}
+
+function isMetricFailureIdentity(value: unknown): value is ProcessIdentity {
+  return (
+    isRecord(value) && hasOnlyKeys(value, ['pid', 'creationTimeMs']) && isProcessIdentity(value)
+  )
 }
 
 function isProcessCount(value: unknown): value is number {
@@ -167,6 +174,7 @@ export function metricResponse(value: unknown): MetricsResponse {
       'ok',
       'reason',
       'operation',
+      'failedIdentity',
       'errorCode',
       'expectedCount',
       'measuredCount'
@@ -189,6 +197,18 @@ export function metricResponse(value: unknown): MetricsResponse {
       throw new Error('invalid sampler metric operation')
     }
     response.operation = value.operation
+  }
+  if ('failedIdentity' in value) {
+    if (
+      response.reason !== 'process_metric_unavailable' ||
+      !isMetricFailureIdentity(value.failedIdentity)
+    ) {
+      throw new Error('invalid sampler failed identity')
+    }
+    response.failedIdentity = {
+      pid: value.failedIdentity.pid,
+      creationTimeMs: value.failedIdentity.creationTimeMs
+    }
   }
   if ('errorCode' in value) {
     const errorCode = value.errorCode
@@ -222,6 +242,7 @@ export function metricResponse(value: unknown): MetricsResponse {
   if (
     response.reason === 'process_metric_unavailable' &&
     (response.operation === undefined ||
+      response.failedIdentity === undefined ||
       response.errorCode === undefined ||
       response.expectedCount === undefined ||
       response.measuredCount === undefined)
@@ -229,50 +250,6 @@ export function metricResponse(value: unknown): MetricsResponse {
     throw new Error('invalid sampler metric diagnostic')
   }
   return response
-}
-
-export class ProcessMetricsIncompleteError extends Error {
-  readonly operation: ProcessMetricOperation
-  readonly expectedCount: number
-  readonly measuredCount: number
-  readonly errorCode: number | null
-
-  constructor(input: {
-    operation: ProcessMetricOperation
-    expectedCount: number
-    measuredCount: number
-    errorCode: number | null
-  }) {
-    super(
-      `Windows process metrics incomplete (process_metric_unavailable, ` +
-        `operation=${input.operation}, ${input.measuredCount}/${input.expectedCount}, ` +
-        `error ${input.errorCode ?? 'n/a'})`
-    )
-    this.name = 'ProcessMetricsIncompleteError'
-    this.operation = input.operation
-    this.expectedCount = input.expectedCount
-    this.measuredCount = input.measuredCount
-    this.errorCode = input.errorCode
-  }
-}
-
-export function sampleFailure(
-  response: Extract<MetricsResponse, { ok: false }>,
-  fallbackCount: number
-): Error {
-  if (response.reason === 'process_metric_unavailable' && response.operation !== undefined) {
-    return new ProcessMetricsIncompleteError({
-      operation: response.operation,
-      expectedCount: response.expectedCount ?? fallbackCount,
-      measuredCount: response.measuredCount ?? 0,
-      errorCode: response.errorCode ?? null
-    })
-  }
-  return new Error(
-    `Windows process metrics incomplete (${response.reason}, ` +
-      `${response.measuredCount ?? 0}/${response.expectedCount ?? fallbackCount}, ` +
-      `error ${response.errorCode ?? 'n/a'})`
-  )
 }
 
 export function jobFailure(response: Extract<MetricsResponse, { ok: false }>): Error {

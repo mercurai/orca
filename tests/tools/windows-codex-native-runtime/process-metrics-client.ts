@@ -9,11 +9,11 @@ import {
   isProcessIdentity,
   MAX_JOB_PROCESS_IDS,
   metricResponse,
-  sampleFailure,
   type MetricsRequest,
   type MetricsResponse,
   type ProcessMetrics
 } from './process-metrics-protocol'
+import { sampleFailure } from './process-metric-failure'
 import type { ProcessIdentity } from './process-tree-identity'
 
 export type { ProcessMetrics } from './process-metrics-protocol'
@@ -103,7 +103,7 @@ export class ProcessMetricsClient {
     }
     return this.request({ processes }, timeoutMs).then((response) => {
       if (!response.ok) {
-        throw sampleFailure(response, processes.length)
+        throw sampleFailure(response, processes)
       }
       if (
         !('processes' in response) ||

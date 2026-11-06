@@ -67,7 +67,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     throw new Error('The native process table did not identify the packaged PTY test runner')
   }
 
-  const runRoot = mkdtempSync(join(tmpdir(), 'orca-codex-packaged-pty-'))
+  const runRoot = realpathSync.native(mkdtempSync(join(tmpdir(), 'orca-codex-packaged-pty-')))
   const userDataDir = join(runRoot, 'userData')
   const appEnvRoot = join(runRoot, 'app-env')
   const repoPath = join(runRoot, 'repo')

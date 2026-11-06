@@ -1,8 +1,12 @@
 import { performance } from 'node:perf_hooks'
 import type { ProcessIdentity } from './process-tree-identity'
-import { ProcessMetricsIncompleteError, type ProcessMetrics } from './process-metrics-protocol'
+import type { ProcessMetrics } from './process-metrics-protocol'
+import { ProcessMetricsIncompleteError } from './process-metric-failure'
 import type { RuntimeMode } from './runtime-environment'
-import { reportFailedSampleDiagnostic } from './runtime-metric-failure-diagnostic'
+import {
+  isSingleMissingPeripheralFailure,
+  reportFailedSampleDiagnostic
+} from './runtime-metric-failure-diagnostic'
 
 const SAMPLE_COUNT = 4
 const SAMPLE_INTERVAL_MS = 1_000
@@ -138,13 +142,31 @@ export async function collectStableResourceWindow(
         if (!(error instanceof ProcessMetricsIncompleteError)) {
           throw error
         }
-        await reportFailedSampleDiagnostic(
+        const treeDiagnostic = await reportFailedSampleDiagnostic(
           error,
           dependencies,
           deadline,
           baselineCritical ?? previous.criticalProcesses,
           previous
         )
+        if (
+          treeDiagnostic.state === 'peripheral-change' &&
+          treeDiagnostic.snapshot &&
+          isSingleMissingPeripheralFailure(
+            error,
+            baselineCritical ?? previous.criticalProcesses,
+            previous,
+            treeDiagnostic.snapshot
+          )
+        ) {
+          lastChange = identityDelta(previous.processes, treeDiagnostic.snapshot.processes)
+          if (restarts >= MAX_WINDOW_RESTARTS || dependencies.now() >= deadline) {
+            throw error
+          }
+          restarts++
+          restartWindow = true
+          break
+        }
         throw error
       }
       if (dependencies.now() >= deadline) {
