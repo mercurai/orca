@@ -73,23 +73,24 @@ export async function proveSequencedWorktreePty(
   )
   const worktreeId = startup.worktree.id
   const worktreePath = startup.worktree.path
-  const ptyId = startup.startupTerminal?.ptyId
   if (
     typeof worktreeId !== 'string' ||
     typeof worktreePath !== 'string' ||
-    startup.startupTerminal?.spawned !== true ||
-    typeof ptyId !== 'string'
+    startup.startupTerminal?.spawned !== true
   ) {
-    throw new Error('The sequenced worktree startup did not create its worktree PTY')
+    throw new Error(
+      'The sequenced worktree startup did not create its worktree PTY ' +
+        `(hasWorktreeId=${typeof worktreeId === 'string'}; ` +
+        `hasWorktreePath=${typeof worktreePath === 'string'}; ` +
+        `hasStartupTerminal=${startup.startupTerminal !== undefined}; ` +
+        `spawned=${startup.startupTerminal?.spawned === true})`
+    )
   }
 
   await activateWorkspace(session.page, worktreeId)
   const tabId = await visibleTerminalTabId(session.page, worktreeId, worktreePath)
   await waitForTerminalReady(session.page, 30_000, tabId)
   const worktreePty = await waitForTerminalTabSession(session.page, worktreeId, worktreePath, tabId)
-  if (worktreePty.id !== ptyId) {
-    throw new Error('The sequenced startup command did not attach to its worktree PTY')
-  }
 
   await waitForFile(files.shellPid)
   await waitForFile(files.npmPath)

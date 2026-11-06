@@ -59,7 +59,8 @@ settings use the existing launcher. Terminal calls through `cmd.exe`, explicit s
 do not use the local Windows resolver.
 
 Direct launching trades persistent launcher resources for validation work during startup. Windows x64
-app-server measurements found lower private commit and a sub-second median PowerShell startup increase. See the
+app-server measurements found lower private commit. Median PowerShell startup changes were under one
+second and varied across runs. See the
 [measurement and qualification results](https://github.com/mercurai/orca/pull/96) for the tested scale
 and remaining coverage limits.
 
