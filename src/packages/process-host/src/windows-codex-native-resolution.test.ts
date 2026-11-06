@@ -210,6 +210,27 @@ describe.skipIf(process.platform !== 'win32')('Windows Codex native launch resol
   })
 
   it.each([
+    ['.cmd', 'cmd'],
+    ['Bash', 'shell'],
+    ['PowerShell', 'powershell']
+  ] as const)(
+    'rejects empty and relative supplied Node paths for %s launchers',
+    (_label, launcherKind) => {
+      const family = createFamily('x64', launcherKind)
+      for (const node of ['', 'node.exe']) {
+        expect(
+          resolveWindowsCodexNativeLaunch({
+            launcher: family.launcher,
+            node,
+            env: family.env,
+            platform: 'win32'
+          })
+        ).toMatchObject({ outcome: 'fallback', reason: 'unverified_install' })
+      }
+    }
+  )
+
+  it.each([
     ['NODE_OPTIONS', { NODE_OPTIONS: '--trace-warnings' }],
     ['mixed-case NODE_OPTIONS', { node_options: '--trace-warnings' }],
     ['NODE_PATH', { NODE_PATH: 'C:\\fixture\\node_modules' }],

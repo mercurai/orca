@@ -80,6 +80,13 @@ function encodeLoginValue(value: string): string {
   return Buffer.from(value, 'utf8').toString('base64')
 }
 
+function clearWindowsCodexNativeOverrides(): void {
+  vi.stubEnv('NODE_OPTIONS', '')
+  vi.stubEnv('NODE_PATH', '')
+  vi.stubEnv('ORCA_NODE_OPTIONS', '')
+  vi.stubEnv('ORCA_DISABLE_CMD_SHIM_RESOLUTION', '')
+}
+
 async function getRejectedMessage(promise: Promise<void>): Promise<string> {
   try {
     await promise
@@ -169,6 +176,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
     const killProcessTree = vi.fn()
     vi.stubEnv('PATH', install.env.PATH ?? '')
     vi.stubEnv('npm_config_user_agent', install.env.npm_config_user_agent ?? '')
+    clearWindowsCodexNativeOverrides()
     vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '')
     vi.stubEnv('CODEX_HOME', 'inherited-user-home')
     vi.stubEnv('CODEX_MANAGED_BY_BUN', '1')
@@ -237,14 +245,16 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
     }
   })
 
-  it('keeps the wrapped launcher when native launching is disabled', async () => {
+  it('keeps the wrapped launcher when custom Node options are set', async () => {
     const install = createInstalledCodex()
     const managedHomePath = join(install.packageRoot, 'fallback-account-home')
     const child = createLoginChild()
     const spawnRequests: CodexLoginSpawnRequest[] = []
     vi.stubEnv('PATH', install.env.PATH ?? '')
     vi.stubEnv('npm_config_user_agent', install.env.npm_config_user_agent ?? '')
-    vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '1')
+    clearWindowsCodexNativeOverrides()
+    vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '')
+    vi.stubEnv('NODE_OPTIONS', '--trace-warnings')
     vi.stubEnv('CODEX_HOME', 'inherited-user-home')
     vi.stubEnv('CODEX_MANAGED_BY_BUN', '1')
     vi.resetModules()
@@ -277,6 +287,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
       expect(request.env).toMatchObject({ CODEX_HOME: managedHomePath })
       expect(request.env.PATH ?? request.env.Path).toBe(install.env.PATH)
       expect(request.env.CODEX_MANAGED_BY_BUN).toBe('1')
+      expect(request.env.NODE_OPTIONS).toBe('--trace-warnings')
       expect(child.listenerCount('error')).toBe(0)
       expect(child.listenerCount('close')).toBe(0)
     } finally {
@@ -303,6 +314,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login errors
     }))
     vi.stubEnv('PATH', install.env.PATH ?? '')
     vi.stubEnv('npm_config_user_agent', install.env.npm_config_user_agent ?? '')
+    clearWindowsCodexNativeOverrides()
     vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '')
     vi.resetModules()
     vi.doMock('../codex-cli/command', () => ({

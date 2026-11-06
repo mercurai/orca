@@ -58,6 +58,16 @@ describe('native Codex version-one protocol', () => {
     },
     {
       outcome: 'native',
+      nativeExecutable: String.raw`\foo\codex.exe`,
+      environmentDelta: { managedPackageRoot, manager: 'npm' }
+    },
+    {
+      outcome: 'native',
+      nativeExecutable,
+      environmentDelta: { managedPackageRoot: String.raw`\foo`, manager: 'npm' }
+    },
+    {
+      outcome: 'native',
       nativeExecutable,
       environmentDelta: { managedPackageRoot, manager: 'pnpm' }
     },
