@@ -113,7 +113,10 @@ export async function launchPackaged(
 
 export async function setWindowsShell(page: SessionHandle['page'], shell: string): Promise<void> {
   if (shell === 'git-bash') {
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const settingsButton = page.getByRole('button', { name: 'Settings', exact: true })
+    if (!(await tryClickWithKnownOverlayRetry(page, settingsButton, 30_000))) {
+      await settingsButton.click({ timeout: 1 })
+    }
     await page.getByRole('button', { name: 'Terminal', exact: true }).click()
     const gitBashOption = page
       .getByRole('radiogroup', { name: 'Default Shell' })
