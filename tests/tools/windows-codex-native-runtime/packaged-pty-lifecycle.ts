@@ -141,7 +141,10 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
       settings,
       canonicalRepoPath,
       canonicalCodexHome,
-      { markerDir, afterShellReload: () => reportFolderSnapshot('after-ps7-reload') }
+      {
+        markerDir,
+        afterShellSettingsChange: () => reportFolderSnapshot('after-ps7-settings-change')
+      }
     )
     report.worktreeSequencedNativeLaunch = true
     report.managedEnvironmentRestored.powershell7 = true
@@ -158,9 +161,9 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     )
     report.paneCloseRemovedOwnedTree = true
 
-    await reportFolderSnapshot('after-worktree-close-before-ps5-reload')
+    await reportFolderSnapshot('after-worktree-close-before-ps5-settings-change')
     await setWindowsShell(folderPage, powershell51.executable, () =>
-      reportFolderSnapshot('after-ps5-reload')
+      reportFolderSnapshot('after-ps5-settings-change')
     )
     await proveWindowsPowerShell51ManagedRestore(
       session,

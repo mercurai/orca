@@ -117,64 +117,63 @@ export async function launchPackaged(
   }
 }
 
+async function selectTerminalSetting(
+  page: SessionHandle['page'],
+  groupName: string,
+  optionName: string
+): Promise<void> {
+  const group = page.getByRole('radiogroup', { name: groupName, exact: true })
+  await group.getByRole('radio', { name: optionName, exact: true }).click({ timeout: 30_000 })
+  await group
+    .getByRole('radio', { name: optionName, exact: true, checked: true })
+    .waitFor({ state: 'visible', timeout: 30_000 })
+}
+
 export async function setWindowsShell(
   page: SessionHandle['page'],
   shell: string,
-  afterReload?: () => Promise<void>
+  afterSettingsChange?: () => Promise<void>
 ): Promise<void> {
-  if (shell === 'git-bash') {
-    const settingsButton = page.getByRole('button', { name: 'Settings', exact: true })
-    if (!(await tryClickWithKnownOverlayRetry(page, settingsButton, 30_000))) {
-      await settingsButton.click({ timeout: 1 })
-    }
-    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
-    const gitBashOption = page
-      .getByRole('radiogroup', { name: 'Default Shell' })
-      .getByRole('radio', { name: 'Git Bash' })
-    await gitBashOption.click()
-    await page.waitForFunction(
-      () =>
-        document
-          .querySelector('[role="radiogroup"][aria-label="Default Shell"] [aria-label="Git Bash"]')
-          ?.getAttribute('aria-checked') === 'true',
-      null,
-      { timeout: 30_000 }
-    )
-    const savedShell = await page.evaluate(
-      async () => (await window.api.settings.get()).terminalWindowsShell
-    )
-    if (savedShell !== shell) {
-      throw new Error('The packaged app did not persist Git Bash as the terminal setting')
-    }
-    await page.getByRole('button', { name: 'Back to app', exact: true }).click()
-    return
-  }
-
-  const implementation = win32.basename(shell).toLowerCase()
-  if (implementation !== 'powershell.exe' && implementation !== 'pwsh.exe') {
+  const isGitBash = shell === 'git-bash'
+  const implementation = isGitBash ? undefined : win32.basename(shell).toLowerCase()
+  if (!isGitBash && implementation !== 'powershell.exe' && implementation !== 'pwsh.exe') {
     throw new Error('The packaged lifecycle requested an unsupported PowerShell implementation')
   }
-  const persisted = await page.evaluate(
-    async (selected) => {
-      await window.api.settings.set(selected)
-      const saved = await window.api.settings.get()
-      return (
-        saved.terminalWindowsShell === selected.terminalWindowsShell &&
-        saved.terminalWindowsPowerShellImplementation ===
-          selected.terminalWindowsPowerShellImplementation
-      )
-    },
-    {
-      terminalWindowsShell: shell,
-      terminalWindowsPowerShellImplementation: implementation
-    }
-  )
-  if (!persisted) {
-    throw new Error('The packaged app did not persist its PowerShell shell and implementation')
+  const settingsButton = page.getByRole('button', { name: 'Settings', exact: true })
+  if (!(await tryClickWithKnownOverlayRetry(page, settingsButton, 30_000))) {
+    await settingsButton.click({ timeout: 1 })
   }
-  await page.reload({ waitUntil: 'domcontentloaded' })
-  await afterReload?.()
-  await waitForTerminalReady(page, 30_000)
+  await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+  await selectTerminalSetting(page, 'Default Shell', isGitBash ? 'Git Bash' : 'PowerShell')
+  if (implementation) {
+    await selectTerminalSetting(
+      page,
+      'PowerShell Version',
+      implementation === 'pwsh.exe' ? 'PowerShell 7+' : 'Windows PowerShell'
+    )
+  }
+  const persisted = await page.evaluate(async () => {
+    const settings = await window.api.settings.get()
+    return {
+      shell: settings.terminalWindowsShell,
+      implementation: settings.terminalWindowsPowerShellImplementation
+    }
+  })
+  const expectedShell = isGitBash ? 'git-bash' : 'powershell.exe'
+  if (
+    persisted.shell !== expectedShell ||
+    (implementation && persisted.implementation !== implementation)
+  ) {
+    throw new Error(
+      isGitBash
+        ? 'The packaged app did not persist Git Bash as the terminal setting'
+        : 'The packaged app did not persist its PowerShell shell and implementation'
+    )
+  }
+  const backToApp = page.getByRole('button', { name: 'Back to app', exact: true })
+  await backToApp.click()
+  await backToApp.waitFor({ state: 'hidden', timeout: 30_000 })
+  await afterSettingsChange?.()
 }
 
 export async function createFolderWorkspace(
@@ -226,7 +225,8 @@ export async function activateWorkspace(
         .click({ timeout: remaining() })
       await page
         .locator(
-          `[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(terminalTabId)}][data-active="true"]:visible`
+          `[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(terminalTabId)}]` +
+            '[data-active="true"]:visible'
         )
         .waitFor({ state: 'visible', timeout: remaining() })
     }

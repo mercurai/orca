@@ -2,9 +2,9 @@ import type { Page } from '@stablyai/playwright-test'
 
 export type PackagedPtyWorkspaceStage =
   | 'before-worktree-proof'
-  | 'after-ps7-reload'
-  | 'after-worktree-close-before-ps5-reload'
-  | 'after-ps5-reload'
+  | 'after-ps7-settings-change'
+  | 'after-worktree-close-before-ps5-settings-change'
+  | 'after-ps5-settings-change'
   | 'after-ps5-proof'
   | 'activation-failure'
 
