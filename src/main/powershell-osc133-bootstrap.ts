@@ -103,7 +103,8 @@ ${getPowerShellCodexShellLaunchPreflight() + getPowerShellClaudeShellFunction()}
 `
 
 export function getPowerShellOsc133Bootstrap(): string {
-  return POWERSHELL_OSC133_BOOTSTRAP
+  // Fixed fragments contain no multiline strings, so indentation and full-line comments are syntax-neutral.
+  return POWERSHELL_OSC133_BOOTSTRAP.replace(/^[ \t]+/gm, '').replace(/^[ \t]*#.*$/gm, '')
 }
 
 export function isPowerShellExecutableName(shellName: string): boolean {

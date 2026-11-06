@@ -88,14 +88,18 @@ jobs:
           config/scripts/orcad-windows-prebuild-cache.test.mjs
           config/scripts/pr-code-change-scope.test.mjs
           config/scripts/pr-code-change-scope-process-host.test.mjs
+      - name: Check Linux workflow detector fixtures
+        if: ${{ !cancelled() && matrix.os == 'ubuntu-22.04' && steps.deps.outcome == 'success' }}
+        run: >-
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
           config/scripts/pr-auxiliary-preflight-admission.test.mjs
           config/scripts/mobile-release-check-scope.test.mjs
       # Temporary artifact capture under the host build freeze; the ordinary assertion above stays red.
       - name: Capture changed shell snapshots for review
         if: ${{ failure() && matrix.os == 'ubuntu-22.04' }}
         run: >-
-          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2 --update
-          src/main/shell-wrapper-generated-file-snapshot.test.ts
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
+          src/main/shell-wrapper-generated-file-snapshot.test.ts --update=all
       - name: Upload shell snapshots for review
         if: ${{ failure() && matrix.os == 'ubuntu-22.04' }}
         uses: actions/upload-artifact@v7

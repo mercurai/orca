@@ -153,126 +153,86 @@ export function getPosixCodexNativeLaunchTryFunction(sharedServerArgs: string): 
   }`
 }
 
+// PowerShell normalizes native stdout line endings; the terminal record supplies framing.
 export function getPowerShellCodexNativeLaunchAttempt(sharedServerArgPattern: string): string {
   return `        if ($env:OS -eq 'Windows_NT' -and
             $env:ORCA_CODEX_NATIVE_RESOLVER -cmatch '^(?:[A-Za-z]:\\\\|\\\\\\\\[^\\\\]+\\\\[^\\\\]+)' -and
             (Test-Path -LiteralPath $env:ORCA_CODEX_NATIVE_RESOLVER -PathType Leaf) -and
             $env:ORCA_DISABLE_CODEX_NATIVE_LAUNCH -ne '1' -and
             -not $env:ORCA_DISABLE_CMD_SHIM_RESOLUTION) {
-            $orcaNativeNodeEligible = $true
-            $orcaNativeNode = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-            $orcaNativeArgs = @('agent', 'resolve-codex-native', '--launcher', $orcaCodexExecutable.Source, '--format', 'json')
-            $orcaNativeLauncherDirectory = Split-Path -Parent $orcaCodexExecutable.Source
-            $orcaNativeSiblingNode = Join-Path $orcaNativeLauncherDirectory 'node.exe'
-            if (Test-Path -LiteralPath $orcaNativeSiblingNode -PathType Leaf) {
-                $orcaNativeArgs += @('--node', $orcaNativeSiblingNode)
-            } elseif ($orcaNativeNode -and $orcaNativeNode.CommandType -eq 'Application') {
-                $orcaNativeArgs += @('--node', $orcaNativeNode.Source)
+            $nativeEligible = $true
+            $node = Get-Command node.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+            $nativeArgs = @('agent', 'resolve-codex-native', '--launcher', $orcaCodexExecutable.Source, '--format', 'records')
+            $launcherDir = Split-Path -Parent $orcaCodexExecutable.Source
+            $siblingNode = Join-Path $launcherDir 'node.exe'
+            if (Test-Path -LiteralPath $siblingNode -PathType Leaf) {
+                $nativeArgs += @('--node', $siblingNode)
+            } elseif ($node -and $node.CommandType -eq 'Application') {
+                $nativeArgs += @('--node', $node.Source)
             } else {
-                $orcaNativeNodeEligible = $false
+                $nativeEligible = $false
             }
             if ($env:NODE_OPTIONS -or $env:NODE_PATH -or $env:ORCA_NODE_OPTIONS) {
-                $orcaNativeArgs += '--custom-node-env'
+                $nativeArgs += '--custom-node-env'
             }
-            if ($orcaNativeNodeEligible) {
-                $orcaNativeLine = $null
-                $orcaNativeLineCount = 0
-                $orcaNativeOutputTooLarge = $false
-                $orcaNativeResolverExit = 1
+            if ($nativeEligible) {
+                $nativeRecords = @()
+                $nativeBytes = 0
+                $nativeInvalid = $false
+                $nativeResolverExit = 1
+                $controlPattern = '[\\x00-\\x1F\\x7F-\\x9F]'
                 try {
-                    @() | & $env:ORCA_CODEX_NATIVE_RESOLVER @orcaNativeArgs 2>$null | ForEach-Object {
-                        $orcaNativeLineCount = $orcaNativeLineCount + 1
-                        $orcaLine = [string]$_
-                        if ($orcaNativeLineCount -gt 1 -or [Text.Encoding]::UTF8.GetByteCount($orcaLine) + 1 -gt 16384) {
-                            $orcaNativeOutputTooLarge = $true
-                            throw 'Codex resolver output exceeds the protocol limit.'
+                    @() | & $env:ORCA_CODEX_NATIVE_RESOLVER @nativeArgs 2>$null | ForEach-Object {
+                        $nativeLine = [string]$_
+                        $nativeBytes += [Text.Encoding]::UTF8.GetByteCount($nativeLine) + 1
+                        if ($nativeRecords.Count -ge 6 -or $nativeBytes -gt 16384 -or $nativeLine -match $controlPattern) {
+                            $nativeInvalid = $true
+                            throw 'Codex resolver record is invalid.'
                         }
-                        $orcaNativeLine = $orcaLine
+                        $nativeRecords += $nativeLine
                     }
-                    $orcaNativeResolverExit = $LASTEXITCODE
+                    $nativeResolverExit = $LASTEXITCODE
                 } catch {
                 }
-                $orcaNativeValid = $false
-                $orcaNativeExecutable = $null
-                $orcaNativePackageRoot = $null
-                if ($orcaNativeResolverExit -eq 0 -and -not $orcaNativeOutputTooLarge -and
-                    $orcaNativeLineCount -eq 1 -and $orcaNativeLine.TrimStart().StartsWith('{')) {
-                    try {
-                        $orcaNativeResponse = ConvertFrom-Json -InputObject $orcaNativeLine -ErrorAction Stop
-                        $orcaNativeKeys = @($orcaNativeResponse.PSObject.Properties.Name | Sort-Object)
-                        $orcaNativePathPattern = '^(?:[A-Za-z]:\\\\|\\\\\\\\[^\\\\]+\\\\[^\\\\]+)'
-                        $orcaNativeControlPattern = '[\\x00-\\x1F\\x7F-\\x9F]'
-                        $orcaNativeDeltaKeys = @($orcaNativeResponse.environmentDelta.PSObject.Properties.Name)
-                        if ($orcaNativeKeys.Count -eq 4 -and
-                            $orcaNativeKeys -ccontains 'schemaVersion' -and
-                            $orcaNativeKeys -ccontains 'outcome' -and
-                            $orcaNativeKeys -ccontains 'nativeExecutable' -and
-                            $orcaNativeKeys -ccontains 'environmentDelta' -and
-                            ($orcaNativeResponse.schemaVersion -is [int] -or $orcaNativeResponse.schemaVersion -is [long]) -and
-                            $orcaNativeResponse.schemaVersion -eq 1 -and
-                            $orcaNativeResponse.outcome -ceq 'native' -and
-                            $orcaNativeDeltaKeys.Count -eq 2 -and
-                            $orcaNativeDeltaKeys -ccontains 'managedPackageRoot' -and
-                            $orcaNativeDeltaKeys -ccontains 'manager' -and
-                            $orcaNativeResponse.environmentDelta.manager -ceq 'npm' -and
-                            $orcaNativeResponse.nativeExecutable -is [string] -and
-                            $orcaNativeResponse.environmentDelta.managedPackageRoot -is [string] -and
-                            $orcaNativeResponse.nativeExecutable -cmatch $orcaNativePathPattern -and
-                            $orcaNativeResponse.environmentDelta.managedPackageRoot -cmatch $orcaNativePathPattern -and
-                            $orcaNativeResponse.nativeExecutable -cnotmatch $orcaNativeControlPattern -and
-                            $orcaNativeResponse.environmentDelta.managedPackageRoot -cnotmatch $orcaNativeControlPattern) {
-                            $orcaNativeValid = $true
-                            $orcaNativeExecutable = $orcaNativeResponse.nativeExecutable
-                            $orcaNativePackageRoot = $orcaNativeResponse.environmentDelta.managedPackageRoot
-                        }
-                    } catch {
+                $pathPattern = '^(?:[A-Za-z]:\\\\|\\\\\\\\[^\\\\]+\\\\[^\\\\]+)'
+                if ($nativeResolverExit -eq 0 -and -not $nativeInvalid -and $nativeRecords.Count -eq 6 -and
+                    $nativeRecords[0] -ceq 'ORCA_CODEX_NATIVE_V1' -and $nativeRecords[1] -ceq 'native' -and
+                    $nativeRecords[2] -cmatch $pathPattern -and $nativeRecords[3] -cmatch $pathPattern -and
+                    $nativeRecords[4] -ceq 'npm' -and $nativeRecords[5] -ceq 'END_ORCA_CODEX_NATIVE_V1' -and
+                    $nativeRecords[2] -cnotmatch $controlPattern -and $nativeRecords[3] -cnotmatch $controlPattern) {
+                    $nativeExe = $nativeRecords[2]
+                    $nativeRoot = $nativeRecords[3]
+                    $nativeNames = @('CODEX_MANAGED_PACKAGE_ROOT', 'CODEX_MANAGED_BY_NPM', 'CODEX_MANAGED_BY_BUN', 'CODEX_MANAGED_BY_PNPM', 'CODEX_MANAGED_BY_VITE_PLUS')
+                    $nativePrevious = @{}
+                    foreach ($name in $nativeNames) {
+                        $nativePrevious[$name] = @{ Present = Test-Path ("Env:$name"); Value = [Environment]::GetEnvironmentVariable($name, 'Process') }
                     }
-                }
-                if ($orcaNativeValid) {
-                    $orcaNativeNames = @('CODEX_MANAGED_PACKAGE_ROOT', 'CODEX_MANAGED_BY_NPM', 'CODEX_MANAGED_BY_BUN', 'CODEX_MANAGED_BY_PNPM', 'CODEX_MANAGED_BY_VITE_PLUS')
-                    $orcaNativePrevious = @{}
-                    foreach ($orcaName in $orcaNativeNames) {
-                        $orcaNativePrevious[$orcaName] = @{
-                            Present = Test-Path ("Env:$orcaName")
-                            Value = [Environment]::GetEnvironmentVariable($orcaName, 'Process')
-                        }
-                    }
-                    $orcaNativeFlags = @()
-                    $orcaNativeIsolate = $env:ORCA_CODEX_ISOLATE -ne '0' -and -not (@($args) -cmatch '${sharedServerArgPattern}')
-                    $orcaNativeExit = 0
+                    $nativeFlags = @()
+                    $nativeIsolate = $env:ORCA_CODEX_ISOLATE -ne '0' -and -not (@($args) -cmatch '${sharedServerArgPattern}')
+                    $nativeExit = 0
                     try {
-                        $env:CODEX_MANAGED_PACKAGE_ROOT = $orcaNativePackageRoot
+                        $env:CODEX_MANAGED_PACKAGE_ROOT = $nativeRoot
                         $env:CODEX_MANAGED_BY_NPM = '1'
                         Remove-Item Env:CODEX_MANAGED_BY_BUN, Env:CODEX_MANAGED_BY_PNPM, Env:CODEX_MANAGED_BY_VITE_PLUS -ErrorAction SilentlyContinue
-                        if ($orcaNativeIsolate) {
+                        if ($nativeIsolate) {
                             try {
-                                if ((@() | & $orcaNativeExecutable --help 2>$null | Out-String) -match '--no-daemon') {
-                                    $orcaNativeFlags = @('--no-daemon')
-                                }
+                                if ((@() | & $nativeExe --help 2>$null | Out-String) -match '--no-daemon') { $nativeFlags = @('--no-daemon') }
                             } catch {
                             }
                         }
-                        if ($MyInvocation.ExpectingInput) {
-                            $input | & $orcaNativeExecutable @orcaNativeFlags @args
-                        } else {
-                            & $orcaNativeExecutable @orcaNativeFlags @args
-                        }
-                        $orcaNativeExit = $LASTEXITCODE
+                        if ($MyInvocation.ExpectingInput) { $input | & $nativeExe @nativeFlags @args } else { & $nativeExe @nativeFlags @args }
+                        $nativeExit = $LASTEXITCODE
                     } catch {
-                        $orcaNativeExit = $LASTEXITCODE
+                        $nativeExit = $LASTEXITCODE
                         throw
                     } finally {
-                        foreach ($orcaName in $orcaNativeNames) {
-                            if ($orcaNativePrevious[$orcaName].Present) {
-                                Set-Item "Env:$orcaName" -Value $orcaNativePrevious[$orcaName].Value
-                            } else {
-                                Remove-Item "Env:$orcaName" -ErrorAction SilentlyContinue
-                            }
+                        foreach ($name in $nativeNames) {
+                            if ($nativePrevious[$name].Present) { Set-Item "Env:$name" -Value $nativePrevious[$name].Value } else { Remove-Item "Env:$name" -ErrorAction SilentlyContinue }
                         }
-                        $global:LASTEXITCODE = $orcaNativeExit
+                        $global:LASTEXITCODE = $nativeExit
                     }
                     return
                 }
             }
-        }`
+        }`.replace(/^[ \t]+/gm, '')
 }

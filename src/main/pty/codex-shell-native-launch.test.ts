@@ -156,17 +156,18 @@ function makeFixture(): Fixture {
       'const stdinBytes = fs.readFileSync(0).length',
       "process.on('exit', () => fs.appendFileSync(process.env.ORCA_TEST_EVENT_LOG, 'resolver-exit\\n'))",
       'fs.appendFileSync(process.env.ORCA_TEST_RESOLVER_LOG, JSON.stringify({ args, stdinBytes }) + "\\n")',
-      "const format = args[args.indexOf('--format') + 1]",
-      "const result = { schemaVersion: 1, outcome: 'native', nativeExecutable: process.env.ORCA_TEST_NATIVE_EXE, environmentDelta: { managedPackageRoot: process.env.ORCA_TEST_PACKAGE_ROOT, manager: 'npm' } }",
+      "let records = ['ORCA_CODEX_NATIVE_V1', 'native', process.env.ORCA_TEST_NATIVE_EXE, process.env.ORCA_TEST_PACKAGE_ROOT, 'npm', 'END_ORCA_CODEX_NATIVE_V1']",
       "const mode = process.env.ORCA_TEST_RESOLVER_MODE || 'native'",
-      "if (mode === 'drive-relative') result.nativeExecutable = 'C:relative.exe'",
-      "if (mode === 'control-character') result.nativeExecutable = 'C:' + String.fromCharCode(9) + 'invalid.exe'",
-      "if (mode === 'fallback') { const value = { schemaVersion: 1, outcome: 'fallback', reason: 'unrecognized_launcher' }; process.stdout.write(format === 'json' ? JSON.stringify(value) : ['ORCA_CODEX_NATIVE_V1', 'fallback', value.reason, 'END_ORCA_CODEX_NATIVE_V1'].join('\\n') + '\\n') }",
-      "else if (mode === 'malformed') process.stdout.write(format === 'json' ? JSON.stringify({ ...result, extra: true }) : ['ORCA_CODEX_NATIVE_V1', 'native', process.env.ORCA_TEST_NATIVE_EXE, process.env.ORCA_TEST_PACKAGE_ROOT, 'npm', 'END_ORCA_CODEX_NATIVE_V1', 'extra'].join('\\n') + '\\n')",
-      "else if (mode === 'oversized') process.stdout.write('x'.repeat(16385))",
-      "else if (mode === 'schema-string') process.stdout.write(JSON.stringify({ ...result, schemaVersion: '1' }) + '\\n')",
-      "else if (mode === 'singleton-array') process.stdout.write(JSON.stringify([result]) + '\\n')",
-      "else process.stdout.write(format === 'json' ? JSON.stringify(result) : ['ORCA_CODEX_NATIVE_V1', 'native', result.nativeExecutable, result.environmentDelta.managedPackageRoot, result.environmentDelta.manager, 'END_ORCA_CODEX_NATIVE_V1'].join('\\n') + '\\n')",
+      "const recordEnding = mode === 'crlf' ? '\\r\\n' : '\\n'",
+      "if (mode === 'drive-relative') records[2] = 'C:relative.exe'",
+      "if (mode === 'control-character') records[2] = 'C:' + String.fromCharCode(9) + 'invalid.exe'",
+      "if (mode === 'wrong-version') records[0] = 'ORCA_CODEX_NATIVE_V2'",
+      "if (mode === 'wrong-manager') records[4] = 'pnpm'",
+      "if (mode === 'wrong-end-marker') records[5] = 'END_ORCA_CODEX_NATIVE_V2'",
+      "if (mode === 'fallback') records = ['ORCA_CODEX_NATIVE_V1', 'fallback', 'unrecognized_launcher', 'END_ORCA_CODEX_NATIVE_V1']",
+      "if (mode === 'malformed') records.push('extra')",
+      "if (mode === 'oversized') process.stdout.write('x'.repeat(16385))",
+      'else process.stdout.write(records.join(recordEnding) + recordEnding)',
       "if (mode === 'nonzero') process.exitCode = 7"
     ].join('\n'),
     'utf8'
@@ -392,7 +393,7 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       expect(call.stdinBytes).toBe(0)
       expect(call.args.slice(0, 2)).toEqual(['agent', 'resolve-codex-native'])
       expect(call.args).toContain('--format')
-      expect(call.args).toContain(shell.kind === 'bash' ? 'records' : 'json')
+      expect(call.args).toContain('records')
       expect(call.args).not.toContain('--custom-node-env')
       expect(call.args).not.toContain('two words')
       expect(call.args).not.toContain('$HOME')
@@ -444,7 +445,10 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
 
     it.each([
       ['expected fallback', 'fallback'],
-      ['trailing extra record or JSON property', 'malformed'],
+      ['trailing extra record', 'malformed'],
+      ['unknown record version', 'wrong-version'],
+      ['wrong manager record', 'wrong-manager'],
+      ['wrong terminal marker', 'wrong-end-marker'],
       ['oversized output', 'oversized'],
       ['drive-relative native path', 'drive-relative'],
       ['control character in native path', 'control-character'],
@@ -466,26 +470,23 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       expect(readFileSync(fixture.eventLog, 'utf8')).not.toContain('native-start')
     })
 
-    it.skipIf(shell.kind !== 'powershell').each(['schema-string', 'singleton-array'])(
-      'rejects malformed JSON shape %s',
-      (mode) => {
-        const fixture = makeFixture()
-        const result = runShell(
-          shell,
-          fixture,
-          'codex alpha\nWrite-Output ("STATUS=" + $LASTEXITCODE)',
-          {
-            ORCA_TEST_RESOLVER_MODE: mode,
-            ORCA_TEST_NATIVE_EXE: fixture.nativeTarget
-          }
-        )
+    it.skipIf(shell.kind !== 'powershell')('parses records after native CRLF normalization', () => {
+      const fixture = makeFixture()
+      const result = runShell(
+        shell,
+        fixture,
+        'codex alpha\nWrite-Output ("STATUS=" + $LASTEXITCODE)',
+        { ORCA_TEST_RESOLVER_MODE: 'crlf' }
+      )
 
-        expect(result.stderr).toBe('')
-        expect(lines(result.stdout)).toEqual(['FALLBACK', 'STATUS=19'])
-        expect(readFileSync(fixture.eventLog, 'utf8')).toContain('resolver-exit')
-        expect(readFileSync(fixture.eventLog, 'utf8')).not.toContain('native-start')
-      }
-    )
+      expect(result.stderr).toBe('')
+      expect(lines(result.stdout)).toEqual(['NATIVE', 'STATUS=0'])
+      expect(readFileSync(fixture.codexLog, 'utf8').trim()).toBe('--no-daemon alpha')
+      expect(readFileSync(fixture.eventLog, 'utf8').trim().split(/\r?\n/)).toEqual([
+        'resolver-exit',
+        'native-start'
+      ])
+    })
 
     it.each([
       ['native-launch opt-out', { ORCA_DISABLE_CODEX_NATIVE_LAUNCH: '1' }],
