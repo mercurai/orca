@@ -12,6 +12,11 @@ UNIX_EPOCH_FILETIME = 116444736000000000
 MAX_SAFE_INTEGER = 9007199254740991
 MAX_PROCESS_ID = 0xFFFFFFFF
 MAX_METRIC_PROCESSES = 4096
+METRIC_OPERATION_OPEN_PROCESS = "open_process"
+METRIC_OPERATION_GET_PROCESS_TIMES = "get_process_times"
+METRIC_OPERATION_QUERY_IMAGE_NAME = "query_full_process_image_name"
+METRIC_OPERATION_GET_MEMORY_INFO = "get_process_memory_info"
+METRIC_OPERATION_GET_HANDLE_COUNT = "get_process_handle_count"
 job_ownership = WindowsJobOwnership()
 
 
@@ -85,6 +90,14 @@ def measure(request):
     seen = set()
     measurements = []
     first_error = None
+    first_error_operation = None
+
+    def record_failure(operation, error_code):
+        nonlocal first_error, first_error_operation
+        if first_error is None:
+            first_error = error_code
+            first_error_operation = operation
+
     for row in rows:
         if not isinstance(row, dict):
             return {"ok": False, "reason": "invalid_process_record"}
@@ -100,7 +113,7 @@ def measure(request):
 
         handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
         if not handle:
-            first_error = first_error or ctypes.get_last_error()
+            record_failure(METRIC_OPERATION_OPEN_PROCESS, ctypes.get_last_error())
             continue
 
         try:
@@ -115,7 +128,7 @@ def measure(request):
                 ctypes.byref(kernel),
                 ctypes.byref(user),
             ):
-                first_error = first_error or ctypes.get_last_error()
+                record_failure(METRIC_OPERATION_GET_PROCESS_TIMES, ctypes.get_last_error())
                 continue
 
             creation_ms = (filetime_value(creation) - UNIX_EPOCH_FILETIME) // 10000
@@ -130,18 +143,18 @@ def measure(request):
                 image_path,
                 ctypes.byref(image_path_length),
             ):
-                first_error = first_error or ctypes.get_last_error()
+                record_failure(METRIC_OPERATION_QUERY_IMAGE_NAME, ctypes.get_last_error())
                 continue
 
             memory = PROCESS_MEMORY_COUNTERS_EX()
             memory.cb = ctypes.sizeof(memory)
             if not psapi.GetProcessMemoryInfo(handle, ctypes.byref(memory), memory.cb):
-                first_error = first_error or ctypes.get_last_error()
+                record_failure(METRIC_OPERATION_GET_MEMORY_INFO, ctypes.get_last_error())
                 continue
 
             handle_count = wintypes.DWORD()
             if not kernel32.GetProcessHandleCount(handle, ctypes.byref(handle_count)):
-                first_error = first_error or ctypes.get_last_error()
+                record_failure(METRIC_OPERATION_GET_HANDLE_COUNT, ctypes.get_last_error())
                 continue
 
             counters = (
@@ -153,8 +166,7 @@ def measure(request):
                 filetime_value(user),
             )
             if any(not is_integer(value, 0, MAX_SAFE_INTEGER) for value in counters):
-                first_error = first_error or 0
-                continue
+                return {"ok": False, "reason": "invalid_metric_values"}
 
             measurements.append(
                 {
@@ -175,6 +187,7 @@ def measure(request):
         return {
             "ok": False,
             "reason": "process_metric_unavailable",
+            "operation": first_error_operation,
             "errorCode": first_error,
             "expectedCount": len(rows),
             "measuredCount": len(measurements),

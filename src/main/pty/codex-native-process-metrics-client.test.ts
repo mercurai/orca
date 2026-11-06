@@ -12,6 +12,10 @@ import {
   METRICS_CLOSE_TIMEOUT_MS,
   ProcessMetricsClient
 } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-client'
+import {
+  metricResponse,
+  ProcessMetricsIncompleteError
+} from '../../../tests/tools/windows-codex-native-runtime/process-metrics-protocol'
 
 class FakeSamplerProcess extends EventEmitter {
   readonly requests: string[] = []
@@ -192,5 +196,87 @@ describe('ProcessMetricsClient request lifecycle', () => {
     child.closeNormally()
     await expect(closing).resolves.toBeUndefined()
     await expect(client.waitForExit()).resolves.toBeUndefined()
+  })
+
+  it('preserves the allowlisted Win32 operation and incomplete counts', async () => {
+    const identities = [
+      { pid: 1234, creationTimeMs: 12345 },
+      { pid: 1235, creationTimeMs: 12346 }
+    ]
+    const sampled = client.sample(identities)
+    child.stdout.write(
+      `${JSON.stringify({
+        ok: false,
+        reason: 'process_metric_unavailable',
+        operation: 'get_process_memory_info',
+        errorCode: 31,
+        expectedCount: 2,
+        measuredCount: 1
+      })}\n`
+    )
+
+    let caught: unknown
+    try {
+      await sampled
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(ProcessMetricsIncompleteError)
+    expect(caught).toMatchObject({
+      name: 'ProcessMetricsIncompleteError',
+      operation: 'get_process_memory_info',
+      expectedCount: 2,
+      measuredCount: 1,
+      errorCode: 31,
+      message:
+        'Windows process metrics incomplete (process_metric_unavailable, ' +
+        'operation=get_process_memory_info, 1/2, error 31)'
+    })
+    expect(child.kill).not.toHaveBeenCalled()
+    const closing = client.close()
+    child.closeNormally()
+    await expect(closing).resolves.toBeUndefined()
+  })
+
+  it('rejects missing or unrecognized metric operation diagnostics', () => {
+    expect(
+      metricResponse({
+        ok: false,
+        reason: 'process_metric_unavailable',
+        operation: 'get_process_memory_info',
+        errorCode: 31,
+        expectedCount: 2,
+        measuredCount: 1
+      })
+    ).toMatchObject({
+      ok: false,
+      operation: 'get_process_memory_info',
+      expectedCount: 2,
+      measuredCount: 1
+    })
+    expect(() =>
+      metricResponse({
+        ok: false,
+        reason: 'process_metric_unavailable',
+        operation: 'ReadProcessMemory',
+        expectedCount: 2,
+        measuredCount: 1
+      })
+    ).toThrow('invalid sampler metric operation')
+    expect(() =>
+      metricResponse({
+        ok: false,
+        reason: 'process_metric_unavailable',
+        expectedCount: 2,
+        measuredCount: 1
+      })
+    ).toThrow('invalid sampler metric diagnostic')
+    expect(() =>
+      metricResponse({
+        ok: false,
+        reason: 'pid_creation_mismatch',
+        operation: 'open_process'
+      })
+    ).toThrow('invalid sampler metric operation')
   })
 })

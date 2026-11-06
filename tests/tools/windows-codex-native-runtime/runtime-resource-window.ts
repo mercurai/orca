@@ -1,7 +1,8 @@
 import { performance } from 'node:perf_hooks'
 import type { ProcessIdentity } from './process-tree-identity'
-import type { ProcessMetrics } from './process-metrics-client'
+import { ProcessMetricsIncompleteError, type ProcessMetrics } from './process-metrics-protocol'
 import type { RuntimeMode } from './runtime-environment'
+import { reportFailedSampleDiagnostic } from './runtime-metric-failure-diagnostic'
 
 const SAMPLE_COUNT = 4
 const SAMPLE_INTERVAL_MS = 1_000
@@ -130,7 +131,22 @@ export async function collectStableResourceWindow(
       if (remainingForSample <= 0) {
         throw windowFailure('deadline expired during sampling', context, lastChange, restarts)
       }
-      const measured = await dependencies.sample(previous.identities, remainingForSample)
+      let measured: ProcessMetrics[]
+      try {
+        measured = await dependencies.sample(previous.identities, remainingForSample)
+      } catch (error) {
+        if (!(error instanceof ProcessMetricsIncompleteError)) {
+          throw error
+        }
+        await reportFailedSampleDiagnostic(
+          error,
+          dependencies,
+          deadline,
+          baselineCritical ?? previous.criticalProcesses,
+          previous
+        )
+        throw error
+      }
       if (dependencies.now() >= deadline) {
         throw windowFailure('deadline expired during sampling', context, lastChange, restarts)
       }

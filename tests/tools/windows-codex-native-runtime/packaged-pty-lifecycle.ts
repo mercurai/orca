@@ -26,6 +26,7 @@ import { createBashProbeFiles } from './packaged-pty-bash-probe'
 import { proveColdRestoredFolderPane } from './packaged-pty-cold-restore-proof'
 import { proveWindowsPowerShell51ManagedRestore } from './packaged-pty-powershell51-proof'
 import { proveSequencedWorktreePty } from './packaged-pty-sequenced-worktree-proof'
+import { finishPackagedPtyLifecycle } from './packaged-pty-lifecycle-cleanup'
 import {
   assertIdentityAlive,
   assertBashProbeWindowsPid,
@@ -90,6 +91,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     ctrlCReturnedToShell: false
   }
 
+  let lifecycleFailure: { error: unknown } | null = null
   try {
     const isolatedCodexHome = join(userDataDir, 'home', '.codex')
     mkdirSync(isolatedCodexHome, { recursive: true })
@@ -295,12 +297,15 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     )
     report.coldRestoreRecreatedShell = true
     report.postRestoreTypedNativeLaunch = true
-    console.log(JSON.stringify(report))
-  } finally {
-    if (session) {
-      await closeApp(session.app, 15_000).catch(() => undefined)
-    }
-    await cleanupE2EDaemons(userDataDir).catch(() => undefined)
-    rmSync(runRoot, { recursive: true, force: true })
+  } catch (error) {
+    lifecycleFailure = { error }
   }
+
+  const activeSession = session
+  const shutdownActions = activeSession ? [() => closeApp(activeSession.app, 15_000)] : []
+  shutdownActions.push(() => cleanupE2EDaemons(userDataDir))
+  await finishPackagedPtyLifecycle(lifecycleFailure, shutdownActions, () =>
+    rmSync(runRoot, { recursive: true, force: true })
+  )
+  console.log(JSON.stringify(report))
 }

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { ProcessIdentity } from '../../../tests/tools/windows-codex-native-runtime/process-tree-identity'
 import type { ProcessMetrics } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-client'
+import { ProcessMetricsIncompleteError } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-protocol'
 import {
   collectStableResourceWindow,
   type ResourceWindowDependencies,
@@ -229,16 +230,103 @@ describe('Codex native runtime resource sampling', () => {
       },
       sample: async () => {
         sampleCount++
-        throw new Error('metrics unavailable')
+        throw new Error('Python metrics sampler returned invalid data')
       },
       now: () => 0,
       delay: async () => {}
     }
 
-    await expect(collectStableResourceWindow(dependencies)).rejects.toThrow('metrics unavailable')
+    await expect(collectStableResourceWindow(dependencies)).rejects.toThrow(
+      'Python metrics sampler returned invalid data'
+    )
     expect(settleCount).toBe(1)
     expect(readCount).toBe(0)
     expect(sampleCount).toBe(1)
+  })
+
+  it('classifies one bounded tree read after an incomplete process metric failure', async () => {
+    const original = snapshot(identity(303, 3003))
+    const metricFailure = new ProcessMetricsIncompleteError({
+      operation: 'get_process_memory_info',
+      expectedCount: 3,
+      measuredCount: 2,
+      errorCode: 31
+    })
+    const cases = [
+      { expected: 'unchanged', read: async () => original },
+      {
+        expected: 'peripheral-change',
+        read: async () => snapshot(identity(304, 3004))
+      },
+      {
+        expected: 'critical-change',
+        read: async () => snapshot(identity(303, 3003), identity(205, 2005))
+      },
+      {
+        expected: 'unavailable',
+        read: async () => {
+          throw new Error('private read failure')
+        }
+      },
+      {
+        expected: 'unavailable',
+        exhaustDeadline: true,
+        expectedReadCount: 0,
+        read: async () => original
+      }
+    ]
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      for (const testCase of cases) {
+        let settleCount = 0
+        let readCount = 0
+        let sampleCount = 0
+        let now = 0
+        const dependencies: ResourceWindowDependencies = {
+          settle: async () => {
+            settleCount++
+            return original
+          },
+          read: async (timeoutMs) => {
+            readCount++
+            expect(timeoutMs).toBe(60_000)
+            return testCase.read()
+          },
+          sample: async () => {
+            sampleCount++
+            if (testCase.exhaustDeadline) {
+              now = 60_000
+            }
+            throw metricFailure
+          },
+          now: () => now,
+          delay: async () => {}
+        }
+
+        let caught: unknown
+        try {
+          await collectStableResourceWindow(dependencies)
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).toBe(metricFailure)
+        expect([settleCount, readCount, sampleCount]).toEqual([
+          1,
+          testCase.expectedReadCount ?? 1,
+          1
+        ])
+        expect(log.mock.calls.at(-1)?.[0]).toContain(`tree=${testCase.expected}`)
+        expect(log.mock.calls.at(-1)?.[0]).toContain(
+          'operation=get_process_memory_info measured=2/3 error=31'
+        )
+        expect(log.mock.calls.at(-1)?.[0]).not.toContain('private')
+        expect(log.mock.calls.at(-1)?.[0]).not.toContain('303')
+      }
+    } finally {
+      log.mockRestore()
+    }
   })
 
   it('ends collection when settling consumes the remaining deadline', async () => {

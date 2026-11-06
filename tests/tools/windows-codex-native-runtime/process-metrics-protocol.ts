@@ -12,6 +12,15 @@ export type ProcessMetrics = ProcessIdentity & {
 export const MAX_JOB_PROCESS_IDS = 4096
 const MAX_PROCESS_ID = 0xffff_ffff
 
+export const PROCESS_METRIC_OPERATIONS = [
+  'open_process',
+  'get_process_times',
+  'query_full_process_image_name',
+  'get_process_memory_info',
+  'get_process_handle_count'
+] as const
+export type ProcessMetricOperation = (typeof PROCESS_METRIC_OPERATIONS)[number]
+
 export type MetricsRequest =
   | { processes: ProcessIdentity[] }
   | { op: 'createJob'; root: ProcessIdentity }
@@ -25,6 +34,7 @@ export type MetricsResponse =
   | {
       ok: false
       reason: string
+      operation?: ProcessMetricOperation
       errorCode?: number | null
       expectedCount?: number
       measuredCount?: number
@@ -48,6 +58,10 @@ function isNonNegativeSafeInteger(value: unknown): value is number {
 
 function isWin32ErrorCode(value: unknown): value is number {
   return isNonNegativeSafeInteger(value) && value <= 0xffff_ffff
+}
+
+function isProcessMetricOperation(value: unknown): value is ProcessMetricOperation {
+  return PROCESS_METRIC_OPERATIONS.some((operation) => operation === value)
 }
 
 function isProcessCount(value: unknown): value is number {
@@ -149,7 +163,14 @@ export function metricResponse(value: unknown): MetricsResponse {
   }
 
   if (
-    !hasOnlyKeys(value, ['ok', 'reason', 'errorCode', 'expectedCount', 'measuredCount']) ||
+    !hasOnlyKeys(value, [
+      'ok',
+      'reason',
+      'operation',
+      'errorCode',
+      'expectedCount',
+      'measuredCount'
+    ]) ||
     typeof value.reason !== 'string' ||
     value.reason.length === 0 ||
     value.reason.length > 128
@@ -159,6 +180,15 @@ export function metricResponse(value: unknown): MetricsResponse {
   const response: Extract<MetricsResponse, { ok: false }> = {
     ok: false,
     reason: value.reason
+  }
+  if ('operation' in value) {
+    if (
+      response.reason !== 'process_metric_unavailable' ||
+      !isProcessMetricOperation(value.operation)
+    ) {
+      throw new Error('invalid sampler metric operation')
+    }
+    response.operation = value.operation
   }
   if ('errorCode' in value) {
     const errorCode = value.errorCode
@@ -189,13 +219,55 @@ export function metricResponse(value: unknown): MetricsResponse {
   ) {
     throw new Error('invalid sampler process counts')
   }
+  if (
+    response.reason === 'process_metric_unavailable' &&
+    (response.operation === undefined ||
+      response.errorCode === undefined ||
+      response.expectedCount === undefined ||
+      response.measuredCount === undefined)
+  ) {
+    throw new Error('invalid sampler metric diagnostic')
+  }
   return response
+}
+
+export class ProcessMetricsIncompleteError extends Error {
+  readonly operation: ProcessMetricOperation
+  readonly expectedCount: number
+  readonly measuredCount: number
+  readonly errorCode: number | null
+
+  constructor(input: {
+    operation: ProcessMetricOperation
+    expectedCount: number
+    measuredCount: number
+    errorCode: number | null
+  }) {
+    super(
+      `Windows process metrics incomplete (process_metric_unavailable, ` +
+        `operation=${input.operation}, ${input.measuredCount}/${input.expectedCount}, ` +
+        `error ${input.errorCode ?? 'n/a'})`
+    )
+    this.name = 'ProcessMetricsIncompleteError'
+    this.operation = input.operation
+    this.expectedCount = input.expectedCount
+    this.measuredCount = input.measuredCount
+    this.errorCode = input.errorCode
+  }
 }
 
 export function sampleFailure(
   response: Extract<MetricsResponse, { ok: false }>,
   fallbackCount: number
 ): Error {
+  if (response.reason === 'process_metric_unavailable' && response.operation !== undefined) {
+    return new ProcessMetricsIncompleteError({
+      operation: response.operation,
+      expectedCount: response.expectedCount ?? fallbackCount,
+      measuredCount: response.measuredCount ?? 0,
+      errorCode: response.errorCode ?? null
+    })
+  }
   return new Error(
     `Windows process metrics incomplete (${response.reason}, ` +
       `${response.measuredCount ?? 0}/${response.expectedCount ?? fallbackCount}, ` +
