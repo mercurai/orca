@@ -124,9 +124,17 @@ export function getPosixCodexNativeLaunchTryFunction(sharedServerArgs: string): 
     for __orca_record in "$@"; do
       case "$__orca_record" in ${sharedServerArgs}|--remote=*) __orca_isolate=0 ;; esac
     done
-    local -x CODEX_MANAGED_PACKAGE_ROOT="$__orca_package_win" CODEX_MANAGED_BY_NPM=1
-    local CODEX_MANAGED_BY_BUN='' CODEX_MANAGED_BY_PNPM='' CODEX_MANAGED_BY_VITE_PLUS=''
-    export -n CODEX_MANAGED_BY_BUN CODEX_MANAGED_BY_PNPM CODEX_MANAGED_BY_VITE_PLUS
+    # Exported empty arrays mask outer scalars without entering the child environment.
+    for __orca_record in $(compgen -e); do
+      case "\${__orca_record^^}" in
+        CODEX_MANAGED_PACKAGE_ROOT) [[ "$__orca_record" == CODEX_MANAGED_PACKAGE_ROOT ]] && continue ;;
+        CODEX_MANAGED_BY_NPM) [[ "$__orca_record" == CODEX_MANAGED_BY_NPM ]] && continue ;;
+        CODEX_MANAGED_BY_BUN|CODEX_MANAGED_BY_PNPM|CODEX_MANAGED_BY_VITE_PLUS) ;;
+        *) continue ;;
+      esac
+      local -ax "$__orca_record=()" || return 0
+    done
+    local -x CODEX_MANAGED_PACKAGE_ROOT="$__orca_package_win" CODEX_MANAGED_BY_NPM=1 || return 0
     if [[ "$__orca_isolate" != 0 ]]; then
       __orca_help="$("$__orca_native_posix" --help </dev/null 2>/dev/null)" || :
       if [[ "$__orca_help" == *--no-daemon* ]]; then

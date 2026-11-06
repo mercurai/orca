@@ -97,7 +97,7 @@ describe.skipIf(process.platform !== 'win32')('native Codex spawn resolution', (
       '}))',
       'process.exitCode = 23'
     ].join('\n')
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...install.env,
       ...WINDOWS_ARGUMENT_CORPUS_ENV,
       SystemRoot: process.env.SystemRoot,
