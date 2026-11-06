@@ -89,6 +89,9 @@ const CONTRACT_GLOBALS = new Set([
 const LINE_START_ASSIGNMENT =
   /^[ \t]*(?:builtin[ \t]+)?(?:export[ \t]+|typeset[ \t]+-[a-zA-Z]+[ \t]+|declare[ \t]+-[a-zA-Z]+[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)\+?=/
 const INLINE_EXPORT = /\bexport[ \t]+([A-Za-z_][A-Za-z0-9_]*)\+?=/g
+// This assignment is scoped to the resolver process, unlike a standalone shell assignment.
+const RESOLVER_COMMAND_ENVIRONMENT =
+  /^[ \t]*MSYS_NO_PATHCONV=1[ \t]+"[$]__orca_resolver"(?:[ \t]|$)/
 
 function foreignGlobalsWritten(content: string): string[] {
   const names = new Set<string>()
@@ -96,8 +99,11 @@ function foreignGlobalsWritten(content: string): string[] {
     if (/^[ \t]*#/.test(line) || /^[ \t]*local\b/.test(line)) {
       continue
     }
+    const lineStartAssignment = RESOLVER_COMMAND_ENVIRONMENT.test(line)
+      ? undefined
+      : LINE_START_ASSIGNMENT.exec(line)?.[1]
     for (const name of [
-      LINE_START_ASSIGNMENT.exec(line)?.[1],
+      lineStartAssignment,
       ...[...line.matchAll(INLINE_EXPORT)].map((match) => match[1])
     ]) {
       if (name && !/^_{0,2}orca_/i.test(name) && !CONTRACT_GLOBALS.has(name)) {
@@ -163,6 +169,16 @@ describePosix('generated shell wrapper files', () => {
       const content = readFileSync(join(dir(), relativePath), 'utf8')
       expect({ [relativePath]: foreignGlobalsWritten(content) }).toEqual({ [relativePath]: [] })
     }
+  })
+
+  it('does not treat the resolver command environment as a shell global', () => {
+    expect(
+      foreignGlobalsWritten('MSYS_NO_PATHCONV=1 "$__orca_resolver" agent resolve-codex-native')
+    ).toEqual([])
+  })
+
+  it('still reports a standalone MSYS path conversion assignment', () => {
+    expect(foreignGlobalsWritten('MSYS_NO_PATHCONV=1')).toEqual(['MSYS_NO_PATHCONV'])
   })
 
   it('fish shell-ready init commands', async () => {

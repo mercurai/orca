@@ -12,6 +12,8 @@ const installer = parse(readFileSync(installerPath, 'utf8'))
 const native = parse(readFileSync(nativePath, 'utf8'))
 const identity = native.runs.steps.find((step) => step.id === 'native-cache-scope')
 const inputs = [...identity.env.NATIVE_SOURCE_HASH.matchAll(/'([^']+)'/g)].map((match) => match[1])
+const cacheWarmup = parse(readFileSync('.github/workflows/ci-cache-warmup.yml', 'utf8'))
+const peReaderSource = 'src/packages/process-host/src/windows-pe-machine.cjs'
 const paths = [
   'node_modules/.pnpm/node-pty@*/node_modules/node-pty/build',
   'native/windows-registry/build',
@@ -68,6 +70,18 @@ function resolveIdentity({
 }
 
 describe('CI native cache ownership', () => {
+  it('hashes the canonical process-host PE reader source', () => {
+    expect(inputs).toContain(peReaderSource)
+  })
+
+  it('warms when the canonical process-host PE reader changes', () => {
+    expect(cacheWarmup.on.push.paths).toContain(peReaderSource)
+  })
+
+  it('routes the canonical process-host PE reader to native cache preparation', () => {
+    expect(classifyPrJobs([peReaderSource]).native_cache_changed).toBe(true)
+  })
+
   it('routes every configured native cache input to native preparation', () => {
     for (const file of inputs) {
       expect(classifyPrJobs([file]).native_cache_changed, file).toBe(true)
@@ -131,7 +145,7 @@ describe('CI native cache ownership', () => {
     }
   )
 
-  it('uses requested identity on both restores and saves the Node ABI before Windows switches to Electron', () => {
+  it('saves the Node ABI before Electron packaging and restores Node for Codex qualification', () => {
     for (const step of native.runs.steps.filter((step) => step.uses?.startsWith('actions/cache'))) {
       expect(step.with.key).toBe('${{ steps.native-cache-scope.outputs.key }}')
       expect(step.with.path.trim().split('\n')).toEqual(paths)
@@ -142,6 +156,14 @@ describe('CI native cache ownership', () => {
     const install = job.steps.find((step) => step.id === 'deps')
     const build = job.steps.find((step) => step.name === 'Build package inputs')
     const electron = job.steps.find((step) => step.name === 'Prepare Electron native runtime')
+    const packageApp = job.steps.find((step) => step.name === 'Package unpacked app')
+    const smokePty = job.steps.find(
+      (step) => step.name === 'Smoke packaged Windows PTY native capability'
+    )
+    const smokeCli = job.steps.find((step) => step.name === 'Smoke packaged CLI')
+    const restoreNode = job.steps.find(
+      (step) => step.name === 'Restore Node native modules for Codex runtime qualification'
+    )
     expect(install.with['persist-native-cache']).toBe('false')
     expect(save.with).toEqual({
       key: '${{ steps.deps.outputs.native-cache-key }}',
@@ -152,6 +174,19 @@ describe('CI native cache ownership', () => {
     expect(electron.uses).toBe('./.github/actions/prepare-native-runtime')
     expect(electron.with).toEqual({
       'native-runtime': 'electron',
+      'node-version': '${{ steps.deps.outputs.node-version }}',
+      'persist-native-cache': 'false'
+    })
+    expect(packageApp).toBeDefined()
+    expect(smokePty).toBeDefined()
+    expect(smokeCli).toBeDefined()
+    expect(restoreNode).toBeDefined()
+    const lifecycle = [install, save, build, electron, packageApp, smokePty, smokeCli, restoreNode]
+    const positions = lifecycle.map((step) => job.steps.indexOf(step))
+    expect(positions).toEqual([...positions].sort((left, right) => left - right))
+    expect(restoreNode.uses).toBe('./.github/actions/prepare-native-runtime')
+    expect(restoreNode.with).toEqual({
+      'native-runtime': 'node',
       'node-version': '${{ steps.deps.outputs.node-version }}'
     })
     expect(native.outputs['cache-key'].value).toBe('${{ steps.native-cache-scope.outputs.key }}')

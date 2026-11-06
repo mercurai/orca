@@ -1,5 +1,7 @@
 import { ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CODEX_READ_ONLY_APP_SERVER_ARGS } from '../codex-cli/codex-read-only-app-server-args'
 import {
@@ -22,6 +24,8 @@ const INCOMPLETE: CodexStateDbBackfillStatus = {
   status: 'running'
 }
 
+const temporaryRoots: string[] = []
+
 const OWNER = String.raw`
 import { runCodexStateDbBackfillRecovery } from './codex-state-db-backfill-recovery'
 void runCodexStateDbBackfillRecovery(process.env.ORCA_TEST_CODEX_HOME!, new AbortController().signal, {
@@ -41,6 +45,9 @@ afterEach(() => {
   vi.unstubAllEnvs()
   rig?.cleanup()
   rig = null
+  for (const root of temporaryRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 function decodedSupervisorSpec(env: unknown): unknown {
@@ -91,6 +98,67 @@ describe('Codex backfill recovery app-server supervision', () => {
       cwd: '/managed-home'
     })
     expect(terminate).toHaveBeenCalledWith(child, true)
+  })
+
+  it('keeps Windows recovery on its selected install, managed home, and stdin-close stop path', async () => {
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+    const install = mkdtempSync(join(tmpdir(), 'orca-codex-recovery-win32-'))
+    temporaryRoots.push(install)
+    const launcher = join(install, 'codex.cmd')
+    writeFileSync(launcher, '')
+    writeFileSync(join(install, 'node.exe'), '')
+    const accountHome = join(install, 'accounts', 'recovery-account', 'home')
+    const child = new ChildProcess()
+    const stdinEnd = vi.fn(() => {
+      Object.defineProperty(child, 'exitCode', { configurable: true, value: 0 })
+    })
+    Object.defineProperty(child, 'stdin', {
+      configurable: true,
+      value: { end: stdinEnd }
+    })
+    const calls: { program: string; args: string[]; options: Record<string, unknown> }[] = []
+    const spawnProcess: CodexAppServerSpawn = (program, args, options) => {
+      calls.push({ program, args, options })
+      return child
+    }
+    const readStatus = vi
+      .fn()
+      .mockReturnValueOnce(INCOMPLETE)
+      .mockReturnValue({ kind: 'complete', stateDbPath: '/state.sqlite' })
+
+    vi.stubEnv('ORCA_AGENT_SESSION_ID', 'recovery-session-fixture')
+    await expect(
+      runCodexStateDbBackfillRecovery(accountHome, new AbortController().signal, {
+        spawnProcess,
+        resolveCommand: () => launcher,
+        readStatus,
+        sleep: vi.fn(async () => {}),
+        now: vi.fn(() => 1_000)
+      })
+    ).resolves.toEqual({ outcome: 'completed', spawnCount: 1 })
+
+    const [{ program, args, options }] = calls
+    expect(program).toBe(launcher)
+    expect(args).toEqual([...CODEX_READ_ONLY_APP_SERVER_ARGS])
+    expect(options).toMatchObject({
+      cwd: accountHome,
+      stdio: ['pipe', 'ignore', 'ignore'],
+      windowsHide: true,
+      env: { CODEX_HOME: accountHome, ORCA_AGENT_SESSION_ID: 'recovery-session-fixture' }
+    })
+    expect(options.detached).toBeUndefined()
+    expect(stdinEnd).toHaveBeenCalledOnce()
+
+    const spawnEnv = options.env
+    if (typeof spawnEnv !== 'object' || spawnEnv === null) {
+      throw new Error('Windows recovery did not receive a child environment')
+    }
+    const pathValue = Object.entries(spawnEnv).find(([key]) => key.toLowerCase() === 'path')?.[1]
+    expect(typeof pathValue).toBe('string')
+    if (typeof pathValue !== 'string') {
+      throw new Error('Windows recovery did not receive PATH')
+    }
+    expect(pathValue.split(';')[0]).toBe(install)
   })
 })
 

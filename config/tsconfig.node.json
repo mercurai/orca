@@ -20,6 +20,9 @@
     "../src/preload/**/*",
     "../src/shared/**/*",
     "../src/packages/process-host/src/__fixtures__/**/*",
+    "../tests/tools/windows-codex-native-runtime/**/*.ts",
+    "../tests/e2e/helpers/electron-process-shutdown.ts",
+    "../tests/e2e/helpers/electron-crashpad-cleanup.ts",
     "../src/wsl-guest/**/*",
     "../src/types/**/*"
   ],

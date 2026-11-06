@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { peImage } from './windows-pe-image-fixture.mjs'
 
 const require = createRequire(import.meta.url)
-const { PE_MACHINE, describePeMachine, readPeMachine } = require('./windows-pe-machine.cjs')
+const configReader = require('./windows-pe-machine.cjs')
+const { PE_MACHINE, describePeMachine, readPeMachine } = configReader
 
 const fixtureDir = mkdtempSync(join(tmpdir(), 'windows-pe-machine-'))
 
@@ -18,6 +19,16 @@ function writeImage(name, build) {
 
 const X64 = writeImage('x64.node', () => peImage({ machine: PE_MACHINE.x64 }))
 const ARM64 = writeImage('arm64.node', () => peImage({ machine: PE_MACHINE.arm64 }))
+
+describe('PE reader public export', () => {
+  it('forwards the config entry to the same public process-host module', () => {
+    let packageReader
+    expect(() => {
+      packageReader = require('@orca/process-host/windows-pe-machine')
+    }).not.toThrow()
+    expect(configReader).toBe(packageReader)
+  })
+})
 
 describe('PE_MACHINE', () => {
   // Spelled out rather than taken from the module: the fixtures below build

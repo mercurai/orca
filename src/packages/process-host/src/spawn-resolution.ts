@@ -1,6 +1,10 @@
 import type { SpawnOptions as NodeSpawnOptions } from 'node:child_process'
 import { buildWindowsCmdShimCommandLine, isCmdInterpretedProgram } from './windows-command-line'
 import { resolveWindowsCmdShim } from './windows-cmd-shim-resolution'
+import {
+  applyWindowsCodexNativeEnvironment,
+  resolveWindowsCodexNativeLaunch
+} from './windows-codex-native-resolution'
 import type { ProcessSpec } from './process-spec'
 
 export type ResolvedSpawn = {
@@ -16,10 +20,8 @@ export type ResolvedSpawn = {
  * below are the whole point of the spawn chokepoint, and they must not be
  * observable only on the platform that breaks.
  *
- * Pure except on the win32 `.cmd` branch, where shim resolution does a `stat`
- * and (on a cache miss) one bounded read of the shim itself. Both are inside
- * try/catch and any failure falls back to the cmd.exe path, so the function
- * still cannot throw or reach anything but the program path it was handed.
+ * Windows launcher validation performs bounded file reads. Unrecognized
+ * installations retain their existing shim or cmd.exe invocation.
  */
 export function resolveSpawn(spec: ProcessSpec, platform: NodeJS.Platform): ResolvedSpawn {
   const args = spec.args ?? []
@@ -53,18 +55,35 @@ export function resolveSpawn(spec: ProcessSpec, platform: NodeJS.Platform): Reso
   // keep the cmd.exe path below.
   const shim = resolveWindowsCmdShim(spec.program, spec.env ?? process.env)
   if (shim) {
+    const options = {
+      ...base,
+      ...(shim.env ? { env: shim.env } : {}),
+      // Resolved argv needs Node's quoting, even if the caller supplied a command line.
+      windowsVerbatimArguments: undefined
+    }
+    if (shim.prefixArgs.length === 1) {
+      const childEnv = shim.env ?? spec.env ?? process.env
+      const native = resolveWindowsCodexNativeLaunch({
+        launcher: spec.program,
+        node: shim.program,
+        env: childEnv,
+        platform
+      })
+      if (native.outcome === 'native') {
+        return {
+          file: native.nativeExecutable,
+          args,
+          options: {
+            ...options,
+            env: applyWindowsCodexNativeEnvironment(childEnv, native.environmentDelta)
+          }
+        }
+      }
+    }
     return {
       file: shim.program,
       args: [...shim.prefixArgs, ...args],
-      options: {
-        ...base,
-        ...(shim.env ? { env: shim.env } : {}),
-        // Why cleared rather than inherited: the flag exists for callers that
-        // hand us a whole pre-built command line, and there is no such line
-        // here — Node would join `[script, ...args]` unquoted and shred any
-        // argument containing a space.
-        windowsVerbatimArguments: undefined
-      }
+      options
     }
   }
 

@@ -216,7 +216,9 @@ function createPackagedRuntimeNodeModuleResources(electronPlatformName = process
   return collectPackagedRuntimePackages(electronPlatformName).map(([packageName, packageDir]) => ({
     from: packageDir,
     to: join('node_modules', ...packageName.split('/')),
-    ...(packageName === '@orca/process-host' ? { filter: ['package.json', 'dist/**/*'] } : {})
+    ...(packageName === '@orca/process-host'
+      ? { filter: ['package.json', 'dist/**/*', 'src/windows-pe-machine.cjs'] }
+      : {})
   }))
 }
 

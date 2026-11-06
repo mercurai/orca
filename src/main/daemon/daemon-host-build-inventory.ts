@@ -7,6 +7,7 @@ import {
   daemonHostExeName,
   daemonHostProcessPackageDir,
   destPath,
+  PROCESS_HOST_STATIC_RUNTIME_FILES,
   toPosixRelative,
   type DaemonHostSources
 } from './daemon-host-manifest'
@@ -58,6 +59,13 @@ function isSafeRelativePath(value: unknown): value is string {
   )
 }
 
+function isProcessHostRuntimeExport(relative: string): boolean {
+  return (
+    relative.startsWith('dist/') ||
+    PROCESS_HOST_STATIC_RUNTIME_FILES.some((runtimePath) => runtimePath === relative)
+  )
+}
+
 function processHostExportsExist(packageDir: string): boolean {
   const manifest: unknown = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
   if (
@@ -77,7 +85,7 @@ function processHostExportsExist(packageDir: string): boolean {
       const relative = entry.default.startsWith('./') ? entry.default.slice(2) : entry.default
       return (
         isSafeRelativePath(relative) &&
-        relative.startsWith('dist/') &&
+        isProcessHostRuntimeExport(relative) &&
         existsSync(destPath(packageDir, relative))
       )
     })
@@ -110,6 +118,12 @@ export function collectDaemonHostBuildInventory(
       ...collectCodeFiles(join(processHostDir, 'package.json'), `${packageRel}/package.json`)
     )
     files.push(...collectCodeFiles(join(processHostDir, 'dist'), `${packageRel}/dist`))
+    for (const relative of PROCESS_HOST_STATIC_RUNTIME_FILES) {
+      const staticRuntimePath = join(processHostDir, ...relative.split('/'))
+      if (existsSync(staticRuntimePath)) {
+        files.push(...collectCodeFiles(staticRuntimePath, `${packageRel}/${relative}`))
+      }
+    }
     files.sort((left, right) => left.path.localeCompare(right.path))
     const inventory = {
       runtimeVersion: runtimeVersion(),

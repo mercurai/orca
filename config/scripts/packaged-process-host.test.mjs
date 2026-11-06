@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -23,9 +23,17 @@ it('loads the copied process package from an unpacked CLI without checkout depen
       (entry) => entry.to === join('node_modules', '@orca', 'process-host')
     )
     expect(resource).toBeDefined()
-    expect(resource.filter).toEqual(['package.json', 'dist/**/*'])
+    expect(resource.filter).toEqual([
+      'package.json',
+      'dist/**/*',
+      'src/windows-pe-machine.cjs'
+    ])
     const packageDir = await stagePackagedProcessHost(resourcesDir)
-    expect(existsSync(join(packageDir, 'src'))).toBe(false)
+    expect(existsSync(join(packageDir, 'src', 'windows-pe-machine.cjs'))).toBe(true)
+    const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'))
+    const readerTypes = manifest.exports['./windows-pe-machine'].types
+    expect(readerTypes).toBe('./dist/windows-pe-machine.d.cts')
+    expect(existsSync(join(packageDir, readerTypes))).toBe(true)
 
     const { outDir, entry } = await writePackagedProcessHostConsumer(resourcesDir)
     const closure = collectRuntimeClosure(outDir, resourcesDir)

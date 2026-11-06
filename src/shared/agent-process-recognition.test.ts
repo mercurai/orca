@@ -62,10 +62,16 @@ describe('agent process recognition', () => {
   })
 
   it('recognizes packaged Codex foreground process names', () => {
+    const nativeCodexPath = String.raw`C:\Users\dev\AppData\Roaming\npm\codex.exe`
     expect(recognizeAgentProcess('codex-aarch64-ap')).toEqual({
       agent: 'codex',
       processName: 'codex-aarch64-ap'
     })
+    expect(recognizeAgentProcess(nativeCodexPath)).toEqual({
+      agent: 'codex',
+      processName: 'codex'
+    })
+    expect(isExpectedAgentProcess(nativeCodexPath, 'codex')).toBe(true)
     expect(isRecognizedAgentType('codex-aarch64-ap')).toBe(true)
   })
 

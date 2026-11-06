@@ -1,4 +1,8 @@
 import { spawnProcess } from '@orca/process-host'
+import {
+  applyWindowsCodexNativeEnvironment,
+  resolveWindowsCodexNativeLaunch
+} from '@orca/process-host/windows-codex-native-resolution'
 import { withCliRuntimeOnPath } from '../../shared/node-cli-command-resolution'
 import { resolveCliCommand } from '../codex-cli/command'
 import { createProviderSpawnSpec } from '../provider-process/provider-process-supervisor'
@@ -77,11 +81,24 @@ function spawnWindowsAgent(
   const resolvedBinary = resolveCliCommand(input.binary, {
     pathEnv: spawnEnv.PATH ?? spawnEnv.Path ?? null
   })
-  const { spawnCmd, spawnArgs } = getSpawnArgsForWindows(resolvedBinary, input.args)
+  const childEnv = withCliRuntimeOnPath(resolvedBinary, spawnEnv)
+  const resolution = resolveWindowsCodexNativeLaunch({
+    launcher: resolvedBinary,
+    env: childEnv,
+    platform: process.platform
+  })
+  const launchEnv =
+    resolution.outcome === 'native'
+      ? applyWindowsCodexNativeEnvironment(childEnv, resolution.environmentDelta)
+      : childEnv
+  const { spawnCmd, spawnArgs } =
+    resolution.outcome === 'native'
+      ? { spawnCmd: resolution.nativeExecutable, spawnArgs: input.args }
+      : getSpawnArgsForWindows(resolvedBinary, input.args)
   return spawnProcess({
     program: spawnCmd,
     args: spawnArgs,
-    env: withCliRuntimeOnPath(resolvedBinary, spawnEnv),
+    env: launchEnv,
     ...(input.useCwdForNative ? { cwd: input.cwd } : {})
   })
 }

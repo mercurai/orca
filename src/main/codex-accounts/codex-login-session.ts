@@ -1,19 +1,11 @@
 import { join } from 'node:path'
 import type { WindowsHostInteractiveLoginSpawn } from '../../shared/windows-interactive-login-spawn'
-import { buildWindowsHostInteractiveLoginSpawn } from '../../shared/windows-interactive-login-spawn'
-import { withCliRuntimeOnPath } from '../../shared/node-cli-command-resolution'
 import { CODEX_LOGIN_CANCELLED_MESSAGE } from '../../shared/codex-auth-errors'
 import { parseWslUncPath } from '../../shared/wsl-paths'
-import { resolveCodexCommand } from '../codex-cli/command'
-import { getSpawnArgsForWindows } from '../win32-utils'
-import { runWslProcess } from '../wsl/wsl-runner'
 import { parseCodexLoginAuthUrl } from './codex-login-auth-url'
 import { loginAuthChanged, readLoginAuthSnapshot } from './codex-login-auth-snapshot'
-import {
-  buildWslCodexAvailabilityScript,
-  buildWslCodexLoginArgs,
-  WSL_CODEX_AVAILABILITY_TIMEOUT_MS
-} from './wsl-codex-command'
+import { assertWslCodexCliAvailable, createHostLoginSpawn } from './codex-login-launch'
+import { buildWslCodexLoginArgs } from './wsl-codex-command'
 
 // Why: matches Claude's window. Signing in through a copied link — a second
 // browser, a password manager, an incognito window — routinely outlasts two
@@ -121,6 +113,7 @@ async function runCodexLoginProcess(
           args: buildWslCodexLoginArgs(wslInfo.distro, wslInfo.linuxPath),
           env: process.env,
           codexCommand: 'codex',
+          directExecutable: false,
           interactiveLogin: null
         }
       : createHostLoginSpawn(managedHomePath)
@@ -239,12 +232,14 @@ async function runCodexLoginProcess(
     const onError = (error: Error): void => {
       settle(() => {
         const isEnoent = (error as NodeJS.ErrnoException).code === 'ENOENT'
-        // Why: ENOENT is ambiguous — missing codex binary or missing node in PATH; a resolved full path implies node is missing.
+        // Why: native ENOENT may come from its executable or the console wrapper.
         const isBareCommand = spawnConfig.codexCommand === 'codex'
         const message = isEnoent
-          ? isBareCommand
-            ? 'Codex CLI not found.'
-            : 'Codex CLI found but could not run — Node.js may not be in your PATH.'
+          ? spawnConfig.directExecutable
+            ? 'Codex could not start: a required executable was not found.'
+            : isBareCommand
+              ? 'Codex CLI not found.'
+              : 'Codex CLI found but could not run \u2014 Node.js may not be in your PATH.'
           : error.message
         rejectPromise(new Error(message))
       })
@@ -283,57 +278,4 @@ async function runCodexLoginProcess(
     child.on('error', onError)
     child.on('close', onClose)
   })
-}
-
-function createHostLoginSpawn(managedHomePath: string): {
-  command: string
-  args: string[]
-  env: NodeJS.ProcessEnv
-  codexCommand: string
-  interactiveLogin: WindowsHostInteractiveLoginSpawn | null
-} {
-  const codexCommand = resolveCodexCommand()
-  // Why: Windows host login needs a real console; otherwise inherit/hide
-  // leaves the child unable to read a paste-code / device-auth prompt.
-  const interactiveLogin =
-    process.platform === 'win32'
-      ? buildWindowsHostInteractiveLoginSpawn(codexCommand, ['login'])
-      : null
-  const { spawnCmd, spawnArgs } = interactiveLogin
-    ? { spawnCmd: interactiveLogin.command, spawnArgs: interactiveLogin.args }
-    : getSpawnArgsForWindows(codexCommand, ['login'])
-  return {
-    command: spawnCmd,
-    args: spawnArgs,
-    env: withCliRuntimeOnPath(codexCommand, { ...process.env, CODEX_HOME: managedHomePath }),
-    codexCommand,
-    interactiveLogin
-  }
-}
-
-async function assertWslCodexCliAvailable(wslInfo: {
-  distro: string
-  linuxPath: string
-}): Promise<void> {
-  // This is a PATH lookup, so it needs the login PATH: an nvm-installed codex
-  // lives nowhere else. Marking it 'none' reports a working install as absent.
-  const result = await runWslProcess({
-    distro: wslInfo.distro,
-    loginPath: 'preferred',
-    script: buildWslCodexAvailabilityScript(),
-    // POSIX command lookup; declared because the payload is opaque here.
-    shell: 'sh',
-    timeoutMs: WSL_CODEX_AVAILABILITY_TIMEOUT_MS
-  })
-  if (result.code !== 0 && !result.environmentResolved) {
-    // A miss without the login PATH is "we could not check", not "not
-    // installed" -- claiming absence here is #9725.
-    throw new Error('Could not check the Codex CLI in WSL. Try again.')
-  }
-  if (result.code !== 0 || result.timedOut) {
-    throw new Error(
-      `Codex CLI is not available in WSL ${wslInfo.distro}. Install Codex in that distro or switch Account location to Windows.`,
-      { cause: new Error(result.stderr.trim() || `codex lookup exited with ${result.code}`) }
-    )
-  }
 }

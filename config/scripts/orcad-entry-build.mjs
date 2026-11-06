@@ -95,6 +95,8 @@ export function buildOrcadLauncher(outfile) {
     .digest('hex')
   return build({
     ...ORCAD_COMMONJS_MODULE_OPTIONS,
+    // Keep this bootstrap small by letting esbuild tree-shake process-host's ESM source export.
+    conditions: ['orca-source'],
     entryPoints: [join(root, ORCAD_LAUNCHER_ENTRY_POINT)],
     bundle: true,
     platform: 'node',

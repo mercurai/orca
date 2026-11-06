@@ -13,6 +13,10 @@
 *.ts text eol=lf
 *.tsx text eol=lf
 *.html text eol=lf
+# Codex admission compares the captured npm launcher bytes with an approved digest.
+/src/packages/process-host/src/__fixtures__/codex-native-launcher-*.txt -text
+# Keep the captured npm shell template's trailing space byte-for-byte.
+/src/packages/process-host/src/__fixtures__/codex-native-launcher-shell-0.166.0.txt whitespace=-blank-at-eol
 # Bundled plugin trees are byte-hashed; CRLF checkout would break the pinned hash.
 /resources/plugins/** text eol=lf
 # Relay assets are copied verbatim into the bundle and hashed byte-for-byte into

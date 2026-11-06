@@ -8,6 +8,97 @@ Import `runProcess`, `runProcessSync`, and `spawnProcess` from `@orca/process-ho
 
 The application supplies policy through `process-tree-kill-gate` and diagnostics through `spawn-observer`. Register these before starting managed children. Each process must load one package instance so registration and execution share state. The production exports use one CommonJS output for both import and require callers. The `orca-source` condition supports tests, dependency analysis, and Node tooling that runs TypeScript through `tsx`. Source tooling runs in a separate process and must use that condition for every package import; mixing source and compiled output would split the registration state.
 
+## Windows Codex launches
+
+The spawn boundary can replace a recognized npm `codex.cmd` invocation with its installed `codex.exe`.
+It admits the reviewed global npm layout for Codex 0.166.0, verifies the launcher bytes and package metadata,
+and selects architecture from the Node executable that the shim would use. It revalidates each launch.
+Other installations retain the existing invocation.
+
+Callers that add a console wrapper can use `@orca/process-host/windows-codex-native-resolution` first:
+
+- `resolveWindowsCodexNativeLaunch({ launcher, node?, env, platform?, customNodeEnv? })` returns either
+  `outcome: 'native'` with an executable and environment delta, or a fixed fallback reason.
+- `applyWindowsCodexNativeEnvironment(env, delta)` returns a child-only environment with the same managed-package
+  metadata as the reviewed launcher. Pass the final child environment, including any paired runtime PATH.
+- Shell callers supply the actual selected launcher and Node paths. Resolution reads files without executing
+  the launcher. Custom Node settings and unverified package-manager ownership retain the original route.
+
+`ORCA_DISABLE_CODEX_NATIVE_LAUNCH=1` disables native Codex resolution. The existing
+`ORCA_DISABLE_CMD_SHIM_RESOLUTION` opt-out also disables it. A native child that fails to start is reported
+once; the process layer does not retry through the JavaScript launcher.
+
+`@orca/process-host/windows-pe-machine` exposes the dependency-free CJS reader used for architecture checks.
+Both runtime conditions load its static source asset, so config tooling can use it before `dist` exists.
+The package build emits its `.d.cts` declaration, and packaging includes the source asset explicitly.
+
+The real-runtime CI gates target Windows x64 with unauthenticated `codex app-server` sessions and hidden
+packaged terminals. ARM64 selection has fixture coverage; ARM64 execution, interactive Codex TUI behavior,
+authenticated login, and live SSH/WSL sessions need separate runtime qualification. The terminal exclusions
+and execution-host boundaries have regression tests.
+
+Windows x64 measurements at commit `2e640c488c` on 2026-11-06 used Codex 0.166.0 and three paired
+native/opt-out runs per shell at one and three unauthenticated app-server sessions. Paired medians were:
+
+| Shell | Private commit saved, 1 session | Private commit saved, 3 sessions | Startup delta, 1 / 3 sessions |
+| --- | ---: | ---: | ---: |
+| Git Bash | 21.8 MiB | 61.6 MiB | -89 / +78 ms |
+| PowerShell 7 | 19.7 MiB | 58.7 MiB | +327 / +145 ms |
+| Windows PowerShell 5.1 | 19.8 MiB | 63.3 MiB | +249 / +124 ms |
+
+Native launches retained zero npm Node parents; opt-out launches retained one per session. Positive
+startup deltas mean slower launch, including the temporary resolver. The extra resolver work is part of
+the launch path; these aggregate timings do not attribute each millisecond to a specific operation.
+All app-server runs passed normal EOF and verified descendant cleanup. PowerShell 7 at three sessions
+had a +75 ms median cleanup delta, with a paired range of -2 to +171 ms.
+
+These are whole-tree measurements at the stated scale. Working-set totals include shared resident pages;
+private commit is a separate metric. Four samples at one-second intervals cover early post-initialize
+activity and do not establish steady-idle CPU savings. The isolated PS5 harness searches its bundled
+modules to avoid unrelated module discovery in fresh test homes. Packaged terminal qualification is
+separate. The [sanitized report](https://github.com/mercurai/orca/actions/runs/42199239697/artifacts/13494741577)
+contains ranges and paired deltas; [PR #96](https://github.com/mercurai/orca/pull/96) tracks current qualification.
+
+A repeat at `ab5e767bc3` found 19.1–20.7 MiB lower private commit at one session and 54.5–66.8 MiB
+at three sessions. PowerShell startup medians increased by 133–218 ms across the tested loads.
+PowerShell 7 at three sessions added 232 ms median cleanup time (paired range -0.2 to +303 ms),
+while all normal EOF and verified cleanup checks remained within their eight-second limit.
+The [repeat report](https://github.com/mercurai/orca/actions/runs/42203946649/artifacts/13497200082)
+again recorded zero persistent npm Node parents in every native sample.
+
+A third [report at `40d3a37436`](https://github.com/mercurai/orca/actions/runs/42215997905/artifacts/13502077831)
+confirmed 19.5–20.8 MiB lower private commit at one session and 58.3–61.7 MiB at three. PowerShell
+startup medians ranged from -9 to +200 ms; startup timing varies across runs. All normal cleanup
+completed within 896 ms. Each reported window contains four complete samples after one or two
+bounded restarts. The current sampler restarts after incomplete metrics only when every failed
+identity was noncritical and has disappeared while critical identities stay fixed. Other peripheral
+changes follow the ordinary full-window restart rule. Reused failed PIDs, duplicate PIDs and renamed
+retained processes fail verification. Every restart discards the prior window and CPU deltas.
+The [fourth report at `85cfdc2a9f`](https://github.com/mercurai/orca/actions/runs/42223033417/artifacts/13504219705)
+again recorded zero persistent npm Node parents in native mode. Private commit savings ranged from
+19.5–37.9 MiB at one session and 29.3–60.8 MiB at three; whole-tree savings vary across runs. Every
+condition retained four complete samples after one to three bounded restarts, and normal cleanup
+completed within 885 ms. Persistent memory savings repeated across all four reports; startup speed
+and steady-idle CPU improvements are not established.
+
+New qualification runs require unchanged whole-tree snapshots spanning three seconds before sampling,
+with observations no more than one second apart. The existing 15-second settle bound, 60-second window
+deadline and three-restart limit remain.
+The four reports above used the earlier three-snapshot settling rule. Codex initialization does not
+await its background plugin-repository refresh, so the longer interval filters short topology gaps;
+it does not prove startup-task completion or steady idle. All descendants remain included, fresh
+homes and default features remain enabled, and startup-to-ready timing still ends at initialization.
+The [fifth report at `2fcca97ec1`](https://github.com/mercurai/orca/actions/runs/42243972309/artifacts/13518832011)
+passed with this settling rule: private commit was 19.1–21.4 MiB lower for one session and
+57.7–62.4 MiB lower for three. Native mode retained zero npm Node parents. All conditions kept four
+complete samples with at most two restarts; normal stage cleanup completed within 4.86 seconds.
+
+The terminal optimization requires a shell generated by the updated app or daemon. A preserved older
+daemon keeps generating its existing functions until normal idle replacement. Do not change protocol
+numbers or route healthy daemon terminals through a less persistent provider to force this optimization.
+
+## Package builds
+
 From the repository root:
 
 ```sh
@@ -22,7 +113,7 @@ Which copy a caller loads:
 - `pnpm dev` refreshes `dist` once at launch. Restart it after package edits, or run `pnpm dev --watch` to rebuild the package and restart the app after package or main-process source changes.
 - Run `pnpm build:packages` after package edits before invoking config scripts or Vitest directly; their bootstrap code can read `dist`.
 - Vitest and `tsx --conditions=orca-source` load `src` through the `orca-source` condition.
-- Packaging ships `dist`; supported build scripts and CI rebuild it first. The packaging guard checks missing exports/modules and removed-source leftovers, but does not certify source freshness. Build the package before invoking electron-builder directly.
+- Packaging ships `dist` and the static PE reader; supported build scripts and CI rebuild the package first. The packaging guard checks missing exports/modules and removed-source leftovers, but does not certify source freshness. Build the package before invoking electron-builder directly.
 
 The build needs no prior `dist`: `tsx --conditions=orca-source` starts its compiler through source. It serializes builds with a lock, compiles into staging, adds new files before replacing existing files, then removes obsolete output. Failed compilation preserves prior output; unchanged files are not rewritten. Publication is atomic per file, so a concurrent reader can still observe mixed build versions. Detected lock loss stops subsequent writes and preserves the new owner's lock; already published files remain. `tsx` and `proper-lockfile` are build-only dependencies.
 
