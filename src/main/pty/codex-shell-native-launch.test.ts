@@ -36,6 +36,7 @@ type Fixture = {
   resolverPowerShell: string
   resolverScript: string
   nativeTarget: string
+  environmentReporter: string
 }
 
 function onPath(name: string): string | null {
@@ -171,6 +172,17 @@ function makeFixture(): Fixture {
     ].join('\n'),
     'utf8'
   )
+  const environmentReporter = join(root, 'environment reporter.cjs')
+  writeFileSync(
+    environmentReporter,
+    [
+      'const variant = process.argv[2]',
+      'const names = ["ORCA_TEST_SHADOW_ALPHA", "ORCA_TEST_SHADOW_BETA", "ORCA_TEST_SHADOW_GAMMA"]',
+      'const values = Object.fromEntries(names.map((name) => [name, process.env[name] ?? null]))',
+      "process.stdout.write(JSON.stringify({ variant, values }) + '\\n')"
+    ].join('\n'),
+    'utf8'
+  )
 
   const resolverBash = join(root, 'orca native resolver')
   writeExecutable(
@@ -194,7 +206,8 @@ function makeFixture(): Fixture {
     resolverBash,
     resolverPowerShell,
     resolverScript,
-    nativeTarget
+    nativeTarget,
+    environmentReporter
   }
 }
 
@@ -208,6 +221,7 @@ function commonEnv(shell: Shell, fixture: Fixture): NodeJS.ProcessEnv {
     ORCA_TEST_NODE: process.execPath,
     ORCA_TEST_NODE_BASH: toBashPath(process.execPath),
     ORCA_TEST_RESOLVER_SCRIPT: fixture.resolverScript,
+    ORCA_TEST_ENV_REPORTER: fixture.environmentReporter,
     ORCA_TEST_NATIVE_EXE: process.execPath,
     ORCA_TEST_RESOLVER_MODE: 'native',
     ORCA_TEST_PACKAGE_ROOT: fixture.packageRoot,
@@ -402,6 +416,74 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       expect(pathKey(argumentAfter(call.args, '--node') ?? '')).toBe(
         pathKey(join(fixture.nodeBin, 'node.exe'))
       )
+    })
+
+    it.skipIf(
+      shell.kind !== 'bash' || (process.env.CI !== 'true' && process.env.GITHUB_ACTIONS !== 'true')
+    )('diagnoses scoped export removal with synthetic environment keys', () => {
+      const fixture = makeFixture()
+      const body = [
+        '__orca_report_synthetic_env() { "$ORCA_TEST_NODE_BASH" "$ORCA_TEST_ENV_REPORTER" "$1"; }',
+        '__orca_local_unset() {',
+        '  local ORCA_TEST_SHADOW_ALPHA= ORCA_TEST_SHADOW_BETA= ORCA_TEST_SHADOW_GAMMA=',
+        '  unset ORCA_TEST_SHADOW_ALPHA ORCA_TEST_SHADOW_BETA ORCA_TEST_SHADOW_GAMMA',
+        '  __orca_report_synthetic_env local-unset',
+        '}',
+        '__orca_local_export_n() {',
+        '  local ORCA_TEST_SHADOW_ALPHA= ORCA_TEST_SHADOW_BETA= ORCA_TEST_SHADOW_GAMMA=',
+        '  export -n ORCA_TEST_SHADOW_ALPHA ORCA_TEST_SHADOW_BETA ORCA_TEST_SHADOW_GAMMA',
+        '  __orca_report_synthetic_env local-export-n',
+        '}',
+        '__orca_local_array() {',
+        '  local -ax ORCA_TEST_SHADOW_ALPHA=() ORCA_TEST_SHADOW_BETA=() oRcA_TeSt_ShAdOw_GaMmA=()',
+        '  __orca_report_synthetic_env local-array',
+        '}',
+        '__orca_report_synthetic_env baseline',
+        '__orca_local_unset',
+        '__orca_report_synthetic_env after-local-unset',
+        '__orca_local_export_n',
+        '__orca_report_synthetic_env after-local-export-n',
+        '__orca_local_array',
+        '__orca_report_synthetic_env after-local-array',
+        '(',
+        '  unset ORCA_TEST_SHADOW_ALPHA ORCA_TEST_SHADOW_BETA oRcA_TeSt_ShAdOw_GaMmA',
+        '  __orca_report_synthetic_env global-unset-control',
+        ')',
+        '__orca_report_synthetic_env after-global-unset'
+      ].join('\n')
+      const result = runShell(shell, fixture, body, {
+        ORCA_TEST_SHADOW_ALPHA: 'parent-alpha',
+        ORCA_TEST_SHADOW_BETA: 'parent-beta',
+        oRcA_TeSt_ShAdOw_GaMmA: 'parent-gamma'
+      })
+      const inheritedValues = {
+        ORCA_TEST_SHADOW_ALPHA: 'parent-alpha',
+        ORCA_TEST_SHADOW_BETA: 'parent-beta',
+        ORCA_TEST_SHADOW_GAMMA: 'parent-gamma'
+      }
+      const absentValues = {
+        ORCA_TEST_SHADOW_ALPHA: null,
+        ORCA_TEST_SHADOW_BETA: null,
+        ORCA_TEST_SHADOW_GAMMA: null
+      }
+      const observation = (variant: string, values: Record<string, string | null>): string =>
+        JSON.stringify({ variant, values })
+
+      expect(result.status).toBe(0)
+      expect(result.stderr).toBe('')
+      const observations = lines(result.stdout)
+      console.info('Bash synthetic export observations:', observations.join('\n'))
+      expect(observations).toHaveLength(9)
+      expect(observations.filter((row) => !row.includes('"variant":"local-array"'))).toEqual([
+        observation('baseline', inheritedValues),
+        observation('local-unset', inheritedValues),
+        observation('after-local-unset', inheritedValues),
+        observation('local-export-n', inheritedValues),
+        observation('after-local-export-n', inheritedValues),
+        observation('after-local-array', inheritedValues),
+        observation('global-unset-control', absentValues),
+        observation('after-global-unset', inheritedValues)
+      ])
     })
 
     it.each([
