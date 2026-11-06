@@ -12,6 +12,11 @@ export type ProcessMetrics = ProcessIdentity & {
 export const MAX_JOB_PROCESS_IDS = 4096
 const MAX_PROCESS_ID = 0xffff_ffff
 
+export type MetricsRequest =
+  | { processes: ProcessIdentity[] }
+  | { op: 'createJob'; root: ProcessIdentity }
+  | { op: 'listJobProcessIds' | 'terminateJob' | 'releaseJob'; jobId: number }
+
 export type MetricsResponse =
   | { ok: true; processes: ProcessMetrics[] }
   | { ok: true; op: 'createJob'; jobId: number }

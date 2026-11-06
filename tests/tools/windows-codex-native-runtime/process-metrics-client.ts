@@ -9,6 +9,7 @@ import {
   MAX_JOB_PROCESS_IDS,
   metricResponse,
   sampleFailure,
+  type MetricsRequest,
   type MetricsResponse,
   type ProcessMetrics
 } from './process-metrics-protocol'
@@ -110,7 +111,7 @@ export class ProcessMetricsClient {
       if (!response.ok) {
         throw jobFailure(response)
       }
-      if (response.op !== 'createJob') {
+      if (!('op' in response) || response.op !== 'createJob') {
         throw new Error('Python metrics sampler returned an invalid job response')
       }
       return response.jobId
@@ -125,7 +126,7 @@ export class ProcessMetricsClient {
       if (!response.ok) {
         throw jobFailure(response)
       }
-      if (response.op !== 'listJobProcessIds') {
+      if (!('op' in response) || response.op !== 'listJobProcessIds') {
         throw new Error('Python metrics sampler returned an invalid job process list')
       }
       return response.processIds
@@ -158,12 +159,12 @@ export class ProcessMetricsClient {
     if (!response.ok) {
       throw jobFailure(response)
     }
-    if (response.op !== operation) {
+    if (!('op' in response) || response.op !== operation) {
       throw new Error('Python metrics sampler returned an invalid job control response')
     }
   }
 
-  private request(request: object): Promise<MetricsResponse> {
+  private request(request: MetricsRequest): Promise<MetricsResponse> {
     if (this.failure) {
       return Promise.reject(this.failure)
     }
