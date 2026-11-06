@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { npmProgNodeShim } from './windows-cmd-shim-bodies'
 
 export type CodexWindowsMachine = 'x64' | 'arm64'
+export type CodexLauncherKind = 'cmd' | 'shell' | 'powershell'
 
 export interface InstalledCodexFamily {
   launcher: string
@@ -21,6 +22,9 @@ export interface InstalledCodexFamily {
 export interface InstalledCodexFamilyOptions {
   tempRoot: string
   nodeMachine?: CodexWindowsMachine
+  launcherKind?: CodexLauncherKind
+  shadowShellNode?: boolean
+  includeSiblingNodeExe?: boolean
 }
 
 const LAUNCHER_SOURCE = join(__dirname, 'codex-native-launcher-0.166.0.txt')
@@ -37,12 +41,17 @@ function writePeHeader(path: string, machine: CodexWindowsMachine): void {
 /** Builds files only; the fixture never executes the copied JavaScript or PE stubs. */
 export function createInstalledCodexFamily({
   tempRoot,
-  nodeMachine = 'x64'
+  nodeMachine = 'x64',
+  launcherKind = 'cmd',
+  shadowShellNode = false,
+  includeSiblingNodeExe = true
 }: InstalledCodexFamilyOptions): InstalledCodexFamily {
   const platformSuffix = `win32-${nodeMachine}`
   const platformVersion = `0.166.0-${platformSuffix}`
   const platformDependency = `@openai/codex-${platformSuffix}`
-  const launcher = join(tempRoot, 'codex.cmd')
+  const launcherName =
+    launcherKind === 'powershell' ? 'codex.ps1' : launcherKind === 'shell' ? 'codex' : 'codex.cmd'
+  const launcher = join(tempRoot, launcherName)
   const node = join(tempRoot, 'node.exe')
   const packageRoot = join(tempRoot, 'node_modules', '@openai', 'codex')
   const platformPackageRoot = join(packageRoot, 'node_modules', platformDependency)
@@ -52,9 +61,22 @@ export function createInstalledCodexFamily({
 
   mkdirSync(join(packageRoot, 'bin'), { recursive: true })
   mkdirSync(join(platformPackageRoot, 'vendor', triple, 'bin'), { recursive: true })
-  writeFileSync(launcher, npmProgNodeShim(String.raw`node_modules\@openai\codex\bin\codex.js`))
+  if (launcherKind === 'cmd') {
+    writeFileSync(launcher, npmProgNodeShim(String.raw`node_modules\@openai\codex\bin\codex.js`))
+  } else {
+    const shimName =
+      launcherKind === 'powershell'
+        ? 'codex-native-launcher-powershell-0.166.0.txt'
+        : 'codex-native-launcher-shell-0.166.0.txt'
+    copyFileSync(join(__dirname, shimName), launcher)
+  }
   copyFileSync(LAUNCHER_SOURCE, launcherScript)
-  writePeHeader(node, nodeMachine)
+  if (includeSiblingNodeExe) {
+    writePeHeader(node, nodeMachine)
+  }
+  if (shadowShellNode) {
+    writePeHeader(join(tempRoot, 'node'), nodeMachine === 'x64' ? 'arm64' : 'x64')
+  }
   writePeHeader(nativeExecutable, nodeMachine)
   writeFileSync(
     join(packageRoot, 'package.json'),

@@ -8,6 +8,32 @@ Import `runProcess`, `runProcessSync`, and `spawnProcess` from `@orca/process-ho
 
 The application supplies policy through `process-tree-kill-gate` and diagnostics through `spawn-observer`. Register these before starting managed children. Each process must load one package instance so registration and execution share state. The production exports use one CommonJS output for both import and require callers. The `orca-source` condition supports tests, dependency analysis, and Node tooling that runs TypeScript through `tsx`. Source tooling runs in a separate process and must use that condition for every package import; mixing source and compiled output would split the registration state.
 
+## Windows Codex launches
+
+The spawn boundary can replace a recognized npm `codex.cmd` invocation with its installed `codex.exe`.
+It admits the reviewed global npm layout for Codex 0.166.0, verifies the launcher bytes and package metadata,
+and selects architecture from the Node executable that the shim would use. It revalidates each launch.
+Other installations retain the existing invocation.
+
+Callers that add a console wrapper can use `@orca/process-host/windows-codex-native-resolution` first:
+
+- `resolveWindowsCodexNativeLaunch({ launcher, node?, env, platform?, customNodeEnv? })` returns either
+  `outcome: 'native'` with an executable and environment delta, or a fixed fallback reason.
+- `applyWindowsCodexNativeEnvironment(env, delta)` returns a child-only environment with the same managed-package
+  metadata as the reviewed launcher. Pass the final child environment, including any paired runtime PATH.
+- Shell callers supply the actual selected launcher and Node paths. Resolution reads files without executing
+  the launcher. Custom Node settings and unverified package-manager ownership retain the original route.
+
+`ORCA_DISABLE_CODEX_NATIVE_LAUNCH=1` disables native Codex resolution. The existing
+`ORCA_DISABLE_CMD_SHIM_RESOLUTION` opt-out also disables it. A native child that fails to start is reported
+once; the process layer does not retry through the JavaScript launcher.
+
+`@orca/process-host/windows-pe-machine` exposes the dependency-free CJS reader used for architecture checks.
+Both runtime conditions load its static source asset, so config tooling can use it before `dist` exists.
+The package build emits its `.d.cts` declaration, and packaging includes the source asset explicitly.
+
+## Package builds
+
 From the repository root:
 
 ```sh
@@ -22,7 +48,7 @@ Which copy a caller loads:
 - `pnpm dev` refreshes `dist` once at launch. Restart it after package edits, or run `pnpm dev --watch` to rebuild the package and restart the app after package or main-process source changes.
 - Run `pnpm build:packages` after package edits before invoking config scripts or Vitest directly; their bootstrap code can read `dist`.
 - Vitest and `tsx --conditions=orca-source` load `src` through the `orca-source` condition.
-- Packaging ships `dist`; supported build scripts and CI rebuild it first. The packaging guard checks missing exports/modules and removed-source leftovers, but does not certify source freshness. Build the package before invoking electron-builder directly.
+- Packaging ships `dist` and the static PE reader; supported build scripts and CI rebuild the package first. The packaging guard checks missing exports/modules and removed-source leftovers, but does not certify source freshness. Build the package before invoking electron-builder directly.
 
 The build needs no prior `dist`: `tsx --conditions=orca-source` starts its compiler through source. It serializes builds with a lock, compiles into staging, adds new files before replacing existing files, then removes obsolete output. Failed compilation preserves prior output; unchanged files are not rewritten. Publication is atomic per file, so a concurrent reader can still observe mixed build versions. Detected lock loss stops subsequent writes and preserves the new owner's lock; already published files remain. `tsx` and `proper-lockfile` are build-only dependencies.
 

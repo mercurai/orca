@@ -12,7 +12,7 @@ Codex is OpenAI's agentic CLI. Orca's Codex integration is one of the deepest in
 
 ## Launching
 
-Pick **Codex** from the agent combobox. Orca launches `codex` with the worktree as `cwd` and routes auth through the currently selected account.
+Pick **Codex** from the agent combobox. Orca launches `codex` with the workspace as `cwd` and routes auth through the currently selected account.
 
 ## Account hot-swap
 
@@ -37,6 +37,25 @@ When Codex exits, the restart chip relaunches the agent with the same account. I
 ## Usage & rate limits
 
 Orca reads local Codex usage state for the active account and surfaces it in the status bar. See [Usage & rate-limit tracking](/docs/agents/usage-tracking).
+
+## Native Windows launches
+
+For a verified global npm installation of Codex 0.166.0, Orca can start the installed Rust `codex.exe`
+directly. This removes npm's persistent `node codex.js` parent process. Account selection, input,
+working directory, and the final child PATH follow the same launch settings.
+
+This applies to Orca's Windows application launches and the `codex` functions in packaged local Git Bash
+and PowerShell panes. Those functions use a short-lived local resolver, which exits before Codex starts.
+Existing login console handling still applies.
+
+Other Codex versions, modified launchers, unsupported package-manager layouts, and custom Node startup
+settings use the existing launcher. Terminal calls through `cmd.exe`, explicit script paths,
+`command codex`, or `node codex.js` also keep their existing behavior. WSL and SSH terminal functions
+do not use the local Windows resolver.
+
+Set `ORCA_DISABLE_CODEX_NATIVE_LAUNCH=1` before launching Orca to disable this optimization.
+The existing `ORCA_DISABLE_CMD_SHIM_RESOLUTION` opt-out also disables it. These settings affect new
+launches; running sessions keep their existing processes.
 
 ## Codex on Windows (WSL)
 

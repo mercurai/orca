@@ -3,6 +3,7 @@
     "target": "ES2022",
     "module": "Node18",
     "moduleResolution": "Node16",
+    "allowJs": true,
     "strict": true,
     "types": ["node"],
     "rootDir": "src",
@@ -14,6 +15,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/windows-pe-machine.cjs"],
   "exclude": ["src/**/*.test.ts", "src/**/__fixtures__/**"]
 }

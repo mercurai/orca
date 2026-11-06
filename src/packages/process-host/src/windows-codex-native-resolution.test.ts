@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import {
 } from './windows-codex-native-resolution'
 import {
   createInstalledCodexFamily,
+  type CodexLauncherKind,
   type CodexWindowsMachine,
   type InstalledCodexFamily
 } from './__fixtures__/codex-native-launch-fixture'
@@ -20,10 +21,21 @@ afterEach(() => {
   }
 })
 
-function createFamily(nodeMachine: CodexWindowsMachine = 'x64'): InstalledCodexFamily {
+function createFamily(
+  nodeMachine: CodexWindowsMachine = 'x64',
+  launcherKind: CodexLauncherKind = 'cmd',
+  shadowShellNode = false,
+  includeSiblingNodeExe = true
+): InstalledCodexFamily {
   const tempRoot = mkdtempSync(join(tmpdir(), 'orca-codex-native-'))
   roots.push(tempRoot)
-  return createInstalledCodexFamily({ tempRoot, nodeMachine })
+  return createInstalledCodexFamily({
+    tempRoot,
+    nodeMachine,
+    launcherKind,
+    shadowShellNode,
+    includeSiblingNodeExe
+  })
 }
 
 function resolveFamily(
@@ -98,6 +110,105 @@ describe.skipIf(process.platform !== 'win32')('Windows Codex native launch resol
     })
   })
 
+  it('uses the launcher default npm manager when no user-agent is present', () => {
+    const family = createFamily()
+    const env = { ...family.env }
+    delete env.npm_config_user_agent
+
+    expect(resolveFamily(family, env)).toMatchObject({
+      outcome: 'native',
+      environmentDelta: { manager: 'npm' }
+    })
+  })
+
+  it('does not treat a pnpm user-agent as install ownership by itself', () => {
+    const family = createFamily()
+
+    expect(
+      resolveFamily(family, {
+        ...family.env,
+        npm_config_user_agent: 'pnpm/10.0.0 node/v26.13.0 win32 x64'
+      })
+    ).toMatchObject({ outcome: 'native', environmentDelta: { manager: 'npm' } })
+  })
+
+  it.each(['shell', 'powershell'] as const)(
+    'recognizes the selected %s source without consulting a neighboring .cmd',
+    (launcherKind) => {
+      const family = createFamily('x64', launcherKind)
+
+      expect(existsSync(join(dirname(family.launcher), 'codex.cmd'))).toBe(false)
+      expect(resolveFamily(family)).toMatchObject({
+        outcome: 'native',
+        nativeExecutable: family.nativeExecutable
+      })
+    }
+  )
+
+  it.each(['shell', 'powershell'] as const)(
+    'derives the sibling Node for %s without an explicit Node argument',
+    (launcherKind) => {
+      const family = createFamily('x64', launcherKind)
+
+      expect(
+        resolveWindowsCodexNativeLaunch({
+          launcher: family.launcher,
+          env: family.env,
+          platform: 'win32'
+        })
+      ).toMatchObject({ outcome: 'native', nativeExecutable: family.nativeExecutable })
+    }
+  )
+
+  it('requires the shell-selected Node executable for extensionless launchers', () => {
+    const family = createFamily('x64', 'shell', false, false)
+
+    expect(
+      resolveWindowsCodexNativeLaunch({ launcher: family.launcher, env: family.env, platform: 'win32' })
+    ).toMatchObject({ outcome: 'fallback' })
+  })
+
+  it('accepts the explicitly selected Node when the shell launcher has no sibling', () => {
+    const family = createFamily('x64', 'shell', false, false)
+    const pathNode = createFamily('x64').node
+
+    expect(
+      resolveWindowsCodexNativeLaunch({
+        launcher: family.launcher,
+        node: pathNode,
+        env: { ...family.env, PATH: dirname(pathNode) },
+        platform: 'win32'
+      })
+    ).toMatchObject({ outcome: 'native', nativeExecutable: family.nativeExecutable })
+  })
+
+  it('keeps a PowerShell launcher on its sibling Node executable', () => {
+    const family = createFamily('x64', 'powershell')
+    const otherNode = createFamily('arm64').node
+
+    expect(
+      resolveWindowsCodexNativeLaunch({
+        launcher: family.launcher,
+        node: otherNode,
+        env: family.env,
+        platform: 'win32'
+      })
+    ).toMatchObject({ outcome: 'fallback' })
+  })
+
+  it('rejects a shell-selected sibling node that shadows node.exe', () => {
+    const family = createFamily('x64', 'shell', true)
+
+    expect(
+      resolveWindowsCodexNativeLaunch({
+        launcher: family.launcher,
+        node: family.node,
+        env: family.env,
+        platform: 'win32'
+      })
+    ).toMatchObject({ outcome: 'fallback', reason: 'unverified_install' })
+  })
+
   it.each([
     ['NODE_OPTIONS', { NODE_OPTIONS: '--trace-warnings' }],
     ['mixed-case NODE_OPTIONS', { node_options: '--trace-warnings' }],
@@ -169,6 +280,28 @@ describe.skipIf(process.platform !== 'win32')('Windows Codex native launch resol
   it('reports an unavailable native package without starting the launcher', () => {
     const family = createFamily()
     rmSync(family.nativeExecutable)
+
+    expect(resolveFamily(family)).toMatchObject({
+      outcome: 'fallback',
+      reason: 'native_unavailable'
+    })
+  })
+
+  it('rejects a native PE image that does not match the selected Node machine', () => {
+    const family = createFamily()
+    const image = readFileSync(family.nativeExecutable)
+    image.writeUInt16LE(0xaa64, 0x84)
+    writeFileSync(family.nativeExecutable, image)
+
+    expect(resolveFamily(family)).toMatchObject({
+      outcome: 'fallback',
+      reason: 'native_unavailable'
+    })
+  })
+
+  it('rejects a truncated native PE image', () => {
+    const family = createFamily()
+    writeFileSync(family.nativeExecutable, Buffer.from('MZ'))
 
     expect(resolveFamily(family)).toMatchObject({
       outcome: 'fallback',

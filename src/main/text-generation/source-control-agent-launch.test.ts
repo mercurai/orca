@@ -146,7 +146,7 @@ describe('spawnSourceControlAgent', () => {
     it('keeps the existing Windows launcher wrapper when native launching is disabled', () => {
       const install = createInstalledCodex()
       const managedHome = join(folder, 'fallback-managed-account-home')
-      const args = ['exec', '--', 'a "quoted" argument']
+      const args = ['exec', '--', 'fallback-argument']
       const env = {
         ...install.env,
         CODEX_HOME: managedHome,

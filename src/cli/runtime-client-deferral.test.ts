@@ -239,7 +239,7 @@ describe('RuntimeClient module-graph deferral', () => {
         'agent',
         'resolve-codex-native',
         '--launcher',
-        join(testUserDataPathRef.current, 'missing', 'codex.js'),
+        join(testUserDataPathRef.current, 'missing', 'codex.cmd'),
         '--format',
         'json'
       ],

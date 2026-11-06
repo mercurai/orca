@@ -347,8 +347,9 @@ describe('Codex login ENOENT diagnostics', () => {
       'a full-path wrapper',
       'C:/Tools/codex.cmd',
       'Node.js may not be in your PATH.'
-    ]
-  ])('preserves the existing error for %s', async (_, codexCommand, expectedMessage) => {
+    ],
+    ['an explicit executable', 'C:/Tools/codex.exe', 'required executable was not found']
+  ])('uses the right error guidance for %s', async (_, codexCommand, expectedMessage) => {
     const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!
     Object.defineProperty(process, 'platform', { value: 'win32', configurable: true })
     const child = createLoginChild()

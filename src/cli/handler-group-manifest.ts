@@ -206,6 +206,11 @@ export const HANDLER_GROUPS: readonly HandlerGroup[] = [
     load: async () => (await import('./handlers/agent-hooks.js')).AGENT_HOOK_HANDLERS
   },
   {
+    name: 'agent-codex-native',
+    keys: ['agent resolve-codex-native'],
+    load: async () => (await import('./handlers/agent-codex-native.js')).AGENT_CODEX_NATIVE_HANDLERS
+  },
+  {
     name: 'agent-launch',
     keys: ['agent launch'],
     load: async () => (await import('./handlers/agent-launch.js')).AGENT_LAUNCH_HANDLERS

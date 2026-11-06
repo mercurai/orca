@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { createInstalledCodexFamily } from '../packages/process-host/src/__fixtures__/codex-native-launch-fixture'
 import {
   findCommandSpec,
   GLOBAL_FLAGS,
@@ -22,7 +23,7 @@ let fixtureRoot: string
 let previousExitCode: number | undefined
 
 function launcherPath(): string {
-  return join(fixtureRoot, 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
+  return join(fixtureRoot, 'codex.cmd')
 }
 
 function offlineContext(flags: Map<string, string | boolean>): HandlerContext {
@@ -50,6 +51,7 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(fixtureRoot, { recursive: true, force: true })
   process.exitCode = previousExitCode
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
 
@@ -144,6 +146,84 @@ describe('orca agent resolve-codex-native command contract', () => {
     expect(Buffer.byteLength(output, 'utf8')).toBeLessThanOrEqual(16 * 1024)
   })
 
+  it.skipIf(process.platform !== 'win32')(
+    'serializes a native resolution from the shared installed-Codex fixture',
+    async () => {
+      const family = createInstalledCodexFamily({ tempRoot: fixtureRoot })
+      vi.stubEnv('PATH', family.env.PATH ?? '')
+      vi.stubEnv('npm_config_user_agent', family.env.npm_config_user_agent ?? '')
+      vi.stubEnv('NODE_OPTIONS', '')
+      vi.stubEnv('NODE_PATH', '')
+      vi.stubEnv('ORCA_NODE_OPTIONS', '')
+      vi.stubEnv('npm_execpath', '')
+      vi.stubEnv('npm_node_execpath', '')
+      vi.stubEnv('BUN_INSTALL', '')
+      vi.stubEnv('PNPM_HOME', '')
+      vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '')
+      vi.stubEnv('ORCA_DISABLE_CMD_SHIM_RESOLUTION', '')
+
+      const output = vi
+        .spyOn(process.stdout, 'write')
+        .mockImplementation(() => true)
+      const jsonFlags = new Map<string, string | boolean>([
+        ['launcher', family.launcher],
+        ['node', family.node],
+        ['format', 'json']
+      ])
+      await dispatch(COMMAND_PATH, offlineContext(jsonFlags))
+      expect(stdoutText(output)).toBe(
+        `${JSON.stringify({
+          schemaVersion: 1,
+          outcome: 'native',
+          nativeExecutable: family.nativeExecutable,
+          environmentDelta: { managedPackageRoot: family.packageRoot, manager: 'npm' }
+        })}\n`
+      )
+
+      output.mockClear()
+      await dispatch(
+        COMMAND_PATH,
+        offlineContext(
+          new Map<string, string | boolean>([
+            ['launcher', family.launcher],
+            ['node', family.node],
+            ['format', 'records']
+          ])
+        )
+      )
+      expect(stdoutText(output)).toBe(
+        [
+          'ORCA_CODEX_NATIVE_V1',
+          'native',
+          family.nativeExecutable,
+          family.packageRoot,
+          'npm',
+          'END_ORCA_CODEX_NATIVE_V1',
+          ''
+        ].join('\n')
+      )
+
+      output.mockClear()
+      await dispatch(
+        COMMAND_PATH,
+        offlineContext(
+          new Map<string, string | boolean>([
+            ['launcher', family.launcher],
+            ['node', family.node],
+            ['format', 'json'],
+            ['custom-node-env', true]
+          ])
+        )
+      )
+      const customEnvironmentResult = JSON.parse(stdoutText(output))
+      expect(customEnvironmentResult).toEqual({
+        schemaVersion: 1,
+        outcome: 'fallback',
+        reason: expect.stringMatching(FALLBACK_REASONS)
+      })
+    }
+  )
+
   it.each([
     ['environment', 'build-box'],
     ['pairing-code', 'orca://pair?code=test-only']
@@ -196,6 +276,24 @@ describe('orca agent resolve-codex-native command contract', () => {
           new Map<string, string | boolean>([
             ['launcher', launcherPath()],
             ['format', 'shell']
+          ])
+        )
+      )
+    ).rejects.toMatchObject({ code: 'invalid_argument' })
+    expect(stdout).not.toHaveBeenCalled()
+  })
+
+  it('rejects a value attached to --custom-node-env', async () => {
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await expect(
+      dispatch(
+        COMMAND_PATH,
+        offlineContext(
+          new Map<string, string | boolean>([
+            ['launcher', launcherPath()],
+            ['format', 'json'],
+            ['custom-node-env', 'true']
           ])
         )
       )

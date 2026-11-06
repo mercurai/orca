@@ -4,7 +4,8 @@
   "private": true,
   "description": "Orca host subprocess execution, cancellation, and termination",
   "files": [
-    "dist"
+    "dist",
+    "src/windows-pe-machine.cjs"
   ],
   "type": "commonjs",
   "main": "./dist/run-process.js",
@@ -59,6 +60,16 @@
       "orca-source": "./src/windows-system-binary.ts",
       "types": "./dist/windows-system-binary.d.ts",
       "default": "./dist/windows-system-binary.js"
+    },
+    "./windows-pe-machine": {
+      "orca-source": "./src/windows-pe-machine.cjs",
+      "types": "./dist/windows-pe-machine.d.cts",
+      "default": "./src/windows-pe-machine.cjs"
+    },
+    "./windows-codex-native-resolution": {
+      "orca-source": "./src/windows-codex-native-resolution.ts",
+      "types": "./dist/windows-codex-native-resolution.d.ts",
+      "default": "./dist/windows-codex-native-resolution.js"
     },
     "./windows-cmd-shim-resolution": {
       "orca-source": "./src/windows-cmd-shim-resolution.ts",

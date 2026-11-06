@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runProcessSync } from '@orca/process-host'
+import { findGitBash } from '../agent-hooks/windows-git-bash-path.test-fixture'
 import {
   getPosixCodexShellLaunchPreflight,
   getPowerShellCodexShellLaunchPreflight
@@ -54,34 +55,20 @@ function canRun(command: string | null, args: string[]): boolean {
     }).code === 0
 }
 
-function isGitBash(command: string): boolean {
-  const result = runProcessSync({
-    program: command,
-    args: ['--version'],
-    timeoutMs: 10_000,
-    maxOutputBytes: 64 * 1024
-  })
-  return result.code === 0 && /msys|mingw/i.test(result.stdout)
-}
+let gitBashResolutionError: string | null = null
 
-function findGitBash(): string | null {
-  const programFiles = process.env.ProgramFiles ?? 'C:\\Program Files'
-  const programFilesX86 = process.env['ProgramFiles(x86)']
-  const candidates = [
-    join(programFiles, 'Git', 'bin', 'bash.exe'),
-    join(programFiles, 'Git', 'usr', 'bin', 'bash.exe'),
-    ...(programFilesX86
-      ? [join(programFilesX86, 'Git', 'bin', 'bash.exe')]
-      : [])
-  ]
-  const installed = candidates.find((candidate) => existsSync(candidate) && isGitBash(candidate))
-  if (installed) return installed
-  const pathCandidate = onPath('bash.exe')
-  return pathCandidate && isGitBash(pathCandidate) ? pathCandidate : null
+function resolveGitBash(): string | null {
+  if (!isWindows) return null
+  try {
+    return findGitBash()
+  } catch (error) {
+    gitBashResolutionError = error instanceof Error ? error.message : String(error)
+    return null
+  }
 }
 
 const shells: Shell[] = [
-  { name: 'Git Bash', kind: 'bash', command: findGitBash() },
+  { name: 'Git Bash', kind: 'bash', command: resolveGitBash() },
   { name: 'PowerShell 7', kind: 'powershell', command: onPath('pwsh.exe') },
   { name: 'Windows PowerShell', kind: 'powershell', command: onPath('powershell.exe') }
 ]
@@ -198,6 +185,8 @@ function commonEnv(shell: Shell, fixture: Fixture): NodeJS.ProcessEnv {
     NODE_OPTIONS: '',
     NODE_PATH: '',
     ORCA_NODE_OPTIONS: '',
+    ORCA_DISABLE_CODEX_NATIVE_LAUNCH: '',
+    ORCA_DISABLE_CMD_SHIM_RESOLUTION: '',
     CODEX_MANAGED_PACKAGE_ROOT: 'parent-package-root',
     CODEX_MANAGED_BY_NPM: 'parent-npm',
     CODEX_MANAGED_BY_BUN: 'parent-bun',
@@ -275,10 +264,15 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
     const powershell = shells.find((shell) => shell.name === 'PowerShell 7')
     const windowsPowerShell = shells.find((shell) => shell.name === 'Windows PowerShell')
     const ciRequiresShells = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true'
-    expect(
-      (!(ciRequiresShells || process.env.ORCA_REQUIRE_GIT_BASH === '1')) ||
-        canRun(bash?.command ?? null, ['--version'])
-    ).toBe(true)
+    const requireBash = ciRequiresShells || process.env.ORCA_REQUIRE_GIT_BASH === '1'
+    if (requireBash) {
+      if (!bash?.command) {
+        throw new Error(gitBashResolutionError ?? 'Git Bash is required but was not resolved')
+      }
+      if (!canRun(bash.command, ['--version'])) {
+        throw new Error('Git Bash candidate did not launch: ' + bash.command)
+      }
+    }
     expect(
       (!(ciRequiresShells || process.env.ORCA_REQUIRE_PWSH === '1')) ||
         canRun(powershell?.command ?? null, ['-NoLogo', '-NoProfile', '-Command', 'exit 0'])

@@ -28,6 +28,7 @@ on:
       - 'config/scripts/rebuild-native-deps.mjs'
       - 'config/scripts/node-pty-job-ownership.cjs'
       - 'config/scripts/windows-pe-machine.cjs'
+      - 'src/packages/process-host/src/windows-pe-machine.cjs'
       - 'config/scripts/windows-process-tree-gyp-rebuild.mjs'
       - 'config/scripts/windows-process-tree-creation-time.cjs'
       - 'config/scripts/install-electron-package-binary.mjs'

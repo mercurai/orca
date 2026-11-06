@@ -1,4 +1,8 @@
 import { join } from 'node:path'
+import {
+  applyWindowsCodexNativeEnvironment,
+  resolveWindowsCodexNativeLaunch
+} from '@orca/process-host/windows-codex-native-resolution'
 import type { WindowsHostInteractiveLoginSpawn } from '../../shared/windows-interactive-login-spawn'
 import { buildWindowsHostInteractiveLoginSpawn } from '../../shared/windows-interactive-login-spawn'
 import { withCliRuntimeOnPath } from '../../shared/node-cli-command-resolution'
@@ -121,6 +125,7 @@ async function runCodexLoginProcess(
           args: buildWslCodexLoginArgs(wslInfo.distro, wslInfo.linuxPath),
           env: process.env,
           codexCommand: 'codex',
+          directExecutable: false,
           interactiveLogin: null
         }
       : createHostLoginSpawn(managedHomePath)
@@ -239,12 +244,14 @@ async function runCodexLoginProcess(
     const onError = (error: Error): void => {
       settle(() => {
         const isEnoent = (error as NodeJS.ErrnoException).code === 'ENOENT'
-        // Why: ENOENT is ambiguous — missing codex binary or missing node in PATH; a resolved full path implies node is missing.
+        // Why: native ENOENT may come from its executable or the console wrapper.
         const isBareCommand = spawnConfig.codexCommand === 'codex'
         const message = isEnoent
-          ? isBareCommand
-            ? 'Codex CLI not found.'
-            : 'Codex CLI found but could not run — Node.js may not be in your PATH.'
+          ? spawnConfig.directExecutable
+            ? 'Codex could not start: a required executable was not found.'
+            : isBareCommand
+              ? 'Codex CLI not found.'
+              : 'Codex CLI found but could not run \u2014 Node.js may not be in your PATH.'
           : error.message
         rejectPromise(new Error(message))
       })
@@ -290,23 +297,45 @@ function createHostLoginSpawn(managedHomePath: string): {
   args: string[]
   env: NodeJS.ProcessEnv
   codexCommand: string
+  directExecutable: boolean
   interactiveLogin: WindowsHostInteractiveLoginSpawn | null
 } {
   const codexCommand = resolveCodexCommand()
+  const childEnv = withCliRuntimeOnPath(codexCommand, {
+    ...process.env,
+    CODEX_HOME: managedHomePath
+  })
+  const resolution =
+    process.platform === 'win32'
+      ? resolveWindowsCodexNativeLaunch({
+          launcher: codexCommand,
+          env: childEnv,
+          platform: process.platform
+        })
+      : null
+  const nativeResolution = resolution?.outcome === 'native' ? resolution : null
+  const directExecutable =
+    nativeResolution !== null ||
+    (process.platform === 'win32' && /\.exe$/i.test(codexCommand))
+  const loginCommand = nativeResolution?.nativeExecutable ?? codexCommand
+  const loginEnv = nativeResolution
+    ? applyWindowsCodexNativeEnvironment(childEnv, nativeResolution.environmentDelta)
+    : childEnv
   // Why: Windows host login needs a real console; otherwise inherit/hide
   // leaves the child unable to read a paste-code / device-auth prompt.
   const interactiveLogin =
     process.platform === 'win32'
-      ? buildWindowsHostInteractiveLoginSpawn(codexCommand, ['login'])
+      ? buildWindowsHostInteractiveLoginSpawn(loginCommand, ['login'])
       : null
   const { spawnCmd, spawnArgs } = interactiveLogin
     ? { spawnCmd: interactiveLogin.command, spawnArgs: interactiveLogin.args }
-    : getSpawnArgsForWindows(codexCommand, ['login'])
+    : getSpawnArgsForWindows(loginCommand, ['login'])
   return {
     command: spawnCmd,
     args: spawnArgs,
-    env: withCliRuntimeOnPath(codexCommand, { ...process.env, CODEX_HOME: managedHomePath }),
+    env: loginEnv,
     codexCommand,
+    directExecutable,
     interactiveLogin
   }
 }
