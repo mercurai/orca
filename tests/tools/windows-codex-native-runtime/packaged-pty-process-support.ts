@@ -18,6 +18,8 @@ import {
 } from './process-tree-identity'
 import { bashPathQuote } from './packaged-pty-bash-probe'
 
+export { clickCloseTab } from './packaged-pty-tab-close'
+
 export type ManagedShell = 'bash' | 'powershell'
 
 export type { NativeCodexIdentity, ShellIdentity }
@@ -251,24 +253,6 @@ export async function writeShellReturnMarker(
   if ((await waitForFile(markerPath)) !== 'returned') {
     throw new Error('Ctrl+C did not return input to the owning shell')
   }
-}
-
-export async function clickCloseTab(
-  page: SessionHandle['page'],
-  tabId: string,
-  expectPrompt: boolean
-): Promise<void> {
-  const tab = page
-    .locator(`[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(tabId)}]`)
-    .first()
-  await tab.getByRole('button', { name: /^Close tab /i }).click({ force: true })
-  if (expectPrompt) {
-    await page
-      .getByText(/Stop running command\?|Stop this agent\?/)
-      .waitFor({ state: 'visible', timeout: 15_000 })
-    await page.getByRole('button', { name: 'Stop and Close' }).click()
-  }
-  await tab.waitFor({ state: 'hidden', timeout: 20_000 })
 }
 
 export async function waitForPackagedAppServer(
