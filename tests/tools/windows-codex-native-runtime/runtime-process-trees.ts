@@ -1,9 +1,10 @@
+import { performance } from 'node:perf_hooks'
 import {
   readWindowsProcessIdentityTableFresh,
   type WindowsProcessIdentityRow
 } from '../../../src/main/windows/windows-process-table'
 import { processIdentity } from './process-tree-identity'
-import type { ProcessMetricsClient } from './process-metrics-client'
+import { MAX_METRICS_REQUEST_TIMEOUT_MS, type ProcessMetricsClient } from './process-metrics-client'
 import type { Session } from './runtime-shell-session'
 
 const TREE_SETTLE_COUNT = 3
@@ -21,15 +22,20 @@ export type TreeSnapshot = {
 
 export async function readTrees(
   sessions: Session[],
-  sampler: ProcessMetricsClient
+  sampler: ProcessMetricsClient,
+  timeoutMs: number
 ): Promise<TreeSnapshot[]> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('Codex process tree snapshot deadline was empty')
+  }
+  const deadline = performance.now() + timeoutMs
   const snapshots: TreeSnapshot[] = []
   for (const session of sessions) {
     const jobId = session.jobId
     if (jobId === null) {
       throw new Error(`${session.shell.name} has no assigned runtime process job`)
     }
-    const { processTable, jobRows } = await readJobRows(session, jobId, sampler)
+    const { processTable, jobRows } = await readJobRows(session, jobId, sampler, deadline)
     const tableByPid = new Map(processTable.map((row) => [row.pid, row]))
     const root = jobRows.find((row) => row.pid === session.pid)
     if (!root) {
@@ -61,17 +67,27 @@ export async function readTrees(
     session.observedProcessIdentities = [...observed.values()]
     snapshots.push({ session, rows: owned, descendants, jobRows, processTable })
   }
+  if (performance.now() >= deadline) {
+    throw new Error('Codex process tree snapshot exceeded its deadline')
+  }
   return snapshots
 }
 
 async function readJobRows(
   session: Session,
   jobId: number,
-  sampler: ProcessMetricsClient
+  sampler: ProcessMetricsClient,
+  deadline: number
 ): Promise<{ processTable: WindowsProcessIdentityRow[]; jobRows: WindowsProcessIdentityRow[] }> {
   for (let attempt = 0; attempt < JOB_IDENTITY_RETRIES; attempt++) {
     const processTable = await readWindowsProcessIdentityTableFresh()
-    const memberPids = await sampler.listJobProcessIds(jobId)
+    const memberPids = await sampler.listJobProcessIds(
+      jobId,
+      requestTimeoutFor(deadline, session.shell.name)
+    )
+    if (performance.now() >= deadline) {
+      throw new Error(`${session.shell.name} process-tree snapshot exceeded its deadline`)
+    }
     if (new Set(memberPids).size !== memberPids.length) {
       throw new Error(`${session.shell.name} process job returned duplicate identities`)
     }
@@ -82,7 +98,11 @@ async function readJobRows(
     const missing = memberPids.filter((pid) => !tableByPid.has(pid))
     if (missing.length > 0) {
       if (attempt + 1 < JOB_IDENTITY_RETRIES) {
-        await delay(TREE_POLL_MS)
+        const remainingMs = deadline - performance.now()
+        if (remainingMs <= 0) {
+          throw new Error(`${session.shell.name} process-tree identity deadline expired`)
+        }
+        await delay(Math.min(TREE_POLL_MS, remainingMs))
         continue
       }
       throw new Error(`${session.shell.name} process job member is absent from the native table`)
@@ -244,7 +264,11 @@ export async function waitForStableTrees(
   let stable = 0
   let latest: TreeSnapshot[] = []
   while (Date.now() < deadline) {
-    latest = await readTrees(sessions, sampler)
+    const remainingMs = deadline - Date.now()
+    latest = await readTrees(sessions, sampler, remainingMs)
+    if (Date.now() >= deadline) {
+      break
+    }
     for (const snapshot of latest) {
       validateTree(snapshot)
     }
@@ -254,9 +278,20 @@ export async function waitForStableTrees(
       return latest
     }
     previous = signature
-    await delay(TREE_POLL_MS)
+    const pollRemainingMs = deadline - Date.now()
+    if (pollRemainingMs > 0) {
+      await delay(Math.min(TREE_POLL_MS, pollRemainingMs))
+    }
   }
   throw new Error('Codex process trees did not reach a settled state')
+}
+
+function requestTimeoutFor(deadline: number, label: string): number {
+  const remainingMs = Math.floor(deadline - performance.now())
+  if (remainingMs <= 0) {
+    throw new Error(`${label} process-tree identity deadline expired`)
+  }
+  return Math.min(MAX_METRICS_REQUEST_TIMEOUT_MS, remainingMs)
 }
 
 function delay(milliseconds: number): Promise<void> {

@@ -30,6 +30,7 @@ import { proveWindowsPowerShell51ManagedRestore } from './packaged-pty-powershel
 import { proveSequencedWorktreePty } from './packaged-pty-sequenced-worktree-proof'
 import {
   assertIdentityAlive,
+  assertBashProbeWindowsPid,
   assertCodexHomeSentinel,
   assertManagedEnvironmentRestored,
   assertNpmShimSentinel,
@@ -44,6 +45,7 @@ import {
   waitForFile,
   waitForPackagedAppServer,
   waitForProcessTreeExit,
+  waitForBashProbeDiagnostic,
   writeManagedEnvironmentReportCommand,
   writeShellReturnMarker
 } from './packaged-pty-process-support'
@@ -72,7 +74,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
   const appEnvRoot = join(runRoot, 'app-env')
   const repoPath = join(runRoot, 'repo')
   const folderPath = join(runRoot, 'folder-workspace')
-  const markerDir = join(runRoot, 'shell-markers')
+  const markerDir = join(runRoot, 'shell markers')
   if (!isPathWithin(realpathSync.native(tmpdir()), runRoot)) {
     throw new Error('The packaged PTY proof temp directory escaped the runner temp directory')
   }
@@ -120,13 +122,15 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
       shellPid: join(markerDir, 'bash-shell.pid'),
       resolver: join(markerDir, 'bash-resolver.txt'),
       npmPath: join(markerDir, 'bash-npm-path.txt'),
-      codexHome: join(markerDir, 'bash-codex-home.txt')
+      codexHome: join(markerDir, 'bash-codex-home.txt'),
+      diagnostic: join(markerDir, 'bash-probe-diagnostic.txt')
     }
     await typeLine(session.page, bashProbeCommand(bashFiles), folderTabId)
-    await waitForFile(bashFiles.shellPid)
-    await waitForFile(bashFiles.npmPath)
+    const bashDiagnostic = await waitForBashProbeDiagnostic(bashFiles)
+    assertBashProbeWindowsPid(bashDiagnostic)
+    assertNpmShimSentinel(bashFiles.npmPath, settings.npmBin, bashDiagnostic)
+    await waitForFile(bashFiles.resolver)
     await waitForFile(bashFiles.codexHome)
-    assertNpmShimSentinel(bashFiles.npmPath, settings.npmBin)
     assertResolverSentinel(bashFiles.resolver, settings.resolver)
     assertCodexHomeSentinel(bashFiles.codexHome, canonicalCodexHome)
     const bashShell = readShellIdentity(

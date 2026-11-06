@@ -1,19 +1,12 @@
 import { performance } from 'node:perf_hooks'
-import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
 import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
-import {
-  processIdentity,
-  processTreeForRoot,
-  waitForProcessTreeExit
-} from './process-tree-identity'
+import { processIdentity, processTreeForRoot } from './process-tree-identity'
 import type { ProcessMetricsClient } from './process-metrics-client'
 import type { ProcessIdentity } from './process-tree-identity'
 import type { RuntimeShell } from './runtime-environment'
 import type { Session } from './runtime-shell-session'
 
 const LAUNCH_GATE_TOKEN = 'ORCA_RUNTIME_JOB_READY'
-const CLOSE_WAIT_MS = 8_000
-const TREE_POLL_MS = 200
 
 export function runtimeShellJobGate(shell: RuntimeShell): string {
   if (shell.kind === 'bash') {
@@ -109,114 +102,4 @@ function rememberIdentities(session: Session, identities: ProcessIdentity[]): vo
     observed.set(`${identity.pid}:${identity.creationTimeMs}`, identity)
   }
   session.observedProcessIdentities = [...observed.values()]
-}
-
-export async function stopSession(
-  session: Session,
-  sampler: ProcessMetricsClient
-): Promise<number> {
-  if (session.cleanupComplete) {
-    return session.cleanupMs ?? 0
-  }
-  const startedAt = performance.now()
-  try {
-    await stopNormally(session, sampler)
-    session.cleanupComplete = true
-    session.cleanupMs = performance.now() - startedAt
-    return session.cleanupMs
-  } catch (error) {
-    try {
-      await terminateOwnedSession(session, sampler)
-      session.cleanupComplete = true
-      session.cleanupMs = performance.now() - startedAt
-    } catch (cleanupError) {
-      throw new AggregateError(
-        [error, cleanupError],
-        `${session.shell.name} failed and its owned process cleanup was not verified`
-      )
-    }
-    throw error
-  }
-}
-
-async function stopNormally(session: Session, sampler: ProcessMetricsClient): Promise<void> {
-  if (session.child.exitCode === null && session.child.signalCode === null) {
-    session.child.stdin.end()
-  }
-  const close = await withTimeout(session.closePromise, CLOSE_WAIT_MS)
-  if (close.code !== 0 || close.signal !== null) {
-    throw new Error(`${session.shell.name} did not exit normally after app-server EOF`)
-  }
-  await waitForOwnedSessionExit(session, sampler)
-  await releaseEmptyJob(session, sampler)
-}
-
-async function terminateOwnedSession(
-  session: Session,
-  sampler: ProcessMetricsClient
-): Promise<void> {
-  if (session.jobId !== null) {
-    await sampler.terminateJob(session.jobId)
-  } else if (session.child.exitCode === null && session.child.signalCode === null) {
-    await forceTerminateProcessTree(session.child)
-  }
-  await withTimeout(session.closePromise, CLOSE_WAIT_MS)
-  await waitForOwnedSessionExit(session, sampler)
-  await releaseEmptyJob(session, sampler)
-}
-
-async function waitForOwnedSessionExit(
-  session: Session,
-  sampler: ProcessMetricsClient
-): Promise<void> {
-  const deadline = Date.now() + CLOSE_WAIT_MS
-  if (session.jobId !== null) {
-    while (Date.now() < deadline) {
-      const members = await sampler.listJobProcessIds(session.jobId)
-      if (members.length === 0) {
-        break
-      }
-      await delay(TREE_POLL_MS)
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`${session.shell.name} left live members in its owned process job`)
-    }
-  }
-  const remainingMs = deadline - Date.now()
-  if (remainingMs <= 0) {
-    throw new Error(`${session.shell.name} process identity did not exit before the deadline`)
-  }
-  await waitForProcessTreeExit(
-    session.pid,
-    session.creationTimeMs,
-    session.observedProcessIdentities,
-    { timeoutMs: remainingMs, intervalMs: TREE_POLL_MS, label: session.shell.name }
-  )
-}
-
-async function releaseEmptyJob(session: Session, sampler: ProcessMetricsClient): Promise<void> {
-  if (session.jobId !== null && !session.jobReleased) {
-    await sampler.releaseJob(session.jobId)
-    session.jobReleased = true
-  }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('Timed out')), timeoutMs)
-      })
-    ])
-  } finally {
-    if (timer) {
-      clearTimeout(timer)
-    }
-  }
 }

@@ -8,7 +8,11 @@ import {
   waitForStableTrees,
   type TreeSnapshot
 } from './runtime-process-trees'
-import type { ProcessMetricsClient, ProcessMetrics } from './process-metrics-client'
+import {
+  MAX_METRICS_REQUEST_TIMEOUT_MS,
+  type ProcessMetricsClient,
+  type ProcessMetrics
+} from './process-metrics-client'
 import {
   collectStableResourceWindow,
   defaultResourceWindowClock,
@@ -89,8 +93,8 @@ export async function collectResources(
   restartSettleMs: number
 }> {
   const clock = defaultResourceWindowClock()
-  const read = async (): Promise<ResourceWindowSnapshot> => {
-    const snapshots = await readTrees(sessions, sampler)
+  const read = async (timeoutMs: number): Promise<ResourceWindowSnapshot> => {
+    const snapshots = await readTrees(sessions, sampler, timeoutMs)
     for (const snapshot of snapshots) {
       validateTree(snapshot)
     }
@@ -103,7 +107,7 @@ export async function collectResources(
         nativeExecutable
       ),
     read,
-    sample: (identities) => sampler.sample(identities),
+    sample: (identities, timeoutMs) => sampler.sample(identities, metricsRequestTimeout(timeoutMs)),
     ...clock
   })
   return {
@@ -112,6 +116,14 @@ export async function collectResources(
     windowRestarts: result.restarts,
     restartSettleMs: result.restartSettleMs
   }
+}
+
+function metricsRequestTimeout(timeoutMs: number): number {
+  const boundedTimeout = Math.floor(timeoutMs)
+  if (boundedTimeout <= 0) {
+    throw new Error('Codex metrics request deadline was empty')
+  }
+  return Math.min(MAX_METRICS_REQUEST_TIMEOUT_MS, boundedTimeout)
 }
 
 function toResourceWindowSnapshot(

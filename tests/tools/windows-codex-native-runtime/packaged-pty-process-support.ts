@@ -16,10 +16,19 @@ import {
   waitForProcessTreeExit,
   type ProcessIdentity
 } from './process-tree-identity'
+import { toBashPath } from './runtime-environment'
 
 export type ManagedShell = 'bash' | 'powershell'
 
 export type { NativeCodexIdentity, ShellIdentity }
+
+export type BashProbeDiagnostic = {
+  bashStarted: boolean
+  codexLookupPresent: boolean
+  npmPrefixMatch: boolean
+  windowsPidPresent: boolean
+  readEofHandled: boolean
+}
 
 const MANAGED_ENV_EXPECTED = [
   'present:pty-parent-package-root',
@@ -38,6 +47,10 @@ const MANAGED_ENV_NAMES = [
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+function bashPathQuote(value: string): string {
+  return shellQuote(toBashPath(value))
 }
 
 function powershellQuote(value: string): string {
@@ -70,7 +83,7 @@ export function writeManagedEnvironmentReportCommand(
       (name) =>
         `if [[ \${${name}+x} ]]; then printf 'present:%s\\n' "$${name}"; else printf 'absent\\n'; fi`
     )
-    return `{ ${lines.join('; ')}; } > ${shellQuote(filePath)}`
+    return `{ ${lines.join('; ')}; } > ${bashPathQuote(filePath)}`
   }
   const lines = MANAGED_ENV_NAMES.map(
     (name) =>
@@ -100,15 +113,66 @@ export function bashProbeCommand(paths: {
   resolver: string
   npmPath: string
   codexHome: string
+  diagnostic: string
 }): string {
   return [
     'export CODEX_HOME="$HOME/.codex"',
-    'case "$(type -P codex 2>/dev/null)" in "$ORCA_CODEX_RUNTIME_NPM_BIN_POSIX"/codex*) ;; *) exit 96 ;; esac',
-    `printf '%s\\n' "$(type -P codex 2>/dev/null)" > ${shellQuote(paths.npmPath)}`,
-    `printf '%s\\n' "$$" > ${shellQuote(paths.shellPid)}`,
-    `printf '%s\\n' "$ORCA_CODEX_NATIVE_RESOLVER" > ${shellQuote(paths.resolver)}`,
-    `printf '%s\\n' "$CODEX_HOME" > ${shellQuote(paths.codexHome)}`
+    '__orca_bash_started=0; if [[ -n "${BASH_VERSION:-}" ]]; then __orca_bash_started=1; fi',
+    '__orca_codex_path="$(type -P codex 2>/dev/null || :)"',
+    '__orca_codex_lookup_present=0; if [[ -n "$__orca_codex_path" ]]; then __orca_codex_lookup_present=1; fi',
+    '__orca_npm_prefix_match=0; case "$__orca_codex_path" in "$ORCA_CODEX_RUNTIME_NPM_BIN_POSIX"/codex*) __orca_npm_prefix_match=1 ;; esac',
+    '__orca_windows_pid=""; IFS= read -r __orca_windows_pid < "/proc/$$/winpid" || :',
+    '__orca_windows_pid_present=0; if [[ "$__orca_windows_pid" =~ ^[0-9]+$ ]]; then __orca_windows_pid_present=1; fi',
+    '__orca_read_with_newline=""; IFS= read -r __orca_read_with_newline <<< "codex-pid"',
+    '__orca_read_without_newline=""; IFS= read -r __orca_read_without_newline < <(printf "codex-pid") || :',
+    '__orca_read_eof_handled=0; if [[ "$__orca_read_with_newline" == codex-pid && "$__orca_read_without_newline" == codex-pid ]]; then __orca_read_eof_handled=1; fi',
+    `printf 'bashStarted=%s\\ncodexLookupPresent=%s\\nnpmPrefixMatch=%s\\nwindowsPidPresent=%s\\nreadEofHandled=%s\\n' "$__orca_bash_started" "$__orca_codex_lookup_present" "$__orca_npm_prefix_match" "$__orca_windows_pid_present" "$__orca_read_eof_handled" > ${bashPathQuote(paths.diagnostic)}`,
+    `printf '%s\\n' "$__orca_codex_path" > ${bashPathQuote(paths.npmPath)}`,
+    `printf '%s\\n' "$__orca_windows_pid" > ${bashPathQuote(paths.shellPid)}`,
+    'case "$__orca_npm_prefix_match" in 1) ;; *) exit 96 ;; esac',
+    `printf '%s\\n' "$ORCA_CODEX_NATIVE_RESOLVER" > ${bashPathQuote(paths.resolver)}`,
+    `printf '%s\\n' "$CODEX_HOME" > ${bashPathQuote(paths.codexHome)}`
   ].join('; ')
+}
+
+export async function waitForBashProbeDiagnostic(paths: {
+  shellPid: string
+  resolver: string
+  npmPath: string
+  codexHome: string
+  diagnostic: string
+}): Promise<BashProbeDiagnostic> {
+  const deadline = Date.now() + 20_000
+  while (Date.now() < deadline) {
+    if (existsSync(paths.diagnostic) && existsSync(paths.npmPath) && existsSync(paths.shellPid)) {
+      const fields: Record<string, string> = {}
+      for (const line of readFileSync(paths.diagnostic, 'utf8').trim().split(/\r?\n/u)) {
+        const separator = line.indexOf('=')
+        if (separator > 0) {
+          fields[line.slice(0, separator)] = line.slice(separator + 1)
+        }
+      }
+      return {
+        bashStarted: fields.bashStarted === '1',
+        codexLookupPresent: fields.codexLookupPresent === '1',
+        npmPrefixMatch: fields.npmPrefixMatch === '1',
+        windowsPidPresent: fields.windowsPidPresent === '1',
+        readEofHandled: fields.readEofHandled === '1'
+      }
+    }
+    await delay(100)
+  }
+  throw new Error(
+    `Bash probe did not complete preguard markers (stage=before-prefix-check; diagnosticWritten=${existsSync(paths.diagnostic)}; npmPathWritten=${existsSync(paths.npmPath)}; shellPidWritten=${existsSync(paths.shellPid)}; resolverWritten=${existsSync(paths.resolver)}; codexHomeWritten=${existsSync(paths.codexHome)})`
+  )
+}
+
+export function assertBashProbeWindowsPid(diagnostic: BashProbeDiagnostic): void {
+  if (!diagnostic.bashStarted || !diagnostic.windowsPidPresent || !diagnostic.readEofHandled) {
+    throw new Error(
+      `Bash probe did not resolve its Windows PID (stage=winpid-read; bashStarted=${diagnostic.bashStarted}; codexLookupPresent=${diagnostic.codexLookupPresent}; npmPrefixMatch=${diagnostic.npmPrefixMatch}; windowsPidPresent=${diagnostic.windowsPidPresent}; readEofHandled=${diagnostic.readEofHandled})`
+    )
+  }
 }
 
 export function powershellStartupCommand(paths: {
@@ -173,11 +237,19 @@ export function assertResolverSentinel(filePath: string, resolverPath: string): 
   }
 }
 
-export function assertNpmShimSentinel(filePath: string, npmBin: string): void {
+export function assertNpmShimSentinel(
+  filePath: string,
+  npmBin: string,
+  diagnostic?: BashProbeDiagnostic
+): void {
   const shimPath = normalizeWindowsPath(readFileSync(filePath, 'utf8').trim())
   const expectedPrefix = `${normalizeWindowsPath(npmBin)}\\`
-  if (!shimPath.startsWith(expectedPrefix)) {
-    throw new Error('The packaged PTY did not select Codex from its isolated npm prefix')
+  const prefixMatches = shimPath.startsWith(expectedPrefix)
+  if (!prefixMatches || (diagnostic && !diagnostic.npmPrefixMatch)) {
+    const status = diagnostic
+      ? ` (stage=npm-prefix-check; bashStarted=${diagnostic.bashStarted}; codexLookupPresent=${diagnostic.codexLookupPresent}; observedPrefixMatch=${prefixMatches}; bashPrefixMatch=${diagnostic.npmPrefixMatch}; windowsPidPresent=${diagnostic.windowsPidPresent}; readEofHandled=${diagnostic.readEofHandled})`
+      : ''
+    throw new Error(`The packaged PTY did not select Codex from its isolated npm prefix${status}`)
   }
 }
 
@@ -198,7 +270,7 @@ export async function writeShellReturnMarker(
 ): Promise<void> {
   const command =
     shell === 'bash'
-      ? `printf 'returned' > ${shellQuote(markerPath)}`
+      ? `printf 'returned' > ${bashPathQuote(markerPath)}`
       : `[System.IO.File]::WriteAllText(${powershellQuote(markerPath)}, 'returned')`
   await typeLine(page, command, tabId)
   if ((await waitForFile(markerPath)) !== 'returned') {

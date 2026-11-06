@@ -8,6 +8,7 @@ import {
   type SessionHandle
 } from './packaged-pty-app-support'
 import {
+  assertBashProbeWindowsPid,
   assertCodexHomeSentinel,
   assertNpmShimSentinel,
   assertResolverSentinel,
@@ -19,6 +20,7 @@ import {
   sendCtrlC,
   type ShellIdentity,
   waitForFile,
+  waitForBashProbeDiagnostic,
   waitForPackagedAppServer,
   waitForProcessTreeExit,
   writeShellReturnMarker
@@ -42,13 +44,15 @@ export async function proveColdRestoredFolderPane(
     shellPid: join(markerDir, 'cold-bash-shell.pid'),
     resolver: join(markerDir, 'cold-bash-resolver.txt'),
     npmPath: join(markerDir, 'cold-bash-npm-path.txt'),
-    codexHome: join(markerDir, 'cold-bash-codex-home.txt')
+    codexHome: join(markerDir, 'cold-bash-codex-home.txt'),
+    diagnostic: join(markerDir, 'cold-bash-probe-diagnostic.txt')
   }
   await typeLine(session.page, bashProbeCommand(files), tabId)
-  await waitForFile(files.shellPid)
-  await waitForFile(files.npmPath)
+  const bashDiagnostic = await waitForBashProbeDiagnostic(files)
+  assertBashProbeWindowsPid(bashDiagnostic)
+  assertNpmShimSentinel(files.npmPath, settings.npmBin, bashDiagnostic)
+  await waitForFile(files.resolver)
   await waitForFile(files.codexHome)
-  assertNpmShimSentinel(files.npmPath, settings.npmBin)
   assertResolverSentinel(files.resolver, settings.resolver)
   assertCodexHomeSentinel(files.codexHome, codexHome)
   const shell = readShellIdentity(

@@ -96,7 +96,7 @@ describe('Codex native runtime resource sampling', () => {
     const result = await collectStableResourceWindow(dependencies)
 
     expect(settleCount).toBe(2)
-    expect(readCount).toBe(5)
+    expect(readCount).toBe(6)
     expect(sampleCount).toBe(6)
     expect(sampledHelperPids).toEqual([303, 303, 304, 304, 304, 304])
     expect(result.samples).toHaveLength(4)
@@ -104,6 +104,41 @@ describe('Codex native runtime resource sampling', () => {
     expect(result.idleCpuCorePercent).toBeCloseTo(20)
     expect(result.restarts).toBe(1)
     expect(result.restartSettleMs).toBe(300)
+  })
+
+  it('restarts when a peripheral identity appears during the final sample', async () => {
+    let now = 0
+    let settleCount = 0
+    let readCount = 0
+    let sampleCount = 0
+    const first = snapshot(identity(303, 3003), undefined, 1)
+    const afterSpawn = snapshot(identity(304, 3004), undefined, 2)
+    const dependencies: ResourceWindowDependencies = {
+      settle: async () => {
+        settleCount++
+        return settleCount === 1 ? first : afterSpawn
+      },
+      read: async () => {
+        readCount++
+        return readCount <= 3 ? first : afterSpawn
+      },
+      sample: async (identities) => {
+        sampleCount++
+        return metricsFor(identities, sampleCount * 1_000_000)
+      },
+      now: () => now,
+      delay: async (milliseconds) => {
+        now += milliseconds
+      }
+    }
+
+    const result = await collectStableResourceWindow(dependencies)
+
+    expect(settleCount).toBe(2)
+    expect(readCount).toBe(8)
+    expect(sampleCount).toBe(8)
+    expect(result.samples.map((sample) => sample.privateBytes)).toEqual([2, 2, 2, 2])
+    expect(result.restarts).toBe(1)
   })
 
   it('fails immediately when a critical Codex identity changes', async () => {
@@ -227,5 +262,34 @@ describe('Codex native runtime resource sampling', () => {
     await expect(collectStableResourceWindow(dependencies)).rejects.toThrow(
       'Git Bash native resource window deadline expired while settling after 0 restarts'
     )
+  })
+
+  it('does not start verification after a sample consumes the remaining deadline', async () => {
+    let now = 0
+    let readCount = 0
+    let sampleCount = 0
+    const original = snapshot(identity(303, 3003))
+    const dependencies: ResourceWindowDependencies = {
+      settle: async () => original,
+      read: async () => {
+        readCount++
+        return original
+      },
+      sample: async (identities, remainingMs) => {
+        sampleCount++
+        now += remainingMs
+        return metricsFor(identities, 1_000_000)
+      },
+      now: () => now,
+      delay: async (milliseconds) => {
+        now += milliseconds
+      }
+    }
+
+    await expect(collectStableResourceWindow(dependencies)).rejects.toThrow(
+      'Git Bash native resource window deadline expired during sampling after 0 restarts'
+    )
+    expect(sampleCount).toBe(1)
+    expect(readCount).toBe(0)
   })
 })

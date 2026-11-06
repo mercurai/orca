@@ -35,8 +35,8 @@ export type ResourceWindowSnapshot = {
 
 export type ResourceWindowDependencies = {
   settle: (timeoutMs: number) => Promise<ResourceWindowSnapshot>
-  read: () => Promise<ResourceWindowSnapshot>
-  sample: (identities: ProcessIdentity[]) => Promise<ProcessMetrics[]>
+  read: (timeoutMs: number) => Promise<ResourceWindowSnapshot>
+  sample: (identities: ProcessIdentity[], timeoutMs: number) => Promise<ProcessMetrics[]>
   now: () => number
   delay: (milliseconds: number) => Promise<void>
 }
@@ -95,10 +95,27 @@ export async function collectStableResourceWindow(
           throw windowFailure('deadline expired during sampling', context, lastChange, restarts)
         }
 
-        const current = await dependencies.read()
-        assertCriticalIdentities(baselineCritical, current)
-        if (current.signature !== previous.signature) {
-          lastChange = identityDelta(previous.processes, current.processes)
+        const remainingForRead = deadline - dependencies.now()
+        if (remainingForRead <= 0) {
+          throw windowFailure(
+            'deadline expired before tree verification',
+            context,
+            lastChange,
+            restarts
+          )
+        }
+        const current = await dependencies.read(remainingForRead)
+        if (dependencies.now() >= deadline) {
+          throw windowFailure(
+            'deadline expired during tree verification',
+            context,
+            lastChange,
+            restarts
+          )
+        }
+        const changedTree = processTreeChange(baselineCritical, previous, current)
+        if (changedTree !== null) {
+          lastChange = changedTree
           if (restarts >= MAX_WINDOW_RESTARTS || dependencies.now() >= deadline) {
             throw windowFailure('process membership kept changing', context, lastChange, restarts)
           }
@@ -109,12 +126,16 @@ export async function collectStableResourceWindow(
         previous = current
       }
 
-      const measured = await dependencies.sample(previous.identities)
-      const current = previous.measure(measured)
-      const sampledAt = dependencies.now()
-      if (sampledAt >= deadline) {
+      const remainingForSample = deadline - dependencies.now()
+      if (remainingForSample <= 0) {
         throw windowFailure('deadline expired during sampling', context, lastChange, restarts)
       }
+      const measured = await dependencies.sample(previous.identities, remainingForSample)
+      if (dependencies.now() >= deadline) {
+        throw windowFailure('deadline expired during sampling', context, lastChange, restarts)
+      }
+      const current = previous.measure(measured)
+      const sampledAt = dependencies.now()
       if (previousCpu100ns !== undefined && previousSampledAt !== undefined) {
         const cpuDelta = current.cpu100ns - previousCpu100ns
         if (cpuDelta < 0) {
@@ -126,6 +147,37 @@ export async function collectStableResourceWindow(
       samples.push(current)
       previousCpu100ns = current.cpu100ns
       previousSampledAt = sampledAt
+
+      if (index === SAMPLE_COUNT - 1) {
+        const remainingForVerification = deadline - dependencies.now()
+        if (remainingForVerification <= 0) {
+          throw windowFailure(
+            'deadline expired before final verification',
+            context,
+            lastChange,
+            restarts
+          )
+        }
+        const finalSnapshot = await dependencies.read(remainingForVerification)
+        if (dependencies.now() >= deadline) {
+          throw windowFailure(
+            'deadline expired during final verification',
+            context,
+            lastChange,
+            restarts
+          )
+        }
+        const changedTree = processTreeChange(baselineCritical, previous, finalSnapshot)
+        if (changedTree !== null) {
+          lastChange = changedTree
+          if (restarts >= MAX_WINDOW_RESTARTS) {
+            throw windowFailure('process membership kept changing', context, lastChange, restarts)
+          }
+          restarts++
+          restartWindow = true
+          break
+        }
+      }
     }
 
     if (restartWindow) {
@@ -141,6 +193,17 @@ export async function collectStableResourceWindow(
       restartSettleMs
     }
   }
+}
+
+function processTreeChange(
+  baselineCritical: NamedProcessIdentity[],
+  previous: ResourceWindowSnapshot,
+  current: ResourceWindowSnapshot
+): string | null {
+  assertCriticalIdentities(baselineCritical, current)
+  return current.signature === previous.signature
+    ? null
+    : identityDelta(previous.processes, current.processes)
 }
 
 function assertCriticalIdentities(

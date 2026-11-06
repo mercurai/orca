@@ -69,7 +69,9 @@ jobs:
           src/main/codex/codex-state-db-backfill-recovery-supervision.test.ts
           src/shared/agent-process-recognition.test.ts
           src/main/pty/codex-shell-native-launch.test.ts
+          src/main/pty/codex-native-process-metrics-client.test.ts
           src/main/pty/codex-native-resource-sampling.test.ts
+          src/main/pty/codex-native-process-tree-exit.test.ts
           src/main/pty/codex-shell-native-resolver.test.ts
           src/main/ipc/pty/host-env/codex-hook-reconcile-spawn.test.ts
           src/main/pty/codex-shell-no-daemon.test.ts
