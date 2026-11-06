@@ -377,13 +377,9 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
     ).toBe(true)
   })
 
-  const availableShells = shells.filter((shell) =>
-    shell.kind === 'bash'
-      ? canRun(shell.command, ['--version'])
-      : canRun(shell.command, ['-NoLogo', '-NoProfile', '-Command', 'exit 0'])
-  )
+  const resolvedShells = shells.filter((shell) => shell.command !== null)
 
-  describe.each(availableShells)('$name', (shell) => {
+  describe.each(resolvedShells)('$name', (shell) => {
     it('keeps argv, piped input, exit status, and managed metadata scoped to the native child', () => {
       const fixture = makeFixture()
       const program = [
