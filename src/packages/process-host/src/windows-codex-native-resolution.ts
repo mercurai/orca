@@ -16,7 +16,7 @@ export type WindowsCodexNativeFallbackReason =
   | 'native_unavailable'
   | 'resolver_failure'
 
-export interface WindowsCodexNativeEnvironmentDelta {
+export type WindowsCodexNativeEnvironmentDelta = {
   managedPackageRoot: string
   manager: 'npm'
 }
@@ -29,7 +29,7 @@ export type WindowsCodexNativeLaunchResult =
     }
   | { outcome: 'fallback'; reason: WindowsCodexNativeFallbackReason }
 
-export interface ResolveWindowsCodexNativeLaunchOptions {
+export type ResolveWindowsCodexNativeLaunchOptions = {
   launcher: string
   node?: string
   env: NodeJS.ProcessEnv
@@ -66,9 +66,9 @@ function hasNonemptyEnv(env: NodeJS.ProcessEnv, name: string): boolean {
   return envValues(env, name).some((value) => value.length > 0)
 }
 
-function selectLauncher(options: ResolveWindowsCodexNativeLaunchOptions):
-  | SelectedLaunch
-  | { fallback: WindowsCodexNativeLaunchResult } {
+function selectLauncher(
+  options: ResolveWindowsCodexNativeLaunchOptions
+): SelectedLaunch | { fallback: WindowsCodexNativeLaunchResult } {
   const launcher = win32.resolve(options.launcher)
   const extension = win32.extname(launcher).toLowerCase()
   if (extension === '.cmd') {
@@ -84,8 +84,9 @@ function selectLauncher(options: ResolveWindowsCodexNativeLaunchOptions):
       return { fallback: fallback('unverified_install') }
     }
     if (
-      options.node &&
-      (!isAbsoluteWindowsCodexPath(options.node) || !sameWindowsCodexPath(options.node, shim.program))
+      options.node !== undefined &&
+      (!isAbsoluteWindowsCodexPath(options.node) ||
+        !sameWindowsCodexPath(options.node, shim.program))
     ) {
       return { fallback: fallback('unverified_install') }
     }
@@ -122,8 +123,11 @@ function selectLauncher(options: ResolveWindowsCodexNativeLaunchOptions):
     selectedSibling = existsSync(siblingNodeExe) ? siblingNodeExe : undefined
   }
   let node: string
+  if (options.node !== undefined && !isAbsoluteWindowsCodexPath(options.node)) {
+    return { fallback: fallback('unverified_install') }
+  }
   if (selectedSibling) {
-    if (options.node && !sameWindowsCodexPath(options.node, selectedSibling)) {
+    if (options.node !== undefined && !sameWindowsCodexPath(options.node, selectedSibling)) {
       return { fallback: fallback('unverified_install') }
     }
     node = selectedSibling
@@ -133,7 +137,14 @@ function selectLauncher(options: ResolveWindowsCodexNativeLaunchOptions):
     return { fallback: fallback('unverified_install') }
   }
   return {
-    entrypoint: win32.resolve(dirname(launcher), 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
+    entrypoint: win32.resolve(
+      dirname(launcher),
+      'node_modules',
+      '@openai',
+      'codex',
+      'bin',
+      'codex.js'
+    ),
     node
   }
 }
@@ -174,7 +185,11 @@ export function resolveWindowsCodexNativeLaunch(
     if (!sameWindowsCodexPath(selected.entrypoint, expectedEntry)) {
       return fallback('unrecognized_launcher')
     }
-    const install = resolveWindowsCodexNativeInstall(selected.entrypoint, selected.node, options.env)
+    const install = resolveWindowsCodexNativeInstall(
+      selected.entrypoint,
+      selected.node,
+      options.env
+    )
     if ('fallbackReason' in install) {
       return fallback(install.fallbackReason)
     }

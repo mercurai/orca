@@ -65,9 +65,12 @@ jobs:
           src/main/text-generation/source-control-agent-launch.test.ts
           src/main/codex-accounts/codex-windows-interactive-login.test.ts
           src/main/rate-limits/codex-fetcher-worker-thread.test.ts
+          src/main/rate-limits/codex-fetcher-runtime-pairing.test.ts
           src/main/codex/codex-state-db-backfill-recovery-supervision.test.ts
           src/shared/agent-process-recognition.test.ts
           src/main/pty/codex-shell-native-launch.test.ts
+          src/main/pty/codex-shell-native-resolver.test.ts
+          src/main/ipc/pty/host-env/codex-hook-reconcile-spawn.test.ts
           src/main/pty/codex-shell-no-daemon.test.ts
           config/scripts/windows-pe-machine.test.mjs
           config/scripts/windows-pe-machine-package.test.mjs

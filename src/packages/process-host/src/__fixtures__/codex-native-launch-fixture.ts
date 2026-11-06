@@ -11,7 +11,7 @@ import { npmProgNodeShim } from './windows-cmd-shim-bodies'
 export type CodexWindowsMachine = 'x64' | 'arm64'
 export type CodexLauncherKind = 'cmd' | 'shell' | 'powershell'
 
-export interface InstalledCodexFamily {
+export type InstalledCodexFamily = {
   launcher: string
   node: string
   nativeExecutable: string
@@ -19,7 +19,7 @@ export interface InstalledCodexFamily {
   env: NodeJS.ProcessEnv
 }
 
-export interface InstalledCodexFamilyOptions {
+export type InstalledCodexFamilyOptions = {
   tempRoot: string
   nodeMachine?: CodexWindowsMachine
   launcherKind?: CodexLauncherKind

@@ -1,4 +1,12 @@
-import { closeSync, existsSync, fstatSync, openSync, readSync, realpathSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readSync,
+  realpathSync
+} from 'node:fs'
 import { dirname, join, win32 } from 'node:path'
 
 type JsonObject = Record<string, unknown>
@@ -28,12 +36,24 @@ function readOwnerMetadata(path: string): JsonObject | null {
   }
 }
 
+function isMissingOwnerMetadata(path: string): boolean {
+  try {
+    lstatSync(path)
+    return false
+  } catch (error) {
+    return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+  }
+}
+
 function sameWindowsPath(left: string, right: string): boolean {
   return win32.resolve(left).toLowerCase() === win32.resolve(right).toLowerCase()
 }
 
 function isWithinWindowsPath(parent: string, child: string): boolean {
-  const relative = win32.relative(win32.resolve(parent).toLowerCase(), win32.resolve(child).toLowerCase())
+  const relative = win32.relative(
+    win32.resolve(parent).toLowerCase(),
+    win32.resolve(child).toLowerCase()
+  )
   return (
     relative === '' ||
     (relative !== '..' && !relative.startsWith(`..${win32.sep}`) && !win32.isAbsolute(relative))
@@ -55,9 +75,16 @@ function isVitePlusOwned(packagesDir: string, codexPackageRoot: string): boolean
   if (win32.basename(packagesDir).toLowerCase() !== 'packages') {
     return false
   }
+  const metadataPath = join(packagesDir, '@openai', 'codex.json')
+  if (isMissingOwnerMetadata(metadataPath)) {
+    return false
+  }
   try {
-    const metadata = readOwnerMetadata(join(packagesDir, '@openai', 'codex.json'))
-    if (!metadata || metadata.name !== '@openai/codex') {
+    const metadata = readOwnerMetadata(metadataPath)
+    if (!metadata) {
+      return true
+    }
+    if (metadata.name !== '@openai/codex') {
       return false
     }
     const installId = metadata.installId ?? ''
@@ -70,20 +97,21 @@ function isVitePlusOwned(packagesDir: string, codexPackageRoot: string): boolean
     if (!isWithinWindowsPath(packagesDir, installDir)) {
       return false
     }
-    return [win32.join(installDir, 'lib', 'node_modules'), win32.join(installDir, 'node_modules')].some(
-      (nodeModulesDir) => {
-        try {
-          return sameWindowsPath(
-            realpathSync(join(nodeModulesDir, '@openai', 'codex')),
-            codexPackageRoot
-          )
-        } catch {
-          return false
-        }
+    return [
+      win32.join(installDir, 'lib', 'node_modules'),
+      win32.join(installDir, 'node_modules')
+    ].some((nodeModulesDir) => {
+      try {
+        return sameWindowsPath(
+          realpathSync(join(nodeModulesDir, '@openai', 'codex')),
+          codexPackageRoot
+        )
+      } catch {
+        return false
       }
-    )
+    })
   } catch {
-    return false
+    return true
   }
 }
 
@@ -103,7 +131,11 @@ export function hasUnsupportedWindowsCodexOwner(
   const startDirs = new Set([codexPackageRoot, dirname(entrypoint)])
   for (const startDir of startDirs) {
     const filesystemRoot = win32.parse(startDir).root
-    for (let currentDir = startDir; currentDir !== filesystemRoot; currentDir = dirname(currentDir)) {
+    for (
+      let currentDir = startDir;
+      currentDir !== filesystemRoot;
+      currentDir = dirname(currentDir)
+    ) {
       if (isVitePlusOwned(currentDir, codexPackageRoot)) {
         return true
       }

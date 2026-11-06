@@ -4,11 +4,10 @@ import type { CommandHandler, HandlerContext } from '../dispatch'
 import { RuntimeClientError } from '../runtime/types'
 import { rejectRemoteSelectionFlags } from '../remote-selection-flag-rejection'
 import {
+  hasProtocolControlCharacters,
   serializeCodexNativeResolution,
   type CodexNativeOutputFormat
 } from '../agent-codex-native-protocol'
-
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u
 
 function invalidArgument(message: string): never {
   throw new RuntimeClientError('invalid_argument', message)
@@ -37,7 +36,7 @@ function requirePathFlag(
     typeof value !== 'string' ||
     value.length === 0 ||
     !isAbsolute(value) ||
-    CONTROL_CHARACTERS.test(value)
+    hasProtocolControlCharacters(value)
   ) {
     return invalidArgument(`--${name} requires an absolute path.`)
   }

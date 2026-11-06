@@ -1,3 +1,8 @@
+import {
+  getPosixCodexNativeLaunchTryFunction,
+  getPowerShellCodexNativeLaunchAttempt
+} from './codex-shell-native-launch'
+
 // Orca's `codex` shell function for every shell family: runs launch prep and adds
 // --no-daemon. Pure text, so any host that writes a shell script can embed it.
 // Why --no-daemon: Codex 0.156+ otherwise shares one server per CODEX_HOME that runs every tab's
@@ -13,11 +18,18 @@ export function getPosixCodexShellLaunchPreflight(): string {
 # assignment adopts its exit status, so an absent codex trips set -e in bash too.
 __orca_codex_binary="$(unalias codex 2>/dev/null || :; command -v codex 2>/dev/null || :)"
 if [[ -n "\${__orca_codex_binary:-}" && -x "\${__orca_codex_binary}" ]]; then
+  ${getPosixCodexNativeLaunchTryFunction(CODEX_SHARED_SERVER_ARGS.join('|'))}
   # Why the function reserved word: it suppresses alias expansion of the name,
   # which otherwise rewrites this header at parse time and aborts the whole file.
   function codex {
     # Why local: zsh's warn_create_global warns for each global a function creates.
-    local __orca_codex_arg __orca_codex_isolate="\${ORCA_CODEX_ISOLATE:-1}"
+    local __orca_codex_arg __orca_codex_isolate="\${ORCA_CODEX_ISOLATE:-1}" __orca_codex_native_handled=0 __orca_codex_native_status=0
+    if [[ -n "\${ORCA_CODEX_NATIVE_RESOLVER:-}" ]]; then
+      __orca_codex_native_try "$@"
+      if [[ "$__orca_codex_native_handled" == 1 ]]; then
+        return "$__orca_codex_native_status"
+      fi
+    fi
     if [[ -n "\${ORCA_CODEX_LAUNCH_PREFLIGHT:-}" && -x "\${ORCA_CODEX_LAUNCH_PREFLIGHT}" ]]; then
       "\${ORCA_CODEX_LAUNCH_PREFLIGHT}" agent hooks prepare-codex >/dev/null 2>&1 || :
     fi
@@ -65,6 +77,7 @@ if ($orcaCodexCommand -and
             $global:LASTEXITCODE = 127
             return
         }
+${getPowerShellCodexNativeLaunchAttempt(CODEX_SHARED_SERVER_ARG_PATTERN)}
         $orcaCodexFlags = @()
         # Why try/catch: under the user's $ErrorActionPreference = 'Stop', a failing prep or probe must not abort the launch.
         if ($env:ORCA_CODEX_LAUNCH_PREFLIGHT) {

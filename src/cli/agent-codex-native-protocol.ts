@@ -27,7 +27,16 @@ const FALLBACK_REASONS = [
   'resolver_failure'
 ] as const
 const MAX_PROTOCOL_BYTES = 16 * 1024
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/u
+
+export function hasProtocolControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return true
+    }
+  }
+  return false
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -40,10 +49,7 @@ function hasExactKeys(record: Record<string, unknown>, keys: string[]): boolean 
 }
 
 function isFallbackReason(value: unknown): value is CodexNativeFallbackReason {
-  return (
-    typeof value === 'string' &&
-    FALLBACK_REASONS.some((reason) => reason === value)
-  )
+  return typeof value === 'string' && FALLBACK_REASONS.some((reason) => reason === value)
 }
 
 function hasCleanWindowsPath(value: unknown): value is string {
@@ -51,7 +57,8 @@ function hasCleanWindowsPath(value: unknown): value is string {
     typeof value === 'string' &&
     value.length > 0 &&
     win32.isAbsolute(value) &&
-    !CONTROL_CHARACTERS.test(value)
+    win32.parse(value).root.length > 1 &&
+    !hasProtocolControlCharacters(value)
   )
 }
 
@@ -68,10 +75,7 @@ function toResponse(resolution: unknown): NativeResponse | FallbackResponse {
   }
 
   if (resolution.outcome === 'fallback') {
-    if (
-      !hasExactKeys(resolution, ['outcome', 'reason']) ||
-      !isFallbackReason(resolution.reason)
-    ) {
+    if (!hasExactKeys(resolution, ['outcome', 'reason']) || !isFallbackReason(resolution.reason)) {
       return invalidResolution()
     }
     return { schemaVersion: 1, outcome: 'fallback', reason: resolution.reason }
@@ -135,7 +139,10 @@ export function serializeCodexNativeResolution(
 ): string {
   const output = formatResponse(toResponse(resolution), format)
   if (Buffer.byteLength(output, 'utf8') > MAX_PROTOCOL_BYTES) {
-    throw new RuntimeClientError('runtime_error', 'The native Codex resolver output exceeds 16 KiB.')
+    throw new RuntimeClientError(
+      'runtime_error',
+      'The native Codex resolver output exceeds 16 KiB.'
+    )
   }
   return output
 }

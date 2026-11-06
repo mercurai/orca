@@ -15,6 +15,7 @@ import { getManagedWslCliDir, getWslCliCommandName } from '../../../cli/wsl-mana
 import { stripLegacyTerminalShimEnv } from '../../../pty/legacy-terminal-shim-dir'
 import { mergePersistedWindowsPath } from '../../../pty/windows-environment-path'
 import { resolveCodexShellLaunchPreflightCommand } from '../../../pty/codex-shell-launch-preflight'
+import { resolveCodexShellNativeResolverCommand } from '../../../pty/codex-shell-native-resolver'
 import { scheduleCodexHookReconcile } from '../../../codex/codex-hook-reconcile'
 import { buildConfiguredProxyEnv } from '../../../../shared/network-proxy'
 import { isTuiAgentEnabled } from '../../../../shared/tui-agent-selection'
@@ -227,6 +228,22 @@ export function buildPtyHostEnv(
         baseEnv.ORCA_OMP_STATUS_EXTENSION = guestOmpExtension
       }
     }
+  }
+
+  const nativeResolverCommand = resolveCodexShellNativeResolverCommand({
+    isPackaged: opts.isPackaged,
+    isWsl: opts.isWsl,
+    resourcesPath: opts.resourcesPath
+  })
+  for (const key of Object.keys(baseEnv)) {
+    if (key.toLowerCase() === 'orca_codex_native_resolver') {
+      delete baseEnv[key]
+    }
+  }
+  if (nativeResolverCommand) {
+    baseEnv.ORCA_CODEX_NATIVE_RESOLVER = nativeResolverCommand
+  } else {
+    delete baseEnv.ORCA_CODEX_NATIVE_RESOLVER
   }
 
   // Why: keep the Codex home override PTY-scoped so dev/prod Orcas don't share hooks through ~/.codex.

@@ -245,7 +245,10 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
     }
   })
 
-  it('keeps the wrapped launcher when custom Node options are set', async () => {
+  it.each([
+    { fallback: 'native launching is disabled', nativeDisabled: '1', nodeOptions: '' },
+    { fallback: 'custom Node options are set', nativeDisabled: '', nodeOptions: '--trace-warnings' }
+  ])('keeps the wrapped launcher when $fallback', async ({ nativeDisabled, nodeOptions }) => {
     const install = createInstalledCodex()
     const managedHomePath = join(install.packageRoot, 'fallback-account-home')
     const child = createLoginChild()
@@ -253,8 +256,8 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
     vi.stubEnv('PATH', install.env.PATH ?? '')
     vi.stubEnv('npm_config_user_agent', install.env.npm_config_user_agent ?? '')
     clearWindowsCodexNativeOverrides()
-    vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '')
-    vi.stubEnv('NODE_OPTIONS', '--trace-warnings')
+    vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', nativeDisabled)
+    vi.stubEnv('NODE_OPTIONS', nodeOptions)
     vi.stubEnv('CODEX_HOME', 'inherited-user-home')
     vi.stubEnv('CODEX_MANAGED_BY_BUN', '1')
     vi.resetModules()
@@ -287,7 +290,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
       expect(request.env).toMatchObject({ CODEX_HOME: managedHomePath })
       expect(request.env.PATH ?? request.env.Path).toBe(install.env.PATH)
       expect(request.env.CODEX_MANAGED_BY_BUN).toBe('1')
-      expect(request.env.NODE_OPTIONS).toBe('--trace-warnings')
+      expect(request.env.NODE_OPTIONS).toBe(nodeOptions)
       expect(child.listenerCount('error')).toBe(0)
       expect(child.listenerCount('close')).toBe(0)
     } finally {
@@ -355,11 +358,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login errors
 describe('Codex login ENOENT diagnostics', () => {
   it.each([
     ['a bare command', 'codex', 'Codex CLI not found.'],
-    [
-      'a full-path wrapper',
-      'C:/Tools/codex.cmd',
-      'Node.js may not be in your PATH.'
-    ],
+    ['a full-path wrapper', 'C:/Tools/codex.cmd', 'Node.js may not be in your PATH.'],
     ['an explicit executable', 'C:/Tools/codex.exe', 'required executable was not found']
   ])('uses the right error guidance for %s', async (_, codexCommand, expectedMessage) => {
     const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform')!

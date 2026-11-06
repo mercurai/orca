@@ -8,12 +8,11 @@ import {
   writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runProcessSync } from '@orca/process-host'
 
-const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+const projectRoot = resolve(import.meta.dirname, '../..')
 const packageRoot = join(projectRoot, 'src', 'packages', 'process-host')
 const manifestPath = join(packageRoot, 'package.json')
 const readerPath = join(packageRoot, 'src', 'windows-pe-machine.cjs')

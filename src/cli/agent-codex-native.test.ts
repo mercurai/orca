@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { createInstalledCodexFamily } from '../packages/process-host/src/__fixtures__/codex-native-launch-fixture'
+import { hasProtocolControlCharacters } from './agent-codex-native-protocol'
 import {
   findCommandSpec,
   GLOBAL_FLAGS,
@@ -142,7 +143,7 @@ describe('orca agent resolve-codex-native command contract', () => {
     expect(lines[2]).toMatch(FALLBACK_REASONS)
     expect(lines[3]).toBe('END_ORCA_CODEX_NATIVE_V1')
     expect(lines[4]).toBe('')
-    expect(lines.slice(0, -1).every((line) => !/[\u0000-\u001f\u007f]/u.test(line))).toBe(true)
+    expect(lines.slice(0, -1).every((line) => !hasProtocolControlCharacters(line))).toBe(true)
     expect(Buffer.byteLength(output, 'utf8')).toBeLessThanOrEqual(16 * 1024)
   })
 
@@ -162,9 +163,7 @@ describe('orca agent resolve-codex-native command contract', () => {
       vi.stubEnv('ORCA_DISABLE_CODEX_NATIVE_LAUNCH', '')
       vi.stubEnv('ORCA_DISABLE_CMD_SHIM_RESOLUTION', '')
 
-      const output = vi
-        .spyOn(process.stdout, 'write')
-        .mockImplementation(() => true)
+      const output = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
       const jsonFlags = new Map<string, string | boolean>([
         ['launcher', family.launcher],
         ['node', family.node],

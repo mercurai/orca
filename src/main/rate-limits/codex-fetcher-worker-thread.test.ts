@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { build } from 'esbuild'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
+import type * as WorkerThreadChildProcessModule from '../worker-thread-child-process/worker-thread-child-process'
 import type { WorkerThreadChildProcessHost } from '../worker-thread-child-process/worker-thread-child-process'
 import type { WorkerThreadChildSpec } from '../worker-thread-child-process/worker-thread-child-process-protocol'
 import { createInstalledCodexFamily } from '../../packages/process-host/src/__fixtures__/codex-native-launch-fixture'
@@ -138,16 +139,19 @@ describe.skipIf(process.platform !== 'win32')('Codex rate-limit worker-thread tr
       join(workerEntryDir, 'windows-pe-machine.cjs')
     )
     await build({
-      entryPoints: [join(__dirname, '../worker-thread-child-process/worker-thread-child-process-entry.ts')],
+      entryPoints: [
+        join(__dirname, '../worker-thread-child-process/worker-thread-child-process-entry.ts')
+      ],
       outfile: workerEntryPath,
       bundle: true,
       platform: 'node',
       format: 'cjs',
       logLevel: 'silent'
     })
-    const { WorkerThreadChildProcessHost: ActualHost } = await vi.importActual<
-      typeof import('../worker-thread-child-process/worker-thread-child-process')
-    >('../worker-thread-child-process/worker-thread-child-process')
+    const { WorkerThreadChildProcessHost: ActualHost } =
+      await vi.importActual<WorkerThreadChildProcessModule>(
+        '../worker-thread-child-process/worker-thread-child-process'
+      )
     workerHost = new ActualHost(() => {
       const nextWorker = new Worker(workerEntryPath)
       worker = nextWorker
@@ -221,10 +225,7 @@ describe.skipIf(process.platform !== 'win32')('Codex rate-limit worker-thread tr
     const install = makeApprovedInstallFixture()
     copyFileSync(process.execPath, install.nativeExecutable)
     const accountHome = join(install.packageRoot, 'account-home')
-    const values = [
-      ...WINDOWS_ARGUMENT_CORPUS.map(({ value }) => value),
-      'line one\nline two'
-    ]
+    const values = [...WINDOWS_ARGUMENT_CORPUS.map(({ value }) => value), 'line one\nline two']
     const childProgram = [
       'process.stdin.resume()',
       'process.stdin.once("end", () => {',
