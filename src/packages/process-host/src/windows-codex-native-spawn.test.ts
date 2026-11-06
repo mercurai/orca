@@ -31,7 +31,7 @@ describe.skipIf(process.platform !== 'win32')('native Codex spawn resolution', (
   it('starts the installed executable with unchanged arguments and child options', () => {
     const install = createInstallation()
     const args = ['exec', '-', '', 'line one\nline two', 'a"b', 'space and & pipe |']
-    const env = {
+    const env: NodeJS.ProcessEnv = {
       ...install.env,
       CODEX_HOME: join(install.packageRoot, 'test-home'),
       ORCA_AGENT_SESSION_ID: 'test-session',

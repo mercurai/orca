@@ -35,8 +35,9 @@ export async function runConnectionClose(
   const spawnImpl: PipedProcessSpawner = (spec) => {
     verifySpawnEnvironment(spec.env, homeRoot, settings)
     spawnEnvironmentVerified = true
-    spawnedChild = spawnProcess(spec)
-    return spawnedChild
+    const child = spawnProcess(spec)
+    spawnedChild = child
+    return child
   }
   const connection = await openCodexAppServerConnection(
     {

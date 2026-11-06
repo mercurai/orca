@@ -21,7 +21,7 @@ const FALLBACK_REASONS =
   /^(?:unsupported_context|unrecognized_launcher|unverified_install|native_unavailable|resolver_failure)$/u
 
 let fixtureRoot: string
-let previousExitCode: number | undefined
+let previousExitCode: typeof process.exitCode
 
 function launcherPath(): string {
   return join(fixtureRoot, 'codex.cmd')
@@ -33,7 +33,7 @@ function offlineContext(flags: Map<string, string | boolean>): HandlerContext {
     cwd: fixtureRoot,
     json: false,
     rawArgs: ['--prompt', 'must-not-appear-in-the-protocol'],
-    get client() {
+    get client(): HandlerContext['client'] {
       throw new Error('resolve-codex-native must not access HandlerContext.client')
     }
   }

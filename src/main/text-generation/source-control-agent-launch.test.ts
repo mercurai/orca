@@ -107,7 +107,7 @@ describe('spawnSourceControlAgent', () => {
       const install = createInstalledCodex()
       const managedHome = join(folder, 'managed-account-home')
       const args = ['--print', '', 'line one - line two', 'quoted "text" & pipe |']
-      const env = {
+      const env: NodeJS.ProcessEnv = {
         ...install.env,
         CODEX_HOME: managedHome,
         ORCA_AGENT_SESSION_ID: 'source-control-session',

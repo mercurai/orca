@@ -127,6 +127,9 @@ export function verifyDirectRoute(
   }
   const byPid = new Map(tree.map((row) => [row.pid, row]))
   for (const process of codex) {
+    if (process.pid === rootPid) {
+      continue
+    }
     let parentPid = process.ppid
     let nodeParent = root.name.toLowerCase() === 'node.exe'
     const seen = new Set<number>()

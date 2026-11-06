@@ -148,10 +148,9 @@ describe.skipIf(process.platform !== 'win32')('Codex rate-limit worker-thread tr
       format: 'cjs',
       logLevel: 'silent'
     })
-    const { WorkerThreadChildProcessHost: ActualHost } =
-      await vi.importActual<WorkerThreadChildProcessModule>(
-        '../worker-thread-child-process/worker-thread-child-process'
-      )
+    const { WorkerThreadChildProcessHost: ActualHost } = await vi.importActual<
+      typeof WorkerThreadChildProcessModule
+    >('../worker-thread-child-process/worker-thread-child-process')
     workerHost = new ActualHost(() => {
       const nextWorker = new Worker(workerEntryPath)
       worker = nextWorker

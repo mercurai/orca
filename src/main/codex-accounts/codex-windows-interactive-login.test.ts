@@ -172,7 +172,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
     const managedHomePath = join(install.packageRoot, 'account-home')
     const child = createLoginChild()
     const spawnRequests: CodexLoginSpawnRequest[] = []
-    let cancelLogin: (() => boolean) | null = null
+    const loginCancellation: { current: (() => boolean) | null } = { current: null }
     const killProcessTree = vi.fn()
     vi.stubEnv('PATH', install.env.PATH ?? '')
     vi.stubEnv('npm_config_user_agent', install.env.npm_config_user_agent ?? '')
@@ -196,7 +196,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
         },
         killProcessTree,
         setCancel: (cancel) => {
-          cancelLogin = cancel
+          loginCancellation.current = cancel
         },
         onAuthUrl: vi.fn()
       })
@@ -224,6 +224,7 @@ describe.skipIf(process.platform !== 'win32')('Codex Windows native login launch
       expect(request.env).not.toHaveProperty('CODEX_MANAGED_BY_BUN')
       expect(process.env.CODEX_MANAGED_BY_BUN).toBe('1')
 
+      const cancelLogin = loginCancellation.current
       if (!cancelLogin) {
         throw new Error('Codex login cancellation was not registered.')
       }
