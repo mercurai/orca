@@ -448,6 +448,12 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
             { name: 'official ps1, inherited environment', launchCase: 'powershell-inherited' }
           ]
         : [{ name: 'runtime fixture', launchCase: 'runtime' }]
+    if (shell.name === 'Windows PowerShell') {
+      streamingCases.push(
+        { name: 'ps5 ps1, cache NUL', launchCase: 'powershell-cache-nul' },
+        { name: 'ps5 ps1, module path reset', launchCase: 'powershell-module-path' }
+      )
+    }
 
     for (const streamingCase of streamingCases) {
       it.each(['native', 'optout'] as const)(

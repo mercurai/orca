@@ -1,4 +1,4 @@
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { createInstalledCodexFamily } from '../../packages/process-host/src/__fixtures__/codex-native-launch-fixture'
 import { mergeCommandEnvironment } from '../../../src/shared/command-environment'
@@ -39,6 +39,8 @@ export type StreamingLaunchCase =
   | 'powershell-isolated'
   | 'cmd-isolated'
   | 'powershell-inherited'
+  | 'powershell-cache-nul'
+  | 'powershell-module-path'
 
 export function writeStreamingResponderScript(path: string): void {
   writeFileSync(
@@ -100,8 +102,9 @@ export function prepareStreamingLaunch(
   let appServerScript = fixture.appServerScript
   let expectedShim: string | null = null
   if (runtimeShell.kind === 'powershell') {
+    // ExternalScriptInfo expands 8.3 aliases before the runtime prefix guard compares paths.
     const installed = createInstalledCodexFamily({
-      tempRoot: join(fixture.root, 'official npm prefix'),
+      tempRoot: join(realpathSync.native(fixture.root), 'official npm prefix'),
       launcherKind: launchCase === 'cmd-isolated' ? 'cmd' : 'powershell',
       includeSiblingNodeExe: false
     })
@@ -151,6 +154,7 @@ export function prepareStreamingLaunch(
     ORCA_TEST_NATIVE_LOG: fixture.nativeLog,
     ORCA_TEST_DIAGNOSTIC_LOG: fixture.diagnosticLog,
     ORCA_TEST_EXPECTED_CODEX_HOME: join(fixture.root, 'codex-home'),
+    ...(launchCase === 'powershell-cache-nul' ? { PSModuleAnalysisCachePath: 'NUL' } : {}),
     NODE_OPTIONS: '',
     NODE_PATH: '',
     ORCA_NODE_OPTIONS: '',
@@ -161,12 +165,16 @@ export function prepareStreamingLaunch(
   const generatedScript = runtimeShellScript(runtimeShell, npmBin, false, true, true)
   const selectedLauncherLine =
     '$orcaSelectedCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1'
+  const selectedLauncherBlock = [
+    ...(launchCase === 'powershell-module-path'
+      ? ["$env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')"]
+      : []),
+    selectedLauncherLine,
+    '$env:ORCA_TEST_SELECTED_SHIM = $orcaSelectedCodex.Source'
+  ].join('\n')
   const script =
     runtimeShell.kind === 'powershell'
-      ? generatedScript.replace(
-          selectedLauncherLine,
-          `${selectedLauncherLine}\n$env:ORCA_TEST_SELECTED_SHIM = $orcaSelectedCodex.Source`
-        )
+      ? generatedScript.replace(selectedLauncherLine, selectedLauncherBlock)
       : generatedScript
 
   return { env, script, expectedShim }
