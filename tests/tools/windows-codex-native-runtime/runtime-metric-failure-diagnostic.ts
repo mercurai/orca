@@ -7,9 +7,20 @@ import type {
 } from './runtime-resource-window'
 
 type TreeState = 'unchanged' | 'peripheral-change' | 'critical-change' | 'unavailable'
+type RecoveryClassification =
+  | 'eligible'
+  | 'malformed-request'
+  | 'malformed-snapshot'
+  | 'critical-mismatch'
+  | 'failed-identity-still-present'
+  | 'failed-pid-reused'
+  | 'retained-identity-renamed'
+  | 'unchanged'
+  | 'unavailable'
+type RecoveryOutcome = 'restart' | 'restart-cap' | 'deadline' | 'rejected'
 export type FailedSampleTreeDiagnostic = {
-  state: TreeState
   snapshot?: ResourceWindowSnapshot
+  outcome: RecoveryOutcome
 }
 
 export async function reportFailedSampleDiagnostic(
@@ -17,7 +28,9 @@ export async function reportFailedSampleDiagnostic(
   dependencies: ResourceWindowDependencies,
   deadline: number,
   baselineCritical: NamedProcessIdentity[],
-  previous: ResourceWindowSnapshot
+  previous: ResourceWindowSnapshot,
+  restartCount: number,
+  restartCap: number
 ): Promise<FailedSampleTreeDiagnostic> {
   let treeState: TreeState = 'unavailable'
   let currentSnapshot: ResourceWindowSnapshot | undefined
@@ -37,6 +50,28 @@ export async function reportFailedSampleDiagnostic(
   } catch {
     treeState = 'unavailable'
   }
+  const assessment = currentSnapshot
+    ? classifyFailedPeripheralDrift(error, baselineCritical, previous, currentSnapshot)
+    : 'unavailable'
+  const isMalformed = assessment === 'malformed-request' || assessment === 'malformed-snapshot'
+  const classification: RecoveryClassification = isMalformed
+    ? assessment
+    : treeState === 'unavailable'
+      ? 'unavailable'
+      : treeState === 'critical-change' || assessment === 'critical-mismatch'
+        ? 'critical-mismatch'
+        : treeState === 'unchanged' && assessment === 'eligible'
+          ? 'unchanged'
+          : assessment
+  const eligible = treeState === 'peripheral-change' && classification === 'eligible'
+  const deadlineExpired = dependencies.now() >= deadline
+  const outcome: RecoveryOutcome = deadlineExpired
+    ? 'deadline'
+    : eligible
+      ? restartCount >= restartCap
+        ? 'restart-cap'
+        : 'restart'
+      : 'rejected'
   const shell = ['Git Bash', 'PowerShell 7', 'Windows PowerShell'].includes(previous.shell)
     ? previous.shell
     : 'other'
@@ -44,53 +79,142 @@ export async function reportFailedSampleDiagnostic(
     console.error(
       `Windows Codex process metric failure: shell=${shell} mode=${previous.mode}` +
         ` operation=${error.operation} measured=${safeCount(error.measuredCount)}/${safeCount(error.expectedCount)}` +
-        ` error=${safeErrorCode(error.errorCode)} tree=${treeState}`
+        ` error=${safeErrorCode(error.errorCode)} tree=${treeState}` +
+        ` classification=${classification} restarts=${safeCount(restartCount)}/${safeCount(restartCap)}` +
+        ` outcome=${outcome}`
     )
   } catch {
     // Keep diagnostics from replacing the original fail-closed metric error.
   }
-  return { state: treeState, snapshot: currentSnapshot }
+  return { snapshot: currentSnapshot, outcome }
 }
 
-export function isExactFailedPeripheralRemoval(
+function classifyFailedPeripheralDrift(
   error: ProcessMetricsIncompleteError,
   baselineCritical: NamedProcessIdentity[],
   previous: ResourceWindowSnapshot,
   current: ResourceWindowSnapshot
-): boolean {
-  const failedInPrevious = previous.processes
-    .filter(({ identity }) => error.matchesFailedIdentity(identity))
-    .map(({ identity }) => identity)
+): RecoveryClassification {
+  const previousIdentities = previous.processes.map(({ identity }) => identity)
+  const currentIdentities = current.processes.map(({ identity }) => identity)
+  if (
+    !Number.isSafeInteger(error.expectedCount) ||
+    !Number.isSafeInteger(error.measuredCount) ||
+    !Number.isSafeInteger(error.failedIdentityCount) ||
+    error.expectedCount <= 0 ||
+    error.measuredCount < 0 ||
+    error.measuredCount >= error.expectedCount ||
+    error.failedIdentityCount <= 0
+  ) {
+    return 'malformed-request'
+  }
+  if (
+    !hasUniqueIdentities(previous.identities) ||
+    !hasUniqueIdentities(current.identities) ||
+    !hasUniqueNamedIdentities(previous.processes) ||
+    !hasUniqueNamedIdentities(current.processes) ||
+    !hasUniqueNamedIdentities(baselineCritical) ||
+    !hasUniqueNamedIdentities(previous.criticalProcesses) ||
+    !hasUniqueNamedIdentities(current.criticalProcesses)
+  ) {
+    return 'malformed-snapshot'
+  }
   if (
     error.expectedCount !== previous.identities.length ||
     error.expectedCount - error.measuredCount !== error.failedIdentityCount ||
-    !sameNamedIdentities(baselineCritical, current.criticalProcesses) ||
-    !error.matchesFailedIdentities(failedInPrevious) ||
-    baselineCritical.some(({ identity }) => error.matchesFailedIdentity(identity)) ||
-    current.processes.some(({ identity }) => error.matchesFailedIdentity(identity))
+    !error.matchesFailedIdentities(
+      previous.identities.filter((identity) => error.matchesFailedIdentity(identity))
+    )
   ) {
-    return false
+    return 'malformed-request'
+  }
+  if (
+    !sameIdentitySet(previous.identities, previousIdentities) ||
+    !sameIdentitySet(current.identities, currentIdentities) ||
+    !containsNamedIdentities(previous.processes, previous.criticalProcesses) ||
+    !containsNamedIdentities(current.processes, current.criticalProcesses)
+  ) {
+    return 'malformed-snapshot'
+  }
+  if (
+    !sameNamedIdentities(baselineCritical, previous.criticalProcesses) ||
+    !sameNamedIdentities(baselineCritical, current.criticalProcesses)
+  ) {
+    return 'critical-mismatch'
+  }
+
+  const failedInRequest = previous.identities.filter((identity) =>
+    error.matchesFailedIdentity(identity)
+  )
+  const failedInPrevious = previous.processes
+    .filter(({ identity }) => error.matchesFailedIdentity(identity))
+    .map(({ identity }) => identity)
+  if (!error.matchesFailedIdentities(failedInPrevious)) {
+    return 'malformed-snapshot'
+  }
+  if (baselineCritical.some(({ identity }) => error.matchesFailedIdentity(identity))) {
+    return 'critical-mismatch'
+  }
+
+  for (const failedIdentity of failedInRequest) {
+    const currentProcess = current.processes.find(
+      ({ identity }) => identity.pid === failedIdentity.pid
+    )
+    if (currentProcess) {
+      return currentProcess.identity.creationTimeMs === failedIdentity.creationTimeMs
+        ? 'failed-identity-still-present'
+        : 'failed-pid-reused'
+    }
   }
 
   const before = namedIdentityMap(previous.processes)
   const after = namedIdentityMap(current.processes)
-  if (
-    before.size !== previous.processes.length ||
-    after.size !== current.processes.length ||
-    before.size !== after.size + error.failedIdentityCount
-  ) {
-    return false
-  }
-  const removed: ProcessIdentity[] = []
   for (const [key, process] of before) {
     const currentProcess = after.get(key)
-    if (!currentProcess) {
-      removed.push(process.identity)
-    } else if (currentProcess.name !== process.name) {
-      return false
+    if (currentProcess && currentProcess.name !== process.name) {
+      return 'retained-identity-renamed'
     }
   }
-  return error.matchesFailedIdentities(removed) && [...after.keys()].every((key) => before.has(key))
+  return 'eligible'
+}
+
+function hasUniqueIdentities(identities: ProcessIdentity[]): boolean {
+  const pids = new Set<number>()
+  const keys = new Set<string>()
+  for (const identity of identities) {
+    const key = identityKey(identity)
+    if (pids.has(identity.pid) || keys.has(key)) {
+      return false
+    }
+    pids.add(identity.pid)
+    keys.add(key)
+  }
+  return true
+}
+
+function hasUniqueNamedIdentities(processes: NamedProcessIdentity[]): boolean {
+  return hasUniqueIdentities(processes.map(({ identity }) => identity))
+}
+
+function sameIdentitySet(left: ProcessIdentity[], right: ProcessIdentity[]): boolean {
+  if (left.length !== right.length) {
+    return false
+  }
+  const rightKeys = new Set(right.map(identityKey))
+  return (
+    rightKeys.size === right.length &&
+    left.every((identity) => rightKeys.has(identityKey(identity)))
+  )
+}
+
+function containsNamedIdentities(
+  processes: NamedProcessIdentity[],
+  required: NamedProcessIdentity[]
+): boolean {
+  const namesByIdentity = new Map(
+    processes.map(({ identity, name }) => [identityKey(identity), name])
+  )
+  return required.every(({ identity, name }) => namesByIdentity.get(identityKey(identity)) === name)
 }
 
 function sameNamedIdentities(
@@ -100,21 +224,16 @@ function sameNamedIdentities(
   if (before.length !== after.length) {
     return false
   }
-  const current = new Map(
-    after.map(({ identity, name }) => [`${identity.pid}:${identity.creationTimeMs}`, name])
-  )
-  return before.every(
-    ({ identity, name }) => current.get(`${identity.pid}:${identity.creationTimeMs}`) === name
-  )
+  const current = new Map(after.map(({ identity, name }) => [identityKey(identity), name]))
+  return before.every(({ identity, name }) => current.get(identityKey(identity)) === name)
 }
 
 function namedIdentityMap(processes: NamedProcessIdentity[]): Map<string, NamedProcessIdentity> {
-  return new Map(
-    processes.map((process) => [
-      `${process.identity.pid}:${process.identity.creationTimeMs}`,
-      process
-    ])
-  )
+  return new Map(processes.map((process) => [identityKey(process.identity), process]))
+}
+
+function identityKey(identity: ProcessIdentity): string {
+  return `${identity.pid}:${identity.creationTimeMs}`
 }
 
 function safeCount(value: number): number {

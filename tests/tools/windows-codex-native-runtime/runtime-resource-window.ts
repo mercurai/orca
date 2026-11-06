@@ -3,10 +3,7 @@ import type { ProcessIdentity } from './process-tree-identity'
 import type { ProcessMetrics } from './process-metrics-protocol'
 import { ProcessMetricsIncompleteError } from './process-metric-failure'
 import type { RuntimeMode } from './runtime-environment'
-import {
-  isExactFailedPeripheralRemoval,
-  reportFailedSampleDiagnostic
-} from './runtime-metric-failure-diagnostic'
+import { reportFailedSampleDiagnostic } from './runtime-metric-failure-diagnostic'
 
 const SAMPLE_COUNT = 4
 const SAMPLE_INTERVAL_MS = 1_000
@@ -147,20 +144,13 @@ export async function collectStableResourceWindow(
           dependencies,
           deadline,
           baselineCritical ?? previous.criticalProcesses,
-          previous
+          previous,
+          restarts,
+          MAX_WINDOW_RESTARTS
         )
-        if (
-          treeDiagnostic.state === 'peripheral-change' &&
-          treeDiagnostic.snapshot &&
-          isExactFailedPeripheralRemoval(
-            error,
-            baselineCritical ?? previous.criticalProcesses,
-            previous,
-            treeDiagnostic.snapshot
-          )
-        ) {
+        if (treeDiagnostic.outcome === 'restart' && treeDiagnostic.snapshot) {
           lastChange = identityDelta(previous.processes, treeDiagnostic.snapshot.processes)
-          if (restarts >= MAX_WINDOW_RESTARTS || dependencies.now() >= deadline) {
+          if (dependencies.now() >= deadline || restarts >= MAX_WINDOW_RESTARTS) {
             throw error
           }
           restarts++

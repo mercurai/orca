@@ -1,62 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ProcessIdentity } from '../../../tests/tools/windows-codex-native-runtime/process-tree-identity'
-import type { ProcessMetrics } from '../../../tests/tools/windows-codex-native-runtime/process-metrics-client'
 import { ProcessMetricsIncompleteError } from '../../../tests/tools/windows-codex-native-runtime/process-metric-failure'
+import { identity, metricsFor, snapshot } from './codex-native-resource-sampling.test-fixture'
 import {
   collectStableResourceWindow,
   type ResourceWindowDependencies,
   type ResourceWindowSnapshot
 } from '../../../tests/tools/windows-codex-native-runtime/runtime-resource-window'
-
-function identity(pid: number, creationTimeMs: number): ProcessIdentity {
-  return { pid, creationTimeMs }
-}
-
-function snapshot(
-  helpers: ProcessIdentity | ProcessIdentity[] | null,
-  codex = identity(202, 2002),
-  marker = 2
-): ResourceWindowSnapshot {
-  const helperProcesses = helpers === null ? [] : Array.isArray(helpers) ? helpers : [helpers]
-  const processes = [
-    { name: 'bash.exe', identity: identity(101, 1001) },
-    { name: 'codex.exe', identity: codex }
-  ]
-  for (const helper of helperProcesses) {
-    processes.push({ name: 'conhost.exe', identity: helper })
-  }
-  const criticalProcesses = processes.slice(0, 2)
-  return {
-    shell: 'Git Bash',
-    mode: 'native',
-    signature: processes
-      .map(({ identity: item }) => `${item.pid}:${item.creationTimeMs}`)
-      .join(','),
-    processes,
-    criticalProcesses,
-    identities: processes.map(({ identity: item }) => item),
-    measure: (metrics) => ({
-      privateBytes: marker,
-      workingSetBytes: marker,
-      handleCount: marker,
-      nodeCount: 0,
-      cmdCount: 0,
-      cpu100ns: metrics.reduce((total, row) => total + row.kernel100ns + row.user100ns, 0)
-    })
-  }
-}
-
-function metricsFor(identities: ProcessIdentity[], cpu100ns: number): ProcessMetrics[] {
-  return identities.map((item, index) => ({
-    ...item,
-    imagePath: 'codex.exe',
-    privateBytes: 1,
-    workingSetBytes: 1,
-    handleCount: 1,
-    kernel100ns: index === 0 ? cpu100ns : 0,
-    user100ns: 0
-  }))
-}
 
 describe('Codex native runtime resource sampling', () => {
   it('discards a partial window when a peripheral identity changes', async () => {
@@ -258,27 +208,42 @@ describe('Codex native runtime resource sampling', () => {
     })
     const cases: {
       expected: string
+      classification: string
+      outcome: string
       read: () => Promise<ResourceWindowSnapshot>
       exhaustDeadline?: boolean
       expectedReadCount?: number
     }[] = [
-      { expected: 'unchanged', read: async () => original },
+      {
+        expected: 'unchanged',
+        classification: 'failed-identity-still-present',
+        outcome: 'rejected',
+        read: async () => original
+      },
       {
         expected: 'peripheral-change',
-        read: async () => snapshot(identity(304, 3004))
+        classification: 'failed-identity-still-present',
+        outcome: 'rejected',
+        read: async () => snapshot([identity(303, 3003), identity(304, 3004)])
       },
       {
         expected: 'critical-change',
+        classification: 'critical-mismatch',
+        outcome: 'rejected',
         read: async () => snapshot(identity(303, 3003), identity(205, 2005))
       },
       {
         expected: 'unavailable',
+        classification: 'unavailable',
+        outcome: 'rejected',
         read: async () => {
           throw new Error('private read failure')
         }
       },
       {
         expected: 'unavailable',
+        classification: 'unavailable',
+        outcome: 'deadline',
         exhaustDeadline: true,
         expectedReadCount: 0,
         read: async () => original
@@ -330,6 +295,8 @@ describe('Codex native runtime resource sampling', () => {
         expect(log.mock.calls.at(-1)?.[0]).toContain(
           'operation=get_process_memory_info measured=2/3 error=31'
         )
+        expect(log.mock.calls.at(-1)?.[0]).toContain(`classification=${testCase.classification}`)
+        expect(log.mock.calls.at(-1)?.[0]).toContain(`restarts=0/3 outcome=${testCase.outcome}`)
         expect(log.mock.calls.at(-1)?.[0]).not.toContain('private')
         expect(log.mock.calls.at(-1)?.[0]).not.toContain('303')
       }
@@ -338,65 +305,91 @@ describe('Codex native runtime resource sampling', () => {
     }
   })
 
-  it('restarts with a full fresh window when all failed peripheral identities disappeared', async () => {
-    const failedIdentities = [identity(303, 3003), identity(304, 3004), identity(305, 3005)]
-    const original = snapshot(failedIdentities, undefined, 1)
-    const replacement = snapshot(null, undefined, 9)
-    let now = 0
-    let settleCount = 0
-    let readCount = 0
-    let sampleCount = 0
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const dependencies: ResourceWindowDependencies = {
-      settle: async () => {
-        settleCount++
-        return settleCount === 1 ? original : replacement
+  it('restarts a full fresh window for failed-identity and ordinary peripheral drift', async () => {
+    const cases = [
+      {
+        previousHelpers: [identity(303, 3003)],
+        failedIdentities: [identity(303, 3003)],
+        currentHelpers: [identity(304, 3004)],
+        expectedCount: 3,
+        measuredCount: 2
       },
-      read: async () => {
-        readCount++
-        return readCount === 1 ? original : replacement
+      {
+        previousHelpers: [identity(303, 3003), identity(304, 3004)],
+        failedIdentities: [identity(303, 3003)],
+        currentHelpers: null,
+        expectedCount: 4,
+        measuredCount: 3
       },
-      sample: async (identities) => {
-        sampleCount++
-        if (sampleCount === 2) {
-          throw new ProcessMetricsIncompleteError({
-            operation: 'query_full_process_image_name',
-            failedIdentities,
-            expectedCount: identities.length,
-            measuredCount: identities.length - failedIdentities.length,
-            errorCode: 31
-          })
-        }
-        const counterIndex = sampleCount === 1 ? 0 : sampleCount - 2
-        return metricsFor(
-          identities,
-          sampleCount === 1 ? 900_000_000_000 : counterIndex * 10_000_000
-        )
-      },
-      now: () => now,
-      delay: async (milliseconds) => {
-        now += milliseconds
+      {
+        previousHelpers: [identity(303, 3003), identity(304, 3004), identity(305, 3005)],
+        failedIdentities: [identity(303, 3003), identity(304, 3004), identity(305, 3005)],
+        currentHelpers: null,
+        expectedCount: 5,
+        measuredCount: 2
       }
-    }
+    ]
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     try {
-      const result = await collectStableResourceWindow(dependencies)
-      expect(result.samples.map((sample) => sample.privateBytes)).toEqual([9, 9, 9, 9])
-      expect(result.idleCpuCorePercent).toBeCloseTo(100)
-      expect(result.restarts).toBe(1)
-      expect([settleCount, readCount, sampleCount]).toEqual([2, 6, 6])
-      expect(log).toHaveBeenCalledOnce()
-      expect(log.mock.calls[0]?.[0]).toContain('tree=peripheral-change')
-      expect(log.mock.calls[0]?.[0]).not.toContain('303')
-      expect(log.mock.calls[0]?.[0]).not.toContain('3003')
-      expect(log.mock.calls[0]?.[0]).not.toContain('304')
-      expect(log.mock.calls[0]?.[0]).not.toContain('3004')
+      for (const testCase of cases) {
+        const original = snapshot(testCase.previousHelpers, undefined, 1)
+        const replacement = snapshot(testCase.currentHelpers, undefined, 9)
+        let now = 0
+        let settleCount = 0
+        let readCount = 0
+        let sampleCount = 0
+        log.mockClear()
+        const dependencies: ResourceWindowDependencies = {
+          settle: async () => {
+            settleCount++
+            return settleCount === 1 ? original : replacement
+          },
+          read: async () => {
+            readCount++
+            return readCount === 1 ? original : replacement
+          },
+          sample: async (identities) => {
+            sampleCount++
+            if (sampleCount === 2) {
+              throw new ProcessMetricsIncompleteError({
+                operation: 'query_full_process_image_name',
+                failedIdentities: testCase.failedIdentities,
+                expectedCount: testCase.expectedCount,
+                measuredCount: testCase.measuredCount,
+                errorCode: 31
+              })
+            }
+            const counterIndex = sampleCount < 3 ? 0 : sampleCount - 3
+            return metricsFor(
+              identities,
+              sampleCount === 1 ? 900_000_000_000 : counterIndex * 10_000_000
+            )
+          },
+          now: () => now,
+          delay: async (milliseconds) => {
+            now += milliseconds
+          }
+        }
+
+        const result = await collectStableResourceWindow(dependencies)
+        expect(result.samples.map((sample) => sample.privateBytes)).toEqual([9, 9, 9, 9])
+        expect(result.idleCpuCorePercent).toBeCloseTo(100)
+        expect(result.restarts).toBe(1)
+        expect([settleCount, readCount, sampleCount]).toEqual([2, 6, 6])
+        expect(log).toHaveBeenCalledOnce()
+        expect(log.mock.calls[0]?.[0]).toContain('classification=eligible')
+        expect(log.mock.calls[0]?.[0]).toContain('restarts=0/3 outcome=restart')
+        for (const privateValue of ['303', '3003', '304', '3004', '305', '3005']) {
+          expect(log.mock.calls[0]?.[0]).not.toContain(privateValue)
+        }
+      }
     } finally {
       log.mockRestore()
     }
   })
 
-  it('keeps incomplete metric failures when removals do not match the failed peripheral set', async () => {
+  it('keeps incomplete metric failures for unsafe or ambiguous tree changes', async () => {
     const failedHelper = identity(303, 3003)
     const original = snapshot(failedHelper)
     const cases: {
@@ -406,12 +399,18 @@ describe('Codex native runtime resource sampling', () => {
       current: ResourceWindowSnapshot
       expectedCount?: number
       measured: number
+      classification: string
+      renamedIdentity?: ProcessIdentity
+      duplicateCritical?: boolean
+      corruptBinding?: 'request' | 'previous-critical-absent' | 'previous-critical-renamed'
+      corruptCurrentCritical?: 'absent' | 'renamed'
     }[] = [
       {
         name: 'identity remains',
         failedIdentities: [failedHelper],
         current: original,
-        measured: 2
+        measured: 2,
+        classification: 'failed-identity-still-present'
       },
       {
         name: 'one member of the failed set remains live',
@@ -419,45 +418,124 @@ describe('Codex native runtime resource sampling', () => {
         failedIdentities: [failedHelper, identity(304, 3004), identity(305, 3005)],
         current: snapshot(identity(305, 3005)),
         expectedCount: 5,
-        measured: 2
+        measured: 2,
+        classification: 'failed-identity-still-present'
       },
       {
         name: 'critical identity changed',
         failedIdentities: [identity(202, 2002)],
         current: snapshot(failedHelper, identity(205, 2005)),
-        measured: 2
+        measured: 2,
+        classification: 'critical-mismatch'
       },
       {
         name: 'failed critical identity remains while a peripheral leaves',
         failedIdentities: [identity(202, 2002)],
         current: snapshot(null),
-        measured: 2
-      },
-      {
-        name: 'extra identity appeared',
-        failedIdentities: [failedHelper],
-        current: snapshot(identity(304, 3004)),
-        measured: 2
-      },
-      {
-        name: 'an unrelated peripheral also disappeared',
-        previous: snapshot([failedHelper, identity(304, 3004)]),
-        failedIdentities: [failedHelper],
-        current: snapshot(null),
-        expectedCount: 4,
-        measured: 3
+        measured: 2,
+        classification: 'critical-mismatch'
       },
       {
         name: 'the failed PID was reused with a new creation time',
         failedIdentities: [failedHelper],
         current: snapshot(identity(303, 3004)),
-        measured: 2
+        measured: 2,
+        classification: 'failed-pid-reused'
+      },
+      {
+        name: 'a retained peripheral identity changed name',
+        previous: snapshot([failedHelper, identity(304, 3004)]),
+        failedIdentities: [failedHelper],
+        current: snapshot(identity(304, 3004)),
+        expectedCount: 4,
+        measured: 3,
+        classification: 'retained-identity-renamed',
+        renamedIdentity: identity(304, 3004)
+      },
+      {
+        name: 'the prior request contains a duplicate PID generation',
+        previous: snapshot([failedHelper, identity(303, 3004)]),
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        expectedCount: 4,
+        measured: 3,
+        classification: 'malformed-snapshot'
+      },
+      {
+        name: 'the prior request contains a duplicate process identity',
+        previous: snapshot([failedHelper, failedHelper]),
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        expectedCount: 4,
+        measured: 3,
+        classification: 'malformed-snapshot'
+      },
+      {
+        name: 'the current tree contains duplicate process identities',
+        failedIdentities: [failedHelper],
+        current: snapshot([identity(304, 3004), identity(304, 3004)]),
+        expectedCount: 3,
+        measured: 2,
+        classification: 'malformed-snapshot'
+      },
+      {
+        name: 'the baseline contains duplicate critical process identities',
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        measured: 2,
+        duplicateCritical: true,
+        classification: 'malformed-snapshot'
+      },
+      {
+        name: 'the previous request differs from its process snapshot',
+        previous: snapshot(failedHelper),
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        measured: 2,
+        classification: 'malformed-request',
+        corruptBinding: 'request'
+      },
+      {
+        name: 'a previous critical identity is absent from its process snapshot',
+        previous: snapshot(failedHelper),
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        expectedCount: 2,
+        measured: 1,
+        classification: 'malformed-snapshot',
+        corruptBinding: 'previous-critical-absent'
+      },
+      {
+        name: 'a previous critical process name differs from its process snapshot',
+        previous: snapshot(failedHelper),
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        measured: 2,
+        classification: 'malformed-snapshot',
+        corruptBinding: 'previous-critical-renamed'
+      },
+      {
+        name: 'a current critical identity is absent from its process snapshot',
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        measured: 2,
+        classification: 'malformed-snapshot',
+        corruptCurrentCritical: 'absent'
+      },
+      {
+        name: 'a current critical process name differs from its process snapshot',
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        measured: 2,
+        classification: 'malformed-snapshot',
+        corruptCurrentCritical: 'renamed'
       },
       {
         name: 'failed identity count does not match missing metrics',
         failedIdentities: [failedHelper],
         current: snapshot(null),
-        measured: 1
+        measured: 1,
+        classification: 'malformed-request'
       }
     ]
     const log = vi.spyOn(console, 'error').mockImplementation(() => {})
@@ -467,8 +545,55 @@ describe('Codex native runtime resource sampling', () => {
         let settleCount = 0
         let readCount = 0
         let sampleCount = 0
-        const previous = testCase.previous ?? original
+        const previous = testCase.previous ?? snapshot(failedHelper)
         const expectedCount = testCase.expectedCount ?? 3
+        const current = testCase.current
+        if (testCase.corruptBinding === 'request') {
+          previous.identities.pop()
+        } else if (testCase.corruptBinding === 'previous-critical-absent') {
+          previous.processes.splice(1, 1)
+          previous.identities = previous.processes.map(
+            ({ identity: processIdentity }) => processIdentity
+          )
+        } else if (testCase.corruptBinding === 'previous-critical-renamed') {
+          const codex = previous.processes.find(({ name }) => name === 'codex.exe')
+          if (!codex) {
+            throw new Error('The previous critical fixture was absent')
+          }
+          codex.name = 'renamed-codex.exe'
+        }
+        if (testCase.corruptCurrentCritical === 'absent') {
+          current.processes.splice(1, 1)
+          current.identities = current.processes.map(
+            ({ identity: processIdentity }) => processIdentity
+          )
+        } else if (testCase.corruptCurrentCritical === 'renamed') {
+          const codex = current.processes.find(({ name }) => name === 'codex.exe')
+          if (!codex) {
+            throw new Error('The current critical fixture was absent')
+          }
+          codex.name = 'renamed-codex.exe'
+        }
+        if (testCase.renamedIdentity) {
+          const retained = current.processes.find(
+            ({ identity: currentIdentity }) =>
+              currentIdentity.pid === testCase.renamedIdentity?.pid &&
+              currentIdentity.creationTimeMs === testCase.renamedIdentity?.creationTimeMs
+          )
+          if (!retained) {
+            throw new Error('The name-change fixture identity was absent')
+          }
+          retained.name = 'renamed-peripheral.exe'
+        }
+        if (testCase.duplicateCritical) {
+          const previousCritical = previous.criticalProcesses[0]
+          const currentCritical = current.criticalProcesses[0]
+          if (!previousCritical || !currentCritical) {
+            throw new Error('The duplicate critical fixture was incomplete')
+          }
+          previous.criticalProcesses.push(previousCritical)
+          current.criticalProcesses.push(currentCritical)
+        }
         const failure = new ProcessMetricsIncompleteError({
           operation: 'query_full_process_image_name',
           failedIdentities: testCase.failedIdentities,
@@ -483,7 +608,7 @@ describe('Codex native runtime resource sampling', () => {
           },
           read: async () => {
             readCount++
-            return testCase.current
+            return current
           },
           sample: async () => {
             sampleCount++
@@ -501,6 +626,9 @@ describe('Codex native runtime resource sampling', () => {
         }
         expect(caught).toBe(failure)
         expect([settleCount, readCount, sampleCount]).toEqual([1, 1, 1])
+        expect(log.mock.calls.at(-1)?.[0]).toContain(
+          `classification=${testCase.classification} restarts=0/3 outcome=rejected`
+        )
       }
     } finally {
       log.mockRestore()
@@ -558,6 +686,9 @@ describe('Codex native runtime resource sampling', () => {
       expect(caught).toBe(failure)
       expect([settleCount, readCount, sampleCount]).toEqual([1, 2, 2])
       expect(log.mock.calls[0]?.[0]).toContain('tree=unavailable')
+      expect(log.mock.calls[0]?.[0]).toContain(
+        'classification=unavailable restarts=0/3 outcome=deadline'
+      )
     } finally {
       log.mockRestore()
     }
@@ -615,6 +746,9 @@ describe('Codex native runtime resource sampling', () => {
       expect(log).toHaveBeenCalledTimes(4)
       expect(log.mock.calls.every(([message]) => message.includes('tree=peripheral-change'))).toBe(
         true
+      )
+      expect(log.mock.calls.at(-1)?.[0]).toContain(
+        'classification=eligible restarts=3/3 outcome=restart-cap'
       )
       expect(log.mock.calls.some(([message]) => message.includes('303'))).toBe(false)
     } finally {

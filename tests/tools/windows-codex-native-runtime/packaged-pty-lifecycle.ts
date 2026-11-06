@@ -174,7 +174,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     )
     report.managedEnvironmentRestored.powershell51 = true
 
-    await activateWorkspace(session.page, folderId)
+    await activateWorkspace(session.page, folderId, folderTabId)
     await waitForTerminalReady(session.page, 30_000, folderTabId)
     const folderAfterShellTests = await waitForTerminalTabSession(
       session.page,
@@ -191,7 +191,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     await assertIdentityAlive(folderRuntime.codex, 'The folder Codex app-server')
 
     session = await launchPackaged(appExe, userDataDir, appEnvRoot, settings.npmBin)
-    await activateWorkspace(session.page, folderId)
+    await activateWorkspace(session.page, folderId, folderTabId)
     await waitForTerminalReady(session.page, 30_000, folderTabId)
     const warmPty = await waitForTerminalTabSession(
       session.page,

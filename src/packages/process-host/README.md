@@ -70,9 +70,10 @@ A third [report at `40d3a37436`](https://github.com/mercurai/orca/actions/runs/4
 confirmed 19.5–20.8 MiB lower private commit at one session and 58.3–61.7 MiB at three. PowerShell
 startup medians ranged from -9 to +200 ms; startup timing varies across runs. All normal cleanup
 completed within 896 ms. Each reported window contains four complete samples after one or two
-bounded restarts. The current sampler permits a restart after incomplete metrics only when the exact
-failed identity set matches all vanished noncritical processes, with no other tree change. It discards
-the prior window and CPU deltas.
+bounded restarts. The current sampler restarts after incomplete metrics only when every failed
+identity was noncritical and has disappeared while critical identities stay fixed. Other peripheral
+changes follow the ordinary full-window restart rule. Reused failed PIDs, duplicate PIDs and renamed
+retained processes fail verification. Every restart discards the prior window and CPU deltas.
 The [fourth report at `85cfdc2a9f`](https://github.com/mercurai/orca/actions/runs/42223033417/artifacts/13504219705)
 again recorded zero persistent npm Node parents in native mode. Private commit savings ranged from
 19.5–37.9 MiB at one session and 29.3–60.8 MiB at three; whole-tree savings vary across runs. Every

@@ -38,7 +38,7 @@ export async function proveColdRestoredFolderPane(
   codexHome: string,
   markerDir: string
 ): Promise<void> {
-  await activateWorkspace(session.page, workspaceId)
+  await activateWorkspace(session.page, workspaceId, tabId)
   await waitForTerminalReady(session.page, 30_000, tabId)
   const restoredPty = await waitForTerminalTabSession(session.page, workspaceId, folderPath, tabId)
   const files = createBashProbeFiles(markerDir, 'cold-bash')

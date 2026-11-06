@@ -187,12 +187,18 @@ export async function createFolderWorkspace(
 
 export async function activateWorkspace(
   page: SessionHandle['page'],
-  workspaceId: string
+  workspaceId: string,
+  terminalTabId?: string
 ): Promise<void> {
   const row = page.locator(`[role="option"][data-worktree-id=${JSON.stringify(workspaceId)}]`)
   await row.waitFor({ state: 'visible', timeout: 30_000 })
   if (!(await tryClickWithKnownOverlayRetry(page, row, 30_000))) {
     await row.click({ timeout: 1 })
+  }
+  if (terminalTabId) {
+    await page
+      .locator(`[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(terminalTabId)}]:visible`)
+      .click({ timeout: 30_000 })
   }
 }
 
