@@ -187,7 +187,8 @@ export function getPowerShellCodexNativeLaunchAttempt(sharedServerArgPattern: st
                 $orcaNativeValid = $false
                 $orcaNativeExecutable = $null
                 $orcaNativePackageRoot = $null
-                if ($orcaNativeResolverExit -eq 0 -and -not $orcaNativeOutputTooLarge -and $orcaNativeLineCount -eq 1) {
+                if ($orcaNativeResolverExit -eq 0 -and -not $orcaNativeOutputTooLarge -and
+                    $orcaNativeLineCount -eq 1 -and $orcaNativeLine.TrimStart().StartsWith('{')) {
                     try {
                         $orcaNativeResponse = ConvertFrom-Json -InputObject $orcaNativeLine -ErrorAction Stop
                         $orcaNativeKeys = @($orcaNativeResponse.PSObject.Properties.Name | Sort-Object)
@@ -199,7 +200,7 @@ export function getPowerShellCodexNativeLaunchAttempt(sharedServerArgPattern: st
                             $orcaNativeKeys -ccontains 'outcome' -and
                             $orcaNativeKeys -ccontains 'nativeExecutable' -and
                             $orcaNativeKeys -ccontains 'environmentDelta' -and
-                            $orcaNativeResponse.schemaVersion -isnot [bool] -and
+                            ($orcaNativeResponse.schemaVersion -is [int] -or $orcaNativeResponse.schemaVersion -is [long]) -and
                             $orcaNativeResponse.schemaVersion -eq 1 -and
                             $orcaNativeResponse.outcome -ceq 'native' -and
                             $orcaNativeDeltaKeys.Count -eq 2 -and

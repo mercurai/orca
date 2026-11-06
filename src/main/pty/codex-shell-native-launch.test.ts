@@ -249,10 +249,14 @@ function runShell(
       ? 'command -v codex >/dev/null 2>&1 || exit 97'
       : `if ((Get-Command codex -CommandType Application | Select-Object -First 1).Source -ne ${quotePowerShell(codexPath)}) { exit 97 }`
   const script = [guard, template, body].join('\n')
-  const args =
-    shell.kind === 'bash'
-      ? ['--noprofile', '--norc', '-c', script]
-      : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script]
+  let args: string[]
+  if (shell.kind === 'bash') {
+    const scriptPath = join(fixture.root, 'shell launch fixture.sh')
+    writeFileSync(scriptPath, script, 'utf8')
+    args = ['--noprofile', '--norc', scriptPath]
+  } else {
+    args = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script]
+  }
   const result = runProcessSync({
     program: shell.command,
     args,

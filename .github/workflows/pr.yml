@@ -76,6 +76,7 @@ jobs:
             /.github/scripts/check-root-directory-entries.mjs
             /config/scripts/check-readme-local-links.mjs
             /config/scripts/pr-code-change-scope.mjs
+            /config/scripts/pr-code-change-scope-package-tests.mjs
             /config/scripts/pr-layout-oracle-route.mjs
             /config/scripts/pr-e2e-source-routing.mjs
             /config/scripts/ci-e2e-job-selection.mjs
