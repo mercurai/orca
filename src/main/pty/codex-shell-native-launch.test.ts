@@ -20,7 +20,7 @@ import {
 const isWindows = process.platform === 'win32'
 const roots: string[] = []
 type Shell = { name: string; kind: 'bash' | 'powershell'; command: string | null }
-type ResolverCall = { args: string[]; stdinBytes: number }
+type ResolverCall = { args: string[]; stdinBytes: number; installState: string }
 type Fixture = {
   root: string
   bin: string
@@ -144,7 +144,7 @@ function makeFixture(): Fixture {
   const nativeTarget = join(root, 'native Codex target.cmd')
   writeFileSync(
     nativeTarget,
-    '@echo off\r\nif "%~1"=="--help" (\r\n  >>"%ORCA_TEST_HELP_LOG%" echo native-probe\r\n  echo   --no-daemon\r\n  exit /b 0\r\n)\r\n>>"%ORCA_TEST_EVENT_LOG%" echo native-start\r\n>>"%ORCA_TEST_NATIVE_LOG%" echo %*\r\necho NATIVE\r\nexit /b 0\r\n'
+    '@echo off\r\nif "%~1"=="--help" (\r\n  >>"%ORCA_TEST_HELP_LOG%" echo native-probe\r\n  echo   --no-daemon\r\n  exit /b 0\r\n)\r\nif not "%ORCA_TEST_NATIVE_STATE_FILE%"=="" >"%ORCA_TEST_NATIVE_STATE_FILE%" echo 0.167.0\r\n>>"%ORCA_TEST_EVENT_LOG%" echo native-start\r\n>>"%ORCA_TEST_NATIVE_LOG%" echo %*\r\necho NATIVE\r\nexit /b 0\r\n'
   )
 
   const resolverScript = join(root, 'resolver fixture.cjs')
@@ -154,8 +154,10 @@ function makeFixture(): Fixture {
       "const fs = require('node:fs')",
       'const args = process.argv.slice(2)',
       'const stdinBytes = fs.readFileSync(0).length',
+      'const stateFile = process.env.ORCA_TEST_NATIVE_STATE_FILE',
+      "const installState = stateFile && fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8').trim() : 'absent'",
       "process.on('exit', () => fs.appendFileSync(process.env.ORCA_TEST_EVENT_LOG, 'resolver-exit\\n'))",
-      'fs.appendFileSync(process.env.ORCA_TEST_RESOLVER_LOG, JSON.stringify({ args, stdinBytes }) + "\\n")',
+      'fs.appendFileSync(process.env.ORCA_TEST_RESOLVER_LOG, JSON.stringify({ args, stdinBytes, installState }) + "\\n")',
       "let records = ['ORCA_CODEX_NATIVE_V1', 'native', process.env.ORCA_TEST_NATIVE_EXE, process.env.ORCA_TEST_PACKAGE_ROOT, 'npm', 'END_ORCA_CODEX_NATIVE_V1']",
       "const mode = process.env.ORCA_TEST_RESOLVER_MODE || 'native'",
       "const recordEnding = mode === 'crlf' ? '\\r\\n' : '\\n'",
@@ -164,7 +166,7 @@ function makeFixture(): Fixture {
       "if (mode === 'wrong-version') records[0] = 'ORCA_CODEX_NATIVE_V2'",
       "if (mode === 'wrong-manager') records[4] = 'pnpm'",
       "if (mode === 'wrong-end-marker') records[5] = 'END_ORCA_CODEX_NATIVE_V2'",
-      "if (mode === 'fallback') records = ['ORCA_CODEX_NATIVE_V1', 'fallback', 'unrecognized_launcher', 'END_ORCA_CODEX_NATIVE_V1']",
+      "if (mode === 'fallback' || installState === '0.167.0') records = ['ORCA_CODEX_NATIVE_V1', 'fallback', 'unrecognized_launcher', 'END_ORCA_CODEX_NATIVE_V1']",
       "if (mode === 'malformed') records.push('extra')",
       "if (mode === 'oversized') process.stdout.write('x'.repeat(16385))",
       'else process.stdout.write(records.join(recordEnding) + recordEnding)',
@@ -209,6 +211,7 @@ function commonEnv(shell: Shell, fixture: Fixture): NodeJS.ProcessEnv {
     ORCA_TEST_NODE: process.execPath,
     ORCA_TEST_NODE_BASH: toBashPath(process.execPath),
     ORCA_TEST_RESOLVER_SCRIPT: fixture.resolverScript,
+    ORCA_TEST_NATIVE_STATE_FILE: '',
     ORCA_TEST_NATIVE_EXE: process.execPath,
     ORCA_TEST_RESOLVER_MODE: 'native',
     ORCA_TEST_PACKAGE_ROOT: fixture.packageRoot,
@@ -278,7 +281,8 @@ function resolverCall(fixture: Fixture, index = 0): ResolverCall {
     typeof value !== 'object' ||
     value === null ||
     !('args' in value) ||
-    !('stdinBytes' in value)
+    !('stdinBytes' in value) ||
+    !('installState' in value)
   ) {
     throw new Error('Resolver fixture log has an invalid shape')
   }
@@ -292,7 +296,10 @@ function resolverCall(fixture: Fixture, index = 0): ResolverCall {
   if (typeof value.stdinBytes !== 'number') {
     throw new Error('Resolver fixture stdin length is invalid')
   }
-  return { args, stdinBytes: value.stdinBytes }
+  if (typeof value.installState !== 'string') {
+    throw new Error('Resolver fixture install state is invalid')
+  }
+  return { args, stdinBytes: value.stdinBytes, installState: value.installState }
 }
 
 function pathKey(value: string): string {
@@ -587,6 +594,47 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       expect(pathKey(argumentAfter(resolverCall(fixture, 1).args, '--launcher') ?? '')).toBe(
         pathKey(join(fixture.secondBin, shell.kind === 'bash' ? 'codex' : 'codex.cmd'))
       )
+    })
+
+    it('rechecks install metadata when the same launcher and Node remain selected', () => {
+      const fixture = makeFixture()
+      const metadataFile = join(fixture.root, 'installed Codex metadata')
+      writeFileSync(metadataFile, '0.166.0')
+      const body =
+        shell.kind === 'bash'
+          ? 'codex first\nfirst_status=$?\ncodex second\nsecond_status=$?\nprintf "STATUS=%s,%s\\n" "$first_status" "$second_status"'
+          : 'codex first\n$firstStatus = $LASTEXITCODE\ncodex second\n$secondStatus = $LASTEXITCODE\nWrite-Output ("STATUS=" + $firstStatus + "," + $secondStatus)'
+      const result = runShell(shell, fixture, body, {
+        ORCA_TEST_NATIVE_STATE_FILE: metadataFile,
+        ORCA_TEST_NATIVE_EXE: fixture.nativeTarget
+      })
+      const firstCall = resolverCall(fixture, 0)
+      const secondCall = resolverCall(fixture, 1)
+      const firstLauncher = argumentAfter(firstCall.args, '--launcher') ?? ''
+      const secondLauncher = argumentAfter(secondCall.args, '--launcher') ?? ''
+      const firstNode = argumentAfter(firstCall.args, '--node') ?? ''
+      const secondNode = argumentAfter(secondCall.args, '--node') ?? ''
+
+      expect(result.status).toBe(0)
+      expect(result.stderr).toBe('')
+      expect(lines(result.stdout)).toEqual(['NATIVE', 'FALLBACK', 'STATUS=0,19'])
+      expect(readFileSync(metadataFile, 'utf8').trim()).toBe('0.167.0')
+      expect(readFileSync(fixture.resolverLog, 'utf8').trim().split(/\r?\n/)).toHaveLength(2)
+      expect([firstCall.installState, secondCall.installState]).toEqual(['0.166.0', '0.167.0'])
+      expect(pathKey(firstLauncher)).toBe(
+        pathKey(join(fixture.bin, shell.kind === 'bash' ? 'codex' : 'codex.cmd'))
+      )
+      expect(pathKey(secondLauncher)).toBe(pathKey(firstLauncher))
+      expect(pathKey(firstNode)).toBe(pathKey(join(fixture.nodeBin, 'node.exe')))
+      expect(pathKey(secondNode)).toBe(pathKey(firstNode))
+      expect(readFileSync(fixture.nativeLog, 'utf8').trim()).toBe('--no-daemon first')
+      expect(readFileSync(fixture.codexLog, 'utf8').trim()).toBe('--no-daemon second')
+      expect(readFileSync(fixture.eventLog, 'utf8').trim().split(/\r?\n/)).toEqual([
+        'resolver-exit',
+        'native-start',
+        'resolver-exit',
+        'fallback'
+      ])
     })
 
     it('prefers the Node selected beside the resolved Codex launcher', () => {

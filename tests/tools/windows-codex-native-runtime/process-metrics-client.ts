@@ -2,82 +2,19 @@ import { createInterface } from 'node:readline'
 import { resolve } from 'node:path'
 import type { PipedChildProcess } from '@orca/process-host/process-spec'
 import { spawnProcess } from '@orca/process-host'
+import {
+  jobFailure,
+  isPositiveSafeInteger,
+  isProcessIdentity,
+  MAX_JOB_PROCESS_IDS,
+  metricResponse,
+  sampleFailure,
+  type MetricsResponse,
+  type ProcessMetrics
+} from './process-metrics-protocol'
 import type { ProcessIdentity } from './process-tree-identity'
 
-export type ProcessMetrics = ProcessIdentity & {
-  imagePath: string
-  privateBytes: number
-  workingSetBytes: number
-  handleCount: number
-  kernel100ns: number
-  user100ns: number
-}
-
-type MetricsResponse =
-  | { ok: true; processes: ProcessMetrics[] }
-  | {
-      ok: false
-      reason: string
-      errorCode?: number | null
-      expectedCount?: number
-      measuredCount?: number
-    }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isSafeInteger(value: unknown): value is number {
-  return typeof value === 'number' && Number.isSafeInteger(value)
-}
-
-function metricResponse(value: unknown): MetricsResponse {
-  if (!isRecord(value) || typeof value.ok !== 'boolean') {
-    throw new Error('invalid sampler response')
-  }
-  if (value.ok) {
-    if (!Array.isArray(value.processes)) {
-      throw new Error('invalid sampler process list')
-    }
-    const processes: ProcessMetrics[] = value.processes.map((entry) => {
-      if (
-        !isRecord(entry) ||
-        !isSafeInteger(entry.pid) ||
-        !isSafeInteger(entry.creationTimeMs) ||
-        typeof entry.imagePath !== 'string' ||
-        entry.imagePath.length === 0 ||
-        !isSafeInteger(entry.privateBytes) ||
-        !isSafeInteger(entry.workingSetBytes) ||
-        !isSafeInteger(entry.handleCount) ||
-        !isSafeInteger(entry.kernel100ns) ||
-        !isSafeInteger(entry.user100ns)
-      ) {
-        throw new Error('invalid sampler process metrics')
-      }
-      return {
-        pid: entry.pid,
-        creationTimeMs: entry.creationTimeMs,
-        imagePath: entry.imagePath,
-        privateBytes: entry.privateBytes,
-        workingSetBytes: entry.workingSetBytes,
-        handleCount: entry.handleCount,
-        kernel100ns: entry.kernel100ns,
-        user100ns: entry.user100ns
-      }
-    })
-    return { ok: true, processes }
-  }
-  if (typeof value.reason !== 'string') {
-    throw new Error('invalid sampler failure reason')
-  }
-  return {
-    ok: false,
-    reason: value.reason,
-    ...(typeof value.errorCode === 'number' ? { errorCode: value.errorCode } : {}),
-    ...(typeof value.expectedCount === 'number' ? { expectedCount: value.expectedCount } : {}),
-    ...(typeof value.measuredCount === 'number' ? { measuredCount: value.measuredCount } : {})
-  }
-}
+export type { ProcessMetrics } from './process-metrics-protocol'
 
 export class ProcessMetricsClient {
   private readonly child: PipedChildProcess
@@ -86,6 +23,7 @@ export class ProcessMetricsClient {
     reject: (error: Error) => void
   }[] = []
   private failure: Error | null = null
+  private closing = false
   private readonly closed: Promise<void>
 
   constructor(pythonExecutable: string, scriptPath: string) {
@@ -109,6 +47,9 @@ export class ProcessMetricsClient {
       this.child.once('error', rejectClosed)
       this.child.once('close', (code) => {
         if (code === 0) {
+          if (this.responses.length > 0) {
+            this.fail(new Error('Python metrics sampler closed with pending requests'))
+          }
           resolveClosed()
         } else {
           rejectClosed(new Error('Python metrics sampler exited unexpectedly'))
@@ -129,34 +70,118 @@ export class ProcessMetricsClient {
     if (processes.length === 0) {
       return Promise.reject(new Error('Cannot sample an empty process tree'))
     }
-    return new Promise<ProcessMetrics[]>((resolveResponse, rejectResponse) => {
-      this.responses.push({
-        resolve: (response) => {
-          if (!response.ok) {
-            rejectResponse(
-              new Error(
-                `Windows process metrics incomplete (${response.reason}, ${response.measuredCount ?? 0}/${response.expectedCount ?? processes.length}, error ${response.errorCode ?? 'n/a'})`
-              )
-            )
-            return
-          }
-          resolveResponse(response.processes)
-        },
-        reject: rejectResponse
-      })
-      this.child.stdin.write(`${JSON.stringify({ processes })}\n`, (error) => {
-        if (error) {
-          this.fail(error)
-        }
-      })
+    if (processes.length > MAX_JOB_PROCESS_IDS) {
+      return Promise.reject(new Error('Cannot sample an oversized process tree'))
+    }
+    const seen = new Set<number>()
+    for (const identity of processes) {
+      if (!isProcessIdentity(identity) || seen.has(identity.pid)) {
+        return Promise.reject(new Error('Cannot sample invalid process identities'))
+      }
+      seen.add(identity.pid)
+    }
+    return this.request({ processes }).then((response) => {
+      if (!response.ok) {
+        throw sampleFailure(response, processes.length)
+      }
+      if (
+        !('processes' in response) ||
+        response.processes.length !== processes.length ||
+        response.processes.some(
+          (entry, index) =>
+            entry.pid !== processes[index].pid ||
+            entry.creationTimeMs !== processes[index].creationTimeMs
+        )
+      ) {
+        throw new Error('Windows process metrics returned mismatched identities')
+      }
+      return response.processes
     })
   }
 
+  createJob(root: ProcessIdentity): Promise<number> {
+    if (!isProcessIdentity(root)) {
+      return Promise.reject(new Error('Cannot create a job for an invalid process identity'))
+    }
+    return this.request({
+      op: 'createJob',
+      root: { pid: root.pid, creationTimeMs: root.creationTimeMs }
+    }).then((response) => {
+      if (!response.ok) {
+        throw jobFailure(response)
+      }
+      if (response.op !== 'createJob') {
+        throw new Error('Python metrics sampler returned an invalid job response')
+      }
+      return response.jobId
+    })
+  }
+
+  listJobProcessIds(jobId: number): Promise<number[]> {
+    if (!isPositiveSafeInteger(jobId)) {
+      return Promise.reject(new Error('Cannot list an invalid job ID'))
+    }
+    return this.request({ op: 'listJobProcessIds', jobId }).then((response) => {
+      if (!response.ok) {
+        throw jobFailure(response)
+      }
+      if (response.op !== 'listJobProcessIds') {
+        throw new Error('Python metrics sampler returned an invalid job process list')
+      }
+      return response.processIds
+    })
+  }
+
+  terminateJob(jobId: number): Promise<void> {
+    return this.jobControl('terminateJob', jobId)
+  }
+
+  releaseJob(jobId: number): Promise<void> {
+    return this.jobControl('releaseJob', jobId)
+  }
+
   async close(): Promise<void> {
-    if (this.child.exitCode === null && this.child.signalCode === null) {
-      this.child.stdin.end()
+    if (!this.closing) {
+      this.closing = true
+      if (this.child.exitCode === null && this.child.signalCode === null) {
+        this.child.stdin.end()
+      }
     }
     await this.closed
+  }
+
+  private async jobControl(operation: 'terminateJob' | 'releaseJob', jobId: number): Promise<void> {
+    if (!isPositiveSafeInteger(jobId)) {
+      throw new Error('Cannot operate on an invalid job ID')
+    }
+    const response = await this.request({ op: operation, jobId })
+    if (!response.ok) {
+      throw jobFailure(response)
+    }
+    if (response.op !== operation) {
+      throw new Error('Python metrics sampler returned an invalid job control response')
+    }
+  }
+
+  private request(request: object): Promise<MetricsResponse> {
+    if (this.failure) {
+      return Promise.reject(this.failure)
+    }
+    if (this.closing) {
+      return Promise.reject(new Error('Python metrics sampler is closing'))
+    }
+    return new Promise<MetricsResponse>((resolveResponse, rejectResponse) => {
+      this.responses.push({ resolve: resolveResponse, reject: rejectResponse })
+      try {
+        this.child.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
+          if (error) {
+            this.fail(error)
+          }
+        })
+      } catch {
+        this.fail(new Error('Python metrics sampler request failed'))
+      }
+    })
   }
 
   private acceptLine(line: string): void {

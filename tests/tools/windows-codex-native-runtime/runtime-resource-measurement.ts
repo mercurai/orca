@@ -31,6 +31,7 @@ export type RunSummary = {
   sessionCount: number
   pairId: number
   startupMs: number[]
+  jobGateSetupMs: number[]
   cleanupMs: number
   samples: ResourceSample[]
   idleCpuCorePercent: number
@@ -84,7 +85,7 @@ export async function collectResources(
   sampler: ProcessMetricsClient,
   nativeExecutable: string
 ): Promise<{ samples: ResourceSample[]; idleCpuCorePercent: number }> {
-  await waitForStableTrees(sessions)
+  await waitForStableTrees(sessions, sampler)
   const samples: ResourceSample[] = []
   let totalCpu100ns = 0
   let totalWallMs = 0
@@ -95,7 +96,7 @@ export async function collectResources(
     if (index > 0) {
       await delay(IDLE_SAMPLE_INTERVAL_MS)
     }
-    const snapshots = await readTrees(sessions)
+    const snapshots = await readTrees(sessions, sampler)
     for (const snapshot of snapshots) {
       validateTree(snapshot)
     }

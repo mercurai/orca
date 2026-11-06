@@ -10,9 +10,9 @@ import {
 import { initializeCodexAppServerConnection } from '../../../src/main/codex/codex-app-server-handshake'
 import type { CodexAppServerConnection } from '../../../src/main/codex/codex-app-server-connection-types'
 import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
-import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
-import { processIdentity, waitForProcessTreeExit } from './process-tree-identity'
+import { processIdentity } from './process-tree-identity'
 import type { ProcessIdentity } from './process-tree-identity'
+import { runtimeShellJobGate } from './runtime-shell-job'
 import {
   createRuntimeEnvironment,
   type RuntimeMode,
@@ -22,7 +22,6 @@ import {
 
 const TREE_WAIT_MS = 15_000
 const TREE_POLL_MS = 200
-const CLOSE_WAIT_MS = 8_000
 
 export type CloseResult = { code: number | null; signal: NodeJS.Signals | null }
 type PendingRequest = {
@@ -44,9 +43,20 @@ export type Session = {
   closeObserved: boolean
   readyAt?: number
   observedProcessIdentities: ProcessIdentity[]
+  preGateProcessIdentities: ProcessIdentity[]
+  jobId: number | null
+  jobReleased: boolean
+  launchGateReleasedAt?: number
+  cleanupComplete: boolean
+  cleanupMs?: number
 }
 
-export function shellScript(shell: RuntimeShell, npmBin: string, invalidEnum = false): string {
+export function shellScript(
+  shell: RuntimeShell,
+  npmBin: string,
+  invalidEnum = false,
+  waitForJob = false
+): string {
   const template =
     shell.kind === 'bash'
       ? getPosixCodexShellLaunchPreflight()
@@ -60,8 +70,14 @@ export function shellScript(shell: RuntimeShell, npmBin: string, invalidEnum = f
   const guard =
     shell.kind === 'bash'
       ? `case "$(command -v codex 2>/dev/null)" in "${toBashPath(npmBin)}"/codex*) ;; *) exit 96 ;; esac`
-      : `$orcaSelectedCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1\nif (-not $orcaSelectedCodex -or -not $orcaSelectedCodex.Source.StartsWith($env:ORCA_CODEX_RUNTIME_NPM_BIN, [System.StringComparison]::OrdinalIgnoreCase)) { exit 96 }`
-  return [guard, template, body].join('\n')
+      : [
+          '$orcaSelectedCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1',
+          'if (-not $orcaSelectedCodex -or',
+          '    -not $orcaSelectedCodex.Source.StartsWith($env:ORCA_CODEX_RUNTIME_NPM_BIN,',
+          '        [System.StringComparison]::OrdinalIgnoreCase)) { exit 96 }'
+        ].join('\n')
+  const gate = waitForJob ? runtimeShellJobGate(shell) : ''
+  return [gate, guard, template, body].filter(Boolean).join('\n')
 }
 
 export function shellArgs(shell: RuntimeShell, script: string, homeRoot: string): string[] {
@@ -101,7 +117,7 @@ export function launchSession(
   const startedAt = performance.now()
   const child = spawnProcess({
     program: shell.executable,
-    args: shellArgs(shell, shellScript(shell, settings.npmBin), homeRoot),
+    args: shellArgs(shell, shellScript(shell, settings.npmBin, false, true), homeRoot),
     cwd: process.cwd(),
     env: createRuntimeEnvironment(settings, shell, mode, homeRoot),
     stdio: 'pipe'
@@ -123,7 +139,11 @@ export function launchSession(
     nextRequestId: 1,
     protocolFailure: null,
     closeObserved: false,
-    observedProcessIdentities: []
+    observedProcessIdentities: [],
+    preGateProcessIdentities: [],
+    jobId: null,
+    jobReleased: false,
+    cleanupComplete: false
   }
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })
   lines.on('line', (line) => receiveProtocolLine(session, line))
@@ -252,34 +272,6 @@ export async function waitForRootIdentity(session: Session): Promise<void> {
   throw new Error(`${session.shell.name} process identity was unavailable`)
 }
 
-export async function stopSession(session: Session): Promise<number> {
-  const startedAt = performance.now()
-  if (session.child.exitCode === null && session.child.signalCode === null) {
-    session.child.stdin.end()
-  }
-  let close: CloseResult
-  try {
-    close = await withTimeout(session.closePromise, CLOSE_WAIT_MS)
-  } catch (error) {
-    if (session.child.exitCode === null && session.child.signalCode === null) {
-      await forceTerminateProcessTree(session.child)
-      close = await withTimeout(session.closePromise, CLOSE_WAIT_MS)
-    } else {
-      throw error
-    }
-  }
-  await waitForProcessTreeExit(
-    session.pid,
-    session.creationTimeMs,
-    session.observedProcessIdentities,
-    { timeoutMs: CLOSE_WAIT_MS, intervalMs: TREE_POLL_MS, label: session.shell.name }
-  )
-  if (close.code !== 0 || close.signal !== null) {
-    throw new Error(`${session.shell.name} did not exit normally after app-server EOF`)
-  }
-  return performance.now() - startedAt
-}
-
 function toBashPath(value: string): string {
   const slashed = value.replace(/\\/g, '/')
   return slashed.replace(/^([a-z]):\//i, (_match, drive: string) => `/${drive.toLowerCase()}/`)
@@ -289,18 +281,4 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('Timed out')), timeoutMs)
-      })
-    ])
-  } finally {
-    if (timer) {
-      clearTimeout(timer)
-    }
-  }
-}
+export { stopSession } from './runtime-shell-job'

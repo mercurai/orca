@@ -2,28 +2,51 @@ import {
   readWindowsProcessIdentityTableFresh,
   type WindowsProcessIdentityRow
 } from '../../../src/main/windows/windows-process-table'
-import { processIdentity, processTreeForRoot } from './process-tree-identity'
+import { processIdentity } from './process-tree-identity'
+import type { ProcessMetricsClient } from './process-metrics-client'
 import type { Session } from './runtime-shell-session'
 
 const TREE_SETTLE_COUNT = 3
 const TREE_POLL_MS = 200
 const TREE_WAIT_MS = 15_000
+const JOB_IDENTITY_RETRIES = 3
 
 export type TreeSnapshot = {
   session: Session
   rows: WindowsProcessIdentityRow[]
   descendants: WindowsProcessIdentityRow[]
+  jobRows: WindowsProcessIdentityRow[]
   processTable: WindowsProcessIdentityRow[]
 }
 
-export async function readTrees(sessions: Session[]): Promise<TreeSnapshot[]> {
-  const rows = await readWindowsProcessIdentityTableFresh()
-  return sessions.map((session) => {
-    const owned = processTreeForRoot(rows, session.pid, session.creationTimeMs)
-    const root = owned[0]
-    if (!root) {
-      throw new Error(`${session.shell.name} process root was absent from the native table`)
+export async function readTrees(
+  sessions: Session[],
+  sampler: ProcessMetricsClient
+): Promise<TreeSnapshot[]> {
+  const snapshots: TreeSnapshot[] = []
+  for (const session of sessions) {
+    const jobId = session.jobId
+    if (jobId === null) {
+      throw new Error(`${session.shell.name} has no assigned runtime process job`)
     }
+    const { processTable, jobRows } = await readJobRows(session, jobId, sampler)
+    const tableByPid = new Map(processTable.map((row) => [row.pid, row]))
+    const root = jobRows.find((row) => row.pid === session.pid)
+    if (!root) {
+      throw new Error(`${session.shell.name} process root was absent from its assigned job`)
+    }
+    const jobRowsByPid = new Map(jobRows.map((row) => [row.pid, row]))
+    const preGateRows = session.preGateProcessIdentities.flatMap((identity) => {
+      const row = tableByPid.get(identity.pid)
+      return row?.creationTimeMs === identity.creationTimeMs ? [row] : []
+    })
+    const includedRows = new Map<number, WindowsProcessIdentityRow>(jobRowsByPid)
+    for (const row of preGateRows) {
+      if (!includedRows.has(row.pid)) {
+        includedRows.set(row.pid, row)
+      }
+    }
+    const owned = [root, ...[...includedRows.values()].filter((row) => row.pid !== session.pid)]
     const descendants = owned.slice(1)
     const observed = new Map(
       session.observedProcessIdentities.map((identity) => [
@@ -36,8 +59,48 @@ export async function readTrees(sessions: Session[]): Promise<TreeSnapshot[]> {
       observed.set(`${identity.pid}:${identity.creationTimeMs}`, identity)
     }
     session.observedProcessIdentities = [...observed.values()]
-    return { session, rows: owned, descendants, processTable: rows }
-  })
+    snapshots.push({ session, rows: owned, descendants, jobRows, processTable })
+  }
+  return snapshots
+}
+
+async function readJobRows(
+  session: Session,
+  jobId: number,
+  sampler: ProcessMetricsClient
+): Promise<{ processTable: WindowsProcessIdentityRow[]; jobRows: WindowsProcessIdentityRow[] }> {
+  for (let attempt = 0; attempt < JOB_IDENTITY_RETRIES; attempt++) {
+    const processTable = await readWindowsProcessIdentityTableFresh()
+    const memberPids = await sampler.listJobProcessIds(jobId)
+    if (new Set(memberPids).size !== memberPids.length) {
+      throw new Error(`${session.shell.name} process job returned duplicate identities`)
+    }
+    if (!memberPids.includes(session.pid)) {
+      throw new Error(`${session.shell.name} root is absent from its assigned process job`)
+    }
+    const tableByPid = new Map(processTable.map((row) => [row.pid, row]))
+    const missing = memberPids.filter((pid) => !tableByPid.has(pid))
+    if (missing.length > 0) {
+      if (attempt + 1 < JOB_IDENTITY_RETRIES) {
+        await delay(TREE_POLL_MS)
+        continue
+      }
+      throw new Error(`${session.shell.name} process job member is absent from the native table`)
+    }
+    const jobRows = memberPids.map((pid) => {
+      const row = tableByPid.get(pid)
+      if (!row) {
+        throw new Error(`${session.shell.name} process job membership changed during its snapshot`)
+      }
+      const identity = processIdentity(row)
+      if (pid === session.pid && identity.creationTimeMs !== session.creationTimeMs) {
+        throw new Error(`${session.shell.name} root identity changed while the job was live`)
+      }
+      return row
+    })
+    return { processTable, jobRows }
+  }
+  throw new Error(`${session.shell.name} job identity snapshot was not complete`)
 }
 
 export function validateTree(snapshot: TreeSnapshot): void {
@@ -50,13 +113,22 @@ export function validateTree(snapshot: TreeSnapshot): void {
   if (snapshot.descendants.some((row) => row.name.toLowerCase() === 'orca.exe')) {
     throw new Error('The offline resolver remained alive after native Codex started')
   }
+  if (
+    snapshot.session.mode === 'native' &&
+    snapshot.descendants.some((row) => row.name.toLowerCase() === 'node.exe')
+  ) {
+    throw new Error('Native Codex left a persistent Node.js process in its owned job')
+  }
 
   const byPid = new Map(snapshot.rows.map((row) => [row.pid, row]))
+  const jobPids = new Set(snapshot.jobRows.map((row) => row.pid))
   let nodeParentCount = 0
+  let ownedNodeParentCount = 0
   for (const process of codex) {
     let parentPid = process.ppid
     const seen = new Set<number>()
     let hasNodeParent = false
+    let hasOwnedNodeParent = false
     while (parentPid !== snapshot.session.pid) {
       if (seen.has(parentPid)) {
         throw new Error('Native process ancestry contains a PID cycle')
@@ -64,22 +136,31 @@ export function validateTree(snapshot: TreeSnapshot): void {
       seen.add(parentPid)
       const parent = byPid.get(parentPid)
       if (!parent) {
-        throw new Error('Codex ancestry is incomplete in the native process table')
+        if (snapshot.session.mode === 'optout' && hasNodeParent && hasOwnedNodeParent) {
+          break
+        }
+        throw new Error('Codex ancestry is incomplete in the owned process identities')
       }
       if (parent.name.toLowerCase() === 'node.exe') {
         hasNodeParent = true
+        if (jobPids.has(parent.pid)) {
+          hasOwnedNodeParent = true
+        }
       }
       parentPid = parent.ppid
     }
     if (hasNodeParent) {
       nodeParentCount++
     }
+    if (hasOwnedNodeParent) {
+      ownedNodeParentCount++
+    }
   }
   if (snapshot.session.mode === 'native' && nodeParentCount !== 0) {
     throw new Error('Native Codex still has a persistent Node.js launcher parent')
   }
-  if (snapshot.session.mode === 'optout' && nodeParentCount === 0) {
-    throw new Error('The opt-out launch did not retain the npm Node.js launcher parent')
+  if (snapshot.session.mode === 'optout' && ownedNodeParentCount === 0) {
+    throw new Error('The opt-out launch did not retain its npm Node.js parent in the owned job')
   }
 }
 
@@ -150,13 +231,16 @@ export function treeSignature(snapshots: TreeSnapshot[]): string {
     .join('|')
 }
 
-export async function waitForStableTrees(sessions: Session[]): Promise<TreeSnapshot[]> {
+export async function waitForStableTrees(
+  sessions: Session[],
+  sampler: ProcessMetricsClient
+): Promise<TreeSnapshot[]> {
   const deadline = Date.now() + TREE_WAIT_MS
   let previous = ''
   let stable = 0
   let latest: TreeSnapshot[] = []
   while (Date.now() < deadline) {
-    latest = await readTrees(sessions)
+    latest = await readTrees(sessions, sampler)
     for (const snapshot of latest) {
       validateTree(snapshot)
     }

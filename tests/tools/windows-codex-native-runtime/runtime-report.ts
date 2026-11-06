@@ -15,6 +15,7 @@ export function summarizeRuns(runs: RunSummary[]): unknown[] {
     const sampleFor = (run: RunSummary, key: keyof ResourceSample): number[] =>
       run.samples.map((sample) => Number(sample[key] ?? 0))
     const startup = group.flatMap((run) => run.startupMs)
+    const jobGateSetup = group.flatMap((run) => run.jobGateSetupMs)
     const privateBytes = group.flatMap((run) => sampleFor(run, 'privateBytes'))
     const workingSetBytes = group.flatMap((run) => sampleFor(run, 'workingSetBytes'))
     const handles = group.flatMap((run) => sampleFor(run, 'handleCount'))
@@ -28,6 +29,7 @@ export function summarizeRuns(runs: RunSummary[]): unknown[] {
       mode: first.mode,
       pairedRuns: group.length,
       startupToReadyMs: range(startup),
+      jobGateSetupMs: range(jobGateSetup),
       privateCommitBytes: range(privateBytes),
       workingSetBytes: range(workingSetBytes),
       handles: range(handles),

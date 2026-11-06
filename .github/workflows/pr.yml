@@ -1400,6 +1400,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install the reviewed Codex package in an isolated prefix
+        id: codex_runtime_setup
         shell: bash
         run: |
           set -euo pipefail
@@ -1423,6 +1424,7 @@ jobs:
           src/main/pty/codex-shell-native-runtime.integration.test.ts
 
       - name: Qualify packaged Codex terminal lifecycle
+        if: ${{ !cancelled() && steps.codex_runtime_setup.outcome == 'success' }}
         run: >-
           pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
           src/main/pty/codex-shell-native-packaged.integration.test.ts

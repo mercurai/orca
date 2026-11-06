@@ -8,6 +8,7 @@ import { runDirectAppServerLifecycleQualification } from './direct-app-server-li
 import { runInvalidEnumCheck, runProcessHostInvalidEnumCheck } from './runtime-invalid-argv'
 import { summarizePairedDeltas, summarizeRuns } from './runtime-report'
 import { collectResources, type RunSummary } from './runtime-resource-measurement'
+import { assignShellJobAndRelease } from './runtime-shell-job'
 import {
   initializeSession,
   launchSession,
@@ -47,18 +48,27 @@ async function runStage(
       const session = launchSession(settings, shell, mode, homeRoot)
       sessions.push(session)
       await waitForRootIdentity(session)
+      await assignShellJobAndRelease(session, sampler)
       await initializeSession(session)
     }
     const startupMs = sessions.map(
       (session) => (session.readyAt ?? performance.now()) - session.startedAt
     )
+    const jobGateSetupMs = sessions.map((session) => {
+      if (session.launchGateReleasedAt === undefined) {
+        throw new Error(`${session.shell.name} launch gate release time was unavailable`)
+      }
+      return session.launchGateReleasedAt - session.startedAt
+    })
     const { samples, idleCpuCorePercent } = await collectResources(
       sessions,
       sampler,
       settings.nativeExecutable
     )
     const closeStartedAt = performance.now()
-    const closeDurations = await Promise.all(sessions.map((session) => stopSession(session)))
+    const closeDurations = await Promise.all(
+      sessions.map((session) => stopSession(session, sampler))
+    )
     const cleanupMs = Math.max(performance.now() - closeStartedAt, ...closeDurations)
     return {
       shell: shell.name,
@@ -66,15 +76,22 @@ async function runStage(
       sessionCount,
       pairId,
       startupMs,
+      jobGateSetupMs,
       cleanupMs,
       samples,
       idleCpuCorePercent
     }
   } catch (error) {
-    const cleanup = await Promise.allSettled(sessions.map((session) => stopSession(session)))
-    if (cleanup.some((result) => result.status === 'rejected')) {
-      throw new Error(
-        'Runtime stage failed and at least one Codex process tree could not be cleaned up'
+    const cleanup = await Promise.allSettled(
+      sessions.map((session) => stopSession(session, sampler))
+    )
+    const cleanupErrors = cleanup.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    )
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(
+        [error, ...cleanupErrors],
+        'Runtime stage failed and at least one owned process job could not be verified empty'
       )
     }
     throw error
@@ -104,6 +121,8 @@ export async function runNativeCodexRuntimeQualification(): Promise<void> {
   let sampler: ProcessMetricsClient | undefined
   let samplerClosed = false
   let cleanupVerified = false
+  let operationFailure: unknown
+  let operationFailed = false
   try {
     sampler = new ProcessMetricsClient(settings.python, scriptPath)
     const runs: RunSummary[] = []
@@ -195,19 +214,35 @@ export async function runNativeCodexRuntimeQualification(): Promise<void> {
     if (Buffer.byteLength(report) > MAX_REPORT_BYTES) {
       throw new Error('Sanitized Windows runtime report exceeded the output size limit')
     }
-    samplerClosed = false
-    await sampler.close()
     samplerClosed = true
+    await sampler.close()
     mkdirSync(dirname(settings.reportPath), { recursive: true })
     writeFileSync(settings.reportPath, report, 'utf8')
     console.log(report)
     cleanupVerified = true
+  } catch (error) {
+    operationFailure = error
+    operationFailed = true
   } finally {
     if (sampler && !samplerClosed) {
-      await sampler.close()
+      samplerClosed = true
+      try {
+        await sampler.close()
+      } catch (closeError) {
+        operationFailure = operationFailed
+          ? new AggregateError(
+              [operationFailure, closeError],
+              'The runtime gate failed and its process-job helper did not close cleanly'
+            )
+          : closeError
+        operationFailed = true
+      }
     }
     if (cleanupVerified) {
       rmSync(runRoot, { recursive: true, force: true })
     }
+  }
+  if (operationFailed) {
+    throw operationFailure
   }
 }
