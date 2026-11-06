@@ -1,15 +1,13 @@
+import type { Page } from '@stablyai/playwright-test'
 import {
   createTerminalTab,
   listTabIds,
   waitForTerminalReady
 } from '../win-update-e2e/app-driver.mjs'
-import type { SessionHandle, PtySession } from './packaged-pty-app-support'
+import type { PtySession } from './packaged-pty-app-support'
 import { delay, normalizeWindowsPath } from './packaged-pty-app-support'
 
-export async function visibleTerminalTabId(
-  page: SessionHandle['page'],
-  worktreeId: string
-): Promise<string> {
+export async function visibleTerminalTabId(page: Page, worktreeId: string): Promise<string> {
   const deadline = Date.now() + 30_000
   const workspaceSelector =
     `[data-tab-group-strip-id][data-worktree-id=${JSON.stringify(worktreeId)}] ` +
@@ -38,12 +36,12 @@ export async function visibleTerminalTabId(
   throw new Error('The packaged workspace did not expose its selected terminal tab')
 }
 
-async function listPtySessions(page: SessionHandle['page']): Promise<PtySession[]> {
+async function listPtySessions(page: Page): Promise<PtySession[]> {
   return page.evaluate(() => window.api.pty.listSessions({ connectionId: null }))
 }
 
 async function waitForNewSession(
-  page: SessionHandle['page'],
+  page: Page,
   worktreeId: string,
   previousIds: Set<string>
 ): Promise<PtySession> {
@@ -64,10 +62,7 @@ async function waitForNewSession(
   throw new Error('The new packaged terminal tab never registered a local PTY session')
 }
 
-async function waitForNewTerminalTab(
-  page: SessionHandle['page'],
-  previousTabIds: Set<string>
-): Promise<string> {
+async function waitForNewTerminalTab(page: Page, previousTabIds: Set<string>): Promise<string> {
   const deadline = Date.now() + 30_000
   while (Date.now() < deadline) {
     const tabs = await listTabIds(page)
@@ -84,7 +79,7 @@ async function waitForNewTerminalTab(
 }
 
 export async function waitForTerminalTabSession(
-  page: SessionHandle['page'],
+  page: Page,
   worktreeId: string,
   cwd: string,
   tabId: string
@@ -136,7 +131,7 @@ export async function waitForTerminalTabSession(
 }
 
 export async function createBoundTerminalTab(
-  page: SessionHandle['page'],
+  page: Page,
   worktreeId: string,
   cwd: string
 ): Promise<{ tabId: string; session: PtySession }> {
@@ -144,7 +139,7 @@ export async function createBoundTerminalTab(
   await waitForTerminalReady(page, 30_000, existingTabId)
   await waitForTerminalTabSession(page, worktreeId, cwd, existingTabId)
   const previousPtyIds = new Set((await listPtySessions(page)).map((session) => session.id))
-  const previousTabIds = new Set(await listTabIds(page))
+  const previousTabIds = new Set<string>(await listTabIds(page))
   await createTerminalTab(page)
   const tabId = await waitForNewTerminalTab(page, previousTabIds)
   await waitForTerminalReady(page, 30_000, tabId)

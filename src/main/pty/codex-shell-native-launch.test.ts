@@ -9,9 +9,16 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
+import { createInterface } from 'node:readline'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runProcessSync } from '@orca/process-host'
+import { runProcessSync, spawnProcess } from '@orca/process-host'
+import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
 import { findGitBash } from '../agent-hooks/windows-git-bash-path.test-fixture'
+import type { RuntimeShell } from '../../../tests/tools/windows-codex-native-runtime/runtime-environment'
+import {
+  shellArgs as runtimeShellArgs,
+  shellScript as runtimeShellScript
+} from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-session'
 import {
   getPosixCodexShellLaunchPreflight,
   getPowerShellCodexShellLaunchPreflight
@@ -19,7 +26,7 @@ import {
 
 const isWindows = process.platform === 'win32'
 const roots: string[] = []
-type Shell = { name: string; kind: 'bash' | 'powershell'; command: string | null }
+type Shell = { name: RuntimeShell['name']; kind: RuntimeShell['kind']; command: string | null }
 type ResolverCall = { args: string[]; stdinBytes: number; installState: string }
 type Fixture = {
   root: string
@@ -32,6 +39,8 @@ type Fixture = {
   helpLog: string
   codexLog: string
   nativeLog: string
+  appServerLog: string
+  appServerScript: string
   resolverBash: string
   resolverPowerShell: string
   resolverScript: string
@@ -123,19 +132,39 @@ function makeFixture(): Fixture {
   const helpLog = join(root, 'codex help.log')
   const codexLog = join(root, 'codex launches.log')
   const nativeLog = join(root, 'native launches.log')
-  for (const path of [resolverLog, eventLog, helpLog, codexLog, nativeLog]) {
+  const appServerLog = join(root, 'app-server frames.jsonl')
+  const appServerScript = join(root, 'app-server fixture.cjs')
+  for (const path of [resolverLog, eventLog, helpLog, codexLog, nativeLog, appServerLog]) {
     writeFileSync(path, '')
   }
+  writeFileSync(
+    appServerScript,
+    [
+      "const fs = require('node:fs')",
+      "if (process.argv[2] === '--help') {",
+      "  process.stdout.write('  --no-daemon\\n')",
+      '} else {',
+      "  const lines = require('node:readline').createInterface({ input: process.stdin, crlfDelay: Infinity })",
+      "  lines.on('line', line => {",
+      '    const frame = JSON.parse(line)',
+      '    const value = { route: process.env.ORCA_TEST_APP_SERVER_ROUTE, phase: "server", method: frame.method, id: frame.id ?? null }',
+      '    fs.appendFileSync(process.env.ORCA_TEST_APP_SERVER_LOG, JSON.stringify(value) + "\\n")',
+      "    if (frame.method === 'initialize') process.stdout.write(JSON.stringify({ id: frame.id, result: { ok: true } }) + '\\n')",
+      '  })',
+      '}'
+    ].join('\n'),
+    'utf8'
+  )
   writeExecutable(join(nodeBin, 'node.exe'), '#!/bin/sh\nexit 0\n')
 
   const writeCodex = (directory: string): void => {
     writeExecutable(
       join(directory, 'codex'),
-      '#!/bin/sh\nif [ "$#" -eq 1 ] && [ "$1" = --help ]; then printf probe >> "$ORCA_TEST_HELP_LOG"; printf "  --no-daemon\\n"; exit 0; fi\nprintf fallback >> "$ORCA_TEST_EVENT_LOG"\nprintf "%s\\n" "$*" >> "$ORCA_TEST_CODEX_LOG"\nprintf "FALLBACK\\n"\nexit 19\n'
+      '#!/bin/sh\nif [ "$#" -eq 1 ] && [ "$1" = --help ]; then if [ -n "${ORCA_TEST_APP_SERVER_SCRIPT:-}" ]; then ORCA_TEST_APP_SERVER_ROUTE=fallback "$ORCA_TEST_NODE_BASH" "$ORCA_TEST_APP_SERVER_SCRIPT" --help; else printf probe >> "$ORCA_TEST_HELP_LOG"; printf "  --no-daemon\\n"; fi; exit 0; fi\nif [ -n "${ORCA_TEST_APP_SERVER_SCRIPT:-}" ]; then ORCA_TEST_APP_SERVER_ROUTE=fallback exec "$ORCA_TEST_NODE_BASH" "$ORCA_TEST_APP_SERVER_SCRIPT" "$@"; fi\nprintf fallback >> "$ORCA_TEST_EVENT_LOG"\nprintf "%s\\n" "$*" >> "$ORCA_TEST_CODEX_LOG"\nprintf "FALLBACK\\n"\nexit 19\n'
     )
     writeFileSync(
       join(directory, 'codex.cmd'),
-      '@echo off\r\nif "%~1"=="--help" (\r\n  >>"%ORCA_TEST_HELP_LOG%" echo probe\r\n  echo   --no-daemon\r\n  exit /b 0\r\n)\r\n>>"%ORCA_TEST_EVENT_LOG%" echo fallback\r\n>>"%ORCA_TEST_CODEX_LOG%" echo %*\r\necho FALLBACK\r\nexit /b 19\r\n'
+      '@echo off\r\nif "%~1"=="--help" (\r\n  if not "%ORCA_TEST_APP_SERVER_SCRIPT%"=="" (\r\n    set "ORCA_TEST_APP_SERVER_ROUTE=fallback"\r\n    "%ORCA_TEST_NODE%" "%ORCA_TEST_APP_SERVER_SCRIPT%" --help\r\n    exit /b 0\r\n  )\r\n  >>"%ORCA_TEST_HELP_LOG%" echo probe\r\n  echo   --no-daemon\r\n  exit /b 0\r\n)\r\nif not "%ORCA_TEST_APP_SERVER_SCRIPT%"=="" (\r\n  set "ORCA_TEST_APP_SERVER_ROUTE=fallback"\r\n  "%ORCA_TEST_NODE%" "%ORCA_TEST_APP_SERVER_SCRIPT%" %*\r\n  exit /b %ERRORLEVEL%\r\n)\r\n>>"%ORCA_TEST_EVENT_LOG%" echo fallback\r\n>>"%ORCA_TEST_CODEX_LOG%" echo %*\r\necho FALLBACK\r\nexit /b 19\r\n'
     )
   }
   writeCodex(bin)
@@ -144,7 +173,7 @@ function makeFixture(): Fixture {
   const nativeTarget = join(root, 'native Codex target.cmd')
   writeFileSync(
     nativeTarget,
-    '@echo off\r\nif "%~1"=="--help" (\r\n  >>"%ORCA_TEST_HELP_LOG%" echo native-probe\r\n  echo   --no-daemon\r\n  exit /b 0\r\n)\r\nif not "%ORCA_TEST_NATIVE_STATE_FILE%"=="" >"%ORCA_TEST_NATIVE_STATE_FILE%" echo 0.167.0\r\n>>"%ORCA_TEST_EVENT_LOG%" echo native-start\r\n>>"%ORCA_TEST_NATIVE_LOG%" echo %*\r\necho NATIVE\r\nexit /b 0\r\n'
+    '@echo off\r\nif "%~1"=="--help" (\r\n  if not "%ORCA_TEST_APP_SERVER_SCRIPT%"=="" (\r\n    set "ORCA_TEST_APP_SERVER_ROUTE=native"\r\n    "%ORCA_TEST_NODE%" "%ORCA_TEST_APP_SERVER_SCRIPT%" --help\r\n    exit /b 0\r\n  )\r\n  >>"%ORCA_TEST_HELP_LOG%" echo native-probe\r\n  echo   --no-daemon\r\n  exit /b 0\r\n)\r\nif not "%ORCA_TEST_NATIVE_STATE_FILE%"=="" >"%ORCA_TEST_NATIVE_STATE_FILE%" echo 0.167.0\r\nif not "%ORCA_TEST_APP_SERVER_SCRIPT%"=="" (\r\n  set "ORCA_TEST_APP_SERVER_ROUTE=native"\r\n  "%ORCA_TEST_NODE%" "%ORCA_TEST_APP_SERVER_SCRIPT%" %*\r\n  exit /b %ERRORLEVEL%\r\n)\r\n>>"%ORCA_TEST_EVENT_LOG%" echo native-start\r\n>>"%ORCA_TEST_NATIVE_LOG%" echo %*\r\necho NATIVE\r\nexit /b 0\r\n'
   )
 
   const resolverScript = join(root, 'resolver fixture.cjs')
@@ -194,6 +223,8 @@ function makeFixture(): Fixture {
     helpLog,
     codexLog,
     nativeLog,
+    appServerLog,
+    appServerScript,
     resolverBash,
     resolverPowerShell,
     resolverScript,
@@ -212,6 +243,9 @@ function commonEnv(shell: Shell, fixture: Fixture): NodeJS.ProcessEnv {
     ORCA_TEST_NODE_BASH: toBashPath(process.execPath),
     ORCA_TEST_RESOLVER_SCRIPT: fixture.resolverScript,
     ORCA_TEST_NATIVE_STATE_FILE: '',
+    ORCA_TEST_APP_SERVER_SCRIPT: '',
+    ORCA_TEST_APP_SERVER_ROUTE: '',
+    ORCA_TEST_APP_SERVER_LOG: fixture.appServerLog,
     ORCA_TEST_NATIVE_EXE: process.execPath,
     ORCA_TEST_RESOLVER_MODE: 'native',
     ORCA_TEST_PACKAGE_ROOT: fixture.packageRoot,
@@ -318,6 +352,20 @@ function lines(output: string): string[] {
   return output.trimEnd().split(/\r?\n/)
 }
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds)
+    })
+  ]).finally(() => {
+    if (timer) {
+      clearTimeout(timer)
+    }
+  })
+}
+
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
@@ -411,6 +459,115 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
         pathKey(join(fixture.nodeBin, 'node.exe'))
       )
     })
+
+    it.each(['native', 'optout'] as const)(
+      'preserves the open JSONL handshake through the %s route',
+      async (mode) => {
+        const fixture = makeFixture()
+        if (!shell.command) {
+          throw new Error('Shell executable was not resolved')
+        }
+        const runtimeShell: RuntimeShell = {
+          name: shell.name,
+          kind: shell.kind,
+          executable: shell.command
+        }
+        const child = spawnProcess({
+          program: shell.command,
+          args: runtimeShellArgs(
+            runtimeShell,
+            runtimeShellScript(runtimeShell, fixture.bin, false, true),
+            fixture.root
+          ),
+          cwd: fixture.root,
+          env: {
+            ...commonEnv(shell, fixture),
+            ORCA_CODEX_RUNTIME_NPM_BIN:
+              shell.kind === 'bash' ? toBashPath(fixture.bin) : fixture.bin,
+            ORCA_TEST_APP_SERVER_SCRIPT: fixture.appServerScript,
+            ORCA_TEST_NATIVE_EXE: fixture.nativeTarget,
+            ORCA_CODEX_ISOLATE: '1',
+            ORCA_DISABLE_CODEX_NATIVE_LAUNCH: mode === 'optout' ? '1' : ''
+          },
+          stdio: 'pipe'
+        })
+        const closed = new Promise<number | null>((resolve, reject) => {
+          child.once('close', resolve)
+          child.once('error', reject)
+        })
+        void closed.catch(() => {})
+        const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity })
+        let stderrBytes = 0
+        child.stderr.on('data', (chunk: Buffer) => {
+          stderrBytes = Math.min(stderrBytes + chunk.length, 1024)
+        })
+        const response = new Promise<string>((resolve, reject) => {
+          stdout.once('line', resolve)
+          child.once('error', reject)
+          child.stdin.once('error', reject)
+          child.once('close', () =>
+            reject(new Error('Shell closed before the initialize response'))
+          )
+        })
+        void response.catch(() => {})
+        const write = (value: string): Promise<void> =>
+          new Promise((resolve, reject) => {
+            child.stdin.write(value, (error) => (error ? reject(error) : resolve()))
+          })
+
+        let failure: unknown
+        try {
+          await write('ORCA_RUNTIME_JOB_READY\n')
+          await write(`${JSON.stringify({ id: 1, method: 'initialize', params: {} })}\n`)
+          const responseFrame: unknown = JSON.parse(
+            await withTimeout(response, 10_000, `${shell.name} ${mode} initialize`)
+          )
+          expect(responseFrame).toEqual({ id: 1, result: { ok: true } })
+          await write(`${JSON.stringify({ method: 'initialized' })}\n`)
+          child.stdin.end()
+          expect(await withTimeout(closed, 5_000, `${shell.name} ${mode} EOF cleanup`)).toBe(0)
+          expect(stderrBytes).toBe(0)
+          const frames = readFileSync(fixture.appServerLog, 'utf8')
+            .trim()
+            .split(/\r?\n/)
+            .map((line) => JSON.parse(line))
+          const route = mode === 'native' ? 'native' : 'fallback'
+          expect(frames).toEqual([
+            { route, phase: 'server', method: 'initialize', id: 1 },
+            { route, phase: 'server', method: 'initialized', id: null }
+          ])
+          expect(readFileSync(fixture.resolverLog, 'utf8').trim() !== '').toBe(mode === 'native')
+        } catch (error) {
+          failure = error
+        }
+        let cleanupFailure: unknown
+        stdout.close()
+        if (child.exitCode === null && child.signalCode === null) {
+          child.stdin.end()
+          try {
+            if (!(await forceTerminateProcessTree(child))) {
+              throw new Error(`${shell.name} process tree could not be verified stopped`)
+            }
+          } catch (error) {
+            cleanupFailure = error
+          }
+        }
+        try {
+          await withTimeout(closed, 5_000, `${shell.name} close`)
+        } catch (error) {
+          cleanupFailure ??= error
+        }
+        if (cleanupFailure !== undefined) {
+          throw failure === undefined
+            ? cleanupFailure
+            : new AggregateError([failure, cleanupFailure], `${shell.name} test and cleanup failed`)
+        }
+        if (failure !== undefined) {
+          throw failure
+        }
+      },
+      30_000
+    )
 
     it.skipIf(shell.kind !== 'bash')(
       'scopes mixed-case Windows package metadata to the native child',
