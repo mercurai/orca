@@ -18,13 +18,15 @@ export class RuntimeShellMilestoneCapture {
   private invalidLine = false
   private pendingCarriageReturn = false
 
-  constructor(private readonly onMilestone: (milestone: RuntimeShellMilestone) => void) {}
+  constructor(
+    private readonly onMilestone: (milestone: RuntimeShellMilestone, byteLength: number) => void
+  ) {}
 
   consume(chunk: Buffer): void {
     for (const byte of chunk) {
       if (byte === 10) {
         if (!this.invalidLine && this.complete !== null) {
-          this.onMilestone(this.complete)
+          this.onMilestone(this.complete, this.offset + (this.pendingCarriageReturn ? 2 : 1))
         }
         this.resetLine()
         continue

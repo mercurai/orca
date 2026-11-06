@@ -222,7 +222,11 @@ describe('Windows Codex runtime stage diagnostics', () => {
 
   it('captures exact allowlisted lines across LF and CRLF chunks', () => {
     const captured: string[] = []
-    const parser = new RuntimeShellMilestoneCapture((milestone) => captured.push(milestone))
+    let recognizedBytes = 0
+    const parser = new RuntimeShellMilestoneCapture((milestone, byteLength) => {
+      captured.push(milestone)
+      recognizedBytes += byteLength
+    })
 
     parser.consume(
       Buffer.from(
@@ -237,6 +241,11 @@ describe('Windows Codex runtime stage diagnostics', () => {
     parser.consume(Buffer.from('ORCA_RUNTIME_MILESTONE:before-codex-invoke\n'))
 
     expect(captured).toEqual(['script-started', 'before-codex-invoke'])
+    expect(recognizedBytes).toBe(
+      Buffer.byteLength(
+        'ORCA_RUNTIME_MILESTONE:script-started\r\nORCA_RUNTIME_MILESTONE:before-codex-invoke\n'
+      )
+    )
   })
 
   it('keeps markers opt-in and emits them in launch order', () => {

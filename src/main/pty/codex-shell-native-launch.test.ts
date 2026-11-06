@@ -9,18 +9,17 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { createInterface } from 'node:readline'
 import { afterEach, describe, expect, it } from 'vitest'
-import { runProcessSync, spawnProcess } from '@orca/process-host'
-import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
+import { runProcessSync } from '@orca/process-host'
 import { findGitBash } from '../agent-hooks/windows-git-bash-path.test-fixture'
 import type { RuntimeShell } from '../../../tests/tools/windows-codex-native-runtime/runtime-environment'
-import { shellArgs as runtimeShellArgs } from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-session'
 import {
   getPosixCodexShellLaunchPreflight,
   getPowerShellCodexShellLaunchPreflight
 } from '../../shared/codex-shell-function'
-import { prepareStreamingLaunch } from './codex-shell-native-launch-streaming.test-fixture'
+import { runStreamingHandshake } from './codex-shell-native-launch-streaming-handshake.test-fixture'
+import { writeStreamingResponderScript } from './codex-shell-native-launch-streaming.test-fixture'
+import type { StreamingLaunchCase } from './codex-shell-native-launch-streaming.test-fixture'
 
 const isWindows = process.platform === 'win32'
 const roots: string[] = []
@@ -38,6 +37,7 @@ type Fixture = {
   codexLog: string
   nativeLog: string
   appServerLog: string
+  diagnosticLog: string
   appServerScript: string
   resolverBash: string
   resolverPowerShell: string
@@ -131,29 +131,20 @@ function makeFixture(): Fixture {
   const codexLog = join(root, 'codex launches.log')
   const nativeLog = join(root, 'native launches.log')
   const appServerLog = join(root, 'app-server frames.jsonl')
+  const diagnosticLog = join(root, 'streaming diagnostics.log')
   const appServerScript = join(root, 'app-server fixture.mjs')
-  for (const path of [resolverLog, eventLog, helpLog, codexLog, nativeLog, appServerLog]) {
+  for (const path of [
+    resolverLog,
+    eventLog,
+    helpLog,
+    codexLog,
+    nativeLog,
+    appServerLog,
+    diagnosticLog
+  ]) {
     writeFileSync(path, '')
   }
-  writeFileSync(
-    appServerScript,
-    [
-      "import fs from 'node:fs'",
-      "import { createInterface } from 'node:readline'",
-      "if (process.argv[2] === '--help') {",
-      "  process.stdout.write('  --no-daemon\\n')",
-      '} else {',
-      '  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })',
-      "  lines.on('line', line => {",
-      '    const frame = JSON.parse(line)',
-      '    const value = { route: process.env.ORCA_TEST_APP_SERVER_ROUTE, selectedShim: process.env.ORCA_TEST_SELECTED_SHIM?.toLowerCase() || null, args: process.argv.slice(2), phase: "server", method: frame.method, id: frame.id ?? null }',
-      '    fs.appendFileSync(process.env.ORCA_TEST_APP_SERVER_LOG, JSON.stringify(value) + "\\n")',
-      "    if (frame.method === 'initialize') process.stdout.write(JSON.stringify({ id: frame.id, result: { ok: true } }) + '\\n')",
-      '  })',
-      '}'
-    ].join('\n'),
-    'utf8'
-  )
+  writeStreamingResponderScript(appServerScript)
   writeExecutable(join(nodeBin, 'node.exe'), '#!/bin/sh\nexit 0\n')
 
   const writeCodex = (directory: string): void => {
@@ -226,6 +217,7 @@ function makeFixture(): Fixture {
     codexLog,
     nativeLog,
     appServerLog,
+    diagnosticLog,
     appServerScript,
     resolverBash,
     resolverPowerShell,
@@ -354,20 +346,6 @@ function lines(output: string): string[] {
   return output.trimEnd().split(/\r?\n/)
 }
 
-function withTimeout<T>(promise: Promise<T>, milliseconds: number, label: string): Promise<T> {
-  let timer: NodeJS.Timeout | undefined
-  return Promise.race([
-    promise,
-    new Promise<T>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} timed out`)), milliseconds)
-    })
-  ]).finally(() => {
-    if (timer) {
-      clearTimeout(timer)
-    }
-  })
-}
-
 afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true })
@@ -462,112 +440,72 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       )
     })
 
-    it.each(['native', 'optout'] as const)(
-      'preserves the open JSONL handshake through the %s route',
-      async (mode) => {
-        const fixture = makeFixture()
-        if (!shell.command) {
-          throw new Error('Shell executable was not resolved')
-        }
-        const runtimeShell: RuntimeShell = {
-          name: shell.name,
-          kind: shell.kind,
-          executable: shell.command
-        }
-        const { env, script, expectedShim } = prepareStreamingLaunch(fixture, runtimeShell, mode)
-        const child = spawnProcess({
-          program: shell.command,
-          args: runtimeShellArgs(runtimeShell, script, fixture.root),
-          cwd: fixture.root,
-          env,
-          stdio: 'pipe'
-        })
-        const closed = new Promise<number | null>((resolve, reject) => {
-          child.once('close', resolve)
-          child.once('error', reject)
-        })
-        void closed.catch(() => {})
-        const stdout = createInterface({ input: child.stdout, crlfDelay: Infinity })
-        let stderrBytes = 0
-        child.stderr.on('data', (chunk: Buffer) => {
-          stderrBytes = Math.min(stderrBytes + chunk.length, 1024)
-        })
-        const response = new Promise<string>((resolve, reject) => {
-          stdout.once('line', resolve)
-          child.once('error', reject)
-          child.stdin.once('error', reject)
-          child.once('close', () =>
-            reject(new Error('Shell closed before the initialize response'))
-          )
-        })
-        void response.catch(() => {})
-        const write = (value: string): Promise<void> =>
-          new Promise((resolve, reject) => {
-            child.stdin.write(value, (error) => (error ? reject(error) : resolve()))
-          })
+    const streamingCases: { name: string; launchCase: StreamingLaunchCase }[] =
+      shell.kind === 'powershell'
+        ? [
+            { name: 'official ps1, isolated environment', launchCase: 'powershell-isolated' },
+            { name: 'npm cmd, isolated environment', launchCase: 'cmd-isolated' },
+            { name: 'official ps1, inherited environment', launchCase: 'powershell-inherited' }
+          ]
+        : [{ name: 'runtime fixture', launchCase: 'runtime' }]
 
-        let failure: unknown
-        try {
-          await write('ORCA_RUNTIME_JOB_READY\n')
-          await write(`${JSON.stringify({ id: 1, method: 'initialize', params: {} })}\n`)
-          const responseFrame: unknown = JSON.parse(
-            await withTimeout(response, 10_000, `${shell.name} ${mode} initialize`)
+    for (const streamingCase of streamingCases) {
+      it.each(['native', 'optout'] as const)(
+        `preserves the open JSONL handshake through the %s route (${streamingCase.name})`,
+        async (mode) => {
+          const fixture = makeFixture()
+          if (!shell.command) {
+            throw new Error('Shell executable was not resolved')
+          }
+          const runtimeShell: RuntimeShell = {
+            name: shell.name,
+            kind: shell.kind,
+            executable: shell.command
+          }
+          const result = await runStreamingHandshake(
+            fixture,
+            runtimeShell,
+            mode,
+            streamingCase.launchCase
           )
-          expect(responseFrame).toEqual({ id: 1, result: { ok: true } })
-          await write(`${JSON.stringify({ method: 'initialized' })}\n`)
-          child.stdin.end()
-          expect(await withTimeout(closed, 5_000, `${shell.name} ${mode} EOF cleanup`)).toBe(0)
-          expect(stderrBytes).toBe(0)
-          const frames = readFileSync(fixture.appServerLog, 'utf8')
-            .trim()
-            .split(/\r?\n/)
-            .map((line) => JSON.parse(line))
+          expect(result.responseFrame).toEqual({ id: 1, result: { ok: true } })
+          expect(result.stdoutLines).toEqual([JSON.stringify({ id: 1, result: { ok: true } })])
+          expect(result.stdoutOverflow).toBe(false)
+          expect(result.close).toEqual({ code: 0, signal: null })
+          expect(result.stderrMarkers).toEqual([
+            'script-started',
+            'gate-consumed',
+            'npm-selection-verified',
+            'before-codex-invoke'
+          ])
+          expect(result.stderrOverflow).toBe(false)
+          expect(result.unexpectedStderrBytes).toBe(0)
+          expect(result.stderrBytes).toBeGreaterThan(0)
           const route = mode === 'native' ? 'native' : 'fallback'
-          const selectedShim = expectedShim?.toLowerCase() ?? null
+          const selectedShim = result.expectedShim?.toLowerCase() ?? null
           const args = ['--no-daemon', 'app-server']
-          expect(frames).toEqual([
+          expect(result.frames).toEqual([
             { route, selectedShim, args, phase: 'server', method: 'initialize', id: 1 },
             { route, selectedShim, args, phase: 'server', method: 'initialized', id: null }
           ])
-          expect(readFileSync(fixture.resolverLog, 'utf8').trim() !== '').toBe(mode === 'native')
+          expect(result.counts.resolverCalls).toBe(mode === 'native' ? 1 : 0)
+          expect(result.counts.helpCalls).toBe(1)
+          expect(result.counts.serverStarts).toBe(1)
+          expect(result.counts.codexHomeChecks).toBe(
+            result.counts.helpCalls + result.counts.serverStarts
+          )
+          expect(result.counts.codexHomeMismatches).toBe(0)
           if (mode === 'native') {
             const call = resolverCall(fixture)
             expect(call.stdinBytes).toBe(0)
             expect(pathKey(argumentAfter(call.args, '--launcher') ?? '')).toBe(
-              pathKey(expectedShim ?? toBashPath(join(fixture.bin, 'codex')))
+              pathKey(result.expectedShim ?? toBashPath(join(fixture.bin, 'codex')))
             )
           }
-        } catch (error) {
-          failure = error
-        }
-        let cleanupFailure: unknown
-        stdout.close()
-        if (child.exitCode === null && child.signalCode === null) {
-          child.stdin.end()
-          try {
-            if (!(await forceTerminateProcessTree(child))) {
-              throw new Error(`${shell.name} process tree could not be verified stopped`)
-            }
-          } catch (error) {
-            cleanupFailure = error
-          }
-        }
-        try {
-          await withTimeout(closed, 5_000, `${shell.name} close`)
-        } catch (error) {
-          cleanupFailure ??= error
-        }
-        if (cleanupFailure !== undefined) {
-          throw failure === undefined
-            ? cleanupFailure
-            : new AggregateError([failure, cleanupFailure], `${shell.name} test and cleanup failed`)
-        }
-        if (failure !== undefined) {
-          throw failure
-        }
-      },
-      30_000
-    )
+        },
+        30_000
+      )
+    }
 
     it.skipIf(shell.kind !== 'bash')(
       'scopes mixed-case Windows package metadata to the native child',
