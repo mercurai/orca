@@ -1,13 +1,16 @@
 # Mercurai release automation contract
 
-Owner: Mercurai release owner. Last reviewed: 2026-10-27.
+Owner: Mercurai release owner. Last reviewed: 2026-11-03.
 
 This contract describes the durable handoff between GitHub and a local Orca
 runtime. It is an interface contract, not permission to publish a release.
-The current local adapter is not operational; the completion audit below names
-the native CLI and durable-state boundaries that still require implementation.
 The release state branch and immutable workflow receipts remain authoritative;
 agent chats, issue prose, and terminal availability are not release evidence.
+
+Status: the coordinator layer (state, gate, dispatch, audit, rehearsal) is
+implemented in the controller branch and covered by `fork-scripts-test`. The
+native CLI boundaries that were open on 2026-10-27 are addressed where the
+sections below say so; the remaining open items are listed at the end.
 
 ## Durable state
 
@@ -32,28 +35,68 @@ Every state mutation supplies the expected version. A stale writer fails with
 Only one owner may hold a live lease for a generation. An expired lease is a
 reconciliation signal, not proof that the previous worker exited.
 
+## Durability invariants
+
+Five rules every piece of this pipeline follows. They are not style: each one
+is the difference between a resumed run and a duplicate side effect.
+
+1. **Durable acceptance.** Persist the intent (generation, task key, spec
+digest, request id, writable paths) before the first mutation, and return
+`accepted` before any model work starts. A caller that times out must be able
+to ask what happened.
+2. **Identity is the caller's, never the attempt's.** `sync:<host>:<slot>`,
+`coord:<host>:<slot>`, `triage:<host>:<slot>` where the slot is the clock
+floored to the period, plus one `--retry-request` per mutation
+(`<slot>:run`, `<slot>:task`, `<slot>:worker`). Two fires in one slot are one
+unit of work; a retry replays that exact request.
+3. **A receipt is not a result.** `evidence.dispatchReceipt` records that a
+dispatch was accepted; the worker's output is a separate artifact; the
+transcript is neither. Pruning one must not invalidate the others.
+4. **One writer per store.** Only the trusted reducer writes
+`automation/release-state`, and it refuses a `schemaVersion` it does not
+understand rather than guessing. The local agent reads that branch and writes
+nothing else.
+5. **Nothing unclassified runs twice.** Every step is `safe` or `never` (below).
+
+## Effect classes
+
+| Step | Class | On a crash or an unknown result |
+| --- | --- | --- |
+| Read state, run the gate, compute a digest | `safe` | Re-run |
+| Fetch upstream, compute a conflict inventory | `safe` | Re-run |
+| Create a run, a task | `safe` (request id) | Replay the same request id |
+| Start a worker | `safe` (request id) | Replay, then reconcile with `worker-show` |
+| Rebase a `patch/*` branch | `safe` (`--force-with-lease`) | Re-derive from the pinned tag |
+| Push `main` / mirror a tag | `never` | Inspect the ref; adopt it if it already matches |
+| Allocate a release version | `never` | Reuse the recorded tag, never allocate a second |
+| Tag a candidate | `never` | Reuse the immutable tag and resume its build |
+| Publish to the channel | `never` | `reconcilePublication`: adopt, or upload only if absent |
+| Approve a guarded range or a tag | `never`, owner only | Read the memo; a changed range is a new question |
+
 ## Admission and dispatch
 
-The target adapter must enforce admission itself, even when a manual run omits
-the scheduler precheck. Bind the pinned executable, original runtime and caller
-route before invoking Orca with structured argv and `--json`:
+The adapter enforces admission itself, even when a manual run omits the
+scheduler precheck. It binds the pinned executable, original runtime and
+caller route before invoking Orca with structured argv and `--json`:
 
-1. `orca orchestration run-create --objective <text> --retry-request <persisted-uuid> --json`
-2. `orca orchestration task-create --run <runId> --spec <validated-task-text> --retry-request <persisted-uuid> --json`
-3. `orca orchestration worker-start --task <taskId> --worktree new-child --name <text> --agent codex --setup run --retry-request <persisted-uuid> --json`
+1. `orca orchestration run-create --objective <text> --retry-request <slot>:run --json`
+2. `orca orchestration task-create --run <runId> --spec <task text> --task-title <text> --retry-request <slot>:task --json`
+3. `orca orchestration worker-start --task <taskId> --run <runId> --worktree new-child --name <text> --agent <id> --setup run --retry-request <slot>:worker --json`
 
-Each mutation has its own persisted UUID and exact canonical parameters. These
-are target interfaces, not runnable rollout instructions: first-call UUID
-preallocation and caller/authority recovery still require fixture proof.
-The adapter validates task contents and writable scopes; native `--spec` accepts
-task text and does not enforce an adapter-owned schema.
+Each mutation has its own persisted request id and exact canonical parameters.
+The adapter validates task contents and writable scopes, refuses a spec that
+still contains a placeholder token, and refuses an invalid request id; native
+`--spec` accepts task text and does not enforce an adapter-owned schema.
 
 Parse the actual RPC envelope: `result.run.id`, `result.task.id` and
 `result.dispatchId`. Parse structured stdout before treating a nonzero exit as
-failure: `worker-start` can return an accepted Dispatch receipt while exiting
-1 for an uncertain or failed launch. Preserve that receipt and reconcile it;
-never turn a dropped response into another worker. Store only non-secret IDs,
-digests and authority references with the candidate generation.
+failure: `worker-start` sets exit 1 whenever `result.state` is not `ready`, and
+still prints the receipt. `release-agent-dispatch.mjs` therefore accepts that
+receipt (`evidence.dispatchReceipt.acceptedOnNonzeroExit`) and raises
+`DispatchUnknownError` only when no receipt arrived at all, keeping the run and
+task ids so the retry replays the worker request instead of starting another.
+Store only non-secret IDs, digests and authority references with the candidate
+generation.
 
 Use native `worker-show`/`worker-list` projections for `live`, `unverifiable`
 and `exited`. A local connected/process boolean is insufficient. No shell
@@ -63,9 +106,11 @@ string or publisher credential belongs in a worker launch.
 
 These requirements remain open after the first qualified release:
 
-- The current adapter omits required `--spec`, expects flattened IDs and drops
-  nonzero structured receipts. Its mocked response tests do not prove the real
-  CLI boundary. Add tokenless handler/RPC fixtures before correcting it.
+- ~~The current adapter omits required `--spec`, expects flattened IDs and drops
+  nonzero structured receipts.~~ Addressed 2026-11-03: `--spec` is required and
+  validated, the real envelope is parsed, and a nonzero exit with a receipt is
+  accepted. The argv shape is pinned by tokenless fixtures; a live run remains
+  an owner step.
 - Native mutation handling persists caller-scoped UUID receipts. The same
   authenticated caller, UUID, method and canonical parameters replay the result;
   changed parameters refuse `request_mismatch`. Persist intent and exact public
@@ -108,6 +153,23 @@ deterministic, bounded set of non-overlapping work packages from those paths;
 the plan is evidence for the next isolated integrator task, not permission to
 merge or publish. Each package has an owner, an explicit writable-path list,
 and an attempt limit, so a resumed agent cannot silently expand its scope.
+
+## Audit, retention, and the operator surface
+
+`release-audit.mjs` derives the expected steps from the stage the candidate
+actually reached and diffs them against the receipts it holds. Every miss is
+named (`evidence.audit.missing`) and `verifyPromotion` refuses on any miss. A
+green workflow is not evidence; a receipt is.
+
+Retention is part of the contract, not housekeeping: an unchanged upstream
+range writes no comment and opens no issue (`report-sync-issue.sh` compares the
+last comment against the pinned commit), parked items are refreshed in place by
+identity, and state history stays bounded.
+
+`summarizeQueue` is the operator surface: generation, state, eligibility,
+parked items with their reasons, the skip counter, the live lease owner, and
+the queued digest. `release-rehearsal.mjs` is the tokenless proof: eight
+scenarios, no network, no model, no credential.
 
 ## Promotion boundary
 
@@ -162,18 +224,35 @@ Manual reconciliation still requires an explicit dispatch from the default branc
 
 ## Local automation registration
 
-The checked-in `scripts/release-automation-spec.mjs` emits a disabled-by-default
-spec and structured argv for the local Orca runtime. From the release worktree,
-inspect it with:
+Two checked-in spec builders emit disabled-by-default specs and structured argv
+for the local Orca runtime. From the release worktree, inspect them with:
 
 ```bash
 node config/mercurai/scripts/release-automation-spec.mjs
+node -e "import('./config/mercurai/scripts/issue-pr-triage.mjs').then(m => console.log(JSON.stringify(m.buildTriageAutomationArgs({ repo: 'mercurai/orca' }))))"
 ```
+
+Both use provider `pi`, an hourly (release) or two-hourly (triage) trigger, and a
+precheck that is the change gate: an unchanged hour exits non-zero and the
+scheduler records a skipped run without starting a model turn. The prompt names
+`config/mercurai/automation/<agent>.md`, so what the agent does is reviewed in
+the repository rather than edited in runtime-owned automation state.
 
 An owner may pass the emitted argv to `orca` without a shell string, inspect
 `orca automations show <id> --json`, and run one nonpublishing rehearsal. The
-spec cannot enable itself; enabling the hourly schedule remains a separate owner
-action after a qualified release and rehearsal.
+spec cannot enable itself; enabling the schedule remains a separate owner action
+after a qualified release and a passing `release-rehearsal.mjs`.
+
+## Open items after 2026-11-03
+
+- First-call UUID preallocation (`--retry-request` before the mutation) is proven
+  in fixtures, not against a live runtime.
+- `request-show` reconciliation of an `operation_unknown` dispatch has no live
+  rehearsal yet; the adapter keeps the ids so a human can reconcile.
+- Provider choice for the automation (`pi`) is a default, not a verified
+  capability of the installed runtime; `codex` is the documented fallback.
+- The scheduler's own liveness (a run whose terminal disappears) is not yet
+  covered by a companion wake.
 
 ## Recovery and rollback
 

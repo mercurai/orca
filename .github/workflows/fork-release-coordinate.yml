@@ -12,6 +12,8 @@ on:
 permissions:
   actions: read
   contents: write
+  # Read-only: parked tag approvals are derived from the owner-review issues the sync already filed.
+  issues: read
 
 concurrency:
   group: fork-release-coordinate
@@ -25,6 +27,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       STATE_BRANCH: automation/release-state
+      PARKED_TAGS_FILE: ${{ runner.temp }}/parked-tags.txt
     steps:
       - name: Checkout the trusted controller
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -116,6 +119,18 @@ jobs:
           )
           NODE
 
+      - name: Read the parked tag approvals
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Parked work is read from the issues the sync already filed for owner review. The
+          # coordinator never writes them; a closed issue means the tag is no longer parked.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=open&labels=fork-sync-tag&per_page=100" \
+            --jq '.[] | select(.pull_request == null) | .title' \
+            | sed -n 's/^fork-sync tag: \(v[0-9][^ ]*\) needs owner review$/\1/p' \
+            | sort -u > "$PARKED_TAGS_FILE"
+          echo "parked tag approvals: $(wc -l < "$PARKED_TAGS_FILE")"
+
       - name: Reconcile and run the admission precheck
         env:
           UPSTREAM_MAIN_SHA: ${{ steps.upstream.outputs.upstream_main_sha }}
@@ -128,8 +143,9 @@ jobs:
           set -euo pipefail
           node --input-type=module - "$GITHUB_WORKSPACE/.state/release-state.json" <<'NODE'
           import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-          import { activateQueuedTarget, createState, enqueueTarget, transitionState } from './config/mercurai/scripts/release-state.mjs'
+          import { activateQueuedTarget, clearParked, computeTargetDigest, createState, enqueueTarget, parkItem, recordEvaluation, transitionState } from './config/mercurai/scripts/release-state.mjs'
           import { buildConflictTaskPlan } from './config/mercurai/scripts/release-conflict-task-plan.mjs'
+          import { auditCandidate } from './config/mercurai/scripts/release-audit.mjs'
           const path = process.argv[2]
           const conflictInventory = JSON.parse(readFileSync(process.env.CONFLICT_INVENTORY_FILE, 'utf8'))
           const conflictTaskPlan = buildConflictTaskPlan(conflictInventory)
@@ -179,6 +195,47 @@ jobs:
                 evidence: { ...state.evidence, conflictInventory, conflictTaskPlan },
                 updatedAt: new Date().toISOString()
               }
+            }
+          }
+          // Parked tag approvals: derived from the owner-review issues, refreshed in place, and
+          // cleared when the issue closes. The rest of the queue keeps moving regardless.
+          const parkedTags = existsSync(process.env.PARKED_TAGS_FILE)
+            ? readFileSync(process.env.PARKED_TAGS_FILE, 'utf8').split('\n').filter(Boolean)
+            : []
+          const now = new Date().toISOString()
+          for (const tag of parkedTags) {
+            state = parkItem(
+              state,
+              {
+                kind: 'tag-approval',
+                key: tag,
+                reason: 'owner review pending for the mirrored release tag',
+                evidence: { issue: `fork-sync tag: ${tag} needs owner review` }
+              },
+              { now }
+            )
+          }
+          for (const item of [...(state.parked ?? [])]) {
+            if (item.kind === 'tag-approval' && !parkedTags.includes(item.key)) {
+              state = clearParked(state, { kind: item.kind, key: item.key }, { now })
+            }
+          }
+          // Wake gate: one digest per candidate identity, so the local automation can skip an
+          // unchanged hour without spending a model turn.
+          const digest = computeTargetDigest(state.candidate)
+          state = recordEvaluation(state, {
+            digest,
+            changed: digest !== state.lastEvaluatedDigest,
+            now
+          })
+          // Audit evidence: the receipts this candidate actually has, not the ones a green run implies.
+          const audit = auditCandidate(state)
+          if (JSON.stringify(audit) !== JSON.stringify(state.evidence?.audit)) {
+            state = {
+              ...state,
+              version: state.version + 1,
+              evidence: { ...state.evidence, audit },
+              updatedAt: now
             }
           }
           writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`)

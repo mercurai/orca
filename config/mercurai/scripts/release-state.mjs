@@ -1,4 +1,12 @@
+import { createHash } from 'node:crypto'
+
 const SHA40 = /^[0-9a-f]{40}$/
+
+/**
+ * Bumped only with a migration. A reader that meets an unknown version refuses the state instead of
+ * interpreting fields it does not understand (a wrong interpretation of durable state is worse than a stop).
+ */
+export const STATE_SCHEMA_VERSION = 1
 
 const transitions = {
   detected: ['frozen', 'blocked', 'failed'],
@@ -62,6 +70,39 @@ function validateTarget(target) {
   }
 }
 
+/** Canonical identity of a candidate target: two equal digests mean the same work, byte for byte. */
+export function computeTargetDigest(target) {
+  validateTarget(target)
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        upstreamMainSha: target.upstreamMainSha,
+        stableTag: target.stableTag,
+        stableTagSha: target.stableTagSha ?? null,
+        controllerSha: target.controllerSha,
+        patchHeads: target.patchHeads.map((patch) => ({
+          branch: patch.branch,
+          commit: patch.commit,
+          base: patch.base ?? null
+        }))
+      })
+    )
+    .digest('hex')
+}
+
+/** Refuse a state written by another schema instead of guessing what its fields mean. */
+export function assertStateSchema(state) {
+  if (!state || typeof state !== 'object') {
+    throw new TypeError('state is required')
+  }
+  if (state.schemaVersion !== STATE_SCHEMA_VERSION) {
+    throw new TypeError(
+      `state schemaVersion ${String(state.schemaVersion)} is not supported; expected ${STATE_SCHEMA_VERSION}`
+    )
+  }
+  return state
+}
+
 function checkVersion(state, expectedVersion) {
   if (!Number.isInteger(expectedVersion) || expectedVersion !== state.version) {
     throw new StateConflictError(
@@ -77,10 +118,16 @@ function timestamp(value) {
   return typeof value === 'number' ? new Date(value).toISOString() : value
 }
 
+function requireString(value, label) {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new TypeError(`${label} is required`)
+  }
+}
+
 export function createState(target, { now } = {}) {
   validateTarget(target)
   return {
-    schemaVersion: 1,
+    schemaVersion: STATE_SCHEMA_VERSION,
     version: 0,
     generation: 1,
     state: 'detected',
@@ -88,6 +135,11 @@ export function createState(target, { now } = {}) {
     queuedTarget: null,
     lease: null,
     evidence: {},
+    // Work the coordinator must not attempt twice, and approvals a human already gave for one range.
+    parked: [],
+    approvalMemo: {},
+    lastEvaluatedDigest: null,
+    skipped: 0,
     updatedAt: timestamp(now)
   }
 }
@@ -111,9 +163,7 @@ function requiredEvidence(to, evidence) {
 
 export function transitionState(state, { expectedVersion, to, owner, evidence = {}, now } = {}) {
   checkVersion(state, expectedVersion)
-  if (typeof owner !== 'string' || owner.length === 0) {
-    throw new TypeError('owner is required')
-  }
+  requireString(owner, 'owner')
   if (!Object.hasOwn(transitions, state.state) || !transitions[state.state].includes(to)) {
     throw new StateConflictError(`invalid transition ${state.state} -> ${to}`)
   }
@@ -121,9 +171,7 @@ export function transitionState(state, { expectedVersion, to, owner, evidence = 
     throw new TypeError('evidence must be an object')
   }
   if (to === 'blocked' || to === 'failed') {
-    if (typeof evidence.reason !== 'string' || evidence.reason.length === 0) {
-      throw new TypeError(`${to} requires evidence.reason`)
-    }
+    requireString(evidence.reason, `evidence.reason for ${to}`)
   } else {
     requiredEvidence(to, evidence)
   }
@@ -138,9 +186,7 @@ export function transitionState(state, { expectedVersion, to, owner, evidence = 
 
 export function claimLease(state, { expectedVersion, owner, now, leaseMs = 15 * 60 * 1000 } = {}) {
   checkVersion(state, expectedVersion)
-  if (typeof owner !== 'string' || owner.length === 0) {
-    throw new TypeError('owner is required')
-  }
+  requireString(owner, 'owner')
   if (!Number.isFinite(now) || !Number.isFinite(leaseMs) || leaseMs <= 0) {
     throw new TypeError('lease timing is invalid')
   }
@@ -156,8 +202,16 @@ export function claimLease(state, { expectedVersion, owner, now, leaseMs = 15 * 
   }
 }
 
+/**
+ * Queue one pending target. A target identical to the queued one is not re-queued: the coordinator
+ * runs hourly and upstream identity is unchanged on most of those runs, so a version bump per run
+ * would be pure churn.
+ */
 export function enqueueTarget(state, target, { now } = {}) {
   validateTarget(target)
+  if (state.queuedTarget && computeTargetDigest(state.queuedTarget) === computeTargetDigest(target)) {
+    return copy(state)
+  }
   return {
     ...copy(state),
     version: state.version + 1,
@@ -189,6 +243,118 @@ export function activateQueuedTarget(state, { expectedVersion, now } = {}) {
     queuedTarget: null,
     lease: null,
     evidence: {},
+    lastEvaluatedDigest: null,
     updatedAt: timestamp(now)
+  }
+}
+
+/**
+ * Record what the gate looked at. `skipped` is the wake-gate counter: consecutive evaluations that
+ * found nothing to do. A coordinator that keeps skipping is healthy, not stuck.
+ */
+export function recordEvaluation(state, { digest, changed, now } = {}) {
+  requireString(digest, 'digest')
+  if (typeof changed !== 'boolean') {
+    throw new TypeError('changed must be a boolean')
+  }
+  return {
+    ...copy(state),
+    version: state.version + 1,
+    lastEvaluatedDigest: digest,
+    skipped: changed ? 0 : (state.skipped ?? 0) + 1,
+    updatedAt: timestamp(now)
+  }
+}
+
+/** Park one blocked item so the rest of the queue keeps moving. Identity is (kind, key). */
+export function parkItem(state, { kind, key, reason, unblocksAt = null, evidence = {} }, { now } = {}) {
+  requireString(kind, 'kind')
+  requireString(key, 'key')
+  requireString(reason, 'reason')
+  if (unblocksAt !== null && typeof unblocksAt !== 'string') {
+    throw new TypeError('unblocksAt must be an ISO timestamp or null')
+  }
+  const entry = {
+    kind,
+    key,
+    reason,
+    unblocksAt,
+    evidence: copy(evidence),
+    recordedAt: timestamp(now)
+  }
+  const parked = (state.parked ?? []).filter((item) => !(item.kind === kind && item.key === key))
+  parked.push(entry)
+  return {
+    ...copy(state),
+    version: state.version + 1,
+    parked,
+    updatedAt: timestamp(now)
+  }
+}
+
+export function clearParked(state, { kind, key } = {}, { now } = {}) {
+  requireString(kind, 'kind')
+  requireString(key, 'key')
+  const parked = (state.parked ?? []).filter((item) => !(item.kind === kind && item.key === key))
+  if (parked.length === (state.parked ?? []).length) {
+    return copy(state)
+  }
+  return { ...copy(state), version: state.version + 1, parked, updatedAt: timestamp(now) }
+}
+
+export function findParked(state, { kind, key } = {}) {
+  return (state.parked ?? []).find((item) => item.kind === kind && item.key === key) ?? null
+}
+
+/**
+ * Remember one owner approval for exactly one reviewed range. The coordinator may read this and may
+ * never write it: the caller of this function is the owner-intake path, not the agent.
+ */
+export function recordApproval(state, { kind, key, approver, sha, rangeDigest }, { now } = {}) {
+  requireString(kind, 'kind')
+  requireString(key, 'key')
+  requireString(approver, 'approver')
+  requireString(rangeDigest, 'rangeDigest')
+  requireSha(sha, 'sha')
+  const memo = copy(state.approvalMemo ?? {})
+  const entries = (memo[key] ?? []).filter(
+    (entry) => !(entry.approver === approver && entry.rangeDigest === rangeDigest)
+  )
+  entries.push({ kind, approver, sha, rangeDigest, recordedAt: timestamp(now) })
+  memo[key] = entries
+  return { ...copy(state), version: state.version + 1, approvalMemo: memo, updatedAt: timestamp(now) }
+}
+
+/** True only when this approver already approved this exact range. A changed range is a new question. */
+export function findApproval(state, { key, approver, rangeDigest } = {}) {
+  requireString(key, 'key')
+  requireString(approver, 'approver')
+  requireString(rangeDigest, 'rangeDigest')
+  return (
+    (state.approvalMemo?.[key] ?? []).find(
+      (entry) => entry.approver === approver && entry.rangeDigest === rangeDigest
+    ) ?? null
+  )
+}
+
+/** The operator-facing answer: what can run, what is waiting, and why. */
+export function summarizeQueue(state, { now } = {}) {
+  const current = typeof now === 'number' ? now : Date.now()
+  const parked = state.parked ?? []
+  return {
+    generation: state.generation,
+    state: state.state,
+    eligible: ['detected', 'frozen', 'integrating', 'qualifying'].includes(state.state),
+    parked: parked.map((item) => ({
+      kind: item.kind,
+      key: item.key,
+      reason: item.reason,
+      unblocksAt: item.unblocksAt
+    })),
+    parkedCount: parked.length,
+    skipped: state.skipped ?? 0,
+    lease: state.lease && state.lease.expiresAt > current ? state.lease.owner : null,
+    queued: state.queuedTarget ? computeTargetDigest(state.queuedTarget) : null,
+    digest: computeTargetDigest(state.candidate)
   }
 }
