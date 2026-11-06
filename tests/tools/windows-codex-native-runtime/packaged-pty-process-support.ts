@@ -192,7 +192,13 @@ export function readShellIdentity(
   const pid = Number(readFileSync(filePath, 'utf8').trim())
   const row = rows.find((candidate) => candidate.pid === pid)
   if (!Number.isSafeInteger(pid) || pid <= 0 || !row || row.name.toLowerCase() !== expectedName) {
-    throw new Error('The terminal shell identity did not match its pane sentinel')
+    const shellNames = ['bash.exe', 'pwsh.exe', 'powershell.exe', 'cmd.exe']
+    const actualName = row?.name.toLowerCase() ?? 'missing'
+    const actualKind = shellNames.includes(actualName) ? actualName : 'other'
+    throw new Error(
+      'The terminal shell identity did not match its pane sentinel ' +
+        `(validPid=${Number.isSafeInteger(pid) && pid > 0}; rowPresent=${Boolean(row)}; actualKind=${actualKind})`
+    )
   }
   return { ...processIdentity(row), name: row.name }
 }

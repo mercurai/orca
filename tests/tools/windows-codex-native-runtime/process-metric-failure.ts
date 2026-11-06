@@ -2,15 +2,16 @@ import type { ProcessIdentity } from './process-tree-identity'
 import type { MetricsResponse, ProcessMetricOperation } from './process-metrics-protocol'
 
 export class ProcessMetricsIncompleteError extends Error {
-  #failedIdentity: ProcessIdentity
+  #failedIdentities: ProcessIdentity[]
   readonly operation: ProcessMetricOperation
   readonly expectedCount: number
   readonly measuredCount: number
+  readonly failedIdentityCount: number
   readonly errorCode: number | null
 
   constructor(input: {
     operation: ProcessMetricOperation
-    failedIdentity: ProcessIdentity
+    failedIdentities: ProcessIdentity[]
     expectedCount: number
     measuredCount: number
     errorCode: number | null
@@ -21,22 +22,36 @@ export class ProcessMetricsIncompleteError extends Error {
         `error ${input.errorCode ?? 'n/a'})`
     )
     this.name = 'ProcessMetricsIncompleteError'
-    this.#failedIdentity = {
-      pid: input.failedIdentity.pid,
-      creationTimeMs: input.failedIdentity.creationTimeMs
-    }
+    this.#failedIdentities = input.failedIdentities.map((identity) => ({ ...identity }))
     this.operation = input.operation
     this.expectedCount = input.expectedCount
     this.measuredCount = input.measuredCount
+    this.failedIdentityCount = input.failedIdentities.length
     this.errorCode = input.errorCode
   }
 
   matchesFailedIdentity(identity: ProcessIdentity): boolean {
+    return this.#failedIdentities.some((failed) => sameIdentity(failed, identity))
+  }
+
+  matchesFailedIdentities(identities: ProcessIdentity[]): boolean {
+    if (identities.length !== this.#failedIdentities.length) {
+      return false
+    }
+    const candidates = new Set(identities.map(identityKey))
     return (
-      identity.pid === this.#failedIdentity.pid &&
-      identity.creationTimeMs === this.#failedIdentity.creationTimeMs
+      candidates.size === identities.length &&
+      this.#failedIdentities.every((failed) => candidates.has(identityKey(failed)))
     )
   }
+}
+
+function identityKey(identity: ProcessIdentity): string {
+  return `${identity.pid}:${identity.creationTimeMs}`
+}
+
+function sameIdentity(left: ProcessIdentity, right: ProcessIdentity): boolean {
+  return left.pid === right.pid && left.creationTimeMs === right.creationTimeMs
 }
 
 export function sampleFailure(
@@ -45,27 +60,27 @@ export function sampleFailure(
 ): Error {
   if (response.reason === 'process_metric_unavailable') {
     const operation = response.operation
-    const failedIdentity = response.failedIdentity
+    const failedIdentities = response.failedIdentities
     const errorCode = response.errorCode
     const expectedCount = response.expectedCount
     const measuredCount = response.measuredCount
     if (
       operation === undefined ||
-      failedIdentity === undefined ||
+      failedIdentities === undefined ||
       errorCode === undefined ||
       expectedCount !== requestedProcesses.length ||
       measuredCount === undefined ||
-      !requestedProcesses.some(
-        (identity) =>
-          identity.pid === failedIdentity.pid &&
-          identity.creationTimeMs === failedIdentity.creationTimeMs
+      expectedCount - measuredCount !== failedIdentities.length ||
+      new Set(failedIdentities.map(({ pid }) => pid)).size !== failedIdentities.length ||
+      failedIdentities.some(
+        (failed) => !requestedProcesses.some((identity) => sameIdentity(identity, failed))
       )
     ) {
       return new Error('Windows process metrics returned invalid failure diagnostics')
     }
     return new ProcessMetricsIncompleteError({
       operation,
-      failedIdentity,
+      failedIdentities,
       expectedCount,
       measuredCount,
       errorCode

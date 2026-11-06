@@ -35,7 +35,7 @@ export type MetricsResponse =
       ok: false
       reason: string
       operation?: ProcessMetricOperation
-      failedIdentity?: ProcessIdentity
+      failedIdentities?: ProcessIdentity[]
       errorCode?: number | null
       expectedCount?: number
       measuredCount?: number
@@ -69,6 +69,20 @@ function isMetricFailureIdentity(value: unknown): value is ProcessIdentity {
   return (
     isRecord(value) && hasOnlyKeys(value, ['pid', 'creationTimeMs']) && isProcessIdentity(value)
   )
+}
+
+function metricFailureIdentities(value: unknown): ProcessIdentity[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_JOB_PROCESS_IDS) {
+    throw new Error('invalid sampler failed identity list')
+  }
+  const seen = new Set<number>()
+  return value.map((identity) => {
+    if (!isMetricFailureIdentity(identity) || seen.has(identity.pid)) {
+      throw new Error('invalid sampler failed identity list')
+    }
+    seen.add(identity.pid)
+    return { pid: identity.pid, creationTimeMs: identity.creationTimeMs }
+  })
 }
 
 function isProcessCount(value: unknown): value is number {
@@ -174,7 +188,7 @@ export function metricResponse(value: unknown): MetricsResponse {
       'ok',
       'reason',
       'operation',
-      'failedIdentity',
+      'failedIdentities',
       'errorCode',
       'expectedCount',
       'measuredCount'
@@ -198,17 +212,11 @@ export function metricResponse(value: unknown): MetricsResponse {
     }
     response.operation = value.operation
   }
-  if ('failedIdentity' in value) {
-    if (
-      response.reason !== 'process_metric_unavailable' ||
-      !isMetricFailureIdentity(value.failedIdentity)
-    ) {
-      throw new Error('invalid sampler failed identity')
+  if ('failedIdentities' in value) {
+    if (response.reason !== 'process_metric_unavailable') {
+      throw new Error('invalid sampler failed identity list')
     }
-    response.failedIdentity = {
-      pid: value.failedIdentity.pid,
-      creationTimeMs: value.failedIdentity.creationTimeMs
-    }
+    response.failedIdentities = metricFailureIdentities(value.failedIdentities)
   }
   if ('errorCode' in value) {
     const errorCode = value.errorCode
@@ -239,15 +247,20 @@ export function metricResponse(value: unknown): MetricsResponse {
   ) {
     throw new Error('invalid sampler process counts')
   }
-  if (
-    response.reason === 'process_metric_unavailable' &&
-    (response.operation === undefined ||
-      response.failedIdentity === undefined ||
-      response.errorCode === undefined ||
-      response.expectedCount === undefined ||
-      response.measuredCount === undefined)
-  ) {
-    throw new Error('invalid sampler metric diagnostic')
+  if (response.reason === 'process_metric_unavailable') {
+    const { operation, failedIdentities, errorCode, expectedCount, measuredCount } = response
+    if (
+      operation === undefined ||
+      failedIdentities === undefined ||
+      errorCode === undefined ||
+      expectedCount === undefined ||
+      measuredCount === undefined
+    ) {
+      throw new Error('invalid sampler metric diagnostic')
+    }
+    if (expectedCount - measuredCount !== failedIdentities.length) {
+      throw new Error('invalid sampler failed identity count')
+    }
   }
   return response
 }

@@ -203,7 +203,8 @@ describe('ProcessMetricsClient request lifecycle', () => {
   it('preserves the allowlisted Win32 operation and incomplete counts', async () => {
     const identities = [
       { pid: 1234, creationTimeMs: 12345 },
-      { pid: 1235, creationTimeMs: 12346 }
+      { pid: 1235, creationTimeMs: 12346 },
+      { pid: 1236, creationTimeMs: 12347 }
     ]
     const sampled = client.sample(identities)
     child.stdout.write(
@@ -211,9 +212,9 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'get_process_memory_info',
-        failedIdentity: identities[1],
+        failedIdentities: identities.slice(1),
         errorCode: 31,
-        expectedCount: 2,
+        expectedCount: 3,
         measuredCount: 1
       })}\n`
     )
@@ -231,19 +232,23 @@ describe('ProcessMetricsClient request lifecycle', () => {
     expect(caught).toMatchObject({
       name: 'ProcessMetricsIncompleteError',
       operation: 'get_process_memory_info',
-      expectedCount: 2,
+      expectedCount: 3,
       measuredCount: 1,
       errorCode: 31,
       message:
         'Windows process metrics incomplete (process_metric_unavailable, ' +
-        'operation=get_process_memory_info, 1/2, error 31)'
+        'operation=get_process_memory_info, 1/3, error 31)'
     })
-    expect(caught.matchesFailedIdentity(identities[1])).toBe(true)
-    expect(Object.keys(caught)).not.toContain('failedIdentity')
+    expect(caught.matchesFailedIdentities(identities.slice(1))).toBe(true)
+    expect(Object.keys(caught)).not.toContain('failedIdentities')
     expect(JSON.stringify(caught)).not.toContain(String(identities[1].pid))
     expect(JSON.stringify(caught)).not.toContain(String(identities[1].creationTimeMs))
+    expect(JSON.stringify(caught)).not.toContain(String(identities[2].pid))
+    expect(JSON.stringify(caught)).not.toContain(String(identities[2].creationTimeMs))
     expect(inspect(caught)).not.toContain(String(identities[1].pid))
     expect(inspect(caught)).not.toContain(String(identities[1].creationTimeMs))
+    expect(inspect(caught)).not.toContain(String(identities[2].pid))
+    expect(inspect(caught)).not.toContain(String(identities[2].creationTimeMs))
     expect(child.kill).not.toHaveBeenCalled()
     const closing = client.close()
     child.closeNormally()
@@ -256,7 +261,7 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'get_process_memory_info',
-        failedIdentity: { pid: 1235, creationTimeMs: 12346 },
+        failedIdentities: [{ pid: 1235, creationTimeMs: 12346 }],
         errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
@@ -272,7 +277,7 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'ReadProcessMemory',
-        failedIdentity: { pid: 1235, creationTimeMs: 12346 },
+        failedIdentities: [{ pid: 1235, creationTimeMs: 12346 }],
         errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
@@ -283,7 +288,7 @@ describe('ProcessMetricsClient request lifecycle', () => {
         ok: false,
         reason: 'process_metric_unavailable',
         operation: 'get_process_memory_info',
-        failedIdentity: { pid: 0, creationTimeMs: 12346 },
+        failedIdentities: [{ pid: 0, creationTimeMs: 12346 }],
         errorCode: 31,
         expectedCount: 2,
         measuredCount: 1
@@ -302,6 +307,34 @@ describe('ProcessMetricsClient request lifecycle', () => {
     expect(() =>
       metricResponse({
         ok: false,
+        reason: 'process_metric_unavailable',
+        operation: 'get_process_memory_info',
+        failedIdentities: [
+          { pid: 1235, creationTimeMs: 12346 },
+          { pid: 1235, creationTimeMs: 12346 }
+        ],
+        errorCode: 31,
+        expectedCount: 2,
+        measuredCount: 0
+      })
+    ).toThrow('invalid sampler failed identity list')
+    expect(() =>
+      metricResponse({
+        ok: false,
+        reason: 'process_metric_unavailable',
+        operation: 'get_process_memory_info',
+        failedIdentities: [
+          { pid: 1234, creationTimeMs: 12345 },
+          { pid: 1235, creationTimeMs: 12346 }
+        ],
+        errorCode: 31,
+        expectedCount: 2,
+        measuredCount: 1
+      })
+    ).toThrow('invalid sampler failed identity count')
+    expect(() =>
+      metricResponse({
+        ok: false,
         reason: 'pid_creation_mismatch',
         operation: 'open_process'
       })
@@ -317,7 +350,7 @@ describe('ProcessMetricsClient request lifecycle', () => {
       ok: false,
       reason: 'process_metric_unavailable',
       operation: 'query_full_process_image_name',
-      failedIdentity: requested[1],
+      failedIdentities: [requested[1]],
       errorCode: 31,
       expectedCount: 2,
       measuredCount: 1
@@ -330,14 +363,23 @@ describe('ProcessMetricsClient request lifecycle', () => {
     if (!(failure instanceof ProcessMetricsIncompleteError)) {
       throw new Error('Expected a structured incomplete metric failure')
     }
-    expect(failure.matchesFailedIdentity(requested[1])).toBe(true)
+    expect(failure.matchesFailedIdentities([requested[1]])).toBe(true)
 
     const wrongCount = sampleFailure({ ...response, expectedCount: 3 }, requested)
     const wrongIdentity = sampleFailure(
-      { ...response, failedIdentity: { pid: 1235, creationTimeMs: 99999 } },
+      { ...response, failedIdentities: [{ pid: 1235, creationTimeMs: 99999 }] },
+      requested
+    )
+    const unrequestedIdentity = sampleFailure(
+      {
+        ...response,
+        failedIdentities: [requested[1], { pid: 9999, creationTimeMs: 99999 }],
+        measuredCount: 0
+      },
       requested
     )
     expect(wrongCount).not.toBeInstanceOf(ProcessMetricsIncompleteError)
     expect(wrongIdentity).not.toBeInstanceOf(ProcessMetricsIncompleteError)
+    expect(unrequestedIdentity).not.toBeInstanceOf(ProcessMetricsIncompleteError)
   })
 })

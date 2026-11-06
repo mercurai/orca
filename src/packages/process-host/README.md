@@ -70,8 +70,9 @@ A third [report at `40d3a37436`](https://github.com/mercurai/orca/actions/runs/4
 confirmed 19.5–20.8 MiB lower private commit at one session and 58.3–61.7 MiB at three. PowerShell
 startup medians ranged from -9 to +200 ms; startup timing varies across runs. All normal cleanup
 completed within 896 ms. Each reported window contains four complete samples after one or two
-bounded restarts. An incomplete metric permits a restart only when its exact failed identity is
-the sole vanished noncritical process; the sampler discards the prior window and CPU deltas.
+bounded restarts. The current sampler permits a restart after incomplete metrics only when the exact
+failed identity set matches all vanished noncritical processes, with no other tree change. It discards
+the prior window and CPU deltas.
 Persistent memory savings repeated across the three reports; startup speed and steady-idle CPU
 improvements are not established.
 

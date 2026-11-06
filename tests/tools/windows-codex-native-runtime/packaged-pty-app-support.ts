@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, realpathSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, dirname, join, win32 } from 'node:path'
 import { buildFreshProfile, createSeededRepo } from '../win-update-e2e/onboarding-profile.mjs'
 import {
   launchInstalledApp,
@@ -140,14 +140,27 @@ export async function setWindowsShell(page: SessionHandle['page'], shell: string
     return
   }
 
-  await page.evaluate(async (selectedShell) => {
-    await window.api.settings.set({ terminalWindowsShell: selectedShell })
-  }, shell)
-  const savedShell = await page.evaluate(
-    async () => (await window.api.settings.get()).terminalWindowsShell
+  const implementation = win32.basename(shell).toLowerCase()
+  if (implementation !== 'powershell.exe' && implementation !== 'pwsh.exe') {
+    throw new Error('The packaged lifecycle requested an unsupported PowerShell implementation')
+  }
+  const persisted = await page.evaluate(
+    async (selected) => {
+      await window.api.settings.set(selected)
+      const saved = await window.api.settings.get()
+      return (
+        saved.terminalWindowsShell === selected.terminalWindowsShell &&
+        saved.terminalWindowsPowerShellImplementation ===
+          selected.terminalWindowsPowerShellImplementation
+      )
+    },
+    {
+      terminalWindowsShell: shell,
+      terminalWindowsPowerShellImplementation: implementation
+    }
   )
-  if (savedShell !== shell) {
-    throw new Error(`The packaged app did not persist its ${shell} terminal setting`)
+  if (!persisted) {
+    throw new Error('The packaged app did not persist its PowerShell shell and implementation')
   }
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForTerminalReady(page, 30_000)

@@ -91,14 +91,14 @@ def measure(request):
     measurements = []
     first_error = None
     first_error_operation = None
-    first_error_identity = None
+    failed_identities = []
 
     def record_failure(operation, error_code, pid, creation_time_ms):
-        nonlocal first_error, first_error_operation, first_error_identity
-        if first_error is None:
+        nonlocal first_error, first_error_operation
+        failed_identities.append({"pid": pid, "creationTimeMs": creation_time_ms})
+        if first_error_operation is None:
             first_error = error_code
             first_error_operation = operation
-            first_error_identity = {"pid": pid, "creationTimeMs": creation_time_ms}
 
     for row in rows:
         if not isinstance(row, dict):
@@ -212,7 +212,7 @@ def measure(request):
             "ok": False,
             "reason": "process_metric_unavailable",
             "operation": first_error_operation,
-            "failedIdentity": first_error_identity,
+            "failedIdentities": failed_identities,
             "errorCode": first_error,
             "expectedCount": len(rows),
             "measuredCount": len(measurements),

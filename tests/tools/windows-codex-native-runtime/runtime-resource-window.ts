@@ -4,7 +4,7 @@ import type { ProcessMetrics } from './process-metrics-protocol'
 import { ProcessMetricsIncompleteError } from './process-metric-failure'
 import type { RuntimeMode } from './runtime-environment'
 import {
-  isSingleMissingPeripheralFailure,
+  isExactFailedPeripheralRemoval,
   reportFailedSampleDiagnostic
 } from './runtime-metric-failure-diagnostic'
 
@@ -152,7 +152,7 @@ export async function collectStableResourceWindow(
         if (
           treeDiagnostic.state === 'peripheral-change' &&
           treeDiagnostic.snapshot &&
-          isSingleMissingPeripheralFailure(
+          isExactFailedPeripheralRemoval(
             error,
             baselineCritical ?? previous.criticalProcesses,
             previous,

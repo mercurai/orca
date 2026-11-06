@@ -13,15 +13,18 @@ function identity(pid: number, creationTimeMs: number): ProcessIdentity {
 }
 
 function snapshot(
-  helper: ProcessIdentity | null,
+  helpers: ProcessIdentity | ProcessIdentity[] | null,
   codex = identity(202, 2002),
   marker = 2
 ): ResourceWindowSnapshot {
+  const helperProcesses = helpers === null ? [] : Array.isArray(helpers) ? helpers : [helpers]
   const processes = [
     { name: 'bash.exe', identity: identity(101, 1001) },
-    { name: 'codex.exe', identity: codex },
-    ...(helper ? [{ name: 'conhost.exe', identity: helper }] : [])
+    { name: 'codex.exe', identity: codex }
   ]
+  for (const helper of helperProcesses) {
+    processes.push({ name: 'conhost.exe', identity: helper })
+  }
   const criticalProcesses = processes.slice(0, 2)
   return {
     shell: 'Git Bash',
@@ -248,7 +251,7 @@ describe('Codex native runtime resource sampling', () => {
     const original = snapshot(identity(303, 3003))
     const metricFailure = new ProcessMetricsIncompleteError({
       operation: 'get_process_memory_info',
-      failedIdentity: identity(303, 3003),
+      failedIdentities: [identity(303, 3003)],
       expectedCount: 3,
       measuredCount: 2,
       errorCode: 31
@@ -335,9 +338,9 @@ describe('Codex native runtime resource sampling', () => {
     }
   })
 
-  it('restarts with a full fresh window when the sole failed peripheral identity disappeared', async () => {
-    const failedIdentity = identity(303, 3003)
-    const original = snapshot(failedIdentity, undefined, 1)
+  it('restarts with a full fresh window when all failed peripheral identities disappeared', async () => {
+    const failedIdentities = [identity(303, 3003), identity(304, 3004), identity(305, 3005)]
+    const original = snapshot(failedIdentities, undefined, 1)
     const replacement = snapshot(null, undefined, 9)
     let now = 0
     let settleCount = 0
@@ -358,9 +361,9 @@ describe('Codex native runtime resource sampling', () => {
         if (sampleCount === 2) {
           throw new ProcessMetricsIncompleteError({
             operation: 'query_full_process_image_name',
-            failedIdentity,
+            failedIdentities,
             expectedCount: identities.length,
-            measuredCount: identities.length - 1,
+            measuredCount: identities.length - failedIdentities.length,
             errorCode: 31
           })
         }
@@ -386,37 +389,73 @@ describe('Codex native runtime resource sampling', () => {
       expect(log.mock.calls[0]?.[0]).toContain('tree=peripheral-change')
       expect(log.mock.calls[0]?.[0]).not.toContain('303')
       expect(log.mock.calls[0]?.[0]).not.toContain('3003')
+      expect(log.mock.calls[0]?.[0]).not.toContain('304')
+      expect(log.mock.calls[0]?.[0]).not.toContain('3004')
     } finally {
       log.mockRestore()
     }
   })
 
-  it('keeps incomplete metric failures when the removal is not the sole failed peripheral', async () => {
+  it('keeps incomplete metric failures when removals do not match the failed peripheral set', async () => {
     const failedHelper = identity(303, 3003)
     const original = snapshot(failedHelper)
-    const cases = [
-      { name: 'identity remains', failedIdentity: failedHelper, current: original, measured: 2 },
+    const cases: {
+      name: string
+      previous?: ResourceWindowSnapshot
+      failedIdentities: ProcessIdentity[]
+      current: ResourceWindowSnapshot
+      expectedCount?: number
+      measured: number
+    }[] = [
+      {
+        name: 'identity remains',
+        failedIdentities: [failedHelper],
+        current: original,
+        measured: 2
+      },
+      {
+        name: 'one member of the failed set remains live',
+        previous: snapshot([failedHelper, identity(304, 3004), identity(305, 3005)]),
+        failedIdentities: [failedHelper, identity(304, 3004), identity(305, 3005)],
+        current: snapshot(identity(305, 3005)),
+        expectedCount: 5,
+        measured: 2
+      },
       {
         name: 'critical identity changed',
-        failedIdentity: identity(202, 2002),
+        failedIdentities: [identity(202, 2002)],
         current: snapshot(failedHelper, identity(205, 2005)),
         measured: 2
       },
       {
         name: 'failed critical identity remains while a peripheral leaves',
-        failedIdentity: identity(202, 2002),
+        failedIdentities: [identity(202, 2002)],
         current: snapshot(null),
         measured: 2
       },
       {
         name: 'extra identity appeared',
-        failedIdentity: failedHelper,
+        failedIdentities: [failedHelper],
         current: snapshot(identity(304, 3004)),
         measured: 2
       },
       {
-        name: 'multiple metrics failed',
-        failedIdentity: failedHelper,
+        name: 'an unrelated peripheral also disappeared',
+        previous: snapshot([failedHelper, identity(304, 3004)]),
+        failedIdentities: [failedHelper],
+        current: snapshot(null),
+        expectedCount: 4,
+        measured: 3
+      },
+      {
+        name: 'the failed PID was reused with a new creation time',
+        failedIdentities: [failedHelper],
+        current: snapshot(identity(303, 3004)),
+        measured: 2
+      },
+      {
+        name: 'failed identity count does not match missing metrics',
+        failedIdentities: [failedHelper],
         current: snapshot(null),
         measured: 1
       }
@@ -428,17 +467,19 @@ describe('Codex native runtime resource sampling', () => {
         let settleCount = 0
         let readCount = 0
         let sampleCount = 0
+        const previous = testCase.previous ?? original
+        const expectedCount = testCase.expectedCount ?? 3
         const failure = new ProcessMetricsIncompleteError({
           operation: 'query_full_process_image_name',
-          failedIdentity: testCase.failedIdentity,
-          expectedCount: 3,
+          failedIdentities: testCase.failedIdentities,
+          expectedCount,
           measuredCount: testCase.measured,
           errorCode: 31
         })
         const dependencies: ResourceWindowDependencies = {
           settle: async () => {
             settleCount++
-            return original
+            return previous
           },
           read: async () => {
             readCount++
@@ -466,13 +507,13 @@ describe('Codex native runtime resource sampling', () => {
     }
   })
 
-  it('does not restart when the sole failed identity disappears at the window deadline', async () => {
-    const failedIdentity = identity(303, 3003)
-    const original = snapshot(failedIdentity)
+  it('does not restart when failed identities disappear at the window deadline', async () => {
+    const failedIdentities = [identity(303, 3003), identity(304, 3004)]
+    const original = snapshot(failedIdentities)
     const failure = new ProcessMetricsIncompleteError({
       operation: 'query_full_process_image_name',
-      failedIdentity,
-      expectedCount: 3,
+      failedIdentities,
+      expectedCount: 4,
       measuredCount: 2,
       errorCode: 31
     })
@@ -550,7 +591,7 @@ describe('Codex native runtime resource sampling', () => {
         }
         const failure = new ProcessMetricsIncompleteError({
           operation: 'query_full_process_image_name',
-          failedIdentity,
+          failedIdentities: [failedIdentity],
           expectedCount: identities.length,
           measuredCount: identities.length - 1,
           errorCode: 31

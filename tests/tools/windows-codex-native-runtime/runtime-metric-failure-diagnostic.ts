@@ -1,4 +1,5 @@
 import type { ProcessMetricsIncompleteError } from './process-metric-failure'
+import type { ProcessIdentity } from './process-tree-identity'
 import type {
   NamedProcessIdentity,
   ResourceWindowDependencies,
@@ -51,17 +52,20 @@ export async function reportFailedSampleDiagnostic(
   return { state: treeState, snapshot: currentSnapshot }
 }
 
-export function isSingleMissingPeripheralFailure(
+export function isExactFailedPeripheralRemoval(
   error: ProcessMetricsIncompleteError,
   baselineCritical: NamedProcessIdentity[],
   previous: ResourceWindowSnapshot,
   current: ResourceWindowSnapshot
 ): boolean {
+  const failedInPrevious = previous.processes
+    .filter(({ identity }) => error.matchesFailedIdentity(identity))
+    .map(({ identity }) => identity)
   if (
     error.expectedCount !== previous.identities.length ||
-    error.expectedCount - error.measuredCount !== 1 ||
+    error.expectedCount - error.measuredCount !== error.failedIdentityCount ||
     !sameNamedIdentities(baselineCritical, current.criticalProcesses) ||
-    !previous.processes.some(({ identity }) => error.matchesFailedIdentity(identity)) ||
+    !error.matchesFailedIdentities(failedInPrevious) ||
     baselineCritical.some(({ identity }) => error.matchesFailedIdentity(identity)) ||
     current.processes.some(({ identity }) => error.matchesFailedIdentity(identity))
   ) {
@@ -73,23 +77,20 @@ export function isSingleMissingPeripheralFailure(
   if (
     before.size !== previous.processes.length ||
     after.size !== current.processes.length ||
-    before.size !== after.size + 1
+    before.size !== after.size + error.failedIdentityCount
   ) {
     return false
   }
-  let removedCount = 0
+  const removed: ProcessIdentity[] = []
   for (const [key, process] of before) {
     const currentProcess = after.get(key)
     if (!currentProcess) {
-      if (!error.matchesFailedIdentity(process.identity)) {
-        return false
-      }
-      removedCount++
+      removed.push(process.identity)
     } else if (currentProcess.name !== process.name) {
       return false
     }
   }
-  return removedCount === 1 && [...after.keys()].every((key) => before.has(key))
+  return error.matchesFailedIdentities(removed) && [...after.keys()].every((key) => before.has(key))
 }
 
 function sameNamedIdentities(
