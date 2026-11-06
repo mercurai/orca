@@ -227,4 +227,42 @@ describe('RuntimeClient module-graph deferral', () => {
 
     expect(constructorArgsMock).toHaveBeenCalledTimes(1)
   })
+
+  it('resolves native Codex locally without constructing a runtime client', async () => {
+    vi.stubEnv('ORCA_PAIRING_CODE', 'ambient-test-pairing-code')
+    vi.stubEnv('ORCA_ENVIRONMENT', 'ambient-test-environment')
+    process.exitCode = undefined
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+
+    await main(
+      [
+        'agent',
+        'resolve-codex-native',
+        '--launcher',
+        join(testUserDataPathRef.current, 'missing', 'codex.js'),
+        '--format',
+        'json'
+      ],
+      testUserDataPathRef.current
+    )
+
+    const output = stdout.mock.calls.map((call) => String(call[0])).join('')
+    expect(process.exitCode).toBeUndefined()
+    expect(constructorArgsMock).not.toHaveBeenCalled()
+    expect(callMock).not.toHaveBeenCalled()
+    expect(getCliStatusMock).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
+
+    const result = JSON.parse(output)
+    expect(Object.keys(result).sort()).toEqual(['outcome', 'reason', 'schemaVersion'])
+    expect(result).toEqual({
+      schemaVersion: 1,
+      outcome: 'fallback',
+      reason: expect.stringMatching(
+        /^(?:unsupported_context|unrecognized_launcher|unverified_install|native_unavailable|resolver_failure)$/u
+      )
+    })
+    expect(output).not.toContain('ambient-test-pairing-code')
+    expect(output).not.toContain('ambient-test-environment')
+  })
 })

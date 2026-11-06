@@ -56,3 +56,16 @@ jobs:
           src/packages/process-host/src/process-tree-termination.test.ts
           src/packages/process-host/src/run-process.test.ts
           src/packages/process-host/src/run-process-termination-failure.test.ts
+          src/packages/process-host/src/windows-codex-native-spawn.test.ts
+          src/packages/process-host/src/windows-codex-native-resolution.test.ts
+          src/cli/agent-codex-native.test.ts
+          src/cli/runtime-client-deferral.test.ts
+          src/main/text-generation/source-control-agent-launch.test.ts
+          src/main/codex-accounts/codex-windows-interactive-login.test.ts
+          src/main/pty/codex-shell-native-launch.test.ts
+          src/main/pty/codex-shell-no-daemon.test.ts
+          config/scripts/windows-pe-machine.test.mjs
+          config/scripts/windows-pe-machine-package.test.mjs
+          config/scripts/packaged-process-host.test.mjs
+          config/scripts/ci-native-cache.test.mjs
+          config/scripts/orcad-windows-prebuild-cache.test.mjs

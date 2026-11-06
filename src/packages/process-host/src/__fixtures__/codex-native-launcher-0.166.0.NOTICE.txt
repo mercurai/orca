@@ -1,0 +1,4 @@
+The adjacent codex-native-launcher-0.166.0.txt fixture is copied byte-for-byte from
+@openai/codex@0.166.0/bin/codex.js. The upstream npm package metadata declares
+its license as Apache-2.0. The license text and terms are available at:
+https://www.apache.org/licenses/LICENSE-2.0

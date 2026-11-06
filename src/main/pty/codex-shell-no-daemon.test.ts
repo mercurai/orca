@@ -236,6 +236,20 @@ describe('codex wrapper --no-daemon rule', () => {
         expect(lines(result.stdout)).toEqual(ALL.map((argv) => expectedLine(argv, false)))
       })
 
+      it.skipIf(shell === 'powershell')(
+        'keeps the existing no-daemon route when the native resolver is unavailable',
+        () => {
+          const sandbox = makeSandbox(HELP_WITH_FLAG)
+          const result = run(shell, 'codex alpha', sandbox, {
+            ORCA_CODEX_NATIVE_RESOLVER: join(sandbox.bin, 'missing-orca.exe')
+          })
+
+          expect(result.stderr).toBe('')
+          expect(lines(result.stdout)).toEqual(['ARGV|--no-daemon|alpha'])
+          expect(helpProbes(sandbox)).toBe(1)
+        }
+      )
+
       it('adds nothing with ORCA_CODEX_ISOLATE=0, read on every call', () => {
         const sandbox = makeSandbox(HELP_WITH_FLAG)
         const setIsolate = (value: string): string =>

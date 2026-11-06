@@ -12,6 +12,8 @@ const installer = parse(readFileSync(installerPath, 'utf8'))
 const native = parse(readFileSync(nativePath, 'utf8'))
 const identity = native.runs.steps.find((step) => step.id === 'native-cache-scope')
 const inputs = [...identity.env.NATIVE_SOURCE_HASH.matchAll(/'([^']+)'/g)].map((match) => match[1])
+const cacheWarmup = parse(readFileSync('.github/workflows/ci-cache-warmup.yml', 'utf8'))
+const peReaderSource = 'src/packages/process-host/src/windows-pe-machine.cjs'
 const paths = [
   'node_modules/.pnpm/node-pty@*/node_modules/node-pty/build',
   'native/windows-registry/build',
@@ -68,6 +70,18 @@ function resolveIdentity({
 }
 
 describe('CI native cache ownership', () => {
+  it('hashes the canonical process-host PE reader source', () => {
+    expect(inputs).toContain(peReaderSource)
+  })
+
+  it('warms when the canonical process-host PE reader changes', () => {
+    expect(cacheWarmup.on.push.paths).toContain(peReaderSource)
+  })
+
+  it('routes the canonical process-host PE reader to native cache preparation', () => {
+    expect(classifyPrJobs([peReaderSource]).native_cache_changed).toBe(true)
+  })
+
   it('routes every configured native cache input to native preparation', () => {
     for (const file of inputs) {
       expect(classifyPrJobs([file]).native_cache_changed, file).toBe(true)

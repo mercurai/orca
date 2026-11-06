@@ -2,10 +2,13 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type * as RunProcess from '@orca/process-host'
 import type { ProcessSpec } from '@orca/process-host/process-spec'
 import { POSIX_PROVIDER_SUPERVISOR_SCRIPT } from '../provider-process/provider-process-supervisor'
+import { createInstalledCodexFamily } from '../../packages/process-host/src/__fixtures__/codex-native-launch-fixture'
+import { withCliRuntimeOnPath } from '../../shared/node-cli-command-resolution'
+import { getSpawnArgsForWindows } from '../win32-utils'
 import { generateCommitMessageFromContext } from './commit-message-text-generation'
 import { withPlatform } from './commit-message-text-generation-test-harness'
 import { spawnSourceControlAgent } from './source-control-agent-launch'
@@ -31,7 +34,22 @@ function decodedSupervisorSpec(spec: ProcessSpec): Record<string, unknown> {
 }
 
 const folder = mkdtempSync(join(tmpdir(), 'orca-agent-launch-'))
+const codexFixtureRoots: string[] = []
 afterAll(() => rmSync(folder, { recursive: true, force: true }))
+afterEach(() => {
+  for (const root of codexFixtureRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+function createInstalledCodex() {
+  const root = mkdtempSync(join(tmpdir(), 'orca-source-control-codex-'))
+  codexFixtureRoots.push(root)
+  return createInstalledCodexFamily({
+    tempRoot: root,
+    nodeMachine: process.arch === 'arm64' ? 'arm64' : 'x64'
+  })
+}
 
 beforeEach(() => {
   spawnProcessMock.mockClear()
@@ -82,6 +100,79 @@ describe('spawnSourceControlAgent', () => {
     expect(child.supervised).toBeUndefined()
     expect(lastSpawnSpec()).toMatchObject({ program: 'C:/tools/agent.exe', args: ['--print'] })
     expect(lastSpawnSpec().env).not.toHaveProperty('ORCA_PROVIDER_SUPERVISOR_SPEC')
+  })
+
+  describe.skipIf(process.platform !== 'win32')('Windows Codex launch', () => {
+    it('spawns the native Codex executable with unchanged arguments and final child environment', () => {
+      const install = createInstalledCodex()
+      const managedHome = join(folder, 'managed-account-home')
+      const args = ['--print', '', 'line one - line two', 'quoted "text" & pipe |']
+      const env = {
+        ...install.env,
+        CODEX_HOME: managedHome,
+        ORCA_AGENT_SESSION_ID: 'source-control-session',
+        CODEX_MANAGED_BY_BUN: '1'
+      }
+      const expectedEnv = withCliRuntimeOnPath(install.launcher, env, { platform: 'win32' })
+      const child = fakeChild()
+      spawnProcessMock.mockReturnValueOnce(child)
+
+      const spawned = spawnSourceControlAgent({
+        binary: install.launcher,
+        args,
+        cwd: folder,
+        env,
+        stdinMode: 'ignore',
+        useCwdForNative: true
+      })
+
+      const spec = lastSpawnSpec()
+      expect(spawned).toBe(child)
+      expect(spec).toMatchObject({ program: install.nativeExecutable, args, cwd: folder })
+      expect(spec.env).toMatchObject({
+        CODEX_HOME: managedHome,
+        ORCA_AGENT_SESSION_ID: 'source-control-session',
+        CODEX_MANAGED_PACKAGE_ROOT: install.packageRoot,
+        CODEX_MANAGED_BY_NPM: '1'
+      })
+      expect(spec.env?.PATH).toBe(expectedEnv.PATH)
+      expect(spec.env).not.toHaveProperty('CODEX_MANAGED_BY_BUN')
+      expect(env.CODEX_MANAGED_BY_BUN).toBe('1')
+      expect(spawnProcessMock).toHaveBeenCalledOnce()
+      expect(child.stdin.on).toHaveBeenCalledWith('error', expect.any(Function))
+      expect(child.stdin.end).toHaveBeenCalledOnce()
+    })
+
+    it('keeps the existing Windows launcher wrapper when native launching is disabled', () => {
+      const install = createInstalledCodex()
+      const managedHome = join(folder, 'fallback-managed-account-home')
+      const args = ['exec', '--', 'a "quoted" argument']
+      const env = {
+        ...install.env,
+        CODEX_HOME: managedHome,
+        ORCA_DISABLE_CODEX_NATIVE_LAUNCH: '1'
+      }
+      const expectedEnv = withCliRuntimeOnPath(install.launcher, env, { platform: 'win32' })
+      const expectedSpawn = getSpawnArgsForWindows(install.launcher, args)
+      spawnProcessMock.mockReturnValueOnce(fakeChild())
+
+      spawnSourceControlAgent({
+        binary: install.launcher,
+        args,
+        env,
+        stdinMode: 'pipe',
+        useCwdForNative: false
+      })
+
+      expect(lastSpawnSpec()).toMatchObject({
+        program: expectedSpawn.spawnCmd,
+        args: expectedSpawn.spawnArgs
+      })
+      expect(lastSpawnSpec().env).toEqual(expectedEnv)
+      expect(lastSpawnSpec().env).not.toHaveProperty('CODEX_MANAGED_PACKAGE_ROOT')
+      expect(lastSpawnSpec().env).not.toHaveProperty('CODEX_MANAGED_BY_NPM')
+      expect(spawnProcessMock).toHaveBeenCalledOnce()
+    })
   })
 })
 

@@ -236,6 +236,9 @@ describe('Windows server prebuild cache inputs', () => {
         'src/packages/process-host/tsconfig.json'
       ])
     )
+    expect(WINDOWS_PREBUILD_CACHE_INPUTS).toContain(
+      'src/packages/process-host/src/windows-pe-machine.cjs'
+    )
   })
 
   it.each(WINDOWS_PREBUILD_CACHE_INPUTS)('invalidates a changed %s input', (file) => {
