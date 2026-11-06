@@ -6,7 +6,7 @@ import type { BuildPtyHostEnvOptions } from './types'
 
 const fixture = vi.hoisted(() => ({
   userData: '',
-  nativeResolverCommand: null as string | null,
+  nativeResolverCommand: '',
   scheduleCodexHookReconcile: vi.fn()
 }))
 vi.mock('../../../../shared/app-environment', () => ({
