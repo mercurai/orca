@@ -165,6 +165,26 @@ describe('relocated process-host package', () => {
     }
   )
 
+  it('distinguishes a changed static process-host runtime asset', () => {
+    const sourcePackage = join(installDir, packageRel)
+    const manifestPath = join(sourcePackage, 'package.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    manifest.exports['./windows-pe-machine'] = { default: './src/windows-pe-machine.cjs' }
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+
+    const readerPath = join(sourcePackage, 'src', 'windows-pe-machine.cjs')
+    writeFileSync(readerPath, 'module.exports = { version: 1 }\n')
+    const previous = materializedRoot()
+    writeFileSync(readerPath, 'module.exports = { version: 2 }\n')
+    expect(getRelocatedDaemonHost()).toBeNull()
+
+    const current = materializedRoot()
+    expect(current).not.toBe(previous)
+    expect(
+      readFileSync(join(current, packageRel, 'src', 'windows-pe-machine.cjs'), 'utf8')
+    ).toContain('version: 2')
+  })
+
   it('distinguishes an Electron runtime patch with the same app version', () => {
     Object.defineProperty(process.versions, 'electron', { value: '41.0.0', configurable: true })
     const previous = materializedRoot()
@@ -221,7 +241,7 @@ describe('relocated process-host package', () => {
     expect(existsSync(join(previous, 'Orca.exe'))).toBe(true)
   })
 
-  it('runs emitted bare imports from the relocated entry after removing the install tree', () => {
+  it('runs emitted and static public imports after removing the install tree', () => {
     const require = createRequire(import.meta.url)
     const actualPackage = dirname(dirname(require.resolve('@orca/process-host')))
     const installedPackage = join(installDir, packageRel)
@@ -231,6 +251,11 @@ describe('relocated process-host package', () => {
       dereference: true,
       force: true
     })
+    mkdirSync(join(installedPackage, 'src'), { recursive: true })
+    cpSync(
+      join(actualPackage, 'src', 'windows-pe-machine.cjs'),
+      join(installedPackage, 'src', 'windows-pe-machine.cjs')
+    )
     const mainDir = join(installDir, 'resources', 'app.asar.unpacked', 'out', 'main')
     writeFileSync(
       join(mainDir, 'chunks', 'a.js'),
@@ -243,9 +268,26 @@ describe('relocated process-host package', () => {
       join(mainDir, 'daemon-entry.js'),
       `
       const assert = require('node:assert/strict')
+      const path = require('node:path')
       const { runner, observer } = require('./chunks/a.js')
+      const peMachine = require('@orca/process-host/windows-pe-machine')
       async function main() {
       let observed = 0
+      assert.equal(peMachine.PE_MACHINE.x64, 0x8664)
+      assert.equal(
+        require.resolve('@orca/process-host/windows-pe-machine'),
+        path.join(
+          __dirname,
+          '..',
+          '..',
+          '..',
+          'node_modules',
+          '@orca',
+          'process-host',
+          'src',
+          'windows-pe-machine.cjs'
+        )
+      )
       observer.setSpawnObserver(() => { observed += 1 })
       const result = await runner.runProcess({ program: process.execPath, args: ['-e', "process.stdout.write('daemon-closure')"] })
       assert.equal(result.code, 0)
@@ -259,6 +301,11 @@ describe('relocated process-host package', () => {
     )
     const host = materializeRelocatedDaemonHost()
     expect(host).not.toBeNull()
+    if (host) {
+      const relocatedPackage = join(dirname(host.execPath), packageRel)
+      expect(existsSync(join(relocatedPackage, 'src', 'windows-pe-machine.cjs'))).toBe(true)
+      expect(existsSync(join(relocatedPackage, 'src', 'run-process.ts'))).toBe(false)
+    }
     rmSync(installDir, { recursive: true, force: true })
     if (!host) {
       throw new Error('fixture host was not materialized')

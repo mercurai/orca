@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { quoteWindowsArgument } from '@orca/process-host/windows-command-line'
 import { buildWslInteractiveLoginShellCommand } from '../../shared/wsl-login-shell-command'
 import { resolveSetupRunnerCommand } from '../../shared/setup-runner-command'
 import { resolveWindowsShellLaunchArgs } from './windows-shell-args'
@@ -11,6 +12,14 @@ import { getShellReadyWrapperRoot } from './local-pty-shell-ready-wrapper-root'
 const CODEX_LAUNCH_PREFLIGHT = 'C:\\Program Files\\Orca\\orca.exe'
 const CMD_CODEX_LAUNCH_PREFLIGHT =
   'if defined ORCA_CODEX_LAUNCH_PREFLIGHT call %ORCA_CODEX_LAUNCH_PREFLIGHT_CMD_QUOTE%%ORCA_CODEX_LAUNCH_PREFLIGHT%%ORCA_CODEX_LAUNCH_PREFLIGHT_CMD_QUOTE% agent hooks prepare-codex > nul 2>&1'
+const WINDOWS_POWERSHELL_FAMILIES = [
+  ['Windows PowerShell', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+  ['PowerShell 7', 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'],
+  [
+    'case-varied Windows PowerShell',
+    'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\PowerShell.EXE'
+  ]
+] as const
 
 function expectedWslArgs(linuxCwd: string, distro?: string): string[] {
   const command = `cd '${linuxCwd}' && export PATH="$HOME/.local/bin:$PATH" && ${buildWslInteractiveLoginShellCommand()}`
@@ -235,6 +244,26 @@ describe('resolveWindowsShellLaunchArgs', () => {
       expectedPowerShellRestoreCwdCommand("'C:\\Users\\alice'")
     )
   })
+
+  it.each(WINDOWS_POWERSHELL_FAMILIES)(
+    'keeps the full CreateProcess command line within the Windows limit for %s',
+    (_label, shellPath) => {
+      const startupCommand = `codex ${'x'.repeat(5994)}`
+      const result = resolveWindowsShellLaunchArgs(
+        shellPath,
+        'C:\\Users\\alice',
+        'C:\\Users\\alice',
+        undefined,
+        startupCommand
+      )
+      const commandLine = [shellPath, ...result.shellArgs].map(quoteWindowsArgument).join(' ')
+
+      expect(startupCommand).toHaveLength(6000)
+      expect(result.startupCommandDeliveredInShellArgs).toBeUndefined()
+      expect(decodePowerShellCommand(result)).not.toContain(startupCommand)
+      expect(commandLine.length).toBeLessThan(32_767)
+    }
+  )
 
   it('handles pwsh.exe (PowerShell Core) the same as Windows PowerShell', () => {
     const result = resolveWindowsShellLaunchArgs('pwsh.exe', 'C:\\', 'C:\\Users\\alice')

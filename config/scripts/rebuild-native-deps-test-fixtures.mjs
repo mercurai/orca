@@ -44,6 +44,12 @@ const sourceWindowsProcessTreeGypRebuildPath = fileURLToPath(
 const sourceWindowsProcessTreeCreationTimePath = fileURLToPath(
   new URL('./windows-process-tree-creation-time.cjs', import.meta.url)
 )
+const sourceProcessHostPackagePath = fileURLToPath(
+  new URL('../../src/packages/process-host/package.json', import.meta.url)
+)
+const sourceWindowsPeMachinePath = fileURLToPath(
+  new URL('../../src/packages/process-host/src/windows-pe-machine.cjs', import.meta.url)
+)
 const sourceWindowsProcessTreePatchPath = fileURLToPath(
   new URL('../patches/@vscode__windows-process-tree@0.8.0.patch', import.meta.url)
 )
@@ -110,6 +116,10 @@ export function writeWindowsProcessTreePatchFile(projectDir) {
 export function mkTempProject() {
   const projectDir = mkdtempSync(join(tmpdir(), 'orca-rebuild-native-deps-'))
   mkdirSync(join(projectDir, 'config', 'scripts'), { recursive: true })
+  const processHostDir = join(projectDir, 'node_modules', '@orca', 'process-host')
+  mkdirSync(join(processHostDir, 'src'), { recursive: true })
+  copyFileSync(sourceProcessHostPackagePath, join(processHostDir, 'package.json'))
+  copyFileSync(sourceWindowsPeMachinePath, join(processHostDir, 'src', 'windows-pe-machine.cjs'))
   copyScriptWithLocalModules(sourceScriptPath, join(projectDir, 'config', 'scripts'))
   copyScriptWithLocalModules(sourceInstallScriptPath, join(projectDir, 'config', 'scripts'))
   copyScriptWithLocalModules(sourceNodePtyJobOwnershipPath, join(projectDir, 'config', 'scripts'))

@@ -48,6 +48,11 @@ This applies to Orca's Windows application launches and the `codex` functions in
 and PowerShell panes. Those functions use a short-lived local resolver, which exits before Codex starts.
 Existing login console handling still applies.
 
+Terminal functions are installed when a shell starts. An older terminal daemon that survives an Orca
+update keeps its existing functions, including for panes it creates while it still owns live terminals.
+Those panes keep the npm launcher until the daemon is replaced through its normal idle update handling.
+Reattaching a running terminal does not change its function or process tree.
+
 Other Codex versions, modified launchers, unsupported package-manager layouts, and custom Node startup
 settings use the existing launcher. Terminal calls through `cmd.exe`, explicit script paths,
 `command codex`, or `node codex.js` also keep their existing behavior. WSL and SSH terminal functions

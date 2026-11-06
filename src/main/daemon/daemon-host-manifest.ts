@@ -33,6 +33,9 @@ export const WINDOWS_PROCESS_TREE_REQUIRED = [
   'build/Release/windows_process_tree.node'
 ] as const
 
+/** Static process-host assets reachable through public runtime exports. */
+export const PROCESS_HOST_STATIC_RUNTIME_FILES = ['src/windows-pe-machine.cjs'] as const
+
 export type CopyOp = {
   sourcePath: string
   /** Destination path relative to the host root, posix-separated. */
@@ -58,12 +61,17 @@ export function daemonHostProcessPackageDir(sources: DaemonHostSources): string 
   return join(sources.resourcesPath, 'node_modules', '@orca', 'process-host')
 }
 
-function isRuntimeProcessHostPath(packageRel: string): boolean {
+function isRuntimeProcessHostPath(packageDir: string, packageRel: string): boolean {
   return (
     packageRel === '' ||
     packageRel === 'package.json' ||
     packageRel === 'dist' ||
-    packageRel.startsWith('dist/')
+    packageRel.startsWith('dist/') ||
+    PROCESS_HOST_STATIC_RUNTIME_FILES.some(
+      (runtimePath) =>
+        (runtimePath === packageRel || runtimePath.startsWith(`${packageRel}/`)) &&
+        existsSync(join(packageDir, ...runtimePath.split('/')))
+    )
   )
 }
 
@@ -137,7 +145,8 @@ export function buildDaemonHostManifest(sources: DaemonHostSources): CopyOp[] {
     sourcePath: processHostDir,
     destRel: toPosixRelative(appDir, processHostDir),
     kind: 'dir',
-    filter: (sourcePath) => isRuntimeProcessHostPath(toPosixRelative(processHostDir, sourcePath))
+    filter: (sourcePath) =>
+      isRuntimeProcessHostPath(processHostDir, toPosixRelative(processHostDir, sourcePath))
   })
 
   // @vscode/windows-process-tree, mirrored so the daemon's require() resolves it; without it every snapshot forks a powershell.exe (#16905).

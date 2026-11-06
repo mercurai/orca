@@ -25,6 +25,9 @@ import {
 } from './windows-process-tree-gyp-rebuild.mjs'
 
 const sourceScriptPath = fileURLToPath(new URL('./ensure-native-runtime.mjs', import.meta.url))
+const sourceWindowsPeMachinePath = fileURLToPath(
+  new URL('../../src/packages/process-host/src/windows-pe-machine.cjs', import.meta.url)
+)
 // The import walk sees `from './x.mjs'` only, so the createRequire'd CJS
 // siblings have to be named. Without them the temp project cannot even load.
 const REQUIRED_CJS_SIBLINGS = [
@@ -277,10 +280,18 @@ function mkTempProject() {
   // missing it fails every case with a module-resolution error instead of the defect under test.
   copyScriptWithLocalModules(sourceScriptPath, join(projectDir, 'config', 'scripts'))
   const processPackage = join(projectDir, 'node_modules', '@orca', 'process-host')
-  mkdirSync(processPackage, { recursive: true })
+  mkdirSync(join(processPackage, 'src'), { recursive: true })
+  copyFileSync(sourceWindowsPeMachinePath, join(processPackage, 'src', 'windows-pe-machine.cjs'))
   writeFileSync(
     join(processPackage, 'package.json'),
-    JSON.stringify({ name: '@orca/process-host', type: 'module', exports: './index.mjs' })
+    JSON.stringify({
+      name: '@orca/process-host',
+      type: 'module',
+      exports: {
+        '.': './index.mjs',
+        './windows-pe-machine': './src/windows-pe-machine.cjs'
+      }
+    })
   )
   writeFileSync(
     join(processPackage, 'index.mjs'),
