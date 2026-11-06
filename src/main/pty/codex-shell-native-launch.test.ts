@@ -210,7 +210,10 @@ function makeFixture(): Fixture {
     '#!/bin/sh\nexec "$ORCA_TEST_NODE_BASH" "$ORCA_TEST_RESOLVER_SCRIPT" "$@"\n'
   )
   const resolverPowerShell = join(root, 'orca native resolver.ps1')
-  writeFileSync(resolverPowerShell, '& $env:ORCA_TEST_NODE $env:ORCA_TEST_RESOLVER_SCRIPT @args\n')
+  writeFileSync(
+    resolverPowerShell,
+    'if ($MyInvocation.ExpectingInput) { $input | & $env:ORCA_TEST_NODE $env:ORCA_TEST_RESOLVER_SCRIPT @args } else { & $env:ORCA_TEST_NODE $env:ORCA_TEST_RESOLVER_SCRIPT @args }\n'
+  )
 
   return {
     root,
@@ -537,6 +540,9 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
             { route, phase: 'server', method: 'initialized', id: null }
           ])
           expect(readFileSync(fixture.resolverLog, 'utf8').trim() !== '').toBe(mode === 'native')
+          if (mode === 'native') {
+            expect(resolverCall(fixture).stdinBytes).toBe(0)
+          }
         } catch (error) {
           failure = error
         }
