@@ -58,6 +58,11 @@ settings use the existing launcher. Terminal calls through `cmd.exe`, explicit s
 `command codex`, or `node codex.js` also keep their existing behavior. WSL and SSH terminal functions
 do not use the local Windows resolver.
 
+Direct launching trades persistent launcher resources for validation work during startup. Windows x64
+app-server measurements found lower private commit and a sub-second median PowerShell startup increase. See the
+[measurement and qualification results](https://github.com/mercurai/orca/pull/96) for the tested scale
+and remaining coverage limits.
+
 Set `ORCA_DISABLE_CODEX_NATIVE_LAUNCH=1` before launching Orca to disable this optimization.
 The existing `ORCA_DISABLE_CMD_SHIM_RESOLUTION` opt-out also disables it. These settings affect new
 launches; running sessions keep their existing processes.

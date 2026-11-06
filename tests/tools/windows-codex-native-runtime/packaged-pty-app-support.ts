@@ -112,6 +112,31 @@ export async function launchPackaged(
 }
 
 export async function setWindowsShell(page: SessionHandle['page'], shell: string): Promise<void> {
+  if (shell === 'git-bash') {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    const gitBashOption = page
+      .getByRole('radiogroup', { name: 'Default Shell' })
+      .getByRole('radio', { name: 'Git Bash' })
+    await gitBashOption.click()
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[role="radiogroup"][aria-label="Default Shell"] [aria-label="Git Bash"]')
+          ?.getAttribute('aria-checked') === 'true',
+      null,
+      { timeout: 30_000 }
+    )
+    const savedShell = await page.evaluate(
+      async () => (await window.api.settings.get()).terminalWindowsShell
+    )
+    if (savedShell !== shell) {
+      throw new Error('The packaged app did not persist Git Bash as the terminal setting')
+    }
+    await page.getByRole('button', { name: 'Back to app', exact: true }).click()
+    return
+  }
+
   await page.evaluate(async (selectedShell) => {
     await window.api.settings.set({ terminalWindowsShell: selectedShell })
   }, shell)
@@ -119,8 +144,10 @@ export async function setWindowsShell(page: SessionHandle['page'], shell: string
     async () => (await window.api.settings.get()).terminalWindowsShell
   )
   if (savedShell !== shell) {
-    throw new Error(`The packaged app did not accept its ${shell} terminal setting`)
+    throw new Error(`The packaged app did not persist its ${shell} terminal setting`)
   }
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForTerminalReady(page, 30_000)
 }
 
 export async function createFolderWorkspace(
