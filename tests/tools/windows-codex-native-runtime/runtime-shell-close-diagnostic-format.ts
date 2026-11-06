@@ -2,6 +2,8 @@ import type {
   RuntimeDiagnosticState,
   RuntimeShellCloseDiagnostic
 } from './runtime-shell-close-diagnostic'
+import { RUNTIME_SHELL_MILESTONES } from './runtime-shell-milestones'
+import type { RuntimeShellMilestone } from './runtime-shell-milestones'
 
 const MAX_MEMBERS = 8
 
@@ -16,6 +18,7 @@ export function formatRuntimeShellCloseDiagnostic(input: RuntimeShellCloseDiagno
   return (
     `Windows Codex normal-close snapshot: shell=${safeShellName(input.shellName)}` +
     ` mode=${safeMode(input.mode)} session=${safeCountOrNone(input.sessionIndex)}` +
+    ` milestone=${safeMilestone(input.latestMilestone)}` +
     ` childExit=${safeExitCode(input.exitCode)} childSignal=${safeSignal(input.signal)}` +
     ` closeObserved=${flag(input.closeObserved)} killed=${flag(input.killed)}` +
     ` stdin=${flag(input.stdin.writable)},${flag(input.stdin.destroyed)},${flag(input.stdin.ended)},${flag(input.stdin.finished)},${flag(input.stdin.closed)}` +
@@ -41,6 +44,10 @@ function safeMode(mode: string): string {
 
 function safeCountOrNone(value: number | null): number | string {
   return value === null ? 'none' : safeCount(value)
+}
+
+function safeMilestone(value: RuntimeShellMilestone | null): string {
+  return value !== null && RUNTIME_SHELL_MILESTONES.includes(value) ? value : 'none'
 }
 
 function safeState(state: RuntimeDiagnosticState): string {

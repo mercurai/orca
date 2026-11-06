@@ -21,6 +21,8 @@ import {
   type SessionHandle
 } from './packaged-pty-app-support'
 import { createBoundTerminalTab, waitForTerminalTabSession } from './packaged-pty-terminal-bindings'
+import { typeBashProbe } from './packaged-pty-bash-input'
+import { createBashProbeFiles } from './packaged-pty-bash-probe'
 import { proveColdRestoredFolderPane } from './packaged-pty-cold-restore-proof'
 import { proveWindowsPowerShell51ManagedRestore } from './packaged-pty-powershell51-proof'
 import { proveSequencedWorktreePty } from './packaged-pty-sequenced-worktree-proof'
@@ -31,7 +33,6 @@ import {
   assertManagedEnvironmentRestored,
   assertNpmShimSentinel,
   assertResolverSentinel,
-  bashProbeCommand,
   clickCloseTab,
   processIdentity,
   processTreeForRoot,
@@ -114,14 +115,8 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
       folderId,
       realpathSync.native(folderPath)
     )
-    const bashFiles = {
-      shellPid: join(markerDir, 'bash-shell.pid'),
-      resolver: join(markerDir, 'bash-resolver.txt'),
-      npmPath: join(markerDir, 'bash-npm-path.txt'),
-      codexHome: join(markerDir, 'bash-codex-home.txt'),
-      diagnostic: join(markerDir, 'bash-probe-diagnostic.txt')
-    }
-    await typeLine(session.page, bashProbeCommand(bashFiles), folderTabId)
+    const bashFiles = createBashProbeFiles(markerDir, 'bash')
+    await typeBashProbe(session.page, folderPty.id, folderTabId, bashFiles)
     const bashDiagnostic = await waitForBashProbeDiagnostic(bashFiles)
     assertBashProbeWindowsPid(bashDiagnostic)
     assertNpmShimSentinel(bashFiles.npmPath, settings.npmBin, bashDiagnostic)

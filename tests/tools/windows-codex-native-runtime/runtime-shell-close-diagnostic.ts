@@ -3,6 +3,7 @@ import type { WindowsProcessIdentityRow } from '../../../src/main/windows/window
 import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
 import type { ProcessMetricsClient } from './process-metrics-client'
 import type { RuntimeMode } from './runtime-environment'
+import type { RuntimeShellMilestone } from './runtime-shell-milestones'
 import type { Session } from './runtime-shell-session'
 
 const CAPTURE_BUDGET_MS = 900
@@ -25,6 +26,7 @@ export type RuntimeShellCloseDiagnostic = {
   shellName: string
   mode: RuntimeMode
   sessionIndex: number | null
+  latestMilestone: RuntimeShellMilestone | null
   exitCode: number | null
   signal: NodeJS.Signals | null
   closeObserved: boolean
@@ -136,6 +138,7 @@ function snapshotShell(session: Session): RuntimeShellCloseDiagnostic {
     shellName: session.shell.name,
     mode: session.mode,
     sessionIndex: session.runtimeSessionIndex ?? null,
+    latestMilestone: session.latestMilestone,
     exitCode: session.closeResult?.code ?? session.child.exitCode,
     signal: session.closeResult?.signal ?? session.child.signalCode,
     closeObserved: session.closeObserved,

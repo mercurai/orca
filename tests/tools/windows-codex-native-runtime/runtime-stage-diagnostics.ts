@@ -1,4 +1,6 @@
 import type { RuntimeMode } from './runtime-environment'
+import { RUNTIME_SHELL_MILESTONES } from './runtime-shell-milestones'
+import type { RuntimeShellMilestone } from './runtime-shell-milestones'
 import type { Session } from './runtime-shell-session'
 
 export type RuntimeChildFailureSnapshot = {
@@ -8,6 +10,7 @@ export type RuntimeChildFailureSnapshot = {
   stdoutBytes: number
   stdoutFrames: number
   stderrBytes: number
+  latestMilestone?: RuntimeShellMilestone | null
 }
 
 type RuntimeStageContext = {
@@ -69,7 +72,8 @@ export function snapshotRuntimeChild(session: Session): RuntimeChildFailureSnaps
     signal: session.closeResult?.signal ?? session.child.signalCode,
     stdoutBytes: session.stdoutBytes,
     stdoutFrames: session.stdoutFrames,
-    stderrBytes: session.stderrBytes
+    stderrBytes: session.stderrBytes,
+    latestMilestone: session.latestMilestone
   }
 }
 
@@ -83,7 +87,8 @@ function sessionDiagnostic(session: RuntimeChildFailureSnapshot, index: number):
     `s${index + 1}{${childState}` +
     `,outBytes=${safeCount(session.stdoutBytes)}` +
     `,frames=${safeCount(session.stdoutFrames)}` +
-    `,errBytes=${safeCount(session.stderrBytes)}}`
+    `,errBytes=${safeCount(session.stderrBytes)}` +
+    `,milestone=${safeMilestone(session.latestMilestone ?? null)}}`
   )
 }
 
@@ -104,6 +109,10 @@ function safeSignal(signal: NodeJS.Signals | null): string {
 
 function safeCount(value: number): number {
   return Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 1_000_000_000) : 0
+}
+
+function safeMilestone(value: RuntimeShellMilestone | null): string {
+  return value !== null && RUNTIME_SHELL_MILESTONES.includes(value) ? value : 'none'
 }
 
 function safeFailureCategory(error: unknown): string {

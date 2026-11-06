@@ -6,6 +6,11 @@ import {
 } from '../../../tests/tools/windows-codex-native-runtime/runtime-stage-diagnostics'
 import { formatRuntimeShellCloseDiagnostic } from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-close-diagnostic-format'
 import type { RuntimeShellCloseDiagnostic } from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-close-diagnostic'
+import {
+  RUNTIME_SHELL_MILESTONES,
+  RuntimeShellMilestoneCapture,
+  shellScriptWithRuntimeMilestones
+} from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-milestones'
 
 describe('Windows Codex runtime stage diagnostics', () => {
   it('reports failure-time child evidence before the separate cleanup verdict', () => {
@@ -25,7 +30,8 @@ describe('Windows Codex runtime stage diagnostics', () => {
           signal: null,
           stdoutBytes: 1234,
           stdoutFrames: 2,
-          stderrBytes: 7
+          stderrBytes: 7,
+          latestMilestone: 'before-codex-invoke'
         }
       ]
     })
@@ -46,7 +52,7 @@ describe('Windows Codex runtime stage diagnostics', () => {
     expect(message).toContain('shell=Git Bash mode=native sessions=1 run=1 pair=2')
     expect(message).toContain('phase=initialize-app-server session=1 cause=initialize-timeout')
     expect(message).toContain(
-      'childrenAtFailure=[s1{exit=1,signal=none,outBytes=1234,frames=2,errBytes=7}]'
+      'childrenAtFailure=[s1{exit=1,signal=none,outBytes=1234,frames=2,errBytes=7,milestone=before-codex-invoke}]'
     )
     expect(cleanupMessage).toContain('errors=1 unverified=0 forced=1 sessions=[s1:forced]')
   })
@@ -111,6 +117,7 @@ describe('Windows Codex runtime stage diagnostics', () => {
       shellName: privateValue,
       mode: 'native',
       sessionIndex: 1,
+      latestMilestone: 'before-codex-invoke',
       exitCode: 0,
       signal: null,
       closeObserved: false,
@@ -137,7 +144,7 @@ describe('Windows Codex runtime stage diagnostics', () => {
     const message = formatRuntimeShellCloseDiagnostic(diagnostic)
 
     expect(message).toContain(
-      'shell=other mode=native session=1 childExit=0 childSignal=none closeObserved=0'
+      'shell=other mode=native session=1 milestone=before-codex-invoke childExit=0 childSignal=none closeObserved=0'
     )
     expect(message).toContain('stdin=0,0,1,1,0 stdout=1,0,0,0 stderr=1,0,0,0')
     expect(message).toContain('outBytes=502 frames=2 errBytes=0 table=ok job=ok jobMembers=2')
@@ -152,6 +159,7 @@ describe('Windows Codex runtime stage diagnostics', () => {
       shellName: 'Git Bash',
       mode: 'native',
       sessionIndex: null,
+      latestMilestone: null,
       exitCode: null,
       signal: null,
       closeObserved: false,
@@ -186,6 +194,7 @@ describe('Windows Codex runtime stage diagnostics', () => {
       shellName: 'Git Bash',
       mode: 'optout',
       sessionIndex: 2,
+      latestMilestone: 'npm-selection-verified',
       exitCode: null,
       signal: null,
       closeObserved: false,
@@ -209,5 +218,38 @@ describe('Windows Codex runtime stage diagnostics', () => {
     expect(message).toContain('jobMembers=9 missing=0 changed=0 truncated=1')
     expect(message).toContain('m7:codex.exe<-root')
     expect(message).not.toContain('m8:codex.exe')
+  })
+
+  it('captures exact allowlisted lines across LF and CRLF chunks', () => {
+    const captured: string[] = []
+    const parser = new RuntimeShellMilestoneCapture((milestone) => captured.push(milestone))
+
+    parser.consume(
+      Buffer.from(
+        'prefixed ORCA_RUNTIME_MILESTONE:script-started\n' +
+          'ORCA_RUNTIME_MILESTONE:script-started-suffix\n' +
+          'ORCA_RUNTIME_MILESTONE:unknown\n' +
+          'ORCA_RUNTIME_MILESTONE:script-'
+      )
+    )
+    parser.consume(Buffer.from('started\r'))
+    parser.consume(Buffer.from(`\n${'x'.repeat(20_000)}\n`))
+    parser.consume(Buffer.from('ORCA_RUNTIME_MILESTONE:before-codex-invoke\n'))
+
+    expect(captured).toEqual(['script-started', 'before-codex-invoke'])
+  })
+
+  it('keeps markers opt-in and emits them in launch order', () => {
+    const parts = ['gate', 'npm guard', 'shell wrapper', 'codex app-server'] as const
+    const disabled = shellScriptWithRuntimeMilestones('bash', ...parts, false)
+    const enabled = shellScriptWithRuntimeMilestones('bash', ...parts, true)
+
+    expect(disabled).toBe(parts.join('\n'))
+    let previousOffset = -1
+    for (const milestone of RUNTIME_SHELL_MILESTONES) {
+      const offset = enabled.indexOf(`ORCA_RUNTIME_MILESTONE:${milestone}`)
+      expect(offset).toBeGreaterThan(previousOffset)
+      previousOffset = offset
+    }
   })
 })

@@ -7,12 +7,13 @@ import {
   type SessionHandle
 } from './packaged-pty-app-support'
 import { waitForTerminalTabSession } from './packaged-pty-terminal-bindings'
+import { typeBashProbe } from './packaged-pty-bash-input'
+import { createBashProbeFiles } from './packaged-pty-bash-probe'
 import {
   assertBashProbeWindowsPid,
   assertCodexHomeSentinel,
   assertNpmShimSentinel,
   assertResolverSentinel,
-  bashProbeCommand,
   clickCloseTab,
   processIdentity,
   processTreeForRoot,
@@ -40,14 +41,8 @@ export async function proveColdRestoredFolderPane(
   await activateWorkspace(session.page, workspaceId)
   await waitForTerminalReady(session.page, 30_000, tabId)
   const restoredPty = await waitForTerminalTabSession(session.page, workspaceId, folderPath, tabId)
-  const files = {
-    shellPid: join(markerDir, 'cold-bash-shell.pid'),
-    resolver: join(markerDir, 'cold-bash-resolver.txt'),
-    npmPath: join(markerDir, 'cold-bash-npm-path.txt'),
-    codexHome: join(markerDir, 'cold-bash-codex-home.txt'),
-    diagnostic: join(markerDir, 'cold-bash-probe-diagnostic.txt')
-  }
-  await typeLine(session.page, bashProbeCommand(files), tabId)
+  const files = createBashProbeFiles(markerDir, 'cold-bash')
+  await typeBashProbe(session.page, restoredPty.id, tabId, files)
   const bashDiagnostic = await waitForBashProbeDiagnostic(files)
   assertBashProbeWindowsPid(bashDiagnostic)
   assertNpmShimSentinel(files.npmPath, settings.npmBin, bashDiagnostic)

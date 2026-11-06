@@ -31,6 +31,7 @@ export const WINDOWS_PACKAGE_TESTS = [
   'src/main/codex/codex-state-db-backfill-recovery-supervision.test.ts',
   'src/shared/agent-process-recognition.test.ts',
   'src/main/pty/codex-shell-native-launch.test.ts',
+  'src/main/pty/codex-shell-native-packaged-probe.test.ts',
   'src/main/pty/codex-shell-native-resolver.test.ts',
   'src/main/ipc/pty/host-env/codex-hook-reconcile-spawn.test.ts',
   'src/main/pty/codex-shell-native-runtime.integration.test.ts',

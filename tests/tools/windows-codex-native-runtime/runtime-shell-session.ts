@@ -1,24 +1,22 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { PipedChildProcess } from '@orca/process-host/process-spec'
 import { spawnProcess } from '@orca/process-host'
-import {
-  getPosixCodexShellLaunchPreflight,
-  getPowerShellCodexShellLaunchPreflight
-} from '../../../src/shared/codex-shell-function'
 import { initializeCodexAppServerConnection } from '../../../src/main/codex/codex-app-server-handshake'
 import type { CodexAppServerConnection } from '../../../src/main/codex/codex-app-server-connection-types'
 import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
 import { processIdentity } from './process-tree-identity'
 import type { ProcessIdentity } from './process-tree-identity'
-import { runtimeShellJobGate } from './runtime-shell-job'
+import { RuntimeShellMilestoneCapture } from './runtime-shell-milestones'
+import type { RuntimeShellMilestone } from './runtime-shell-milestones'
+import { shellArgs, shellScript } from './runtime-shell-script'
 import {
   createRuntimeEnvironment,
   type RuntimeMode,
   type RuntimeSettings,
   type RuntimeShell
 } from './runtime-environment'
+
+export { shellArgs, shellScript }
 
 const TREE_WAIT_MS = 15_000
 const TREE_POLL_MS = 200
@@ -34,6 +32,7 @@ export type Session = {
   shell: RuntimeShell
   mode: RuntimeMode
   runtimeSessionIndex?: number
+  latestMilestone: RuntimeShellMilestone | null
   child: PipedChildProcess
   pid: number
   creationTimeMs: number
@@ -56,48 +55,6 @@ export type Session = {
   launchGateReleasedAt?: number
   cleanupComplete: boolean
   cleanupMs?: number
-}
-
-export function shellScript(
-  shell: RuntimeShell,
-  npmBin: string,
-  invalidEnum = false,
-  waitForJob = false
-): string {
-  const template =
-    shell.kind === 'bash'
-      ? getPosixCodexShellLaunchPreflight()
-      : getPowerShellCodexShellLaunchPreflight()
-  const invalid = '__orca_native_runtime_invalid_sandbox__'
-  const body = invalidEnum
-    ? shell.kind === 'bash'
-      ? `codex --sandbox ${invalid} app-server\nexit $?`
-      : `codex --sandbox '${invalid}' app-server\nexit $LASTEXITCODE`
-    : 'codex app-server'
-  const guard =
-    shell.kind === 'bash'
-      ? `case "$(command -v codex 2>/dev/null)" in "${toBashPath(npmBin)}"/codex*) ;; *) exit 96 ;; esac`
-      : [
-          '$orcaSelectedCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1',
-          'if (-not $orcaSelectedCodex -or',
-          '    -not $orcaSelectedCodex.Source.StartsWith($env:ORCA_CODEX_RUNTIME_NPM_BIN,',
-          '        [System.StringComparison]::OrdinalIgnoreCase)) { exit 96 }'
-        ].join('\n')
-  const gate = waitForJob ? runtimeShellJobGate(shell) : ''
-  return [gate, guard, template, body].filter(Boolean).join('\n')
-}
-
-export function shellArgs(shell: RuntimeShell, script: string, homeRoot: string): string[] {
-  return shell.kind === 'bash'
-    ? ['--noprofile', '--norc', writeBashScript(homeRoot, script)]
-    : ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script]
-}
-
-function writeBashScript(homeRoot: string, script: string): string {
-  const scriptDirectory = mkdtempSync(join(homeRoot, 'bash-script-'))
-  const scriptPath = join(scriptDirectory, 'runtime.sh')
-  writeFileSync(scriptPath, script, { encoding: 'utf8', flag: 'wx' })
-  return toBashPath(scriptPath)
 }
 
 function makeClosePromise(child: PipedChildProcess): Promise<CloseResult> {
@@ -125,7 +82,7 @@ export function launchSession(
   const startedAt = performance.now()
   const child = spawnProcess({
     program: shell.executable,
-    args: shellArgs(shell, shellScript(shell, settings.npmBin, false, true), homeRoot),
+    args: shellArgs(shell, shellScript(shell, settings.npmBin, false, true, true), homeRoot),
     cwd: process.cwd(),
     env: createRuntimeEnvironment(settings, shell, mode, homeRoot),
     stdio: 'pipe'
@@ -139,6 +96,7 @@ export function launchSession(
     shell,
     mode,
     ...(runtimeSessionIndex === undefined ? {} : { runtimeSessionIndex }),
+    latestMilestone: null,
     child,
     pid: child.pid,
     creationTimeMs: 0,
@@ -158,6 +116,9 @@ export function launchSession(
     cleanupComplete: false
   }
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })
+  const milestones = new RuntimeShellMilestoneCapture((milestone) => {
+    session.latestMilestone = milestone
+  })
   child.stdout.on('data', (chunk: Buffer) => {
     session.stdoutBytes = Math.min(session.stdoutBytes + chunk.length, MAX_DIAGNOSTIC_COUNT)
   })
@@ -168,6 +129,7 @@ export function launchSession(
   child.stdout.on('error', (error) => failSession(session, error))
   child.stderr.on('data', (chunk: Buffer) => {
     session.stderrBytes = Math.min(session.stderrBytes + chunk.length, MAX_DIAGNOSTIC_COUNT)
+    milestones.consume(chunk)
   })
   child.stdin.on('error', (error) => failSession(session, error))
   void closePromise
@@ -291,11 +253,6 @@ export async function waitForRootIdentity(session: Session): Promise<void> {
     await delay(TREE_POLL_MS)
   }
   throw new Error(`${session.shell.name} process identity was unavailable`)
-}
-
-function toBashPath(value: string): string {
-  const slashed = value.replace(/\\/g, '/')
-  return slashed.replace(/^([a-z]):\//i, (_match, drive: string) => `/${drive.toLowerCase()}/`)
 }
 
 function delay(milliseconds: number): Promise<void> {

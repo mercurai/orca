@@ -15,14 +15,12 @@ import { runProcessSync, spawnProcess } from '@orca/process-host'
 import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
 import { findGitBash } from '../agent-hooks/windows-git-bash-path.test-fixture'
 import type { RuntimeShell } from '../../../tests/tools/windows-codex-native-runtime/runtime-environment'
-import {
-  shellArgs as runtimeShellArgs,
-  shellScript as runtimeShellScript
-} from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-session'
+import { shellArgs as runtimeShellArgs } from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-session'
 import {
   getPosixCodexShellLaunchPreflight,
   getPowerShellCodexShellLaunchPreflight
 } from '../../shared/codex-shell-function'
+import { prepareStreamingLaunch } from './codex-shell-native-launch-streaming.test-fixture'
 
 const isWindows = process.platform === 'win32'
 const roots: string[] = []
@@ -133,21 +131,22 @@ function makeFixture(): Fixture {
   const codexLog = join(root, 'codex launches.log')
   const nativeLog = join(root, 'native launches.log')
   const appServerLog = join(root, 'app-server frames.jsonl')
-  const appServerScript = join(root, 'app-server fixture.cjs')
+  const appServerScript = join(root, 'app-server fixture.mjs')
   for (const path of [resolverLog, eventLog, helpLog, codexLog, nativeLog, appServerLog]) {
     writeFileSync(path, '')
   }
   writeFileSync(
     appServerScript,
     [
-      "const fs = require('node:fs')",
+      "import fs from 'node:fs'",
+      "import { createInterface } from 'node:readline'",
       "if (process.argv[2] === '--help') {",
       "  process.stdout.write('  --no-daemon\\n')",
       '} else {',
-      "  const lines = require('node:readline').createInterface({ input: process.stdin, crlfDelay: Infinity })",
+      '  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity })',
       "  lines.on('line', line => {",
       '    const frame = JSON.parse(line)',
-      '    const value = { route: process.env.ORCA_TEST_APP_SERVER_ROUTE, phase: "server", method: frame.method, id: frame.id ?? null }',
+      '    const value = { route: process.env.ORCA_TEST_APP_SERVER_ROUTE, selectedShim: process.env.ORCA_TEST_SELECTED_SHIM?.toLowerCase() || null, args: process.argv.slice(2), phase: "server", method: frame.method, id: frame.id ?? null }',
       '    fs.appendFileSync(process.env.ORCA_TEST_APP_SERVER_LOG, JSON.stringify(value) + "\\n")',
       "    if (frame.method === 'initialize') process.stdout.write(JSON.stringify({ id: frame.id, result: { ok: true } }) + '\\n')",
       '  })',
@@ -475,23 +474,12 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
           kind: shell.kind,
           executable: shell.command
         }
+        const { env, script, expectedShim } = prepareStreamingLaunch(fixture, runtimeShell, mode)
         const child = spawnProcess({
           program: shell.command,
-          args: runtimeShellArgs(
-            runtimeShell,
-            runtimeShellScript(runtimeShell, fixture.bin, false, true),
-            fixture.root
-          ),
+          args: runtimeShellArgs(runtimeShell, script, fixture.root),
           cwd: fixture.root,
-          env: {
-            ...commonEnv(shell, fixture),
-            ORCA_CODEX_RUNTIME_NPM_BIN:
-              shell.kind === 'bash' ? toBashPath(fixture.bin) : fixture.bin,
-            ORCA_TEST_APP_SERVER_SCRIPT: fixture.appServerScript,
-            ORCA_TEST_NATIVE_EXE: fixture.nativeTarget,
-            ORCA_CODEX_ISOLATE: '1',
-            ORCA_DISABLE_CODEX_NATIVE_LAUNCH: mode === 'optout' ? '1' : ''
-          },
+          env,
           stdio: 'pipe'
         })
         const closed = new Promise<number | null>((resolve, reject) => {
@@ -535,13 +523,19 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
             .split(/\r?\n/)
             .map((line) => JSON.parse(line))
           const route = mode === 'native' ? 'native' : 'fallback'
+          const selectedShim = expectedShim?.toLowerCase() ?? null
+          const args = ['--no-daemon', 'app-server']
           expect(frames).toEqual([
-            { route, phase: 'server', method: 'initialize', id: 1 },
-            { route, phase: 'server', method: 'initialized', id: null }
+            { route, selectedShim, args, phase: 'server', method: 'initialize', id: 1 },
+            { route, selectedShim, args, phase: 'server', method: 'initialized', id: null }
           ])
           expect(readFileSync(fixture.resolverLog, 'utf8').trim() !== '').toBe(mode === 'native')
           if (mode === 'native') {
-            expect(resolverCall(fixture).stdinBytes).toBe(0)
+            const call = resolverCall(fixture)
+            expect(call.stdinBytes).toBe(0)
+            expect(pathKey(argumentAfter(call.args, '--launcher') ?? '')).toBe(
+              pathKey(expectedShim ?? toBashPath(join(fixture.bin, 'codex')))
+            )
           }
         } catch (error) {
           failure = error

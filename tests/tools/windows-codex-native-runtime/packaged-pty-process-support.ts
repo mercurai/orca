@@ -16,7 +16,7 @@ import {
   waitForProcessTreeExit,
   type ProcessIdentity
 } from './process-tree-identity'
-import { toBashPath } from './runtime-environment'
+import { bashPathQuote } from './packaged-pty-bash-probe'
 
 export type ManagedShell = 'bash' | 'powershell'
 
@@ -47,10 +47,6 @@ const MANAGED_ENV_NAMES = [
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
-}
-
-function bashPathQuote(value: string): string {
-  return shellQuote(toBashPath(value))
 }
 
 function powershellQuote(value: string): string {
@@ -106,33 +102,6 @@ export function assertManagedEnvironmentRestored(filePath: string): void {
       'The native shell function did not restore all CODEX_MANAGED_* parent values and presence'
     )
   }
-}
-
-export function bashProbeCommand(paths: {
-  shellPid: string
-  resolver: string
-  npmPath: string
-  codexHome: string
-  diagnostic: string
-}): string {
-  return [
-    'export CODEX_HOME="$HOME/.codex"',
-    '__orca_bash_started=0; if [[ -n "${BASH_VERSION:-}" ]]; then __orca_bash_started=1; fi',
-    '__orca_codex_path="$(type -P codex 2>/dev/null || :)"',
-    '__orca_codex_lookup_present=0; if [[ -n "$__orca_codex_path" ]]; then __orca_codex_lookup_present=1; fi',
-    '__orca_npm_prefix_match=0; case "$__orca_codex_path" in "$ORCA_CODEX_RUNTIME_NPM_BIN_POSIX"/codex*) __orca_npm_prefix_match=1 ;; esac',
-    '__orca_windows_pid=""; IFS= read -r __orca_windows_pid < "/proc/$$/winpid" || :',
-    '__orca_windows_pid_present=0; if [[ "$__orca_windows_pid" =~ ^[0-9]+$ ]]; then __orca_windows_pid_present=1; fi',
-    '__orca_read_with_newline=""; IFS= read -r __orca_read_with_newline <<< "codex-pid"',
-    '__orca_read_without_newline=""; IFS= read -r __orca_read_without_newline < <(printf "codex-pid") || :',
-    '__orca_read_eof_handled=0; if [[ "$__orca_read_with_newline" == codex-pid && "$__orca_read_without_newline" == codex-pid ]]; then __orca_read_eof_handled=1; fi',
-    `printf 'bashStarted=%s\\ncodexLookupPresent=%s\\nnpmPrefixMatch=%s\\nwindowsPidPresent=%s\\nreadEofHandled=%s\\n' "$__orca_bash_started" "$__orca_codex_lookup_present" "$__orca_npm_prefix_match" "$__orca_windows_pid_present" "$__orca_read_eof_handled" > ${bashPathQuote(paths.diagnostic)}`,
-    `printf '%s\\n' "$__orca_codex_path" > ${bashPathQuote(paths.npmPath)}`,
-    `printf '%s\\n' "$__orca_windows_pid" > ${bashPathQuote(paths.shellPid)}`,
-    'case "$__orca_npm_prefix_match" in 1) ;; *) exit 96 ;; esac',
-    `printf '%s\\n' "$ORCA_CODEX_NATIVE_RESOLVER" > ${bashPathQuote(paths.resolver)}`,
-    `printf '%s\\n' "$CODEX_HOME" > ${bashPathQuote(paths.codexHome)}`
-  ].join('; ')
 }
 
 export async function waitForBashProbeDiagnostic(paths: {
