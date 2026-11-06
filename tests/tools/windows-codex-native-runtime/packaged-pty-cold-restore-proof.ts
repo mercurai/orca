@@ -4,9 +4,9 @@ import {
   activateWorkspace,
   typeLine,
   waitForTerminalReady,
-  waitForWorkspaceSession,
   type SessionHandle
 } from './packaged-pty-app-support'
+import { waitForTerminalTabSession } from './packaged-pty-terminal-bindings'
 import {
   assertBashProbeWindowsPid,
   assertCodexHomeSentinel,
@@ -39,7 +39,7 @@ export async function proveColdRestoredFolderPane(
 ): Promise<void> {
   await activateWorkspace(session.page, workspaceId)
   await waitForTerminalReady(session.page, 30_000, tabId)
-  const restoredPty = await waitForWorkspaceSession(session.page, workspaceId, folderPath)
+  const restoredPty = await waitForTerminalTabSession(session.page, workspaceId, folderPath, tabId)
   const files = {
     shellPid: join(markerDir, 'cold-bash-shell.pid'),
     resolver: join(markerDir, 'cold-bash-resolver.txt'),

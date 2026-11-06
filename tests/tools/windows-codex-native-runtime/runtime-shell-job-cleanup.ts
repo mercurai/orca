@@ -20,12 +20,14 @@ export async function stopSession(
   try {
     await stopNormally(session, sampler)
     session.cleanupComplete = true
+    session.cleanupMode = 'normal'
     session.cleanupMs = performance.now() - startedAt
     return session.cleanupMs
   } catch (error) {
     try {
       await terminateOwnedSession(session, sampler)
       session.cleanupComplete = true
+      session.cleanupMode = 'forced'
       session.cleanupMs = performance.now() - startedAt
     } catch (cleanupError) {
       throw new AggregateError(
@@ -41,7 +43,11 @@ async function stopNormally(session: Session, sampler: ProcessMetricsClient): Pr
   if (session.child.exitCode === null && session.child.signalCode === null) {
     session.child.stdin.end()
   }
-  const close = await withTimeout(session.closePromise, CLOSE_WAIT_MS)
+  const close = await withTimeout(
+    session.closePromise,
+    CLOSE_WAIT_MS,
+    `${session.shell.name} shell exit after app-server EOF`
+  )
   if (close.code !== 0 || close.signal !== null) {
     throw new Error(`${session.shell.name} did not exit normally after app-server EOF`)
   }
@@ -88,7 +94,11 @@ async function terminateOwnedSession(
     await waitForSamplerExit(sampler, deadline, session.shell.name)
     session.jobReleased = true
   }
-  await withTimeout(session.closePromise, remainingCleanupMs(deadline, session.shell.name))
+  await withTimeout(
+    session.closePromise,
+    remainingCleanupMs(deadline, session.shell.name),
+    `${session.shell.name} shell exit after owned-job termination`
+  )
   await waitForOwnedSessionExit(session, sampler, deadline)
   await releaseEmptyJob(session, sampler, deadline)
 }
@@ -176,7 +186,11 @@ async function waitForSamplerExit(
   deadline: number,
   label: string
 ): Promise<void> {
-  await withTimeout(sampler.waitForExit(), remainingCleanupMs(deadline, label))
+  await withTimeout(
+    sampler.waitForExit(),
+    remainingCleanupMs(deadline, label),
+    `${label} sampler helper exit`
+  )
 }
 
 function cleanupRpcTimeout(deadline: number, label: string, reserveMs = 0): number {
@@ -199,13 +213,17 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operation: string
+): Promise<T> {
   let timer: NodeJS.Timeout | undefined
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error('Timed out')), timeoutMs)
+        timer = setTimeout(() => reject(new Error(`${operation} timed out`)), timeoutMs)
       })
     ])
   } finally {

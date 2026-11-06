@@ -22,6 +22,7 @@ import {
 
 const TREE_WAIT_MS = 15_000
 const TREE_POLL_MS = 200
+const MAX_DIAGNOSTIC_COUNT = 1_000_000_000
 
 export type CloseResult = { code: number | null; signal: NodeJS.Signals | null }
 type PendingRequest = {
@@ -41,11 +42,16 @@ export type Session = {
   nextRequestId: number
   protocolFailure: Error | null
   closeObserved: boolean
+  closeResult?: CloseResult
+  stdoutBytes: number
+  stdoutFrames: number
+  stderrBytes: number
   readyAt?: number
   observedProcessIdentities: ProcessIdentity[]
   preGateProcessIdentities: ProcessIdentity[]
   jobId: number | null
   jobReleased: boolean
+  cleanupMode?: 'normal' | 'forced'
   launchGateReleasedAt?: number
   cleanupComplete: boolean
   cleanupMs?: number
@@ -139,6 +145,9 @@ export function launchSession(
     nextRequestId: 1,
     protocolFailure: null,
     closeObserved: false,
+    stdoutBytes: 0,
+    stdoutFrames: 0,
+    stderrBytes: 0,
     observedProcessIdentities: [],
     preGateProcessIdentities: [],
     jobId: null,
@@ -146,13 +155,22 @@ export function launchSession(
     cleanupComplete: false
   }
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity })
-  lines.on('line', (line) => receiveProtocolLine(session, line))
+  child.stdout.on('data', (chunk: Buffer) => {
+    session.stdoutBytes = Math.min(session.stdoutBytes + chunk.length, MAX_DIAGNOSTIC_COUNT)
+  })
+  lines.on('line', (line) => {
+    session.stdoutFrames = Math.min(session.stdoutFrames + 1, MAX_DIAGNOSTIC_COUNT)
+    receiveProtocolLine(session, line)
+  })
   child.stdout.on('error', (error) => failSession(session, error))
-  child.stderr.on('data', () => {})
+  child.stderr.on('data', (chunk: Buffer) => {
+    session.stderrBytes = Math.min(session.stderrBytes + chunk.length, MAX_DIAGNOSTIC_COUNT)
+  })
   child.stdin.on('error', (error) => failSession(session, error))
   void closePromise
-    .then(() => {
+    .then((close) => {
       session.closeObserved = true
+      session.closeResult = close
     })
     .catch((error: unknown) => {
       failSession(session, error instanceof Error ? error : new Error('Shell process failed'))

@@ -13,18 +13,14 @@ import {
   assertPrerequisites,
   createFolderWorkspace,
   createSeedProfile,
-  createTerminalTab,
   isPathWithin,
   launchPackaged,
-  listPtySessions,
   setWindowsShell,
   typeLine,
-  visibleTerminalTabId,
-  waitForNewSession,
   waitForTerminalReady,
-  waitForWorkspaceSession,
   type SessionHandle
 } from './packaged-pty-app-support'
+import { createBoundTerminalTab, waitForTerminalTabSession } from './packaged-pty-terminal-bindings'
 import { proveColdRestoredFolderPane } from './packaged-pty-cold-restore-proof'
 import { proveWindowsPowerShell51ManagedRestore } from './packaged-pty-powershell51-proof'
 import { proveSequencedWorktreePty } from './packaged-pty-sequenced-worktree-proof'
@@ -113,11 +109,11 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     await setWindowsShell(session.page, 'git-bash')
     const folderId = await createFolderWorkspace(session.page, realpathSync.native(folderPath))
     await activateWorkspace(session.page, folderId)
-    const beforeFolderTab = new Set((await listPtySessions(session.page)).map((pty) => pty.id))
-    await createTerminalTab(session.page)
-    const folderTabId = await visibleTerminalTabId(session.page)
-    await waitForTerminalReady(session.page, 30_000, folderTabId)
-    const folderPty = await waitForNewSession(session.page, folderId, beforeFolderTab)
+    const { tabId: folderTabId, session: folderPty } = await createBoundTerminalTab(
+      session.page,
+      folderId,
+      realpathSync.native(folderPath)
+    )
     const bashFiles = {
       shellPid: join(markerDir, 'bash-shell.pid'),
       resolver: join(markerDir, 'bash-resolver.txt'),
@@ -174,6 +170,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     await proveWindowsPowerShell51ManagedRestore(
       session,
       folderId,
+      realpathSync.native(folderPath),
       settings,
       canonicalCodexHome,
       markerDir
@@ -182,10 +179,11 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
 
     await activateWorkspace(session.page, folderId)
     await waitForTerminalReady(session.page, 30_000, folderTabId)
-    const folderAfterShellTests = await waitForWorkspaceSession(
+    const folderAfterShellTests = await waitForTerminalTabSession(
       session.page,
       folderId,
-      realpathSync.native(folderPath)
+      realpathSync.native(folderPath),
+      folderTabId
     )
     if (folderAfterShellTests.id !== folderPty.id) {
       throw new Error('Folder activation did not preserve its original local PTY session')
@@ -198,10 +196,11 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     session = await launchPackaged(appExe, userDataDir, appEnvRoot, settings.npmBin)
     await activateWorkspace(session.page, folderId)
     await waitForTerminalReady(session.page, 30_000, folderTabId)
-    const warmPty = await waitForWorkspaceSession(
+    const warmPty = await waitForTerminalTabSession(
       session.page,
       folderId,
-      realpathSync.native(folderPath)
+      realpathSync.native(folderPath),
+      folderTabId
     )
     if (warmPty.id !== folderPty.id) {
       throw new Error('Warm reattach changed the folder PTY identity')

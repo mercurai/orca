@@ -4,11 +4,10 @@ import {
   activateWorkspace,
   setWindowsShell,
   typeLine,
-  visibleTerminalTabId,
   waitForTerminalReady,
-  waitForWorkspaceSession,
   type SessionHandle
 } from './packaged-pty-app-support'
+import { visibleTerminalTabId, waitForTerminalTabSession } from './packaged-pty-terminal-bindings'
 import {
   assertCodexHomeSentinel,
   assertManagedEnvironmentRestored,
@@ -85,9 +84,9 @@ export async function proveSequencedWorktreePty(
   }
 
   await activateWorkspace(session.page, worktreeId)
-  const tabId = await visibleTerminalTabId(session.page)
+  const tabId = await visibleTerminalTabId(session.page, worktreeId)
   await waitForTerminalReady(session.page, 30_000, tabId)
-  const worktreePty = await waitForWorkspaceSession(session.page, worktreeId, worktreePath)
+  const worktreePty = await waitForTerminalTabSession(session.page, worktreeId, worktreePath, tabId)
   if (worktreePty.id !== ptyId) {
     throw new Error('The sequenced startup command did not attach to its worktree PTY')
   }

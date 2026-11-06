@@ -8,6 +8,11 @@ import { runDirectAppServerLifecycleQualification } from './direct-app-server-li
 import { runInvalidEnumCheck, runProcessHostInvalidEnumCheck } from './runtime-invalid-argv'
 import { summarizePairedDeltas, summarizeRuns } from './runtime-report'
 import { collectResources, type RunSummary } from './runtime-resource-measurement'
+import {
+  runtimeStageCleanupMessage,
+  runtimeStageFailureMessage,
+  snapshotRuntimeChild
+} from './runtime-stage-diagnostics'
 import { assignShellJobAndRelease } from './runtime-shell-job'
 import {
   initializeSession,
@@ -41,16 +46,24 @@ async function runStage(
   pairId: number
 ): Promise<RunSummary> {
   const sessions: Session[] = []
+  let phase = 'create-session-home'
+  let activeSessionIndex: number | null = null
   try {
     const homeRoot = join(runRoot, `${shell.name.replaceAll(' ', '-')}-${mode}-${runIndex}`)
     mkdirSync(homeRoot, { recursive: true })
     for (let index = 0; index < sessionCount; index++) {
+      activeSessionIndex = index + 1
+      phase = 'launch-shell'
       const session = launchSession(settings, shell, mode, homeRoot)
       sessions.push(session)
+      phase = 'wait-root-identity'
       await waitForRootIdentity(session)
+      phase = 'assign-process-job'
       await assignShellJobAndRelease(session, sampler)
+      phase = 'initialize-app-server'
       await initializeSession(session)
     }
+    activeSessionIndex = null
     const startupMs = sessions.map(
       (session) => (session.readyAt ?? performance.now()) - session.startedAt
     )
@@ -60,8 +73,10 @@ async function runStage(
       }
       return session.launchGateReleasedAt - session.startedAt
     })
+    phase = 'resource-measurement'
     const resources = await collectResources(sessions, sampler, settings.nativeExecutable)
     const closeStartedAt = performance.now()
+    phase = 'normal-session-cleanup'
     const closeDurations = await Promise.all(
       sessions.map((session) => stopSession(session, sampler))
     )
@@ -80,19 +95,41 @@ async function runStage(
       idleCpuCorePercent: resources.idleCpuCorePercent
     }
   } catch (error) {
+    const diagnosticContext = {
+      shellName: shell.name,
+      mode,
+      sessionCount,
+      runIndex,
+      pairId,
+      phase,
+      sessionIndex: activeSessionIndex
+    }
+    const failureDiagnostic = runtimeStageFailureMessage({
+      ...diagnosticContext,
+      error,
+      childrenAtFailure: sessions.map(snapshotRuntimeChild)
+    })
+    console.error(failureDiagnostic)
     const cleanup = await Promise.allSettled(
       sessions.map((session) => stopSession(session, sampler))
     )
     const cleanupErrors = cleanup.flatMap((result) =>
       result.status === 'rejected' ? [result.reason] : []
     )
-    if (cleanupErrors.length > 0) {
-      throw new AggregateError(
-        [error, ...cleanupErrors],
-        'Runtime stage failed and at least one owned process job could not be verified empty'
-      )
-    }
-    throw error
+    const unverifiedCleanupCount = sessions.filter((session) => !session.cleanupComplete).length
+    const forcedCleanupCount = sessions.filter((session) => session.cleanupMode === 'forced').length
+    const cleanupDiagnostic = runtimeStageCleanupMessage({
+      ...diagnosticContext,
+      cleanupErrorCount: cleanupErrors.length,
+      unverifiedCleanupCount,
+      forcedCleanupCount,
+      sessions
+    })
+    console.error(cleanupDiagnostic)
+    throw new AggregateError(
+      [error, ...cleanupErrors],
+      `${failureDiagnostic}; ${cleanupDiagnostic}`
+    )
   }
 }
 

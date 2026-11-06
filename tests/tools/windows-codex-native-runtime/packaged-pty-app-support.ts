@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs'
 import { delimiter, dirname, join } from 'node:path'
 import { buildFreshProfile, createSeededRepo } from '../win-update-e2e/onboarding-profile.mjs'
 import {
-  createTerminalTab,
   launchInstalledApp,
   typeLine,
   tryClickWithKnownOverlayRetry,
@@ -10,7 +9,7 @@ import {
 } from '../win-update-e2e/app-driver.mjs'
 import { readRuntimeSettings } from './runtime-environment'
 
-export { createTerminalTab, typeLine, waitForTerminalReady }
+export { typeLine, waitForTerminalReady }
 
 export type SessionHandle = {
   app: Awaited<ReturnType<typeof launchInstalledApp>>['app']
@@ -152,63 +151,6 @@ export async function activateWorkspace(
   if (!(await tryClickWithKnownOverlayRetry(page, row, 30_000))) {
     await row.click({ timeout: 1 })
   }
-}
-
-export async function visibleTerminalTabId(page: SessionHandle['page']): Promise<string> {
-  const surface = page.locator('[data-terminal-tab-id]:visible').first()
-  await surface.waitFor({ state: 'visible', timeout: 30_000 })
-  const tabId = await surface.getAttribute('data-terminal-tab-id')
-  if (!tabId) {
-    throw new Error('The packaged terminal surface did not expose its tab identity')
-  }
-  return tabId
-}
-
-export async function listPtySessions(page: SessionHandle['page']): Promise<PtySession[]> {
-  return page.evaluate(() => window.api.pty.listSessions({ connectionId: null }))
-}
-
-export async function waitForNewSession(
-  page: SessionHandle['page'],
-  worktreeId: string,
-  previousIds: Set<string>
-): Promise<PtySession> {
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline) {
-    const sessions = await listPtySessions(page)
-    const created = sessions.filter(
-      (session) => session.worktreeId === worktreeId && !previousIds.has(session.id)
-    )
-    if (created.length === 1) {
-      return created[0]
-    }
-    if (created.length > 1) {
-      throw new Error('Creating one terminal tab produced multiple new PTY sessions')
-    }
-    await delay(100)
-  }
-  throw new Error('The new packaged terminal tab never registered a local PTY session')
-}
-
-export async function waitForWorkspaceSession(
-  page: SessionHandle['page'],
-  worktreeId: string,
-  cwd: string
-): Promise<PtySession> {
-  const deadline = Date.now() + 30_000
-  while (Date.now() < deadline) {
-    const sessions = await listPtySessions(page)
-    const match = sessions.find(
-      (session) =>
-        session.worktreeId === worktreeId &&
-        normalizeWindowsPath(session.cwd) === normalizeWindowsPath(cwd)
-    )
-    if (match) {
-      return match
-    }
-    await delay(100)
-  }
-  throw new Error('The restored workspace did not register a local PTY session')
 }
 
 export function createSeedProfile(repoPath: string): ReturnType<typeof buildFreshProfile> {

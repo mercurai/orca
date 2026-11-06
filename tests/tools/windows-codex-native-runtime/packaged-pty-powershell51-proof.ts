@@ -1,15 +1,7 @@
 import { join } from 'node:path'
 import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
-import {
-  activateWorkspace,
-  createTerminalTab,
-  listPtySessions,
-  typeLine,
-  visibleTerminalTabId,
-  waitForNewSession,
-  waitForTerminalReady,
-  type SessionHandle
-} from './packaged-pty-app-support'
+import { createBoundTerminalTab } from './packaged-pty-terminal-bindings'
+import { activateWorkspace, typeLine, type SessionHandle } from './packaged-pty-app-support'
 import {
   assertCodexHomeSentinel,
   assertManagedEnvironmentRestored,
@@ -32,16 +24,17 @@ import type { RuntimeSettings } from './runtime-environment'
 export async function proveWindowsPowerShell51ManagedRestore(
   session: SessionHandle,
   workspaceId: string,
+  workspaceCwd: string,
   settings: RuntimeSettings,
   codexHome: string,
   markerDir: string
 ): Promise<void> {
   await activateWorkspace(session.page, workspaceId)
-  const previousIds = new Set((await listPtySessions(session.page)).map((pty) => pty.id))
-  await createTerminalTab(session.page)
-  const tabId = await visibleTerminalTabId(session.page)
-  await waitForTerminalReady(session.page, 30_000, tabId)
-  const pty = await waitForNewSession(session.page, workspaceId, previousIds)
+  const { tabId, session: pty } = await createBoundTerminalTab(
+    session.page,
+    workspaceId,
+    workspaceCwd
+  )
   const markerFiles = {
     shellPid: join(markerDir, 'powershell51-shell.pid'),
     resolver: join(markerDir, 'powershell51-resolver.txt'),
