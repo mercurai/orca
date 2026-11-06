@@ -5,6 +5,7 @@ import {
   createTerminalTab,
   launchInstalledApp,
   typeLine,
+  tryClickWithKnownOverlayRetry,
   waitForTerminalReady
 } from '../win-update-e2e/app-driver.mjs'
 import { readRuntimeSettings } from './runtime-environment'
@@ -148,7 +149,9 @@ export async function activateWorkspace(
 ): Promise<void> {
   const row = page.locator(`[role="option"][data-worktree-id=${JSON.stringify(workspaceId)}]`)
   await row.waitFor({ state: 'visible', timeout: 30_000 })
-  await row.click()
+  if (!(await tryClickWithKnownOverlayRetry(page, row, 30_000))) {
+    await row.click({ timeout: 1 })
+  }
 }
 
 export async function visibleTerminalTabId(page: SessionHandle['page']): Promise<string> {

@@ -1,4 +1,3 @@
-import { performance } from 'node:perf_hooks'
 import { resolve } from 'node:path'
 import type { ProcessIdentity } from './process-tree-identity'
 import { processIdentity } from './process-tree-identity'
@@ -10,20 +9,17 @@ import {
   type TreeSnapshot
 } from './runtime-process-trees'
 import type { ProcessMetricsClient, ProcessMetrics } from './process-metrics-client'
+import {
+  collectStableResourceWindow,
+  defaultResourceWindowClock,
+  type NamedProcessIdentity,
+  type ResourceSample,
+  type ResourceWindowSnapshot
+} from './runtime-resource-window'
 import type { Session } from './runtime-shell-session'
 import type { RuntimeMode } from './runtime-environment'
 
-const IDLE_SAMPLE_COUNT = 4
-const IDLE_SAMPLE_INTERVAL_MS = 1_000
-
-export type ResourceSample = {
-  privateBytes: number
-  workingSetBytes: number
-  handleCount: number
-  nodeCount: number
-  cmdCount: number
-  cpu100ns: number
-}
+export type { ResourceSample } from './runtime-resource-window'
 
 export type RunSummary = {
   shell: string
@@ -32,6 +28,8 @@ export type RunSummary = {
   pairId: number
   startupMs: number[]
   jobGateSetupMs: number[]
+  resourceWindowRestarts: number
+  resourceWindowRestartWaitMs: number
   cleanupMs: number
   samples: ResourceSample[]
   idleCpuCorePercent: number
@@ -84,48 +82,76 @@ export async function collectResources(
   sessions: Session[],
   sampler: ProcessMetricsClient,
   nativeExecutable: string
-): Promise<{ samples: ResourceSample[]; idleCpuCorePercent: number }> {
-  await waitForStableTrees(sessions, sampler)
-  const samples: ResourceSample[] = []
-  let totalCpu100ns = 0
-  let totalWallMs = 0
-  let previousCpu100ns: number | undefined
-  let previousSampledAt: number | undefined
-  let previousKeys = ''
-  for (let index = 0; index < IDLE_SAMPLE_COUNT; index++) {
-    if (index > 0) {
-      await delay(IDLE_SAMPLE_INTERVAL_MS)
-    }
+): Promise<{
+  samples: ResourceSample[]
+  idleCpuCorePercent: number
+  windowRestarts: number
+  restartSettleMs: number
+}> {
+  const clock = defaultResourceWindowClock()
+  const read = async (): Promise<ResourceWindowSnapshot> => {
     const snapshots = await readTrees(sessions, sampler)
     for (const snapshot of snapshots) {
       validateTree(snapshot)
     }
-    const keys = treeSignature(snapshots)
-    if (previousKeys && keys !== previousKeys) {
-      throw new Error('The settled Codex process tree changed during resource sampling')
+    return toResourceWindowSnapshot(snapshots, nativeExecutable)
+  }
+  const result = await collectStableResourceWindow({
+    settle: async (timeoutMs) =>
+      toResourceWindowSnapshot(
+        await waitForStableTrees(sessions, sampler, timeoutMs),
+        nativeExecutable
+      ),
+    read,
+    sample: (identities) => sampler.sample(identities),
+    ...clock
+  })
+  return {
+    samples: result.samples,
+    idleCpuCorePercent: result.idleCpuCorePercent,
+    windowRestarts: result.restarts,
+    restartSettleMs: result.restartSettleMs
+  }
+}
+
+function toResourceWindowSnapshot(
+  snapshots: TreeSnapshot[],
+  nativeExecutable: string
+): ResourceWindowSnapshot {
+  const first = snapshots[0]
+  if (!first) {
+    throw new Error('Cannot measure an empty Codex process tree')
+  }
+  const processes: NamedProcessIdentity[] = []
+  const criticalProcesses: NamedProcessIdentity[] = []
+  for (const snapshot of snapshots) {
+    const root = snapshot.rows[0]
+    if (!root) {
+      throw new Error(`${snapshot.session.shell.name} process root was absent from its snapshot`)
     }
-    const identities: ProcessIdentity[] = snapshots.flatMap((snapshot) =>
-      snapshot.rows.map(processIdentity)
-    )
-    const current = aggregateMetrics(snapshots, await sampler.sample(identities), nativeExecutable)
-    const sampledAt = performance.now()
-    if (previousCpu100ns !== undefined && previousSampledAt !== undefined) {
-      const cpuDelta = current.cpu100ns - previousCpu100ns
-      if (cpuDelta < 0) {
-        throw new Error('Codex CPU counters moved backwards')
+    const rootIdentity = processIdentity(root)
+    const rootProcess = { name: root.name, identity: rootIdentity }
+    criticalProcesses.push(rootProcess)
+    for (const row of snapshot.rows) {
+      processes.push({ name: row.name, identity: processIdentity(row) })
+    }
+    for (const row of snapshot.descendants) {
+      const name = row.name.toLowerCase()
+      if (name === 'codex.exe' || name === 'node.exe') {
+        criticalProcesses.push({ name: row.name, identity: processIdentity(row) })
       }
-      totalCpu100ns += cpuDelta
-      totalWallMs += sampledAt - previousSampledAt
     }
-    samples.push(current)
-    previousCpu100ns = current.cpu100ns
-    previousSampledAt = sampledAt
-    previousKeys = keys
   }
-  if (totalWallMs <= 0) {
-    throw new Error('Idle CPU sample duration was empty')
+  const identities: ProcessIdentity[] = processes.map(({ identity }) => identity)
+  return {
+    shell: first.session.shell.name,
+    mode: first.session.mode,
+    signature: treeSignature(snapshots),
+    processes,
+    criticalProcesses,
+    identities,
+    measure: (metrics) => aggregateMetrics(snapshots, metrics, nativeExecutable)
   }
-  return { samples, idleCpuCorePercent: (totalCpu100ns / 10_000 / totalWallMs) * 100 }
 }
 
 function normalizeImagePath(value: string): string {
@@ -136,8 +162,4 @@ function normalizeImagePath(value: string): string {
 
 function sum(values: number[]): number {
   return values.reduce((total, value) => total + value, 0)
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds))
 }

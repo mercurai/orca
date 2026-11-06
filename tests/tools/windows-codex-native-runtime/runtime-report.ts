@@ -23,6 +23,8 @@ export function summarizeRuns(runs: RunSummary[]): unknown[] {
     const cmdCount = group.flatMap((run) => sampleFor(run, 'cmdCount'))
     const idleCpu = group.map((run) => run.idleCpuCorePercent)
     const cleanup = group.map((run) => run.cleanupMs)
+    const windowRestarts = group.map((run) => run.resourceWindowRestarts)
+    const restartSettle = group.map((run) => run.resourceWindowRestartWaitMs)
     return {
       shell: first.shell,
       sessions: first.sessionCount,
@@ -36,6 +38,8 @@ export function summarizeRuns(runs: RunSummary[]): unknown[] {
       idleCpuCorePercent: range(idleCpu),
       persistentNodeWrappers: range(nodeCount),
       cmdShims: range(cmdCount),
+      resourceWindowRestarts: range(windowRestarts),
+      resourceWindowRestartSettleMs: range(restartSettle),
       cleanupMs: range(cleanup),
       sampleCountPerRun: 4,
       sampleIntervalMs: 1_000,

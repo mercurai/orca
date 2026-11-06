@@ -233,9 +233,13 @@ export function treeSignature(snapshots: TreeSnapshot[]): string {
 
 export async function waitForStableTrees(
   sessions: Session[],
-  sampler: ProcessMetricsClient
+  sampler: ProcessMetricsClient,
+  timeoutMs = TREE_WAIT_MS
 ): Promise<TreeSnapshot[]> {
-  const deadline = Date.now() + TREE_WAIT_MS
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('Codex process tree settle deadline was empty')
+  }
+  const deadline = Date.now() + Math.min(TREE_WAIT_MS, timeoutMs)
   let previous = ''
   let stable = 0
   let latest: TreeSnapshot[] = []

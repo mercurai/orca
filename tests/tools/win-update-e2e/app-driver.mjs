@@ -331,7 +331,7 @@ async function dismissKnownOverlays(page) {
   return acted
 }
 
-async function tryClickWithKnownOverlayRetry(page, locator, timeoutMs) {
+export async function tryClickWithKnownOverlayRetry(page, locator, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   do {
     const remainingMs = deadline - Date.now()

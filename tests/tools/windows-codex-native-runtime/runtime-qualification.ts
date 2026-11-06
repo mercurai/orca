@@ -60,11 +60,7 @@ async function runStage(
       }
       return session.launchGateReleasedAt - session.startedAt
     })
-    const { samples, idleCpuCorePercent } = await collectResources(
-      sessions,
-      sampler,
-      settings.nativeExecutable
-    )
+    const resources = await collectResources(sessions, sampler, settings.nativeExecutable)
     const closeStartedAt = performance.now()
     const closeDurations = await Promise.all(
       sessions.map((session) => stopSession(session, sampler))
@@ -77,9 +73,11 @@ async function runStage(
       pairId,
       startupMs,
       jobGateSetupMs,
+      resourceWindowRestarts: resources.windowRestarts,
+      resourceWindowRestartWaitMs: resources.restartSettleMs,
       cleanupMs,
-      samples,
-      idleCpuCorePercent
+      samples: resources.samples,
+      idleCpuCorePercent: resources.idleCpuCorePercent
     }
   } catch (error) {
     const cleanup = await Promise.allSettled(
