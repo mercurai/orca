@@ -266,6 +266,29 @@ describe.skipIf(process.platform !== 'win32')('Windows Codex native launch resol
     expect(resolveFamily(family).outcome).toBe('native')
   })
 
+  it('rejects Vite+ ownership when valid metadata exceeds the resolver read limit', () => {
+    const tempRoot = mkdtempSync(join(tmpdir(), 'orca-codex-vite-plus-'))
+    roots.push(tempRoot)
+    const packagesDir = join(tempRoot, 'packages')
+    const installId = 'codex-0.166.0-fixture'
+    const installDir = join(packagesDir, '@openai', 'codex', installId)
+    const family = createInstalledCodexFamily({ tempRoot: join(installDir, 'lib') })
+    const metadataPath = join(packagesDir, '@openai', 'codex.json')
+    const metadata = JSON.stringify({
+      name: '@openai/codex',
+      installId,
+      padding: 'x'.repeat(70 * 1024)
+    })
+    mkdirSync(dirname(metadataPath), { recursive: true })
+    writeFileSync(metadataPath, metadata)
+
+    expect(Buffer.byteLength(metadata)).toBeGreaterThan(64 * 1024)
+    expect(resolveFamily(family)).toMatchObject({
+      outcome: 'fallback',
+      reason: 'unverified_install'
+    })
+  })
+
   it('rejects a Bun installation hint', () => {
     const family = createFamily()
 
