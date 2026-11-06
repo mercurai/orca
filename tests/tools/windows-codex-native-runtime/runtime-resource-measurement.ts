@@ -1,13 +1,8 @@
 import { resolve } from 'node:path'
 import type { ProcessIdentity } from './process-tree-identity'
 import { processIdentity } from './process-tree-identity'
-import {
-  readTrees,
-  treeSignature,
-  validateTree,
-  waitForStableTrees,
-  type TreeSnapshot
-} from './runtime-process-trees'
+import { readTrees, treeSignature, validateTree, type TreeSnapshot } from './runtime-process-trees'
+import { waitForStableTrees } from './runtime-tree-settle'
 import {
   MAX_METRICS_REQUEST_TIMEOUT_MS,
   type ProcessMetricsClient,

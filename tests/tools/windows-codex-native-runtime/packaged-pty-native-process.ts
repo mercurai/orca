@@ -1,10 +1,24 @@
 import type { WindowsProcessIdentityRow } from '../../../src/main/windows/windows-process-table'
-import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
+import {
+  isWindowsProcessStartTimeAvailable,
+  isWindowsProcessTableAvailable,
+  readWindowsProcessIdentityTableFresh
+} from '../../../src/main/windows/windows-process-table'
 import { delay } from './packaged-pty-app-support'
 import { processIdentity, processTreeForRoot, type ProcessIdentity } from './process-tree-identity'
 
 export type ShellIdentity = ProcessIdentity & { name: string }
 export type NativeCodexIdentity = ProcessIdentity & { name: string }
+
+export async function assertNativeProcessTableReady(): Promise<void> {
+  if (!isWindowsProcessTableAvailable() || !isWindowsProcessStartTimeAvailable()) {
+    throw new Error('The packaged PTY proof requires native process identities with creation times')
+  }
+  const ownRows = await readWindowsProcessIdentityTableFresh()
+  if (!ownRows.some((row) => row.pid === process.pid && typeof row.creationTimeMs === 'number')) {
+    throw new Error('The native process table did not identify the packaged PTY test runner')
+  }
+}
 
 function nativeCodexFromShell(
   rows: WindowsProcessIdentityRow[],

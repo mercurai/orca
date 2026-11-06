@@ -7,13 +7,11 @@ import { processIdentity } from './process-tree-identity'
 import { MAX_METRICS_REQUEST_TIMEOUT_MS, type ProcessMetricsClient } from './process-metrics-client'
 import type { Session } from './runtime-shell-session'
 
-const TREE_SETTLE_COUNT = 3
 const TREE_POLL_MS = 200
-const TREE_WAIT_MS = 15_000
 const JOB_IDENTITY_RETRIES = 3
 
 export type TreeSnapshot = {
-  session: Session
+  session: Pick<Session, 'pid' | 'mode' | 'shell'>
   rows: WindowsProcessIdentityRow[]
   descendants: WindowsProcessIdentityRow[]
   jobRows: WindowsProcessIdentityRow[]
@@ -22,7 +20,7 @@ export type TreeSnapshot = {
 
 export async function readTrees(
   sessions: Session[],
-  sampler: ProcessMetricsClient,
+  sampler: Pick<ProcessMetricsClient, 'listJobProcessIds'>,
   timeoutMs: number
 ): Promise<TreeSnapshot[]> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -76,7 +74,7 @@ export async function readTrees(
 async function readJobRows(
   session: Session,
   jobId: number,
-  sampler: ProcessMetricsClient,
+  sampler: Pick<ProcessMetricsClient, 'listJobProcessIds'>,
   deadline: number
 ): Promise<{ processTable: WindowsProcessIdentityRow[]; jobRows: WindowsProcessIdentityRow[] }> {
   for (let attempt = 0; attempt < JOB_IDENTITY_RETRIES; attempt++) {
@@ -249,41 +247,6 @@ export function treeSignature(snapshots: TreeSnapshot[]): string {
           .join(',')}`
     )
     .join('|')
-}
-
-export async function waitForStableTrees(
-  sessions: Session[],
-  sampler: ProcessMetricsClient,
-  timeoutMs = TREE_WAIT_MS
-): Promise<TreeSnapshot[]> {
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    throw new Error('Codex process tree settle deadline was empty')
-  }
-  const deadline = Date.now() + Math.min(TREE_WAIT_MS, timeoutMs)
-  let previous = ''
-  let stable = 0
-  let latest: TreeSnapshot[] = []
-  while (Date.now() < deadline) {
-    const remainingMs = deadline - Date.now()
-    latest = await readTrees(sessions, sampler, remainingMs)
-    if (Date.now() >= deadline) {
-      break
-    }
-    for (const snapshot of latest) {
-      validateTree(snapshot)
-    }
-    const signature = treeSignature(latest)
-    stable = signature === previous ? stable + 1 : 1
-    if (stable >= TREE_SETTLE_COUNT) {
-      return latest
-    }
-    previous = signature
-    const pollRemainingMs = deadline - Date.now()
-    if (pollRemainingMs > 0) {
-      await delay(Math.min(TREE_POLL_MS, pollRemainingMs))
-    }
-  }
-  throw new Error('Codex process trees did not reach a settled state')
 }
 
 function requestTimeoutFor(deadline: number, label: string): number {

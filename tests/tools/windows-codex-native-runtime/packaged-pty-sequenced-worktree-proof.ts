@@ -38,13 +38,13 @@ export async function proveSequencedWorktreePty(
   settings: RuntimeSettings,
   repoPath: string,
   codexHome: string,
-  markerDir: string
+  { markerDir, afterShellReload }: { markerDir: string; afterShellReload?: () => Promise<void> }
 ): Promise<SequencedWorktreePty> {
   const powershell = settings.shells.find((shell) => shell.name === 'PowerShell 7')
   if (!powershell) {
     throw new Error('The runtime gate omitted PowerShell 7')
   }
-  await setWindowsShell(session.page, powershell.executable)
+  await setWindowsShell(session.page, powershell.executable, afterShellReload)
   const repo = await session.page.evaluate(async (path) => {
     const repos = await window.api.repos.list()
     const match = repos.find((entry) => entry.path.toLowerCase() === path.toLowerCase())

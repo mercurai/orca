@@ -7,7 +7,8 @@ import {
   tryClickWithKnownOverlayRetry,
   waitForTerminalReady
 } from '../win-update-e2e/app-driver.mjs'
-import { readRuntimeSettings } from './runtime-environment'
+import { readRuntimeSettings, type RuntimeShell } from './runtime-environment'
+import { reportPackagedPtyWorkspaceSnapshot } from './packaged-pty-workspace-diagnostic'
 
 export { typeLine, waitForTerminalReady }
 
@@ -34,6 +35,7 @@ export function isPathWithin(parent: string, candidate: string): boolean {
 export function assertPrerequisites(): {
   appExe: string
   settings: ReturnType<typeof readRuntimeSettings>
+  powershell51: RuntimeShell
 } {
   if (process.platform !== 'win32' || process.arch !== 'x64') {
     throw new Error('The packaged Codex PTY lifecycle proof requires a Windows x64 runner')
@@ -52,7 +54,11 @@ export function assertPrerequisites(): {
   if (!existsSync(appExe)) {
     throw new Error('The packaged win-unpacked Orca.exe is missing beside the native resolver')
   }
-  return { appExe, settings }
+  const powershell51 = settings.shells.find((shell) => shell.name === 'Windows PowerShell')
+  if (!powershell51) {
+    throw new Error('The runtime gate omitted Windows PowerShell')
+  }
+  return { appExe, settings, powershell51 }
 }
 
 function sanitizedInheritedEnvironment(): () => void {
@@ -111,7 +117,11 @@ export async function launchPackaged(
   }
 }
 
-export async function setWindowsShell(page: SessionHandle['page'], shell: string): Promise<void> {
+export async function setWindowsShell(
+  page: SessionHandle['page'],
+  shell: string,
+  afterReload?: () => Promise<void>
+): Promise<void> {
   if (shell === 'git-bash') {
     const settingsButton = page.getByRole('button', { name: 'Settings', exact: true })
     if (!(await tryClickWithKnownOverlayRetry(page, settingsButton, 30_000))) {
@@ -163,6 +173,7 @@ export async function setWindowsShell(page: SessionHandle['page'], shell: string
     throw new Error('The packaged app did not persist its PowerShell shell and implementation')
   }
   await page.reload({ waitUntil: 'domcontentloaded' })
+  await afterReload?.()
   await waitForTerminalReady(page, 30_000)
 }
 
@@ -188,17 +199,50 @@ export async function createFolderWorkspace(
 export async function activateWorkspace(
   page: SessionHandle['page'],
   workspaceId: string,
-  terminalTabId?: string
+  terminalTabId?: string,
+  originalPtyId?: string
 ): Promise<void> {
   const row = page.locator(`[role="option"][data-worktree-id=${JSON.stringify(workspaceId)}]`)
-  await row.waitFor({ state: 'visible', timeout: 30_000 })
-  if (!(await tryClickWithKnownOverlayRetry(page, row, 30_000))) {
-    await row.click({ timeout: 1 })
-  }
-  if (terminalTabId) {
+  const deadline = Date.now() + 30_000
+  const remaining = (): number => Math.max(1, deadline - Date.now())
+  try {
+    await row.waitFor({ state: 'visible', timeout: remaining() })
+    if (!(await tryClickWithKnownOverlayRetry(page, row, remaining()))) {
+      await row.click({ timeout: remaining() })
+    }
     await page
-      .locator(`[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(terminalTabId)}]:visible`)
-      .click({ timeout: 30_000 })
+      .locator(
+        `[role="option"][data-worktree-id=${JSON.stringify(workspaceId)}][aria-current="page"]`
+      )
+      .waitFor({ state: 'visible', timeout: remaining() })
+    await page
+      .locator(`[data-rendered-active-worktree-id=${JSON.stringify(workspaceId)}]`)
+      .waitFor({ state: 'visible', timeout: remaining() })
+    if (terminalTabId) {
+      await page
+        .locator(
+          `[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(terminalTabId)}]:visible`
+        )
+        .click({ timeout: remaining() })
+      await page
+        .locator(
+          `[data-testid="sortable-tab"][data-tab-id=${JSON.stringify(terminalTabId)}][data-active="true"]:visible`
+        )
+        .waitFor({ state: 'visible', timeout: remaining() })
+    }
+  } catch (error) {
+    try {
+      await reportPackagedPtyWorkspaceSnapshot(
+        page,
+        'activation-failure',
+        workspaceId,
+        terminalTabId,
+        originalPtyId
+      )
+    } catch {
+      // The original activation failure remains primary if diagnostics fail.
+    }
+    throw error
   }
 }
 

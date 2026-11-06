@@ -1,11 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import {
-  isWindowsProcessStartTimeAvailable,
-  isWindowsProcessTableAvailable,
-  readWindowsProcessIdentityTableFresh
-} from '../../../src/main/windows/windows-process-table'
+import { readWindowsProcessIdentityTableFresh } from '../../../src/main/windows/windows-process-table'
 import { cleanupE2EDaemons } from '../../e2e/helpers/electron-process-shutdown'
 import { closeApp } from '../win-update-e2e/app-driver.mjs'
 import {
@@ -27,6 +23,11 @@ import { proveColdRestoredFolderPane } from './packaged-pty-cold-restore-proof'
 import { proveWindowsPowerShell51ManagedRestore } from './packaged-pty-powershell51-proof'
 import { proveSequencedWorktreePty } from './packaged-pty-sequenced-worktree-proof'
 import { finishPackagedPtyLifecycle } from './packaged-pty-lifecycle-cleanup'
+import { assertNativeProcessTableReady } from './packaged-pty-native-process'
+import {
+  reportPackagedPtyWorkspaceSnapshot,
+  type PackagedPtyWorkspaceStage
+} from './packaged-pty-workspace-diagnostic'
 import {
   assertIdentityAlive,
   assertBashProbeWindowsPid,
@@ -54,18 +55,8 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
       'Set ORCA_CODEX_NATIVE_RUNTIME_TEST=1 to request the packaged Codex PTY lifecycle proof'
     )
   }
-  const { appExe, settings } = assertPrerequisites()
-  const powershell51 = settings.shells.find((shell) => shell.name === 'Windows PowerShell')
-  if (!powershell51) {
-    throw new Error('The runtime gate omitted Windows PowerShell')
-  }
-  if (!isWindowsProcessTableAvailable() || !isWindowsProcessStartTimeAvailable()) {
-    throw new Error('The packaged PTY proof requires native process identities with creation times')
-  }
-  const ownRows = await readWindowsProcessIdentityTableFresh()
-  if (!ownRows.some((row) => row.pid === process.pid && typeof row.creationTimeMs === 'number')) {
-    throw new Error('The native process table did not identify the packaged PTY test runner')
-  }
+  const { appExe, settings, powershell51 } = assertPrerequisites()
+  await assertNativeProcessTableReady()
 
   const runRoot = realpathSync.native(mkdtempSync(join(tmpdir(), 'orca-codex-packaged-pty-')))
   const userDataDir = join(runRoot, 'userData')
@@ -117,6 +108,9 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
       folderId,
       realpathSync.native(folderPath)
     )
+    const folderPage = session.page
+    const reportFolderSnapshot = (stage: PackagedPtyWorkspaceStage): Promise<void> =>
+      reportPackagedPtyWorkspaceSnapshot(folderPage, stage, folderId, folderTabId, folderPty.id)
     const bashFiles = createBashProbeFiles(markerDir, 'bash')
     await typeBashProbe(session.page, folderPty.id, folderTabId, bashFiles)
     const bashDiagnostic = await waitForBashProbeDiagnostic(bashFiles)
@@ -141,12 +135,13 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     )
     report.folderTypedNativeLaunch = true
 
+    await reportFolderSnapshot('before-worktree-proof')
     const worktree = await proveSequencedWorktreePty(
       session,
       settings,
       canonicalRepoPath,
       canonicalCodexHome,
-      markerDir
+      { markerDir, afterShellReload: () => reportFolderSnapshot('after-ps7-reload') }
     )
     report.worktreeSequencedNativeLaunch = true
     report.managedEnvironmentRestored.powershell7 = true
@@ -163,7 +158,10 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     )
     report.paneCloseRemovedOwnedTree = true
 
-    await setWindowsShell(session.page, powershell51.executable)
+    await reportFolderSnapshot('after-worktree-close-before-ps5-reload')
+    await setWindowsShell(folderPage, powershell51.executable, () =>
+      reportFolderSnapshot('after-ps5-reload')
+    )
     await proveWindowsPowerShell51ManagedRestore(
       session,
       folderId,
@@ -173,8 +171,9 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
       markerDir
     )
     report.managedEnvironmentRestored.powershell51 = true
+    await reportFolderSnapshot('after-ps5-proof')
 
-    await activateWorkspace(session.page, folderId, folderTabId)
+    await activateWorkspace(session.page, folderId, folderTabId, folderPty.id)
     await waitForTerminalReady(session.page, 30_000, folderTabId)
     const folderAfterShellTests = await waitForTerminalTabSession(
       session.page,
@@ -191,7 +190,7 @@ export async function runPackagedCodexPtyLifecycle(): Promise<void> {
     await assertIdentityAlive(folderRuntime.codex, 'The folder Codex app-server')
 
     session = await launchPackaged(appExe, userDataDir, appEnvRoot, settings.npmBin)
-    await activateWorkspace(session.page, folderId, folderTabId)
+    await activateWorkspace(session.page, folderId, folderTabId, folderPty.id)
     await waitForTerminalReady(session.page, 30_000, folderTabId)
     const warmPty = await waitForTerminalTabSession(
       session.page,

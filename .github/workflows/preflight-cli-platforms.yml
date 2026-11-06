@@ -73,6 +73,7 @@ jobs:
           src/main/pty/codex-native-process-metrics-client.test.ts
           src/main/pty/codex-native-resource-sampling.test.ts
           src/main/pty/codex-native-process-tree-exit.test.ts
+          src/main/pty/codex-native-tree-settle.test.ts
           src/main/pty/codex-native-runtime-diagnostics.test.ts
           src/main/pty/codex-shell-native-resolver.test.ts
           src/main/ipc/pty/host-env/codex-hook-reconcile-spawn.test.ts
