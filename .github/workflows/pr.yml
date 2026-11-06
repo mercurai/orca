@@ -1203,7 +1203,7 @@ jobs:
     needs: [code_paths, preflight]
     if: needs.code_paths.outputs.package_windows == 'true'
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       ORCA_BACKGROUND_LAUNCH: '1'
 
@@ -1274,9 +1274,12 @@ jobs:
           src/main/text-generation/source-control-agent-launch.test.ts
           src/main/codex-accounts/codex-windows-interactive-login.test.ts
           src/main/rate-limits/codex-fetcher-worker-thread.test.ts
+          src/main/rate-limits/codex-fetcher-runtime-pairing.test.ts
           src/main/codex/codex-state-db-backfill-recovery-supervision.test.ts
           src/shared/agent-process-recognition.test.ts
           src/main/pty/codex-shell-native-launch.test.ts
+          src/main/pty/codex-shell-native-resolver.test.ts
+          src/main/ipc/pty/host-env/codex-hook-reconcile-spawn.test.ts
           src/main/pty/codex-shell-no-daemon.test.ts
           config/scripts/build-windows-cli-launcher.test.mjs
           config/scripts/script-module-dependencies.test.mjs
@@ -1371,6 +1374,8 @@ jobs:
         with:
           native-runtime: electron
           node-version: ${{ steps.deps.outputs.node-version }}
+          # Qualification restores Node later; do not save that ABI under the Electron key.
+          persist-native-cache: 'false'
 
       - name: Package unpacked app
         env:
@@ -1382,6 +1387,53 @@ jobs:
 
       - name: Smoke packaged CLI
         run: node config/scripts/smoke-packaged-cli.mjs --app-dir=dist/win-unpacked
+
+      - name: Restore Node native modules for Codex runtime qualification
+        uses: ./.github/actions/prepare-native-runtime
+        with:
+          native-runtime: node
+          node-version: ${{ steps.deps.outputs.node-version }}
+
+      - name: Set up the native process metrics reader
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install the reviewed Codex package in an isolated prefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          CODEX_PREFIX="$RUNNER_TEMP/codex-0.166"
+          npm install --global --prefix "$CODEX_PREFIX" @openai/codex@0.166.0 --ignore-scripts --no-audit --no-fund
+          {
+            printf 'ORCA_CODEX_NATIVE_RUNTIME_TEST=1\n'
+            printf 'ORCA_CODEX_RUNTIME_NPM_PREFIX=%s\n' "$(cygpath -aw "$CODEX_PREFIX")"
+            printf 'ORCA_CODEX_RUNTIME_RESOLVER=%s\n' "$(cygpath -aw "$GITHUB_WORKSPACE/dist/win-unpacked/resources/bin/orca.exe")"
+            printf 'ORCA_CODEX_RUNTIME_PYTHON=%s\n' "$(cygpath -aw "$(command -v python)")"
+            printf 'ORCA_CODEX_RUNTIME_GIT_BASH=%s\n' "$(cygpath -aw "$(command -v bash)")"
+            printf 'ORCA_CODEX_RUNTIME_PWSH=%s\n' "$(cygpath -aw "$(command -v pwsh)")"
+            printf 'ORCA_CODEX_RUNTIME_POWERSHELL=%s\n' "$(cygpath -aw "$WINDIR/System32/WindowsPowerShell/v1.0/powershell.exe")"
+            printf 'ORCA_CODEX_RUNTIME_FLEET_SIZE=3\n'
+            printf 'ORCA_CODEX_RUNTIME_REPORT_PATH=%s\n' "$(cygpath -aw "$RUNNER_TEMP/codex-native-runtime-report.json")"
+          } >> "$GITHUB_ENV"
+
+      - name: Qualify real Codex launch lifecycle and resource usage
+        run: >-
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
+          src/main/pty/codex-shell-native-runtime.integration.test.ts
+
+      - name: Qualify packaged Codex terminal lifecycle
+        run: >-
+          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
+          src/main/pty/codex-shell-native-packaged.integration.test.ts
+
+      - name: Upload sanitized Codex resource measurements
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-codex-native-runtime
+          path: ${{ runner.temp }}/codex-native-runtime-report.json
+          if-no-files-found: ignore
 
   e2e:
     name: e2e

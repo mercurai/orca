@@ -175,7 +175,7 @@ function makeFixture(): Fixture {
   const resolverBash = join(root, 'orca native resolver')
   writeExecutable(
     resolverBash,
-    '#!/bin/sh\nexec "$ORCA_TEST_NODE_BASH" "$ORCA_TEST_RESOLVER_SCRIPT_BASH" "$@"\n'
+    '#!/bin/sh\nexec "$ORCA_TEST_NODE_BASH" "$ORCA_TEST_RESOLVER_SCRIPT" "$@"\n'
   )
   const resolverPowerShell = join(root, 'orca native resolver.ps1')
   writeFileSync(resolverPowerShell, '& $env:ORCA_TEST_NODE $env:ORCA_TEST_RESOLVER_SCRIPT @args\n')
@@ -208,7 +208,6 @@ function commonEnv(shell: Shell, fixture: Fixture): NodeJS.ProcessEnv {
     ORCA_TEST_NODE: process.execPath,
     ORCA_TEST_NODE_BASH: toBashPath(process.execPath),
     ORCA_TEST_RESOLVER_SCRIPT: fixture.resolverScript,
-    ORCA_TEST_RESOLVER_SCRIPT_BASH: toBashPath(fixture.resolverScript),
     ORCA_TEST_NATIVE_EXE: process.execPath,
     ORCA_TEST_RESOLVER_MODE: 'native',
     ORCA_TEST_PACKAGE_ROOT: fixture.packageRoot,
@@ -429,8 +428,9 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       expect(readFileSync(fixture.eventLog, 'utf8')).not.toContain('native-start')
     })
 
-    if (shell.kind === 'powershell') {
-      it.each(['schema-string', 'singleton-array'])('rejects malformed JSON shape %s', (mode) => {
+    it.skipIf(shell.kind !== 'powershell').each(['schema-string', 'singleton-array'])(
+      'rejects malformed JSON shape %s',
+      (mode) => {
         const fixture = makeFixture()
         const result = runShell(
           shell,
@@ -446,8 +446,8 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
         expect(lines(result.stdout)).toEqual(['FALLBACK', 'STATUS=19'])
         expect(readFileSync(fixture.eventLog, 'utf8')).toContain('resolver-exit')
         expect(readFileSync(fixture.eventLog, 'utf8')).not.toContain('native-start')
-      })
-    }
+      }
+    )
 
     it.each([
       ['native-launch opt-out', { ORCA_DISABLE_CODEX_NATIVE_LAUNCH: '1' }],
