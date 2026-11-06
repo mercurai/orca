@@ -166,7 +166,7 @@ function makeFixture(): Fixture {
       "else if (mode === 'oversized') process.stdout.write('x'.repeat(16385))",
       "else if (mode === 'schema-string') process.stdout.write(JSON.stringify({ ...result, schemaVersion: '1' }) + '\\n')",
       "else if (mode === 'singleton-array') process.stdout.write(JSON.stringify([result]) + '\\n')",
-      "else process.stdout.write(format === 'json' ? JSON.stringify(result) : ['ORCA_CODEX_NATIVE_V1', 'native', process.env.ORCA_TEST_NATIVE_EXE, process.env.ORCA_TEST_PACKAGE_ROOT, 'npm', 'END_ORCA_CODEX_NATIVE_V1'].join('\\n') + '\\n')",
+      "else process.stdout.write(format === 'json' ? JSON.stringify(result) : ['ORCA_CODEX_NATIVE_V1', 'native', result.nativeExecutable, result.environmentDelta.managedPackageRoot, result.environmentDelta.manager, 'END_ORCA_CODEX_NATIVE_V1'].join('\\n') + '\\n')",
       "if (mode === 'nonzero') process.exitCode = 7"
     ].join('\n'),
     'utf8'

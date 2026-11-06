@@ -32,6 +32,11 @@ once; the process layer does not retry through the JavaScript launcher.
 Both runtime conditions load its static source asset, so config tooling can use it before `dist` exists.
 The package build emits its `.d.cts` declaration, and packaging includes the source asset explicitly.
 
+The real-runtime CI gates target Windows x64 with unauthenticated `codex app-server` sessions and hidden
+packaged terminals. ARM64 selection has fixture coverage; ARM64 execution, interactive Codex TUI behavior,
+authenticated login, and live SSH/WSL sessions need separate runtime qualification. The terminal exclusions
+and execution-host boundaries have regression tests.
+
 ## Package builds
 
 From the repository root:

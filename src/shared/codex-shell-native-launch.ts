@@ -125,8 +125,8 @@ export function getPosixCodexNativeLaunchTryFunction(sharedServerArgs: string): 
       case "$__orca_record" in ${sharedServerArgs}|--remote=*) __orca_isolate=0 ;; esac
     done
     local -x CODEX_MANAGED_PACKAGE_ROOT="$__orca_package_win" CODEX_MANAGED_BY_NPM=1
-    local -x CODEX_MANAGED_BY_BUN CODEX_MANAGED_BY_PNPM CODEX_MANAGED_BY_VITE_PLUS
-    unset CODEX_MANAGED_BY_BUN CODEX_MANAGED_BY_PNPM CODEX_MANAGED_BY_VITE_PLUS
+    local CODEX_MANAGED_BY_BUN='' CODEX_MANAGED_BY_PNPM='' CODEX_MANAGED_BY_VITE_PLUS=''
+    export -n CODEX_MANAGED_BY_BUN CODEX_MANAGED_BY_PNPM CODEX_MANAGED_BY_VITE_PLUS
     if [[ "$__orca_isolate" != 0 ]]; then
       __orca_help="$("$__orca_native_posix" --help </dev/null 2>/dev/null)" || :
       if [[ "$__orca_help" == *--no-daemon* ]]; then

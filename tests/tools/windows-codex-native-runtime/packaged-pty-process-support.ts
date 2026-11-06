@@ -5,15 +5,21 @@ import { typeLine, sendCtrlC } from '../win-update-e2e/app-driver.mjs'
 import type { SessionHandle } from './packaged-pty-app-support'
 import { normalizeWindowsPath, delay } from './packaged-pty-app-support'
 import {
+  waitForNativeCodex,
+  type NativeCodexIdentity,
+  type ShellIdentity
+} from './packaged-pty-native-process'
+import { appServerHandshake } from './packaged-pty-app-server-protocol'
+import {
   processIdentity,
   processTreeForRoot,
   waitForProcessTreeExit,
   type ProcessIdentity
 } from './process-tree-identity'
 
-export type ShellIdentity = ProcessIdentity & { name: string }
-export type NativeCodexIdentity = ProcessIdentity & { name: string }
 export type ManagedShell = 'bash' | 'powershell'
+
+export type { NativeCodexIdentity, ShellIdentity }
 
 const MANAGED_ENV_EXPECTED = [
   'present:pty-parent-package-root',
@@ -175,118 +181,6 @@ export function assertNpmShimSentinel(filePath: string, npmBin: string): void {
   }
 }
 
-function nativeCodexFromShell(
-  rows: WindowsProcessIdentityRow[],
-  shell: ShellIdentity
-): NativeCodexIdentity {
-  const tree = processTreeForRoot(rows, shell.pid, shell.creationTimeMs)
-  const codexRows = tree.slice(1).filter((row) => row.name.toLowerCase() === 'codex.exe')
-  if (codexRows.length === 0) {
-    throw new Error('The packaged PTY did not launch native codex.exe')
-  }
-  if (tree.some((row) => row.name.toLowerCase() === 'orca.exe')) {
-    throw new Error('The offline resolver remained alive after native Codex started')
-  }
-  const byPid = new Map(tree.map((row) => [row.pid, row]))
-  for (const codex of codexRows) {
-    let parentPid = codex.ppid
-    const seen = new Set<number>()
-    while (parentPid !== shell.pid) {
-      if (seen.has(parentPid)) {
-        throw new Error('The packaged Codex ancestry contains a PID cycle')
-      }
-      seen.add(parentPid)
-      const parent = byPid.get(parentPid)
-      if (!parent) {
-        throw new Error('The packaged Codex ancestry is incomplete')
-      }
-      if (['node.exe', 'cmd.exe', 'orca.exe'].includes(parent.name.toLowerCase())) {
-        throw new Error('The packaged native Codex process retained a Node, cmd, or Orca parent')
-      }
-      parentPid = parent.ppid
-    }
-  }
-  const selected = codexRows[0]
-  if (!selected || typeof selected.creationTimeMs !== 'number') {
-    throw new Error('The native Codex process had no creation-time identity')
-  }
-  return { ...processIdentity(selected), name: selected.name }
-}
-
-export async function waitForNativeCodex(
-  shell: ShellIdentity
-): Promise<{ codex: NativeCodexIdentity; tree: ProcessIdentity[] }> {
-  const deadline = Date.now() + 20_000
-  while (Date.now() < deadline) {
-    const rows = await readWindowsProcessIdentityTableFresh()
-    const root = rows.find((row) => row.pid === shell.pid)
-    if (!root || root.creationTimeMs !== shell.creationTimeMs) {
-      throw new Error('The PTY shell exited before Codex app-server became ready')
-    }
-    const tree = processTreeForRoot(rows, shell.pid, shell.creationTimeMs)
-    if (tree.some((row) => row.name.toLowerCase() === 'codex.exe')) {
-      const codex = nativeCodexFromShell(rows, shell)
-      const codexTree = processTreeForRoot(rows, codex.pid, codex.creationTimeMs)
-      return { codex, tree: codexTree.map(processIdentity) }
-    }
-    await delay(100)
-  }
-  throw new Error('Native Codex app-server did not appear under the packaged PTY shell')
-}
-
-export async function appServerHandshake(
-  page: SessionHandle['page'],
-  ptyId: string,
-  tabId: string,
-  requestId: number
-): Promise<void> {
-  const response = page.evaluate(
-    ({ ptyId: expectedPtyId, requestId: expectedRequestId }) =>
-      new Promise<boolean>((resolveResponse) => {
-        let output = ''
-        let stop = (): void => {}
-        const timer = setTimeout(() => {
-          stop()
-          resolveResponse(false)
-        }, 15_000)
-        stop = window.api.pty.onData((event) => {
-          if (event.id !== expectedPtyId) {
-            return
-          }
-          output = (output + event.data).slice(-64_000)
-          const frame = new RegExp(`\\{\\s*"id"\\s*:\\s*${expectedRequestId}\\s*,\\s*"result"\\s*:`)
-          if (frame.test(output)) {
-            clearTimeout(timer)
-            stop()
-            resolveResponse(true)
-          }
-        })
-      }),
-    { ptyId, requestId }
-  )
-  await typeLine(
-    page,
-    JSON.stringify({
-      id: requestId,
-      method: 'initialize',
-      params: {
-        clientInfo: { name: 'orca_desktop', title: 'Orca', version: '0.0.0' },
-        capabilities: {
-          experimentalApi: true,
-          requestAttestation: false,
-          mcpServerOpenaiFormElicitation: false,
-          extensions: {}
-        }
-      }
-    }),
-    tabId
-  )
-  if (!(await response)) {
-    throw new Error('Codex app-server did not complete its unauthenticated initialize handshake')
-  }
-  await typeLine(page, JSON.stringify({ method: 'initialized', params: {} }), tabId)
-}
-
 export async function assertIdentityAlive(identity: ProcessIdentity, label: string): Promise<void> {
   const rows = await readWindowsProcessIdentityTableFresh()
   if (
@@ -342,4 +236,11 @@ export async function waitForPackagedAppServer(
   return runtime
 }
 
-export { sendCtrlC, waitForProcessTreeExit, processIdentity, processTreeForRoot }
+export {
+  appServerHandshake,
+  sendCtrlC,
+  waitForNativeCodex,
+  waitForProcessTreeExit,
+  processIdentity,
+  processTreeForRoot
+}
