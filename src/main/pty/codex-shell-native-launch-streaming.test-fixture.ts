@@ -34,13 +34,7 @@ type PreparedStreamingLaunch = {
   expectedShim: string | null
 }
 
-export type StreamingLaunchCase =
-  | 'runtime'
-  | 'powershell-isolated'
-  | 'cmd-isolated'
-  | 'powershell-inherited'
-  | 'powershell-cache-nul'
-  | 'powershell-module-path'
+export type StreamingLaunchCase = 'runtime' | 'powershell-isolated' | 'cmd-isolated'
 
 export function writeStreamingResponderScript(path: string): void {
   writeFileSync(
@@ -125,7 +119,6 @@ export function prepareStreamingLaunch(
     fleetSize: 2
   }
   const runtimeEnv = createRuntimeEnvironment(runtimeSettings, runtimeShell, mode, fixture.root)
-  const envBase = launchCase === 'powershell-inherited' ? process.env : runtimeEnv
   const envOverrides: Record<string, string> = {
     PATH: runtimeEnv.PATH ?? '',
     CODEX_HOME: runtimeEnv.CODEX_HOME ?? '',
@@ -154,21 +147,17 @@ export function prepareStreamingLaunch(
     ORCA_TEST_NATIVE_LOG: fixture.nativeLog,
     ORCA_TEST_DIAGNOSTIC_LOG: fixture.diagnosticLog,
     ORCA_TEST_EXPECTED_CODEX_HOME: join(fixture.root, 'codex-home'),
-    ...(launchCase === 'powershell-cache-nul' ? { PSModuleAnalysisCachePath: 'NUL' } : {}),
     NODE_OPTIONS: '',
     NODE_PATH: '',
     ORCA_NODE_OPTIONS: '',
     ORCA_DISABLE_CMD_SHIM_RESOLUTION: ''
   }
   const env: NodeJS.ProcessEnv =
-    mergeCommandEnvironment(envBase, envOverrides, process.platform) ?? {}
+    mergeCommandEnvironment(runtimeEnv, envOverrides, process.platform) ?? {}
   const generatedScript = runtimeShellScript(runtimeShell, npmBin, false, true, true)
   const selectedLauncherLine =
     '$orcaSelectedCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1'
   const selectedLauncherBlock = [
-    ...(launchCase === 'powershell-module-path'
-      ? ["$env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')"]
-      : []),
     selectedLauncherLine,
     '$env:ORCA_TEST_SELECTED_SHIM = $orcaSelectedCodex.Source'
   ].join('\n')

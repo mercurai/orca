@@ -29,6 +29,10 @@ export function shellScript(
     shell.kind === 'bash'
       ? `case "$(command -v codex 2>/dev/null)" in "${toBashPath(npmBin)}"/codex*) ;; *) exit 96 ;; esac`
       : [
+          // Cold PS5 test homes must not scan unrelated installed modules during command discovery.
+          ...(shell.name === 'Windows PowerShell'
+            ? ["$env:PSModulePath = [System.IO.Path]::Combine($PSHOME, 'Modules')"]
+            : []),
           '$orcaSelectedCodex = Get-Command codex -ErrorAction SilentlyContinue | Select-Object -First 1',
           'if (-not $orcaSelectedCodex -or',
           '    -not $orcaSelectedCodex.Source.StartsWith($env:ORCA_CODEX_RUNTIME_NPM_BIN,',

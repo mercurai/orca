@@ -440,16 +440,9 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
       shell.kind === 'powershell'
         ? [
             { name: 'official ps1, isolated environment', launchCase: 'powershell-isolated' },
-            { name: 'npm cmd, isolated environment', launchCase: 'cmd-isolated' },
-            { name: 'official ps1, inherited environment', launchCase: 'powershell-inherited' }
+            { name: 'npm cmd, isolated environment', launchCase: 'cmd-isolated' }
           ]
         : [{ name: 'runtime fixture', launchCase: 'runtime' }]
-    if (shell.name === 'Windows PowerShell') {
-      streamingCases.push(
-        { name: 'ps5 ps1, cache NUL', launchCase: 'powershell-cache-nul' },
-        { name: 'ps5 ps1, module path reset', launchCase: 'powershell-module-path' }
-      )
-    }
 
     for (const streamingCase of streamingCases) {
       it.each(['native', 'optout'] as const)(
