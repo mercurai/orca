@@ -33,6 +33,7 @@ type PendingRequest = {
 export type Session = {
   shell: RuntimeShell
   mode: RuntimeMode
+  runtimeSessionIndex?: number
   child: PipedChildProcess
   pid: number
   creationTimeMs: number
@@ -118,7 +119,8 @@ export function launchSession(
   settings: RuntimeSettings,
   shell: RuntimeShell,
   mode: RuntimeMode,
-  homeRoot: string
+  homeRoot: string,
+  runtimeSessionIndex?: number
 ): Session {
   const startedAt = performance.now()
   const child = spawnProcess({
@@ -136,6 +138,7 @@ export function launchSession(
   const session: Session = {
     shell,
     mode,
+    ...(runtimeSessionIndex === undefined ? {} : { runtimeSessionIndex }),
     child,
     pid: child.pid,
     creationTimeMs: 0,

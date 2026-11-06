@@ -54,7 +54,7 @@ async function runStage(
     for (let index = 0; index < sessionCount; index++) {
       activeSessionIndex = index + 1
       phase = 'launch-shell'
-      const session = launchSession(settings, shell, mode, homeRoot)
+      const session = launchSession(settings, shell, mode, homeRoot, index + 1)
       sessions.push(session)
       phase = 'wait-root-identity'
       await waitForRootIdentity(session)

@@ -4,6 +4,8 @@ import {
   runtimeStageFailureMessage,
   type RuntimeChildFailureSnapshot
 } from '../../../tests/tools/windows-codex-native-runtime/runtime-stage-diagnostics'
+import { formatRuntimeShellCloseDiagnostic } from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-close-diagnostic-format'
+import type { RuntimeShellCloseDiagnostic } from '../../../tests/tools/windows-codex-native-runtime/runtime-shell-close-diagnostic'
 
 describe('Windows Codex runtime stage diagnostics', () => {
   it('reports failure-time child evidence before the separate cleanup verdict', () => {
@@ -101,5 +103,111 @@ describe('Windows Codex runtime stage diagnostics', () => {
 
     expect(message.match(/s\d\{/gu)).toHaveLength(3)
     expect(message).toContain(';+2]')
+  })
+
+  it('reports only bounded close state and indexed allowlisted job members', () => {
+    const privateValue = 'C:\\Users\\private\\profile'
+    const diagnostic: RuntimeShellCloseDiagnostic = {
+      shellName: privateValue,
+      mode: 'native',
+      sessionIndex: 1,
+      exitCode: 0,
+      signal: null,
+      closeObserved: false,
+      killed: false,
+      stdin: { writable: false, destroyed: false, ended: true, finished: true, closed: false },
+      stdout: { readable: true, destroyed: false, ended: false, closed: false },
+      stderr: { readable: true, destroyed: false, ended: false, closed: false },
+      pendingRequests: 0,
+      stdoutBytes: 502,
+      stdoutFrames: 2,
+      stderrBytes: 0,
+      tableState: 'ok',
+      jobState: 'ok',
+      jobMemberCount: 2,
+      missingIdentities: 0,
+      changedIdentities: 0,
+      truncatedMembers: 0,
+      members: [
+        { label: 'root', image: 'bash.exe', parent: 'outside' },
+        { label: 'm1', image: 'codex.exe', parent: 'root' },
+        { label: privateValue, image: privateValue, parent: privateValue }
+      ]
+    }
+    const message = formatRuntimeShellCloseDiagnostic(diagnostic)
+
+    expect(message).toContain(
+      'shell=other mode=native session=1 childExit=0 childSignal=none closeObserved=0'
+    )
+    expect(message).toContain('stdin=0,0,1,1,0 stdout=1,0,0,0 stderr=1,0,0,0')
+    expect(message).toContain('outBytes=502 frames=2 errBytes=0 table=ok job=ok jobMembers=2')
+    expect(message).toContain(
+      'members=[root:bash.exe<-outside;m1:codex.exe<-root;other:other<-other]'
+    )
+    expect(message).not.toContain(privateValue)
+  })
+
+  it('marks unavailable process evidence explicitly', () => {
+    const message = formatRuntimeShellCloseDiagnostic({
+      shellName: 'Git Bash',
+      mode: 'native',
+      sessionIndex: null,
+      exitCode: null,
+      signal: null,
+      closeObserved: false,
+      killed: false,
+      stdin: { writable: false, destroyed: false, ended: true, finished: false, closed: false },
+      stdout: { readable: true, destroyed: false, ended: false, closed: false },
+      stderr: { readable: true, destroyed: false, ended: false, closed: false },
+      pendingRequests: 0,
+      stdoutBytes: 0,
+      stdoutFrames: 0,
+      stderrBytes: 0,
+      tableState: 'timeout',
+      jobState: 'unavailable',
+      jobMemberCount: null,
+      missingIdentities: 0,
+      changedIdentities: 0,
+      truncatedMembers: 0,
+      members: []
+    })
+
+    expect(message).toContain('table=timeout job=unavailable jobMembers=unknown')
+    expect(message).toContain('truncated=0 members=[]')
+  })
+
+  it('caps job-member summaries and reports the omitted count', () => {
+    const members = Array.from({ length: 9 }, (_unused, index) => ({
+      label: index === 0 ? 'root' : `m${index}`,
+      image: index === 0 ? 'bash.exe' : 'codex.exe',
+      parent: index === 0 ? 'outside' : 'root'
+    }))
+    const message = formatRuntimeShellCloseDiagnostic({
+      shellName: 'Git Bash',
+      mode: 'optout',
+      sessionIndex: 2,
+      exitCode: null,
+      signal: null,
+      closeObserved: false,
+      killed: false,
+      stdin: { writable: false, destroyed: false, ended: true, finished: false, closed: false },
+      stdout: { readable: true, destroyed: false, ended: false, closed: false },
+      stderr: { readable: true, destroyed: false, ended: false, closed: false },
+      pendingRequests: 0,
+      stdoutBytes: 0,
+      stdoutFrames: 0,
+      stderrBytes: 0,
+      tableState: 'ok',
+      jobState: 'ok',
+      jobMemberCount: 9,
+      missingIdentities: 0,
+      changedIdentities: 0,
+      truncatedMembers: 1,
+      members
+    })
+
+    expect(message).toContain('jobMembers=9 missing=0 changed=0 truncated=1')
+    expect(message).toContain('m7:codex.exe<-root')
+    expect(message).not.toContain('m8:codex.exe')
   })
 })

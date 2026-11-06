@@ -84,7 +84,7 @@ export async function proveSequencedWorktreePty(
   }
 
   await activateWorkspace(session.page, worktreeId)
-  const tabId = await visibleTerminalTabId(session.page, worktreeId)
+  const tabId = await visibleTerminalTabId(session.page, worktreeId, worktreePath)
   await waitForTerminalReady(session.page, 30_000, tabId)
   const worktreePty = await waitForTerminalTabSession(session.page, worktreeId, worktreePath, tabId)
   if (worktreePty.id !== ptyId) {

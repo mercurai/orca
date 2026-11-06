@@ -2,6 +2,8 @@ import { performance } from 'node:perf_hooks'
 import { forceTerminateProcessTree } from '@orca/process-host/process-tree-termination'
 import { waitForProcessTreeExit } from './process-tree-identity'
 import { MAX_METRICS_REQUEST_TIMEOUT_MS, type ProcessMetricsClient } from './process-metrics-client'
+import { captureRuntimeShellCloseDiagnostic } from './runtime-shell-close-diagnostic'
+import { formatRuntimeShellCloseDiagnostic } from './runtime-shell-close-diagnostic-format'
 import type { Session } from './runtime-shell-session'
 
 const CLOSE_WAIT_MS = 8_000
@@ -24,6 +26,17 @@ export async function stopSession(
     session.cleanupMs = performance.now() - startedAt
     return session.cleanupMs
   } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === `${session.shell.name} shell exit after app-server EOF timed out`
+    ) {
+      try {
+        const diagnostic = await captureRuntimeShellCloseDiagnostic(session, sampler)
+        console.error(formatRuntimeShellCloseDiagnostic(diagnostic))
+      } catch {
+        console.error('Windows Codex normal-close snapshot: capture=unavailable')
+      }
+    }
     try {
       await terminateOwnedSession(session, sampler)
       session.cleanupComplete = true
