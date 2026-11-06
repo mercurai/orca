@@ -94,23 +94,6 @@ jobs:
           pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
           config/scripts/pr-auxiliary-preflight-admission.test.mjs
           config/scripts/mobile-release-check-scope.test.mjs
-      # Temporary artifact capture under the host build freeze; the ordinary assertion above stays red.
-      - name: Capture changed shell snapshots for review
-        if: ${{ failure() && matrix.os == 'ubuntu-22.04' }}
-        run: >-
-          pnpm exec vitest run --config config/vitest.config.ts --maxWorkers=2
-          src/main/shell-wrapper-generated-file-snapshot.test.ts --update=all
-      - name: Upload shell snapshots for review
-        if: ${{ failure() && matrix.os == 'ubuntu-22.04' }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-codex-shell-snapshots
-          path: |
-            src/main/__fixtures__/shell-wrapper-snapshots/local-zsh-zshenv.txt
-            src/main/__fixtures__/shell-wrapper-snapshots/local-bash-rcfile.txt
-            src/main/__fixtures__/shell-wrapper-snapshots/daemon-zsh-zshenv.txt
-            src/main/__fixtures__/shell-wrapper-snapshots/daemon-bash-rcfile.txt
-          if-no-files-found: error
       - name: Setup the process-host minimum runtime
         id: node18
         if: ${{ !cancelled() && steps.deps.outcome == 'success' }}

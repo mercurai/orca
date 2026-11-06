@@ -476,12 +476,12 @@ describe.skipIf(!isWindows)('Codex native shell launch', () => {
         shell,
         fixture,
         'codex alpha\nWrite-Output ("STATUS=" + $LASTEXITCODE)',
-        { ORCA_TEST_RESOLVER_MODE: 'crlf' }
+        { ORCA_TEST_RESOLVER_MODE: 'crlf', ORCA_TEST_NATIVE_EXE: fixture.nativeTarget }
       )
 
       expect(result.stderr).toBe('')
       expect(lines(result.stdout)).toEqual(['NATIVE', 'STATUS=0'])
-      expect(readFileSync(fixture.codexLog, 'utf8').trim()).toBe('--no-daemon alpha')
+      expect(readFileSync(fixture.nativeLog, 'utf8').trim()).toBe('--no-daemon alpha')
       expect(readFileSync(fixture.eventLog, 'utf8').trim().split(/\r?\n/)).toEqual([
         'resolver-exit',
         'native-start'
