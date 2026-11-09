@@ -156,3 +156,69 @@ test('registers a disabled, prompt-file-driven triage automation that cannot pub
   assert.equal(args.includes('--enabled'), false)
   assert.doesNotMatch(args.join(' '), /FORK_BOT_TOKEN|--publish/)
 })
+
+test('reads both queues: an issue and a pull request are classified side by side', async () => {
+  const { buildTriageQueue } = await import('./issue-pr-triage.mjs')
+  const queue = buildTriageQueue(
+    [
+      issue({ number: 90 }),
+      issue({
+        number: 97,
+        title: 'feat(fork): durable release and triage agents',
+        body: 'Adds config/mercurai/scripts/release-audit.mjs',
+        pullRequest: true,
+        headRefName: 'codex/durable-agents-20261103',
+        labels: []
+      })
+    ],
+    { now: NOW }
+  )
+
+  assert.deepEqual(queue.actionable.map((item) => item.key).sort(), ['issue:90', 'pr:97'])
+})
+
+test('a ready pull request waiting on review is a decision, never stale work', () => {
+  const result = classifyItem(
+    issue({
+      number: 88,
+      title: 'fix(sync): add reviewed main-only ingestion mode',
+      body: 'Adds config/mercurai/scripts/release-audit.mjs',
+      pullRequest: true,
+      isDraft: false,
+      headRefName: 'codex/upstream-main-only-20261029',
+      labels: [],
+      updatedAt: new Date(NOW - 11 * DAY).toISOString()
+    }),
+    { now: NOW }
+  )
+
+  assert.equal(result.label, 'needs-decision')
+  assert.match(result.reason, /ready for review, waiting 11 days/)
+})
+
+test('an issue written as a spec with acceptance criteria is actionable', () => {
+  const result = classifyItem(
+    issue({
+      number: 78,
+      title: 'Bound Pi worker concurrency by durable execution capacity',
+      body: '## Summary\n\nBound Pi worker concurrency.\n\n## Acceptance Criteria\n\n- [ ] Concurrent starts cannot oversubscribe\n',
+      labels: ['enhancement']
+    }),
+    { now: NOW }
+  )
+
+  assert.equal(result.label, 'actionable')
+  assert.match(result.evidence, /Acceptance Criteria/)
+})
+
+test('quotes the whole line the evidence sits on, never a fragment', () => {
+  const result = classifyItem(
+    issue({
+      body: 'Some preamble that is long enough to be cut.\nBash tool calls fail with `unexpected EOF`; 425 occurrences.\nTrailing line.'
+    }),
+    { now: NOW }
+  )
+
+  assert.equal(result.label, 'actionable')
+  assert.equal(result.evidence.startsWith('Bash tool calls fail'), true)
+})

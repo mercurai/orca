@@ -7,7 +7,7 @@ Owner: Mercurai release owner. Contract: `config/mercurai/automation-contract.md
 
 ## Every run, in order
 
-1. `node config/mercurai/scripts/issue-pr-triage.mjs --state <state path> --repo mercurai/orca --dry-run` to see
+1. `node config/mercurai/scripts/issue-pr-triage.mjs --repo mercurai/orca --explain` prints one line per item with its label, its reason and the quoted evidence. Read it before anything else.
    the classification before anything is written.
 2. Drop the same command without `--dry-run` to persist the queue into the state file. It writes `parked[]`
    entries and one task spec per actionable item, and it never comments on or closes anything.

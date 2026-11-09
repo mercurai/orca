@@ -30,8 +30,14 @@ function evidenceFor(body, patterns) {
   for (const pattern of patterns) {
     const match = pattern.exec(text)
     if (match) {
-      const line = text.slice(Math.max(0, match.index - 60), match.index + 120).split('\n')[0]
-      return line.trim().slice(0, 200)
+      // Quote the whole line the match sits on. Slicing around the match index cut words in half and made the
+      // evidence unreadable in review (`[roblem]`).
+      const start = text.lastIndexOf('\n', match.index) + 1
+      const end = text.indexOf('\n', match.index)
+      const line = text.slice(start, end === -1 ? text.length : end).trim()
+      if (line.length > 0) {
+        return line.slice(0, 200)
+      }
     }
   }
   return null
@@ -42,7 +48,10 @@ const ACTIONABLE_EVIDENCE = [
   /steps to reproduce/i,
   /expected(?: behaviour| behavior)?:.*\n.*actual/i,
   /\b(?:panic|unexpected EOF|TypeError|ReferenceError|ENOENT|EACCES)\b/,
-  /\b(?:add|fix|implement|regression test)\b.*\b[\w./-]+\.(?:ts|tsx|mjs|cjs|md)\b/i
+  // The verb forms that actually appear in titles and bodies: Adds, Fixes, Implemented, not only the bare stem.
+  /\b(?:add|fix|implement|update|remove|repair)\w*\b.*\b[\w./-]+\.(?:ts|tsx|mjs|cjs|md)\b/i,
+  // The fork writes its own work items as a spec: an Implementation section and explicit acceptance criteria.
+  /^#{2,3} +(?:implementation|acceptance criteria|target)\b/im
 ]
 
 export function classifyItem(item, { now = Date.now(), staleDays = 7 } = {}) {
@@ -68,20 +77,26 @@ export function classifyItem(item, { now = Date.now(), staleDays = 7 } = {}) {
   if (labels.includes('do-not-merge') || labels.includes('needs-design')) {
     return { ...base, label: 'needs-decision', reason: `labelled ${labels.find((l) => l === 'do-not-merge' || l === 'needs-design')}`, evidence: `labels=${labels.join(',')}` }
   }
-  if (age !== null && age >= staleDays && (kind === 'pr' || labels.includes('stale-candidate'))) {
+  // A ready pull request waiting on review is a decision for the owner, not abandoned work. Only a draft, an
+  // `ci-only` lane, or an explicitly stale-labelled item is garbage. Calling the controller PR stale would have
+  // the agent propose closing the very fix the release needs.
+  const ciOnly = kind === 'pr' && String(item.headRefName ?? '').startsWith('ci-only/')
+  const abandonedLane =
+    kind === 'pr' && (item.isDraft === true || ciOnly || labels.includes('stale-candidate'))
+  if (age !== null && age >= staleDays && abandonedLane) {
     return {
       ...base,
       label: 'stale',
-      reason: `${kind} has had no activity for ${age} days (threshold ${staleDays})`,
-      evidence: `updatedAt=${item.updatedAt ?? 'unknown'}`
+      reason: `${ciOnly ? 'ci-only lane' : 'draft'} ${kind} has had no activity for ${age} days (threshold ${staleDays})`,
+      evidence: `updatedAt=${item.updatedAt ?? 'unknown'} head=${item.headRefName ?? 'unknown'}`
     }
   }
-  if (kind === 'pr' && String(item.headRefName ?? '').startsWith('ci-only/')) {
+  if (kind === 'pr' && age !== null && age >= staleDays) {
     return {
       ...base,
-      label: 'stale',
-      reason: 'ci-only lane branch, kept out of the default branch by convention',
-      evidence: `head=${item.headRefName}`
+      label: 'needs-decision',
+      reason: `ready for review, waiting ${age} days on an owner decision`,
+      evidence: `updatedAt=${item.updatedAt ?? 'unknown'}`
     }
   }
   const evidence = evidenceFor(item.body, ACTIONABLE_EVIDENCE)
@@ -193,9 +208,33 @@ export function applyTriage(state, { items, now = Date.now(), staleDays = 7 } = 
   return { state: next, queue }
 }
 
+function gh(argv, what) {
+  const result = spawnSync('gh', argv, { encoding: 'utf8', shell: false, windowsHide: true })
+  if (result.status !== 0) {
+    throw new Error(`${what} failed (${result.status}): ${String(result.stderr ?? '').trim()}`)
+  }
+  const stdout = String(result.stdout ?? '').trim()
+  if (stdout.length === 0) {
+    return []
+  }
+  // `gh api --jq '.[]'` streams one object per line; `gh pr list --json` prints one array. Accept both.
+  try {
+    const parsed = JSON.parse(stdout)
+    return Array.isArray(parsed) ? parsed : [parsed]
+  } catch {
+    return stdout
+      .split('\n')
+      .filter((line) => line.trim().length > 0)
+      .map((line) => JSON.parse(line))
+  }
+}
+
+/**
+ * Both queues, never one: the fork's backlog is mostly pull requests, and a triage agent that only reads issues
+ * would report an empty backlog while eight integration PRs compete for the same release.
+ */
 function ghItems(repo) {
-  const result = spawnSync(
-    'gh',
+  const issues = gh(
     [
       'api',
       '--paginate',
@@ -203,15 +242,35 @@ function ghItems(repo) {
       '--jq',
       '.[] | select(.pull_request == null) | {number, title, body, state, labels: [.labels[].name], updatedAt, createdAt}'
     ],
-    { encoding: 'utf8', shell: false, windowsHide: true }
+    'gh api issues'
   )
-  if (result.status !== 0) {
-    throw new Error(`gh api failed (${result.status}): ${String(result.stderr ?? '').trim()}`)
-  }
-  return String(result.stdout ?? '')
-    .split('\n')
-    .filter((line) => line.trim().length > 0)
-    .map((line) => JSON.parse(line))
+  const pulls = gh(
+    [
+      'pr',
+      'list',
+      '--repo',
+      repo,
+      '--state',
+      'open',
+      '--limit',
+      '200',
+      '--json',
+      'number,title,body,isDraft,headRefName,labels,updatedAt,createdAt'
+    ],
+    'gh pr list'
+  ).map((pull) => ({
+    number: pull.number,
+    title: pull.title,
+    body: pull.body,
+    state: 'open',
+    labels: (pull.labels ?? []).map((label) => (typeof label === 'string' ? label : label.name)),
+    updatedAt: pull.updatedAt,
+    createdAt: pull.createdAt,
+    pullRequest: true,
+    isDraft: pull.isDraft === true,
+    headRefName: pull.headRefName
+  }))
+  return [...issues, ...pulls]
 }
 
 function flags(argv) {
@@ -235,11 +294,21 @@ if (process.argv[1] && process.argv[1].endsWith('issue-pr-triage.mjs')) {
   const itemsPath = values.get('items')
   const statePath = values.get('state')
   const dryRun = values.get('dry-run') === true
+  const explain = values.get('explain') === true
   const staleDays = Number(values.get('stale-days') ?? 7)
   try {
     const items = itemsPath ? JSON.parse(readFileSync(String(itemsPath), 'utf8')) : ghItems(String(repo))
     const now = Date.now()
-    if (!statePath) {
+    if (explain) {
+      // One line per item: what it is, why, and the quoted evidence. This is the review surface for a human
+      // who does not want to read a JSON blob to find out why their PR was parked.
+      const queue = buildTriageQueue(items, { now, staleDays })
+      for (const item of queue.actionable
+        .concat(queue.parked)
+        .sort((left, right) => left.key.localeCompare(right.key))) {
+        console.log(`${item.label.padEnd(15)} ${item.key.padEnd(12)} ${item.reason}  [${item.evidence ?? ''}]`)
+      }
+    } else if (!statePath) {
       const queue = buildTriageQueue(items, { now, staleDays })
       console.log(JSON.stringify({ dryRun: true, counts: queue.counts, tasks: queue.tasks.map((task) => task.path) }))
     } else {
