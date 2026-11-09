@@ -124,11 +124,14 @@ approval was a dispatch input that evaporated, and upstream moves every few minu
 
 ## Verification
 
-- `node --test "config/mercurai/scripts/*.test.mjs"`: 465 pass, 8 fail. The 8 are the publication-workflow fixture
-  on a Windows host (`yq` and a `:`-joined PATH inside the fixture); the same 8 fail on the branch this started
-  from. Baseline: 404 pass, 8 fail.
+- `fork-scripts-test` (run 42717611970): 478 tests, 478 pass, 0 fail; lint 0 warnings, 0 errors; series scripts 0
+  failures; modern template contract 9/9. Locally on Windows the same suite reports 8 failures, all in the
+  publication fixture (`yq` and a `:`-joined PATH inside the fixture), and the branch this started from fails the
+  identical 8 (404 pass there).
 - `oxlint@1.89.0 -c .oxlintrc.json config/mercurai`: 0 warnings, 0 errors.
 - `node config/mercurai/scripts/release-rehearsal.mjs`: 9/9 scenarios.
+- `node config/mercurai/scripts/issue-pr-triage.mjs --repo mercurai/orca --explain`: live against the fork, 5
+  actionable, 2 stale, 37 needs-decision.
 - `test-fork-series-scripts.sh` reaches 60 passes locally and then stops on a hostile-filename fixture that cannot
   exist on Windows (a CR in a path); CI runs it on ubuntu-latest. The `report-sync-issue.sh` section was run in
   isolation: 11/11, including the two new retention cases.
