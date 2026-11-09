@@ -74,7 +74,7 @@ approval was a dispatch input that evaporated, and upstream moves every few minu
 - [ ] **P0.2** Land the ingestion boundary (PR #88 or an equivalent reviewed main-only mode).
 - [ ] **P0.3** One owner dispatch of `fork-sync-upstream` with `allow_guarded_merge_sha=<current upstream main sha>`
       after the independent security read; record the range digest so the first memo exists.
-- [ ] **P0.4** Retire the 14 `ci-only/*` drafts.
+- [x] **P0.4** Retired 17 `ci-only/*` drafts (the lane they exercised is superseded; branches left untouched, each closed with a reason).
 
 ### Phase 1 — change gate and state extensions
 
@@ -120,7 +120,7 @@ approval was a dispatch input that evaporated, and upstream moves every few minu
 - [ ] **P6.2** Enable the coordinator (`MERCURAI_RELEASE_COORDINATOR_ENABLED=true`) and register the automation
       enabled, after P0.3 has landed a real release.
 - [ ] **P6.3** Observe one genuine cycle: lag, skipped count, parked count, dispatch ids, recovery receipts.
-- [ ] **P6.4** Rollback drill: disable admission, retain queue and receipts, resume reconciles instead of spawning.
+- [x] **P6.4** Rollback drill, offline: pause refuses admission while keeping the queue and receipts; resume promotes the queued target to a new generation with no inherited dispatch.
 
 ## Verification
 
@@ -128,10 +128,28 @@ approval was a dispatch input that evaporated, and upstream moves every few minu
   on a Windows host (`yq` and a `:`-joined PATH inside the fixture); the same 8 fail on the branch this started
   from. Baseline: 404 pass, 8 fail.
 - `oxlint@1.89.0 -c .oxlintrc.json config/mercurai`: 0 warnings, 0 errors.
-- `node config/mercurai/scripts/release-rehearsal.mjs`: 8/8 scenarios.
+- `node config/mercurai/scripts/release-rehearsal.mjs`: 9/9 scenarios.
 - `test-fork-series-scripts.sh` reaches 60 passes locally and then stops on a hostile-filename fixture that cannot
   exist on Windows (a CR in a path); CI runs it on ubuntu-latest. The `report-sync-issue.sh` section was run in
   isolation: 11/11, including the two new retention cases.
+
+## Registration (2026-11-06)
+
+Neither automation is registered in the runtime yet, deliberately. The emitted argv for both is checked against the
+installed `orca automations create --help`: every flag is supported, and both specs carry `--disabled` by
+construction, so neither can enable itself.
+
+Registration is deferred for three reasons:
+
+1. P6.2 gates it on a qualified release, and nothing has been released from this branch.
+2. `--repo` creates a new worktree per run. On this repository that is roughly 40,000 files every hour, and the
+   choice between `--repo` and a long-lived `--workspace` depends on which checkout carries the controller branch —
+   unknown until #80 and #97 land.
+3. A disabled automation pointed at the wrong base is noise with no benefit.
+
+When it is registered, the repository id is `id:9c88eb0e-f665-44c6-9d38-c5d7a306762b` (`orca` at
+`C:/Users/svere/orca/projects/orca-config/orca`), and the first run after enabling must be report-only.
+
 
 ## Not claimed
 

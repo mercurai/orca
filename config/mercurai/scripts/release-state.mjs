@@ -242,6 +242,9 @@ export function activateQueuedTarget(state, { expectedVersion, now } = {}) {
     candidate: copy(state.queuedTarget),
     queuedTarget: null,
     lease: null,
+    // The previous generation's dispatch belongs to its own identity; keeping it would show a worker
+    // the new candidate never started and invite a resume against the wrong candidate.
+    dispatch: null,
     evidence: {},
     lastEvaluatedDigest: null,
     updatedAt: timestamp(now)

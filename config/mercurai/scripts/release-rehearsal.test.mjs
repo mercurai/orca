@@ -6,7 +6,7 @@ import { runRehearsal } from './release-rehearsal.mjs'
 test('the tokenless rehearsal passes every scenario it claims', async () => {
   const result = await runRehearsal()
 
-  assert.equal(result.total, 8)
+  assert.equal(result.total, 9)
   assert.deepEqual(
     result.scenarios.filter((scenario) => !scenario.ok),
     []

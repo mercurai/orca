@@ -363,7 +363,7 @@ Inspect and rehearse:
 # decision, digest, skip counter, and the operator summary of the queue
 node config/mercurai/scripts/release-precheck.mjs .release-state/release-state.json
 
-# the offline proof: eight scenarios, no network, no model, no credential
+# the offline proof: nine scenarios, no network, no model, no credential
 node config/mercurai/scripts/release-rehearsal.mjs
 
 # what the agent will do next, without doing it

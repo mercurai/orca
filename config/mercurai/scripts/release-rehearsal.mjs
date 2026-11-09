@@ -7,9 +7,11 @@ import { auditCandidate, reconcilePublication, verifyPromotion } from './release
 import { DispatchUnknownError, executeDispatch } from './release-agent-dispatch.mjs'
 import { evaluateGate } from './release-precheck.mjs'
 import {
+  activateQueuedTarget,
   claimLease,
   clearParked,
   createState,
+  enqueueTarget,
   findApproval,
   parkItem,
   recordApproval,
@@ -210,6 +212,49 @@ const scenarios = [
       return {
         ok: first.decision === 'run' && second.decision === 'skip' && forced.decision === 'run',
         detail: `run,skip,forced-run skipped=${state.skipped}`
+      }
+    }
+  },
+  {
+    name: 'a pause keeps the queue and the receipts, and a resume reconciles instead of respawning',
+    async run() {
+      let state = claimLease(createState(target()), { expectedVersion: 0, owner: 'coordinator', now: 1000 })
+      const orca = fakeOrca()
+      state = (
+        await dispatchOnce(state, orca, async (next) => {
+          state = next
+        })
+      ).state
+      state = parkItem(
+        state,
+        { kind: 'tag-approval', key: 'v1.4.242', reason: 'owner review pending' },
+        { now: 1000 }
+      )
+      // Pause: admission stops, the queue and every receipt stay.
+      state = transitionState(state, {
+        expectedVersion: state.version,
+        to: 'blocked',
+        owner: 'owner',
+        evidence: { reason: 'rollback drill: admission paused', reachedState: 'detected' }
+      })
+      const whilePaused = evaluateGate(state, { now: 2000 })
+      state = enqueueTarget(state, target({ upstreamMainSha: 'b'.repeat(40) }), { now: 2000 })
+      const queuedWhilePaused = summarizeQueue(state, { now: 2000 })
+
+      // Resume: the queued target becomes the next generation, with a fresh lease and no stale dispatch.
+      // Resume happens after the lease has expired; a live lease is exactly what must block a duplicate worker.
+      const resumed = activateQueuedTarget(state, { expectedVersion: state.version, now: 1000 + 16 * 60 * 1000 })
+      const gateAfterResume = evaluateGate(resumed, { now: 1000 + 16 * 60 * 1000 })
+      return {
+        ok:
+          whilePaused.decision === 'refuse' &&
+          queuedWhilePaused.queued !== null &&
+          queuedWhilePaused.parkedCount === 1 &&
+          resumed.generation === 2 &&
+          resumed.dispatch === null &&
+          resumed.parked.length === 1 &&
+          gateAfterResume.decision === 'run',
+        detail: `paused=${whilePaused.decision} queued=1 parked=${resumed.parked.length} generation=${resumed.generation} dispatch=${resumed.dispatch === null ? 'none' : 'stale'}`
       }
     }
   },

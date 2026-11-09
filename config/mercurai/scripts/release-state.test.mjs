@@ -352,3 +352,26 @@ test('reports the live lease owner and the queued digest to an operator', () => 
   assert.equal(summarizeQueue(state, { now: 1200 }).queued, computeTargetDigest(state.queuedTarget))
   assert.equal(summarizeQueue(state, { now: 1200 }).digest, computeTargetDigest(state.candidate))
 })
+
+test('activating a queued target drops the previous generation dispatch', () => {
+  let state = createState(target())
+  state = { ...state, dispatch: { generation: 1, owner: 'coordinator', runId: 'r', taskId: 't', dispatchId: 'd' } }
+  for (const [to, evidence] of [
+    ['frozen', { frozen: true }],
+    ['integrating', { patchHeads: target().patchHeads }],
+    ['qualifying', { candidateSha: SHA }],
+    ['qualified', { qualified: true }],
+    ['tagged', { tagSha: SHA }],
+    ['packaged', { artifactDigest: SHA }],
+    ['published', { channel: 'mercurai' }]
+  ]) {
+    state = transitionState(state, { expectedVersion: state.version, to, owner: 'owner', evidence })
+  }
+  state = enqueueTarget(state, target({ upstreamMainSha: 'b'.repeat(40) }))
+
+  const resumed = activateQueuedTarget(state, { expectedVersion: state.version })
+
+  assert.equal(resumed.generation, 2)
+  assert.equal(resumed.dispatch, null)
+  assert.deepEqual(resumed.evidence, {})
+});
