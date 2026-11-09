@@ -330,6 +330,53 @@ Trust boundary:
   sorts above `X.Y.Z-mercurai.N`), so the next `-mercurai.N+1` arrives in-app. The channel picker's
   pinned-build check (`checkForPinnedBuild`) jumps back to upstream stable when wanted.
 
+## Durable agents
+
+Two scheduled agents consume the durable state. Neither can merge, tag, publish, approve, or edit the shared
+checkout; every credentialed step stays a workflow job that runs no candidate code. Contract and invariants:
+[automation-contract.md](./automation-contract.md). Plan and evidence: [plans/2026-11-03-durable-agents.md](./plans/2026-11-03-durable-agents.md).
+
+| Agent | Schedule | Precheck (the change gate) | Instructions |
+|---|---|---|---|
+| Release coordinator | hourly | `release-precheck.mjs` | [automation/release-coordinator.md](./automation/release-coordinator.md) |
+| Issue/PR triage | every 2 hours | `issue-pr-triage.mjs --dry-run` | [automation/issue-pr-triage.md](./automation/issue-pr-triage.md) |
+
+**Where the truth lives.** `automation/release-state` holds one `release-state.json`: the candidate identity, one
+active generation, one coalesced queued target, a compare-and-swap version, a lease, parked items, owner
+approvals, the last evaluated digest, and evidence. GitHub writes it (trusted reducer, CAS push); the agent reads
+it. Agent chats, issue prose, and terminal availability are not release evidence.
+
+**An hour with nothing to do costs nothing.** The precheck compares the candidate digest against the last
+evaluated one and exits non-zero when they match, so the scheduler records a skipped run and starts no model turn.
+The skip counter in state shows how many quiet hours there have been — a healthy coordinator is mostly silent.
+
+**Parked work.** Blocked items (a tag awaiting owner review, an issue needing a decision) are parked in state by
+identity with a reason and, when it applies, an unblock time. Parked items never stop the rest of the queue.
+
+**Approvals are remembered, not re-asked.** An owner approval is stored per reviewed range and per approver. A
+range that changed is a new question; a range that did not is not asked again. The agent prepares the review
+packet and asks; it never writes an approval.
+
+Inspect and rehearse:
+
+```bash
+# decision, digest, skip counter, and the operator summary of the queue
+node config/mercurai/scripts/release-precheck.mjs .release-state/release-state.json
+
+# the offline proof: nine scenarios, no network, no model, no credential
+node config/mercurai/scripts/release-rehearsal.mjs
+
+# what the agent will do next, without doing it
+node config/mercurai/scripts/issue-pr-triage.mjs --repo mercurai/orca --state .release-state/release-state.json --dry-run
+```
+
+Pause and resume: `orca automations edit <id> --disabled --json` pauses an agent without touching the queue; the
+state branch, parked items, and receipts stay. Resume by re-enabling and letting the next run reconcile — never by
+creating duplicate workers. `MERCURAI_RELEASE_COORDINATOR_ENABLED` unset keeps the GitHub-side coordinator off.
+
+What is **not** automated: the guarded-range and tag approvals (owner inputs), tagging, packaging, channel
+publication, and enabling either schedule. Those remain owner actions; see Phase 0 and Phase 6 of the plan.
+
 ## One-time setup
 
 1. `FORK_BOT_TOKEN` environment secret in `mercurai-sync`, required: a fine-grained token (or GitHub App installation
